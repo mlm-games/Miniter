@@ -3,6 +3,7 @@ package org.mlm.miniter.engine
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.ReturnCode
 import com.arthenica.ffmpegkit.Statistics
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +32,16 @@ actual class PlatformVideoEngine actual constructor() {
             setDataSource(AndroidContext.get(), Uri.parse(path))
         } else {
             setDataSource(path)
+        }
+    }
+
+    private fun normalizePathForFFmpeg(path: String): String {
+        return if (path.startsWith("content://")) {
+            val context = AndroidContext.get()
+            val uri = Uri.parse(path)
+            FFmpegKitConfig.getSafParameterForRead(context, uri)
+        } else {
+            "\"$path\""
         }
     }
 
@@ -121,16 +132,22 @@ actual class PlatformVideoEngine actual constructor() {
                 firstInfo.height
             }
 
+            val audioTracks = project.timeline.tracks
+                .filter { it.type == TrackType.Audio && !it.isMuted }
+            val audioClips = audioTracks
+                .flatMap { track -> track.clips.filterIsInstance<Clip.AudioClip>() }
+
             val totalDurationMs = videoClips.sumOf { it.durationMs }.toFloat()
 
             val command = buildFFmpegCommand(
-                clips = videoClips,
+                videoClips = videoClips,
+                audioClips = audioClips,
                 format = project.exportSettings.format,
                 quality = project.exportSettings.quality,
                 outWidth = outWidth,
                 outHeight = outHeight,
                 outputPath = outputPath,
-                hasAudio = firstInfo.hasAudio,
+                videoHasAudio = firstInfo.hasAudio,
             )
 
             _exportProgress.value = ExportProgress(phase = "Exporting…", progress = 0f)
@@ -147,95 +164,112 @@ actual class PlatformVideoEngine actual constructor() {
     }
 
     private fun buildFFmpegCommand(
-        clips: List<Clip.VideoClip>,
+        videoClips: List<Clip.VideoClip>,
+        audioClips: List<Clip.AudioClip>,
         format: ExportFormat,
         quality: Float,
         outWidth: Int,
         outHeight: Int,
         outputPath: String,
-        hasAudio: Boolean,
+        videoHasAudio: Boolean,
     ): String {
         val sb = StringBuilder()
+        val hasExtraAudio = audioClips.isNotEmpty()
+        val hasAudio = videoHasAudio || hasExtraAudio
 
-        if (clips.size == 1) {
-            val clip = clips.first()
+        sb.append("-y ")
 
-            sb.append("-y ")
-            sb.append("-ss ${clip.sourceStartMs / 1000.0} ")
-            sb.append("-i \"${clip.sourcePath}\" ")
-            sb.append("-t ${(clip.sourceEndMs - clip.sourceStartMs) / 1000.0} ")
+        for (clip in videoClips) {
+            sb.append("-i ${normalizePathForFFmpeg(clip.sourcePath)} ")
+        }
 
+        for (clip in audioClips) {
+            sb.append("-i ${normalizePathForFFmpeg(clip.sourcePath)} ")
+        }
+
+        val filterComplex = StringBuilder()
+        val videoInputCount = videoClips.size
+
+        for ((i, clip) in videoClips.withIndex()) {
             val vf = FilterGraphBuilder.buildVideoFilterString(
                 filters = clip.filters,
                 speed = clip.speed,
                 outWidth = outWidth,
                 outHeight = outHeight,
             )
-            if (vf.isNotEmpty()) {
-                sb.append("-vf \"$vf\" ")
-            }
+            val trimFilter = "trim=start=${clip.sourceStartMs / 1000.0}:" +
+                    "end=${clip.sourceEndMs / 1000.0},setpts=PTS-STARTPTS"
+            filterComplex.append("[$i:v]$trimFilter,$vf[v$i];")
 
-            if (hasAudio) {
+            if (videoHasAudio) {
                 val af = FilterGraphBuilder.buildAudioFilterString(
                     speed = clip.speed,
                     volume = clip.volume,
                 )
-                if (af.isNotEmpty()) {
-                    sb.append("-af \"$af\" ")
-                }
+                val atrimFilter = "atrim=start=${clip.sourceStartMs / 1000.0}:" +
+                        "end=${clip.sourceEndMs / 1000.0},asetpts=PTS-STARTPTS"
+                val audioFilters = if (af.isNotEmpty()) "$atrimFilter,$af" else atrimFilter
+                filterComplex.append("[$i:a]$audioFilters[va$i];")
             }
-
-            appendCodecSettings(sb, format, quality, hasAudio)
-
-            sb.append("\"$outputPath\"")
-
-        } else {
-            sb.append("-y ")
-
-            for (clip in clips) {
-                sb.append("-i \"${clip.sourcePath}\" ")
-            }
-
-            val filterComplex = StringBuilder()
-            for ((i, clip) in clips.withIndex()) {
-                val vf = FilterGraphBuilder.buildVideoFilterString(
-                    filters = clip.filters,
-                    speed = clip.speed,
-                    outWidth = outWidth,
-                    outHeight = outHeight,
-                )
-                val trimFilter = "trim=start=${clip.sourceStartMs / 1000.0}:" +
-                        "end=${clip.sourceEndMs / 1000.0},setpts=PTS-STARTPTS"
-
-                filterComplex.append("[$i:v]$trimFilter,$vf[v$i];")
-
-                if (hasAudio) {
-                    val af = FilterGraphBuilder.buildAudioFilterString(
-                        speed = clip.speed,
-                        volume = clip.volume,
-                    )
-                    val atrimFilter = "atrim=start=${clip.sourceStartMs / 1000.0}:" +
-                            "end=${clip.sourceEndMs / 1000.0},asetpts=PTS-STARTPTS"
-                    val audioFilters = if (af.isNotEmpty()) "$atrimFilter,$af" else atrimFilter
-                    filterComplex.append("[$i:a]$audioFilters[a$i];")
-                }
-            }
-
-            for (i in clips.indices) {
-                filterComplex.append("[v$i]")
-                if (hasAudio) filterComplex.append("[a$i]")
-            }
-            val streamCount = if (hasAudio) "v=1:a=1" else "v=1:a=0"
-            filterComplex.append("concat=n=${clips.size}:$streamCount[outv]")
-            if (hasAudio) filterComplex.append("[outa]")
-
-            sb.append("-filter_complex \"$filterComplex\" ")
-            sb.append("-map \"[outv]\" ")
-            if (hasAudio) sb.append("-map \"[outa]\" ")
-
-            appendCodecSettings(sb, format, quality, hasAudio)
-            sb.append("\"$outputPath\"")
         }
+
+        for (i in videoClips.indices) {
+            filterComplex.append("[v$i]")
+        }
+        filterComplex.append("concat=n=${videoClips.size}:v=1:a=0[outv];")
+
+        if (videoHasAudio) {
+            for (i in videoClips.indices) {
+                filterComplex.append("[va$i]")
+            }
+            filterComplex.append("concat=n=${videoClips.size}:v=0:a=1[video_audio];")
+        }
+
+        val audioInputs = mutableListOf<String>()
+        if (videoHasAudio) {
+            audioInputs.add("[video_audio]")
+        }
+
+        for ((i, clip) in audioClips.withIndex()) {
+            val inputIdx = videoInputCount + i
+            val af = mutableListOf<String>()
+            
+            af.add("atrim=start=${clip.sourceStartMs / 1000.0}:end=${clip.sourceEndMs / 1000.0}")
+            af.add("asetpts=PTS-STARTPTS")
+            
+            if (clip.volume != 1.0f) {
+                af.add("volume=${clip.volume}")
+            }
+            
+            if (clip.fadeInMs > 0) {
+                af.add("afade=t=in:st=0:d=${clip.fadeInMs / 1000.0}")
+            }
+            if (clip.fadeOutMs > 0) {
+                val fadeStart = (clip.durationMs - clip.fadeOutMs) / 1000.0
+                af.add("afade=t=out:st=$fadeStart:d=${clip.fadeOutMs / 1000.0}")
+            }
+
+            val delayMs = clip.startMs
+            if (delayMs > 0) {
+                af.add("adelay=${delayMs}|${delayMs}")
+            }
+
+            filterComplex.append("[$inputIdx:a]${af.joinToString(",")}[audio$i];")
+            audioInputs.add("[audio$i]")
+        }
+
+        if (audioInputs.size > 1) {
+            filterComplex.append("${audioInputs.joinToString("")}amix=inputs=${audioInputs.size}:duration=longest:normalize=1[outa]")
+        } else if (audioInputs.size == 1) {
+            filterComplex.append("${audioInputs[0]}acopy[outa]")
+        }
+
+        sb.append("-filter_complex \"$filterComplex\" ")
+        sb.append("-map \"[outv]\" ")
+        if (hasAudio) sb.append("-map \"[outa]\" ")
+
+        appendCodecSettings(sb, format, quality, hasAudio)
+        sb.append("\"$outputPath\"")
 
         return sb.toString()
     }

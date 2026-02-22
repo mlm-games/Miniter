@@ -26,6 +26,12 @@ import io.github.kdroidfilter.composemediaplayer.VideoPlayerState
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import io.github.vinceglb.filekit.FileKit
+import io.github.vinceglb.filekit.PlatformFile
+import io.github.vinceglb.filekit.dialogs.FileKitMode
+import io.github.vinceglb.filekit.dialogs.FileKitType
+import io.github.vinceglb.filekit.dialogs.openFilePicker
 import org.koin.compose.koinInject
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.toImageBitmap
@@ -94,6 +100,7 @@ fun ProjectScreen(
 
     var showShortcutHelp by remember { mutableStateOf(false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     if (showShortcutHelp) {
         ShortcutHelpDialog(onDismiss = { showShortcutHelp = false })
@@ -182,6 +189,30 @@ fun ProjectScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        scope.launch {
+                            val files = FileKit.openFilePicker(
+                                type = FileKitType.File(
+                                    extensions = listOf(
+                                        "mp4", "mkv", "mov", "webm", "avi",
+                                        "mp3", "wav", "m4a", "aac", "ogg", "flac"
+                                    )
+                                ),
+                                mode = FileKitMode.Multiple(maxItems = 50),
+                                title = "Import media"
+                            )
+                            val list = when (files) {
+                                null -> emptyList()
+                                is List<*> -> files.filterIsInstance<PlatformFile>()
+                                else -> emptyList()
+                            }
+                            if (list.isNotEmpty()) {
+                                projectViewModel.importMediaFiles(list)
+                            }
+                        }
+                    }) {
+                        Icon(Icons.Default.Add, "Import media")
+                    }
                     IconButton(
                         onClick = { projectViewModel.undo() },
                         enabled = uiState.canUndo,

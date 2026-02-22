@@ -413,7 +413,7 @@ private fun ClipBlock(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = if (!isLocked && clip is Clip.VideoClip) TRIM_HANDLE_WIDTH else 0.dp)
+                .padding(horizontal = if (!isLocked && (clip is Clip.VideoClip || clip is Clip.AudioClip)) TRIM_HANDLE_WIDTH else 0.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .border(if (isSelected) 2.dp else 0.dp, borderColor, RoundedCornerShape(6.dp))
                 .pointerInput(clip.id) {
@@ -495,7 +495,7 @@ private fun ClipBlock(
             }
         }
 
-        if (!isLocked && clip is Clip.VideoClip) {
+        if (!isLocked && (clip is Clip.VideoClip || clip is Clip.AudioClip)) {
             Box(
                 Modifier.align(Alignment.CenterStart).width(TRIM_HANDLE_WIDTH).fillMaxHeight()
                     .padding(vertical = 4.dp)
@@ -523,7 +523,7 @@ private fun ClipBlock(
             )
         }
 
-        if (!isLocked && clip is Clip.VideoClip) {
+        if (!isLocked && (clip is Clip.VideoClip || clip is Clip.AudioClip)) {
             Box(
                 Modifier.align(Alignment.CenterEnd).width(TRIM_HANDLE_WIDTH).fillMaxHeight()
                     .padding(vertical = 4.dp)

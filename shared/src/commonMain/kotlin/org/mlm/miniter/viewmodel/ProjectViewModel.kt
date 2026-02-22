@@ -8,9 +8,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import io.github.vinceglb.filekit.PlatformFile
+import io.github.vinceglb.filekit.path
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.UndoManager
+import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.*
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
@@ -315,6 +318,92 @@ class ProjectViewModel(
         }
     }
 
+    fun importMediaFiles(files: List<PlatformFile>) {
+        viewModelScope.launch {
+            val project = _state.value.project ?: return@launch
+
+            _state.update { it.copy(isLoading = true) }
+
+            try {
+                val selected = project.timeline.tracks
+                    .flatMap { t -> t.clips.map { t.id to it } }
+                    .firstOrNull { (_, c) -> c.id == _state.value.selectedClipId }
+
+                val initialCursor = when (val clip = selected?.second) {
+                    null -> _state.value.playheadMs
+                    else -> clip.startMs + clip.durationMs
+                }
+
+                data class ImportItem(
+                    val file: PlatformFile,
+                    val info: VideoInfo,
+                )
+
+                val items = files.map { f ->
+                    ImportItem(f, engine.probeVideo(f.path))
+                }
+
+                recordAndMutate { p ->
+                    var cursorVideo = initialCursor
+                    var cursorAudio = initialCursor
+
+                    val videoTrackId = p.timeline.tracks.firstOrNull { it.type == TrackType.Video }?.id
+                        ?: "video-0"
+
+                    var audioTrackId = p.timeline.tracks.firstOrNull { it.type == TrackType.Audio }?.id
+                    var projectWithAudioTrack = p
+
+                    if (audioTrackId == null) {
+                        val newId = "audio-${p.timeline.tracks.count { it.type == TrackType.Audio }}"
+                        projectWithAudioTrack = p.copy(
+                            timeline = p.timeline.copy(
+                                tracks = p.timeline.tracks + Track(id = newId, type = TrackType.Audio)
+                            )
+                        )
+                        audioTrackId = newId
+                    }
+
+                    val finalAudioTrackId = audioTrackId
+
+                    items.fold(projectWithAudioTrack) { acc, item ->
+                        val i = item.info
+                        if (i.hasVideo) {
+                            val clip = Clip.VideoClip(
+                                id = randomUuid(),
+                                startMs = cursorVideo,
+                                durationMs = i.durationMs,
+                                sourcePath = item.file.path,
+                                sourceStartMs = 0,
+                                sourceEndMs = i.durationMs,
+                            )
+                            cursorVideo += i.durationMs
+                            acc.withClipAddedToTrack(videoTrackId, clip)
+                        } else if (i.hasAudio) {
+                            val clip = Clip.AudioClip(
+                                id = randomUuid(),
+                                startMs = cursorAudio,
+                                durationMs = i.durationMs,
+                                sourcePath = item.file.path,
+                                sourceStartMs = 0,
+                                sourceEndMs = i.durationMs,
+                            )
+                            cursorAudio += i.durationMs
+                            acc.withClipAddedToTrack(finalAudioTrackId, clip)
+                        } else {
+                            acc
+                        }
+                    }.withRecalculatedDuration()
+                }
+
+                _state.update { it.copy(isLoading = false) }
+                snackbarManager.show("Imported ${items.size} file(s)")
+            } catch (e: Exception) {
+                _state.update { it.copy(isLoading = false) }
+                snackbarManager.showError("Failed to import: ${e.message}")
+            }
+        }
+    }
+
     private fun loadThumbnails(videoPath: String) {
         viewModelScope.launch {
             _state.update { it.copy(isLoadingThumbnails = true) }
@@ -464,19 +553,35 @@ class ProjectViewModel(
                 timeline = project.timeline.copy(
                     tracks = project.timeline.tracks.map { track ->
                         track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId && clip is Clip.VideoClip) {
-                                val maxStart = clip.startMs + clip.durationMs - 100
-                                val clampedStart = newStartMs.coerceIn(
-                                    clip.startMs - clip.sourceStartMs,
-                                    maxStart,
-                                )
-                                val delta = clampedStart - clip.startMs
-                                clip.copy(
-                                    startMs = clampedStart,
-                                    durationMs = clip.durationMs - delta,
-                                    sourceStartMs = clip.sourceStartMs + delta,
-                                )
-                            } else clip
+                            when {
+                                clip.id == clipId && clip is Clip.VideoClip -> {
+                                    val maxStart = clip.startMs + clip.durationMs - 100
+                                    val clampedStart = newStartMs.coerceIn(
+                                        clip.startMs - clip.sourceStartMs,
+                                        maxStart,
+                                    )
+                                    val delta = clampedStart - clip.startMs
+                                    clip.copy(
+                                        startMs = clampedStart,
+                                        durationMs = clip.durationMs - delta,
+                                        sourceStartMs = clip.sourceStartMs + delta,
+                                    )
+                                }
+                                clip.id == clipId && clip is Clip.AudioClip -> {
+                                    val maxStart = clip.startMs + clip.durationMs - 100
+                                    val clampedStart = newStartMs.coerceIn(
+                                        clip.startMs - clip.sourceStartMs,
+                                        maxStart,
+                                    )
+                                    val delta = clampedStart - clip.startMs
+                                    clip.copy(
+                                        startMs = clampedStart,
+                                        durationMs = clip.durationMs - delta,
+                                        sourceStartMs = clip.sourceStartMs + delta,
+                                    )
+                                }
+                                else -> clip
+                            }
                         })
                     }
                 )
@@ -488,10 +593,10 @@ class ProjectViewModel(
         val project = _state.value.project ?: return
 
         var targetTrack: Track? = null
-        var thisClip: Clip.VideoClip? = null
+        var thisClip: Clip? = null
         for (track in project.timeline.tracks) {
             val c = track.clips.find { it.id == clipId }
-            if (c != null && c is Clip.VideoClip) {
+            if (c != null && (c is Clip.VideoClip || c is Clip.AudioClip)) {
                 targetTrack = track; thisClip = c; break
             }
         }
@@ -514,12 +619,21 @@ class ProjectViewModel(
                 timeline = p.timeline.copy(
                     tracks = p.timeline.tracks.map { track ->
                         track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId && clip is Clip.VideoClip) {
-                                clip.copy(
-                                    durationMs = newDuration,
-                                    sourceEndMs = clip.sourceStartMs + newDuration,
-                                )
-                            } else clip
+                            when {
+                                clip.id == clipId && clip is Clip.VideoClip -> {
+                                    clip.copy(
+                                        durationMs = newDuration,
+                                        sourceEndMs = clip.sourceStartMs + newDuration,
+                                    )
+                                }
+                                clip.id == clipId && clip is Clip.AudioClip -> {
+                                    clip.copy(
+                                        durationMs = newDuration,
+                                        sourceEndMs = clip.sourceStartMs + newDuration,
+                                    )
+                                }
+                                else -> clip
+                            }
                         })
                     }
                 )
@@ -583,25 +697,45 @@ class ProjectViewModel(
                 timeline = project.timeline.copy(
                     tracks = project.timeline.tracks.map { track ->
                         val clip = track.clips.find { it.id == clipId }
-                        if (clip != null && clip is Clip.VideoClip
-                            && playhead > clip.startMs
-                            && playhead < clip.startMs + clip.durationMs
-                        ) {
-                            val splitPoint = playhead - clip.startMs
-                            val firstHalf = clip.copy(
-                                durationMs = splitPoint,
-                                sourceEndMs = clip.sourceStartMs + splitPoint,
-                            )
-                            val secondHalf = clip.copy(
-                                id = randomUuid(),
-                                startMs = playhead,
-                                durationMs = clip.durationMs - splitPoint,
-                                sourceStartMs = clip.sourceStartMs + splitPoint,
-                            )
-                            track.copy(clips = track.clips.flatMap {
-                                if (it.id == clipId) listOf(firstHalf, secondHalf) else listOf(it)
-                            })
-                        } else track
+                        when {
+                            clip is Clip.VideoClip &&
+                                playhead > clip.startMs &&
+                                playhead < clip.startMs + clip.durationMs -> {
+                                val splitPoint = playhead - clip.startMs
+                                val firstHalf = clip.copy(
+                                    durationMs = splitPoint,
+                                    sourceEndMs = clip.sourceStartMs + splitPoint,
+                                )
+                                val secondHalf = clip.copy(
+                                    id = randomUuid(),
+                                    startMs = playhead,
+                                    durationMs = clip.durationMs - splitPoint,
+                                    sourceStartMs = clip.sourceStartMs + splitPoint,
+                                )
+                                track.copy(clips = track.clips.flatMap {
+                                    if (it.id == clipId) listOf(firstHalf, secondHalf) else listOf(it)
+                                })
+                            }
+                            clip is Clip.AudioClip &&
+                                playhead > clip.startMs &&
+                                playhead < clip.startMs + clip.durationMs -> {
+                                val splitPoint = playhead - clip.startMs
+                                val firstHalf = clip.copy(
+                                    durationMs = splitPoint,
+                                    sourceEndMs = clip.sourceStartMs + splitPoint,
+                                )
+                                val secondHalf = clip.copy(
+                                    id = randomUuid(),
+                                    startMs = playhead,
+                                    durationMs = clip.durationMs - splitPoint,
+                                    sourceStartMs = clip.sourceStartMs + splitPoint,
+                                )
+                                track.copy(clips = track.clips.flatMap {
+                                    if (it.id == clipId) listOf(firstHalf, secondHalf) else listOf(it)
+                                })
+                            }
+                            else -> track
+                        }
                     }
                 )
             )
