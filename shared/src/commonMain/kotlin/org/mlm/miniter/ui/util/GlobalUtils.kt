@@ -18,3 +18,11 @@ fun <T : NavKey> NavBackStack<T>.popUntil(predicate: (T) -> Boolean) {
 fun <T : NavKey> NavBackStack<T>.replaceTop(key: T) {
     if (isEmpty()) add(key) else set(lastIndex, key)
 }
+
+fun formatTimestamp(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    val millis = (ms % 1000) / 10
+    return "%02d:%02d.%02d".format(minutes, seconds, millis)
+}
