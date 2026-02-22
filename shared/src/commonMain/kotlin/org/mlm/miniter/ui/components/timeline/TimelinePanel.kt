@@ -376,6 +376,10 @@ private fun ClipBlock(
 
     val currentStartMs by rememberUpdatedState(clip.startMs)
     val currentDurationMs by rememberUpdatedState(clip.durationMs)
+    val currentTrackId by rememberUpdatedState(trackId)
+    val currentSameTypeIndex by rememberUpdatedState(sameTypeIndex)
+    val currentSameTypeTrackIds by rememberUpdatedState(sameTypeTrackIds)
+    val currentOnMoveToTrack by rememberUpdatedState(onMoveToTrack)
 
     val bgColor = when (trackType) {
         TrackType.Video -> MaterialTheme.colorScheme.primaryContainer
@@ -442,12 +446,16 @@ private fun ClipBlock(
                             onDragAbsolute((dragStartMs + totalDeltaMs).coerceAtLeast(0))
                         },
                         onDragEnd = {
+                            if (currentSameTypeTrackIds.isEmpty()) {
+                                onDragEnd()
+                                return@detectDragGestures
+                            }
                             val shift = (totalDragPxY / trackHeightPx).toInt()
-                            val targetIndex = (sameTypeIndex + shift).coerceIn(0, sameTypeTrackIds.lastIndex)
-                            val targetTrackId = sameTypeTrackIds.getOrNull(targetIndex)
+                            val targetIndex = (currentSameTypeIndex + shift).coerceIn(0, currentSameTypeTrackIds.lastIndex)
+                            val targetTrackId = currentSameTypeTrackIds.getOrNull(targetIndex)
 
-                            if (targetTrackId != null && targetTrackId != trackId) {
-                                onMoveToTrack(targetTrackId)
+                            if (targetTrackId != null && targetTrackId != currentTrackId) {
+                                currentOnMoveToTrack(targetTrackId)
                             }
 
                             onDragEnd()
