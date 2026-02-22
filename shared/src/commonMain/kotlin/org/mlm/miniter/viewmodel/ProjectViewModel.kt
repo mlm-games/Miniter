@@ -35,10 +35,13 @@ class ProjectViewModel(
 
     val exportProgress = engine.exportProgress
 
+    private var sourceDurationMs: Long = 0L
+
     fun newProject(name: String, initialVideoPath: String) {
         viewModelScope.launch {
             try {
                 val info = engine.probeVideo(initialVideoPath)
+                sourceDurationMs = info.durationMs
 
                 val clip = Clip.VideoClip(
                     id = randomUuid(),
@@ -66,9 +69,7 @@ class ProjectViewModel(
                         isDirty = true,
                     )
                 }
-
                 loadThumbnails(initialVideoPath)
-
             } catch (e: Exception) {
                 val clip = Clip.VideoClip(
                     id = randomUuid(),
@@ -81,13 +82,12 @@ class ProjectViewModel(
                     type = TrackType.Video,
                     clips = listOf(clip),
                 )
-                val project = MinterProject(
-                    name = name,
-                    timeline = Timeline(tracks = listOf(track)),
-                )
                 _state.update {
                     it.copy(
-                        project = project,
+                        project = MinterProject(
+                            name = name,
+                            timeline = Timeline(tracks = listOf(track)),
+                        ),
                         selectedTrackId = track.id,
                         isDirty = true,
                     )
@@ -108,16 +108,19 @@ class ProjectViewModel(
                         isDirty = false,
                     )
                 }
-
                 val firstClip = project.timeline.tracks
                     .flatMap { it.clips }
                     .filterIsInstance<Clip.VideoClip>()
                     .firstOrNull()
                 if (firstClip != null) {
+                    sourceDurationMs = try {
+                        engine.probeVideo(firstClip.sourcePath).durationMs
+                    } catch (_: Exception) {
+                        firstClip.durationMs
+                    }
                     loadThumbnails(firstClip.sourcePath)
                 }
-            } catch (e: Exception) {
-            }
+            } catch (_: Exception) { }
         }
     }
 
@@ -129,24 +132,75 @@ class ProjectViewModel(
             try {
                 projectRepository.save(project, savePath)
                 _state.update { it.copy(projectPath = savePath, isSaving = false, isDirty = false) }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 _state.update { it.copy(isSaving = false) }
             }
         }
+    }
+
+    fun setPlaying(playing: Boolean) {
+        _state.update { it.copy(isPlaying = playing) }
+    }
+
+    fun setPlayhead(ms: Long) {
+        _state.update { it.copy(playheadMs = ms.coerceAtLeast(0)) }
+    }
+
+    fun onPlayerPositionChanged(sliderPos: Float) {
+        if (!_state.value.isPlaying) return
+        val totalMs = _state.value.project?.timeline?.durationMs ?: sourceDurationMs
+        if (totalMs <= 0) return
+        val ms = ((sliderPos / 1000f) * totalMs).toLong()
+        _state.update { it.copy(playheadMs = ms.coerceIn(0, totalMs)) }
+    }
+
+    fun onPlayerCompleted() {
+        _state.update { it.copy(isPlaying = false) }
+    }
+
+    fun playheadToSliderPos(): Float {
+        val totalMs = _state.value.project?.timeline?.durationMs ?: sourceDurationMs
+        if (totalMs <= 0) return 0f
+        return (_state.value.playheadMs.toFloat() / totalMs * 1000f).coerceIn(0f, 1000f)
+    }
+
+    fun getCurrentClipSpeed(): Float {
+        val project = _state.value.project ?: return 1f
+        val playhead = _state.value.playheadMs
+        return project.timeline.tracks
+            .flatMap { it.clips }
+            .filterIsInstance<Clip.VideoClip>()
+            .firstOrNull { playhead >= it.startMs && playhead < it.startMs + it.durationMs }
+            ?.speed ?: 1f
+    }
+
+    fun getCurrentClipVolume(): Float {
+        val project = _state.value.project ?: return 1f
+        val playhead = _state.value.playheadMs
+        return project.timeline.tracks
+            .filter { !it.isMuted }
+            .flatMap { it.clips }
+            .filterIsInstance<Clip.VideoClip>()
+            .firstOrNull { playhead >= it.startMs && playhead < it.startMs + it.durationMs }
+            ?.volume ?: 1f
+    }
+
+    fun getVisibleTextClips(): List<Clip.TextClip> {
+        val project = _state.value.project ?: return emptyList()
+        val playhead = _state.value.playheadMs
+        return project.timeline.tracks
+            .flatMap { it.clips }
+            .filterIsInstance<Clip.TextClip>()
+            .filter { playhead >= it.startMs && playhead < it.startMs + it.durationMs }
     }
 
     private fun loadThumbnails(videoPath: String) {
         viewModelScope.launch {
             _state.update { it.copy(isLoadingThumbnails = true) }
             try {
-                val thumbs = engine.extractThumbnails(
-                    path = videoPath,
-                    count = 12,
-                    width = 160,
-                    height = 90,
-                )
+                val thumbs = engine.extractThumbnails(videoPath, 12, 160, 90)
                 _state.update { it.copy(thumbnails = thumbs, isLoadingThumbnails = false) }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 _state.update { it.copy(isLoadingThumbnails = false) }
             }
         }
@@ -154,18 +208,11 @@ class ProjectViewModel(
 
     fun exportProject(outputPath: String) {
         val project = _state.value.project ?: return
-        viewModelScope.launch {
-            engine.exportVideo(project, outputPath)
-        }
+        viewModelScope.launch { engine.exportVideo(project, outputPath) }
     }
 
-    fun cancelExport() {
-        engine.cancelExport()
-    }
-
-    fun resetExport() {
-        engine.reset()
-    }
+    fun cancelExport() = engine.cancelExport()
+    fun resetExport() = engine.reset()
 
     fun addVideoClip(trackId: String, sourcePath: String, atMs: Long) {
         viewModelScope.launch {
@@ -199,9 +246,7 @@ class ProjectViewModel(
                 id = "audio-${project.timeline.tracks.count { it.type == TrackType.Audio }}",
                 type = TrackType.Audio,
             )
-            project.copy(
-                timeline = project.timeline.copy(tracks = project.timeline.tracks + newTrack)
-            )
+            project.copy(timeline = project.timeline.copy(tracks = project.timeline.tracks + newTrack))
         }
     }
 
@@ -209,12 +254,8 @@ class ProjectViewModel(
         mutateProject { project ->
             val textTrack = project.timeline.tracks.firstOrNull { it.type == TrackType.Text }
                 ?: Track(id = "text-0", type = TrackType.Text)
-
             val clip = Clip.TextClip(
-                id = randomUuid(),
-                startMs = startMs,
-                durationMs = durationMs,
-                text = text,
+                id = randomUuid(), startMs = startMs, durationMs = durationMs, text = text,
             )
             val updatedTrack = textTrack.copy(clips = textTrack.clips + clip)
             project.copy(
@@ -299,8 +340,73 @@ class ProjectViewModel(
                 timeline = project.timeline.copy(
                     tracks = project.timeline.tracks.map { track ->
                         track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId && clip is Clip.VideoClip) {
+                            if (clip.id == clipId && clip is Clip.VideoClip)
                                 clip.copy(speed = speed.coerceIn(0.25f, 4.0f))
+                            else clip
+                        })
+                    }
+                )
+            )
+        }
+    }
+
+    fun setClipVolume(clipId: String, volume: Float) {
+        mutateProject { project ->
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map { track ->
+                        track.copy(clips = track.clips.map { clip ->
+                            when {
+                                clip.id == clipId && clip is Clip.VideoClip ->
+                                    clip.copy(volume = volume.coerceIn(0f, 2f))
+                                clip.id == clipId && clip is Clip.AudioClip ->
+                                    clip.copy(volume = volume.coerceIn(0f, 2f))
+                                else -> clip
+                            }
+                        })
+                    }
+                )
+            )
+        }
+    }
+
+    fun updateTextClip(clipId: String, newText: String) {
+        mutateProject { project ->
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map { track ->
+                        track.copy(clips = track.clips.map { clip ->
+                            if (clip.id == clipId && clip is Clip.TextClip)
+                                clip.copy(text = newText)
+                            else clip
+                        })
+                    }
+                )
+            )
+        }
+    }
+
+    fun updateTextClipStyle(
+        clipId: String,
+        fontSizeSp: Float? = null,
+        colorHex: String? = null,
+        backgroundColorHex: String? = null,
+        positionX: Float? = null,
+        positionY: Float? = null,
+    ) {
+        mutateProject { project ->
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map { track ->
+                        track.copy(clips = track.clips.map { clip ->
+                            if (clip.id == clipId && clip is Clip.TextClip) {
+                                clip.copy(
+                                    fontSizeSp = fontSizeSp ?: clip.fontSizeSp,
+                                    colorHex = colorHex ?: clip.colorHex,
+                                    backgroundColorHex = backgroundColorHex ?: clip.backgroundColorHex,
+                                    positionX = positionX ?: clip.positionX,
+                                    positionY = positionY ?: clip.positionY,
+                                )
                             } else clip
                         })
                     }
@@ -315,9 +421,9 @@ class ProjectViewModel(
                 timeline = project.timeline.copy(
                     tracks = project.timeline.tracks.map { track ->
                         track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId && clip is Clip.VideoClip) {
+                            if (clip.id == clipId && clip is Clip.VideoClip)
                                 clip.copy(filters = clip.filters + filter)
-                            } else clip
+                            else clip
                         })
                     }
                 )
@@ -331,9 +437,9 @@ class ProjectViewModel(
                 timeline = project.timeline.copy(
                     tracks = project.timeline.tracks.map { track ->
                         track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId && clip is Clip.VideoClip) {
+                            if (clip.id == clipId && clip is Clip.VideoClip)
                                 clip.copy(filters = clip.filters.filterIndexed { i, _ -> i != filterIndex })
-                            } else clip
+                            else clip
                         })
                     }
                 )
@@ -347,9 +453,9 @@ class ProjectViewModel(
                 timeline = project.timeline.copy(
                     tracks = project.timeline.tracks.map { track ->
                         track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId && clip is Clip.VideoClip) {
+                            if (clip.id == clipId && clip is Clip.VideoClip)
                                 clip.copy(transition = transition)
-                            } else clip
+                            else clip
                         })
                     }
                 )
@@ -403,14 +509,6 @@ class ProjectViewModel(
 
     fun selectClip(clipId: String?) {
         _state.update { it.copy(selectedClipId = clipId) }
-    }
-
-    fun setPlayhead(ms: Long) {
-        _state.update { it.copy(playheadMs = ms.coerceAtLeast(0)) }
-    }
-
-    fun setPlaying(playing: Boolean) {
-        _state.update { it.copy(isPlaying = playing) }
     }
 
     fun setZoom(zoom: Float) {

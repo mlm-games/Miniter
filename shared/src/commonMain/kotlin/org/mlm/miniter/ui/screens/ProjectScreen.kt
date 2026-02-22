@@ -12,24 +12,32 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import io.github.kdroidfilter.composemediaplayer.InitialPlayerState
+import io.github.kdroidfilter.composemediaplayer.VideoPlayerState
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
-import io.github.vinceglb.filekit.PlatformFile
+import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
+import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.nav.Route
+import org.mlm.miniter.project.Clip
+import org.mlm.miniter.project.FilterType
 import org.mlm.miniter.ui.components.properties.PropertiesPanel
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.components.timeline.TimelinePanel
 import org.mlm.miniter.ui.components.toolbar.EditorToolbar
 import org.mlm.miniter.ui.util.popBack
+import org.mlm.miniter.viewmodel.ProjectUiState
 import org.mlm.miniter.viewmodel.ProjectViewModel
-import java.io.File
 
 @Composable
 fun ProjectScreen(
@@ -54,8 +62,56 @@ fun ProjectScreen(
 
     LaunchedEffect(videoPath) {
         if (!videoPath.endsWith(".mntr")) {
-            playerState.openFile(PlatformFile(File(videoPath)))
+            playerState.openUri(videoPath, InitialPlayerState.PAUSE)
         }
+    }
+
+    LaunchedEffect(playerState, uiState.isPlaying) {
+        while (uiState.isPlaying) {
+            projectViewModel.onPlayerPositionChanged(playerState.sliderPos)
+            delay(50)
+        }
+    }
+
+    LaunchedEffect(playerState.isPlaying) {
+        if (!playerState.isPlaying && uiState.isPlaying) {
+            projectViewModel.onPlayerCompleted()
+        }
+    }
+
+    val currentSpeed = projectViewModel.getCurrentClipSpeed()
+    LaunchedEffect(currentSpeed) {
+        // playerState.speed = currentSpeed // Library may not support this
+    }
+
+    val currentVolume = projectViewModel.getCurrentClipVolume()
+    LaunchedEffect(currentVolume) {
+        // playerState.volume = currentVolume // Library may not support this
+    }
+
+    val togglePlayPause: () -> Unit = {
+        val nowPlaying = !uiState.isPlaying
+        projectViewModel.setPlaying(nowPlaying)
+        if (nowPlaying) playerState.play() else playerState.pause()
+    }
+
+    val seekToMs: (Long) -> Unit = { ms ->
+        projectViewModel.setPlayhead(ms)
+        val totalMs = uiState.project?.timeline?.durationMs ?: 1L
+        val sliderPos = (ms.toFloat() / totalMs * 1000f).coerceIn(0f, 1000f)
+        playerState.seekTo(sliderPos)
+    }
+
+    val seekForward5s: () -> Unit = {
+        val newMs = (uiState.playheadMs + 5000).coerceAtMost(
+            uiState.project?.timeline?.durationMs ?: Long.MAX_VALUE
+        )
+        seekToMs(newMs)
+    }
+
+    val seekBackward5s: () -> Unit = {
+        val newMs = (uiState.playheadMs - 5000).coerceAtLeast(0)
+        seekToMs(newMs)
     }
 
     Scaffold(
@@ -78,7 +134,11 @@ fun ProjectScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = { backStack.popBack() }) {
+                    IconButton(onClick = {
+                        playerState.pause()
+                        projectViewModel.setPlaying(false)
+                        backStack.popBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
@@ -94,8 +154,9 @@ fun ProjectScreen(
                     ) {
                         Icon(Icons.Default.Save, "Save Project")
                     }
-
                     IconButton(onClick = {
+                        playerState.pause()
+                        projectViewModel.setPlaying(false)
                         val projectPath = uiState.projectPath ?: videoPath
                         backStack.add(Route.Export(projectPath))
                     }) {
@@ -125,11 +186,14 @@ fun ProjectScreen(
                     VideoPreviewPanel(
                         playerState = playerState,
                         isPlaying = uiState.isPlaying,
-                        onPlayPause = {
-                            val nowPlaying = !uiState.isPlaying
-                            projectViewModel.setPlaying(nowPlaying)
-                            if (nowPlaying) playerState.play() else playerState.pause()
-                        },
+                        playheadMs = uiState.playheadMs,
+                        durationMs = uiState.project?.timeline?.durationMs ?: 0L,
+                        visibleTextClips = projectViewModel.getVisibleTextClips(),
+                        currentFilters = getCurrentClipFilters(uiState),
+                        onPlayPause = togglePlayPause,
+                        onSeekToStart = { seekToMs(0) },
+                        onSeekForward5s = seekForward5s,
+                        onSeekBackward5s = seekBackward5s,
                     )
                 }
 
@@ -151,8 +215,19 @@ fun ProjectScreen(
                         onSetSpeed = { clipId, speed ->
                             projectViewModel.setClipSpeed(clipId, speed)
                         },
+                        onSetVolume = { clipId, volume ->
+                            projectViewModel.setClipVolume(clipId, volume)
+                        },
                         onSetTransition = { clipId, transition ->
                             projectViewModel.setTransition(clipId, transition)
+                        },
+                        onUpdateText = { clipId, text ->
+                            projectViewModel.updateTextClip(clipId, text)
+                        },
+                        onUpdateTextStyle = { clipId, fontSize, color ->
+                            projectViewModel.updateTextClipStyle(
+                                clipId, fontSizeSp = fontSize, colorHex = color
+                            )
                         },
                     )
                 }
@@ -160,11 +235,7 @@ fun ProjectScreen(
 
             EditorToolbar(
                 isPlaying = uiState.isPlaying,
-                onPlayPause = {
-                    val nowPlaying = !uiState.isPlaying
-                    projectViewModel.setPlaying(nowPlaying)
-                    if (nowPlaying) playerState.play() else playerState.pause()
-                },
+                onPlayPause = togglePlayPause,
                 onSplit = {
                     uiState.selectedClipId?.let { projectViewModel.splitClipAtPlayhead(it) }
                 },
@@ -207,7 +278,7 @@ fun ProjectScreen(
                     playheadMs = uiState.playheadMs,
                     zoomLevel = uiState.zoomLevel,
                     selectedClipId = uiState.selectedClipId,
-                    onPlayheadChange = { projectViewModel.setPlayhead(it) },
+                    onPlayheadChange = { ms -> seekToMs(ms) },
                     onClipSelected = { projectViewModel.selectClip(it) },
                     onClipMoved = { clipId, newStart ->
                         projectViewModel.moveClip(clipId, newStart)
@@ -222,9 +293,16 @@ fun ProjectScreen(
 
 @Composable
 private fun VideoPreviewPanel(
-    playerState: io.github.kdroidfilter.composemediaplayer.VideoPlayerState,
+    playerState: VideoPlayerState,
     isPlaying: Boolean,
+    playheadMs: Long,
+    durationMs: Long,
+    visibleTextClips: List<Clip.TextClip>,
+    currentFilters: List<FilterType>,
     onPlayPause: () -> Unit,
+    onSeekToStart: () -> Unit,
+    onSeekForward5s: () -> Unit,
+    onSeekBackward5s: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -241,17 +319,58 @@ private fun VideoPreviewPanel(
                 playerState = playerState,
                 modifier = Modifier.fillMaxSize(),
             )
+
+            visibleTextClips.forEach { textClip ->
+                TextOverlay(textClip)
+            }
+
+            if (currentFilters.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                    shape = MaterialTheme.shapes.small,
+                    tonalElevation = 2.dp,
+                ) {
+                    Text(
+                        text = "${currentFilters.size} filter${if (currentFilters.size > 1) "s" else ""} (preview at export)",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
         }
+
+        Slider(
+            value = playerState.sliderPos,
+            onValueChange = { newPos ->
+                playerState.sliderPos = newPos
+                playerState.userDragging = true
+            },
+            onValueChangeFinished = {
+                playerState.userDragging = false
+                playerState.seekTo(playerState.sliderPos)
+            },
+            valueRange = 0f..1000f,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+        )
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { playerState.seekTo(0f) }) {
+            IconButton(onClick = onSeekToStart) {
                 Icon(Icons.Default.SkipPrevious, "Rewind to start")
+            }
+            IconButton(onClick = onSeekBackward5s) {
+                Icon(Icons.Default.Replay5, "Back 5s")
             }
             IconButton(onClick = onPlayPause) {
                 Icon(
@@ -260,14 +379,14 @@ private fun VideoPreviewPanel(
                     modifier = Modifier.size(36.dp),
                 )
             }
-            IconButton(onClick = { /* TODO: seek forward 5s */ }) {
+            IconButton(onClick = onSeekForward5s) {
                 Icon(Icons.Default.Forward5, "Forward 5s")
             }
 
             Spacer(Modifier.width(16.dp))
 
             Text(
-                text = "${playerState.positionText} / ${playerState.durationText}",
+                text = "${formatTime(playheadMs)} / ${formatTime(durationMs)}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -276,8 +395,64 @@ private fun VideoPreviewPanel(
 }
 
 @Composable
+private fun BoxScope.TextOverlay(textClip: Clip.TextClip) {
+    val bgColor = textClip.backgroundColorHex?.let { parseColor(it) }
+    val textColor = parseColor(textClip.colorHex)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(8.dp),
+    ) {
+        Text(
+            text = textClip.text,
+            color = textColor,
+            fontSize = textClip.fontSizeSp.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .align(
+                    when {
+                        textClip.positionY < 0.33f -> {
+                            when {
+                                textClip.positionX < 0.33f -> Alignment.TopStart
+                                textClip.positionX > 0.66f -> Alignment.TopEnd
+                                else -> Alignment.TopCenter
+                            }
+                        }
+                        textClip.positionY > 0.66f -> {
+                            when {
+                                textClip.positionX < 0.33f -> Alignment.BottomStart
+                                textClip.positionX > 0.66f -> Alignment.BottomEnd
+                                else -> Alignment.BottomCenter
+                            }
+                        }
+                        else -> {
+                            when {
+                                textClip.positionX < 0.33f -> Alignment.CenterStart
+                                textClip.positionX > 0.66f -> Alignment.CenterEnd
+                                else -> Alignment.Center
+                            }
+                        }
+                    }
+                )
+                .then(
+                    if (bgColor != null) {
+                        Modifier.background(
+                            bgColor.copy(alpha = 0.6f),
+                            MaterialTheme.shapes.extraSmall,
+                        ).padding(horizontal = 8.dp, vertical = 4.dp)
+                    } else {
+                        Modifier
+                    }
+                ),
+        )
+    }
+}
+
+@Composable
 private fun ThumbnailStrip(
-    thumbnails: List<org.mlm.miniter.engine.ImageData>,
+    thumbnails: List<ImageData>,
     modifier: Modifier = Modifier,
 ) {
     LazyRow(
@@ -293,5 +468,38 @@ private fun ThumbnailStrip(
                 contentScale = ContentScale.Crop,
             )
         }
+    }
+}
+
+private fun getCurrentClipFilters(uiState: ProjectUiState): List<FilterType> {
+    val project = uiState.project ?: return emptyList()
+    val playhead = uiState.playheadMs
+    return project.timeline.tracks
+        .flatMap { it.clips }
+        .filterIsInstance<Clip.VideoClip>()
+        .firstOrNull { playhead >= it.startMs && playhead < it.startMs + it.durationMs }
+        ?.filters
+        ?.map { it.type }
+        ?: emptyList()
+}
+
+private fun formatTime(ms: Long): String {
+    val totalSec = ms / 1000
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    return "%02d:%02d".format(min, sec)
+}
+
+private fun parseColor(hex: String): Color {
+    return try {
+        val cleaned = hex.removePrefix("#")
+        val argb = when (cleaned.length) {
+            6 -> "FF$cleaned"
+            8 -> cleaned
+            else -> "FFFFFFFF"
+        }
+        Color(argb.toLong(16))
+    } catch (_: Exception) {
+        Color.White
     }
 }

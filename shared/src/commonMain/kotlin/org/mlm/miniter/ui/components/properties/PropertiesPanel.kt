@@ -20,7 +20,10 @@ fun PropertiesPanel(
     onAddFilter: (String, VideoFilter) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
+    onSetVolume: (String, Float) -> Unit,
     onSetTransition: (String, Transition?) -> Unit,
+    onUpdateText: (String, String) -> Unit,
+    onUpdateTextStyle: (String, Float?, String?) -> Unit,
 ) {
     val clip = project?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -55,9 +58,11 @@ fun PropertiesPanel(
         }
 
         when (clip) {
-            is Clip.VideoClip -> VideoClipProperties(clip, onAddFilter, onRemoveFilter, onSetSpeed, onSetTransition)
-            is Clip.AudioClip -> AudioClipProperties(clip)
-            is Clip.TextClip -> TextClipProperties(clip)
+            is Clip.VideoClip -> VideoClipProperties(
+                clip, onAddFilter, onRemoveFilter, onSetSpeed, onSetVolume, onSetTransition
+            )
+            is Clip.AudioClip -> AudioClipProperties(clip, onSetVolume)
+            is Clip.TextClip -> TextClipProperties(clip, onUpdateText, onUpdateTextStyle)
         }
     }
 }
@@ -68,6 +73,7 @@ private fun VideoClipProperties(
     onAddFilter: (String, VideoFilter) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
+    onSetVolume: (String, Float) -> Unit,
     onSetTransition: (String, Transition?) -> Unit,
 ) {
     val fileName = clip.sourcePath.substringAfterLast("/").substringAfterLast("\\")
@@ -95,6 +101,19 @@ private fun VideoClipProperties(
 
     Spacer(Modifier.height(16.dp))
 
+    Text("Volume", style = MaterialTheme.typography.labelMedium)
+    var volumeValue by remember(clip.volume) { mutableFloatStateOf(clip.volume) }
+    Slider(
+        value = volumeValue,
+        onValueChange = { volumeValue = it },
+        onValueChangeFinished = { onSetVolume(clip.id, volumeValue) },
+        valueRange = 0f..2f,
+        steps = 19,
+    )
+    Text("${(volumeValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+
+    Spacer(Modifier.height(16.dp))
+
     Text("Filters", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(4.dp))
 
@@ -104,12 +123,9 @@ private fun VideoClipProperties(
             onClick = { onRemoveFilter(clip.id, index) },
             label = { Text(filter.type.name) },
             trailingIcon = {
-                Icon(
-                    Icons.Default.Close, "Remove",
-                    modifier = Modifier.size(16.dp)
-                )
+                Icon(Icons.Default.Close, "Remove", modifier = Modifier.size(16.dp))
             },
-            modifier = Modifier.padding(end = 4.dp, bottom = 4.dp)
+            modifier = Modifier.padding(end = 4.dp, bottom = 4.dp),
         )
     }
 
@@ -126,9 +142,61 @@ private fun VideoClipProperties(
                     onClick = {
                         onAddFilter(clip.id, VideoFilter(filterType))
                         expanded = false
-                    }
+                    },
                 )
             }
+        }
+    }
+
+    clip.filters.forEachIndexed { index, filter ->
+        when (filter.type) {
+            FilterType.Brightness, FilterType.Contrast, FilterType.Saturation -> {
+                val paramKey = "value"
+                val currentVal = filter.params[paramKey] ?: when (filter.type) {
+                    FilterType.Brightness -> 0f
+                    FilterType.Contrast -> 1f
+                    FilterType.Saturation -> 1f
+                    else -> 0f
+                }
+                val range = when (filter.type) {
+                    FilterType.Brightness -> -100f..100f
+                    FilterType.Contrast -> 0f..3f
+                    FilterType.Saturation -> 0f..3f
+                    else -> 0f..1f
+                }
+                var paramVal by remember(filter) { mutableFloatStateOf(currentVal) }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${filter.type.name}: ${String.format("%.1f", paramVal)}",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                Slider(
+                    value = paramVal,
+                    onValueChange = { paramVal = it },
+                    onValueChangeFinished = {
+                        onRemoveFilter(clip.id, index)
+                        onAddFilter(clip.id, filter.copy(params = mapOf(paramKey to paramVal)))
+                    },
+                    valueRange = range,
+                )
+            }
+            FilterType.Blur -> {
+                val currentRadius = filter.params["radius"] ?: 5f
+                var radiusVal by remember(filter) { mutableFloatStateOf(currentRadius) }
+                Spacer(Modifier.height(8.dp))
+                Text("Blur radius: ${radiusVal.toInt()}", style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value = radiusVal,
+                    onValueChange = { radiusVal = it },
+                    onValueChangeFinished = {
+                        onRemoveFilter(clip.id, index)
+                        onAddFilter(clip.id, filter.copy(params = mapOf("radius" to radiusVal)))
+                    },
+                    valueRange = 1f..20f,
+                    steps = 18,
+                )
+            }
+            else -> { }
         }
     }
 
@@ -145,7 +213,7 @@ private fun VideoClipProperties(
         DropdownMenu(expanded = transExpanded, onDismissRequest = { transExpanded = false }) {
             DropdownMenuItem(
                 text = { Text("None") },
-                onClick = { onSetTransition(clip.id, null); transExpanded = false }
+                onClick = { onSetTransition(clip.id, null); transExpanded = false },
             )
             TransitionType.entries.forEach { t ->
                 DropdownMenuItem(
@@ -153,7 +221,7 @@ private fun VideoClipProperties(
                     onClick = {
                         onSetTransition(clip.id, Transition(t))
                         transExpanded = false
-                    }
+                    },
                 )
             }
         }
@@ -161,13 +229,25 @@ private fun VideoClipProperties(
 }
 
 @Composable
-private fun AudioClipProperties(clip: Clip.AudioClip) {
+private fun AudioClipProperties(
+    clip: Clip.AudioClip,
+    onSetVolume: (String, Float) -> Unit,
+) {
     Text("Audio Clip", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-    Spacer(Modifier.height(4.dp))
-    Text(
-        "Volume: ${(clip.volume * 100).toInt()}%",
-        style = MaterialTheme.typography.labelSmall,
+    Spacer(Modifier.height(8.dp))
+
+    Text("Volume", style = MaterialTheme.typography.labelMedium)
+    var volumeValue by remember(clip.volume) { mutableFloatStateOf(clip.volume) }
+    Slider(
+        value = volumeValue,
+        onValueChange = { volumeValue = it },
+        onValueChangeFinished = { onSetVolume(clip.id, volumeValue) },
+        valueRange = 0f..2f,
+        steps = 19,
     )
+    Text("${(volumeValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+
+    Spacer(Modifier.height(8.dp))
     Text(
         "Fade in: ${clip.fadeInMs}ms | Fade out: ${clip.fadeOutMs}ms",
         style = MaterialTheme.typography.labelSmall,
@@ -175,15 +255,69 @@ private fun AudioClipProperties(clip: Clip.AudioClip) {
 }
 
 @Composable
-private fun TextClipProperties(clip: Clip.TextClip) {
+private fun TextClipProperties(
+    clip: Clip.TextClip,
+    onUpdateText: (String, String) -> Unit,
+    onUpdateTextStyle: (String, Float?, String?) -> Unit,
+) {
     Text("Text Overlay", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(8.dp))
+
+    var textValue by remember(clip.text) { mutableStateOf(clip.text) }
     OutlinedTextField(
-        value = clip.text,
-        onValueChange = { /* TODO: wire to viewmodel */ },
+        value = textValue,
+        onValueChange = { textValue = it },
         label = { Text("Text") },
         modifier = Modifier.fillMaxWidth(),
+        singleLine = false,
+        maxLines = 3,
     )
+    LaunchedEffect(textValue) {
+        kotlinx.coroutines.delay(500)
+        if (textValue != clip.text) {
+            onUpdateText(clip.id, textValue)
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    Text("Font Size", style = MaterialTheme.typography.labelMedium)
+    var fontSize by remember(clip.fontSizeSp) { mutableFloatStateOf(clip.fontSizeSp) }
+    Slider(
+        value = fontSize,
+        onValueChange = { fontSize = it },
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, fontSize, null) },
+        valueRange = 12f..72f,
+        steps = 14,
+    )
+    Text("${fontSize.toInt()}sp", style = MaterialTheme.typography.labelSmall)
+
     Spacer(Modifier.height(8.dp))
-    Text("Size: ${clip.fontSizeSp}sp | Color: ${clip.colorHex}", style = MaterialTheme.typography.labelSmall)
+
+    Text("Color", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        val colorPresets = listOf(
+            "#FFFFFF" to "White",
+            "#000000" to "Black",
+            "#FF0000" to "Red",
+            "#FFFF00" to "Yellow",
+            "#00FF00" to "Green",
+            "#00BFFF" to "Blue",
+        )
+        colorPresets.forEach { (hex, name) ->
+            FilterChip(
+                selected = clip.colorHex.equals(hex, ignoreCase = true),
+                onClick = { onUpdateTextStyle(clip.id, null, hex) },
+                label = { Text(name, style = MaterialTheme.typography.labelSmall) },
+            )
+        }
+    }
+
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "Position: (${String.format("%.1f", clip.positionX)}, ${String.format("%.1f", clip.positionY)})",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
