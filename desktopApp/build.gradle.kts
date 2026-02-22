@@ -18,6 +18,7 @@ dependencies {
     implementation(libs.kmp.settings.core)
     implementation(libs.filekit.core)
     implementation(libs.filekit.dialogs.compose)
+    implementation(libs.javacv.platform)
 }
 
 compose.desktop {

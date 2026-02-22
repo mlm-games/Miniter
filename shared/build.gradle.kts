@@ -53,6 +53,7 @@ kotlin {
             implementation(libs.koin.compose.navigation3)
             implementation(libs.filekit.core)
             implementation(libs.filekit.dialogs.compose)
+            implementation(libs.compose.media.player)
         }
 
         androidMain.dependencies {
@@ -64,6 +65,7 @@ kotlin {
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutines.swing)
+            implementation(libs.javacv.platform)
         }
     }
 }

@@ -20,6 +20,21 @@ sealed interface Route : NavKey {
     @Serializable data object Settings : Route
     @Serializable data object Projects : Route
     @Serializable data class Project(val path: String, val name: String) : Route
+    @Serializable data class Export(val projectPath: String) : Route
+}
+
+val routeSerializersModule = SerializersModule {
+    polymorphic(NavKey::class) {
+        subclass(Route.Editor::class, Route.Editor.serializer())
+        subclass(Route.Settings::class, Route.Settings.serializer())
+        subclass(Route.Projects::class, Route.Projects.serializer())
+        subclass(Route.Project::class, Route.Project.serializer())
+        subclass(Route.Export::class, Route.Export.serializer())
+    }
+}
+
+val navSavedStateConfiguration = SavedStateConfiguration {
+    serializersModule = routeSerializersModule
 }
 
 fun loginEntryFadeMetadata(): Map<String, Any> {
@@ -30,17 +45,4 @@ fun loginEntryFadeMetadata(): Map<String, Any> {
         "transitionSpec" to fade,
         "popTransitionSpec" to fade
     )
-}
-
-val routeSerializersModule = SerializersModule {
-    polymorphic(NavKey::class) {
-        subclass(Route.Editor::class, Route.Editor.serializer())
-        subclass(Route.Settings::class, Route.Settings.serializer())
-        subclass(Route.Projects::class, Route.Projects.serializer())
-        subclass(Route.Project::class, Route.Project.serializer())
-    }
-}
-
-val navSavedStateConfiguration = SavedStateConfiguration {
-    serializersModule = routeSerializersModule
 }

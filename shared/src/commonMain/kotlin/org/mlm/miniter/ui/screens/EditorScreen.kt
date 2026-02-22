@@ -17,7 +17,6 @@ import io.github.vinceglb.filekit.path
 import org.koin.compose.koinInject
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(
     onOpenSettings: () -> Unit,
@@ -27,6 +26,14 @@ fun EditorScreen(
 
     val videoPicker = rememberFilePickerLauncher(
         type = FileKitType.File(extensions = listOf("mp4", "webm", "mov", "mkv", "avi"))
+    ) { file: PlatformFile? ->
+        file?.let {
+            onOpenProject(it.path, it.name)
+        }
+    }
+
+    val projectPicker = rememberFilePickerLauncher(
+        type = FileKitType.File(extensions = listOf("mntr"))
     ) { file: PlatformFile? ->
         file?.let {
             onOpenProject(it.path, it.name)
@@ -46,9 +53,7 @@ fun EditorScreen(
         }
     ) { padding ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -61,21 +66,21 @@ fun EditorScreen(
                     modifier = Modifier.size(80.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )
-                
+
                 Text(
                     "Welcome to Miniter",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
                 )
-                
+
                 Text(
                     "A simple minimal video editor",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                
+
                 Spacer(Modifier.height(16.dp))
-                
+
                 Button(
                     onClick = { videoPicker.launch() },
                     modifier = Modifier.fillMaxWidth(0.6f)
@@ -84,14 +89,14 @@ fun EditorScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("Open Video File")
                 }
-                
+
                 OutlinedButton(
-                    onClick = { snackbarManager.show("New project coming soon") },
+                    onClick = { projectPicker.launch() },
                     modifier = Modifier.fillMaxWidth(0.6f)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
+                    Icon(Icons.Default.FileOpen, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("New Project")
+                    Text("Open Project (.mntr)")
                 }
             }
         }

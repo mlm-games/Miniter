@@ -23,13 +23,13 @@ import org.mlm.miniter.ui.animation.forwardTransition
 import org.mlm.miniter.ui.animation.popTransition
 import org.mlm.miniter.ui.components.snackbar.LauncherSnackbarHost
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
-import org.mlm.miniter.ui.screens.EditorScreen
-import org.mlm.miniter.ui.screens.SettingsScreen
+import org.mlm.miniter.ui.screens.*
 import org.mlm.miniter.ui.theme.MainTheme
 import org.mlm.miniter.ui.util.popBack
 
 val LocalMessageFontSize = staticCompositionLocalOf { 16f }
 
+@Suppress("UnusedMaterial3ScaffoldPaddingParameter")
 @Composable
 fun App() {
     val snackbarManager: SnackbarManager = koinInject()
@@ -45,10 +45,7 @@ fun App() {
     }
 
     CompositionLocalProvider(LocalMessageFontSize provides settings.fontSize) {
-        MainTheme(
-            darkTheme = isDark,
-            dynamicColors = false
-        ) {
+        MainTheme(darkTheme = isDark, dynamicColors = false) {
             val backStack: NavBackStack<NavKey> =
                 rememberNavBackStack(navSavedStateConfiguration, Route.Editor)
 
@@ -67,9 +64,7 @@ fun App() {
                     popTransitionSpec = popTransition,
                     predictivePopTransitionSpec = { _ -> popTransition.invoke(this) },
                     onBack = {
-                        if (backStack.size > 1) {
-                            backStack.removeAt(backStack.lastIndex)
-                        }
+                        if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
                     },
                     entryProvider = entryProvider {
                         entry<Route.Editor> {
@@ -86,29 +81,15 @@ fun App() {
                         }
 
                         entry<Route.Project> { key ->
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    Text(
-                                        text = "Project: ${key.name}",
-                                        style = MaterialTheme.typography.headlineMedium
-                                    )
-                                    Text(
-                                        text = key.path,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(Modifier.height(16.dp))
-                                    Button(onClick = { backStack.popBack() }) {
-                                        Text("Back to Editor")
-                                    }
-                                }
-                            }
+                            ProjectScreen(
+                                videoPath = key.path,
+                                videoName = key.name,
+                                backStack = backStack,
+                            )
+                        }
+
+                        entry<Route.Export> { _ ->
+                            ExportScreen(backStack = backStack)
                         }
 
                         entry<Route.Projects> {

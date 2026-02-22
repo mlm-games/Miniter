@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.androidApplication)
-    alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeMultiplatform)
 }
 
@@ -26,8 +25,6 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "0.1.0"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -83,4 +80,5 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.filekit.core)
     implementation(libs.filekit.dialogs.compose)
+    implementation(libs.javacv.platform)
 }
