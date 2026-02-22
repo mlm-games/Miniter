@@ -19,12 +19,14 @@ fun PropertiesPanel(
     selectedClipId: String?,
     onAddFilter: (String, VideoFilter) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
+    onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
     onSetTransition: (String, Transition?) -> Unit,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
+    onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
 ) {
     val clip = project?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -60,10 +62,10 @@ fun PropertiesPanel(
 
         when (clip) {
             is Clip.VideoClip -> VideoClipProperties(
-                clip, onAddFilter, onRemoveFilter, onSetSpeed, onSetVolume, onSetTransition, onSetOpacity
+                clip, onAddFilter, onRemoveFilter, onUpdateFilterParams, onSetSpeed, onSetVolume, onSetTransition, onSetOpacity
             )
             is Clip.AudioClip -> AudioClipProperties(clip, onSetVolume)
-            is Clip.TextClip -> TextClipProperties(clip, onUpdateText, onUpdateTextStyle)
+            is Clip.TextClip -> TextClipProperties(clip, onUpdateText, onUpdateTextStyle, onSetTextDuration)
         }
     }
 }
@@ -73,6 +75,7 @@ private fun VideoClipProperties(
     clip: Clip.VideoClip,
     onAddFilter: (String, VideoFilter) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
+    onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
     onSetTransition: (String, Transition?) -> Unit,
@@ -188,8 +191,7 @@ private fun VideoClipProperties(
                     value = paramVal,
                     onValueChange = { paramVal = it },
                     onValueChangeFinished = {
-                        onRemoveFilter(clip.id, index)
-                        onAddFilter(clip.id, filter.copy(params = mapOf(paramKey to paramVal)))
+                        onUpdateFilterParams(clip.id, index, mapOf(paramKey to paramVal))
                     },
                     valueRange = range,
                 )
@@ -203,8 +205,7 @@ private fun VideoClipProperties(
                     value = radiusVal,
                     onValueChange = { radiusVal = it },
                     onValueChangeFinished = {
-                        onRemoveFilter(clip.id, index)
-                        onAddFilter(clip.id, filter.copy(params = mapOf("radius" to radiusVal)))
+                        onUpdateFilterParams(clip.id, index, mapOf("radius" to radiusVal))
                     },
                     valueRange = 1f..20f,
                     steps = 18,
@@ -273,6 +274,7 @@ private fun TextClipProperties(
     clip: Clip.TextClip,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?) -> Unit,
+    onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
 ) {
     Text("Text Overlay", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(8.dp))
@@ -327,6 +329,23 @@ private fun TextClipProperties(
             )
         }
     }
+
+    Spacer(Modifier.height(12.dp))
+
+    Text("Duration", style = MaterialTheme.typography.labelMedium)
+    var durationSec by remember(clip.durationMs) {
+        mutableFloatStateOf(clip.durationMs / 1000f)
+    }
+    Slider(
+        value = durationSec,
+        onValueChange = { durationSec = it },
+        onValueChangeFinished = {
+            onSetTextDuration(clip.id, (durationSec * 1000).toLong())
+        },
+        valueRange = 0.5f..30f,
+        steps = 58,
+    )
+    Text("${String.format("%.1f", durationSec)}s", style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(8.dp))
     Text(

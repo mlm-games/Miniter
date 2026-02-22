@@ -232,7 +232,6 @@ fun ProjectScreen(
                             if (canSplit) {
                                 uiState.selectedClipId?.let {
                                     projectViewModel.splitClipAtPlayhead(it)
-                                    projectViewModel.recalculateTimelineDuration()
                                 }
                             }
                             true
@@ -241,14 +240,12 @@ fun ProjectScreen(
                             uiState.selectedClipId?.let {
                                 projectViewModel.removeClip(it)
                                 projectViewModel.selectClip(null)
-                                projectViewModel.recalculateTimelineDuration()
                             }
                             true
                         }
                         event.key == Key.D && !event.isCtrlPressed -> {
                             uiState.selectedClipId?.let {
                                 projectViewModel.duplicateClip(it)
-                                projectViewModel.recalculateTimelineDuration()
                             }
                             true
                         }
@@ -338,6 +335,9 @@ fun ProjectScreen(
                         onRemoveFilter = { clipId, index ->
                             projectViewModel.removeFilter(clipId, index)
                         },
+                        onUpdateFilterParams = { clipId, filterIndex, params ->
+                            projectViewModel.updateFilterParams(clipId, filterIndex, params)
+                        },
                         onSetSpeed = { clipId, speed ->
                             projectViewModel.setClipSpeed(clipId, speed)
                         },
@@ -363,6 +363,9 @@ fun ProjectScreen(
                         onSetOpacity = { clipId, opacity ->
                             projectViewModel.setClipOpacity(clipId, opacity)
                         },
+                        onSetTextDuration = { clipId, durationMs ->
+                            projectViewModel.setTextClipDuration(clipId, durationMs)
+                        },
                     )
                 }
             }
@@ -375,20 +378,17 @@ fun ProjectScreen(
                 onSplit = {
                     uiState.selectedClipId?.let {
                         projectViewModel.splitClipAtPlayhead(it)
-                        projectViewModel.recalculateTimelineDuration()
                     }
                 },
                 onDelete = {
                     uiState.selectedClipId?.let {
                         projectViewModel.removeClip(it)
                         projectViewModel.selectClip(null)
-                        projectViewModel.recalculateTimelineDuration()
                     }
                 },
                 onDuplicate = {
                     uiState.selectedClipId?.let {
                         projectViewModel.duplicateClip(it)
-                        projectViewModel.recalculateTimelineDuration()
                     }
                 },
                 onAddText = {
@@ -435,17 +435,21 @@ fun ProjectScreen(
                     snapIndicatorMs = uiState.snapIndicatorMs,
                     onPlayheadChange = { ms -> seekToMs(ms) },
                     onClipSelected = { projectViewModel.selectClip(it) },
-                    onClipMoved = { clipId, newStart ->
-                        projectViewModel.moveClip(clipId, newStart)
+                    onBeginEdit = { projectViewModel.beginContinuousEdit() },
+                    onClipMoveAbsolute = { clipId, absMs ->
+                        projectViewModel.moveClipAbsolute(clipId, absMs)
                     },
-                    onClipMoveFinished = { projectViewModel.commitMove(); projectViewModel.clearSnapIndicator() },
-                    onClipTrimStart = { clipId, deltaMs ->
-                        projectViewModel.trimClipStartEdge(clipId, deltaMs)
+                    onClipMoveToTrack = { clipId, from, to ->
+                        projectViewModel.moveClipToTrack(clipId, from, to)
                     },
-                    onClipTrimEnd = { clipId, deltaMs ->
-                        projectViewModel.trimClipEndEdge(clipId, deltaMs)
+                    onCommitEdit = { projectViewModel.commitContinuousEdit() },
+                    onCancelEdit = { projectViewModel.cancelContinuousEdit() },
+                    onClipTrimStartAbsolute = { clipId, newStart ->
+                        projectViewModel.trimClipStartAbsolute(clipId, newStart)
                     },
-                    onClipTrimFinished = { projectViewModel.commitTrim() },
+                    onClipTrimEndAbsolute = { clipId, newEnd ->
+                        projectViewModel.trimClipEndAbsolute(clipId, newEnd)
+                    },
                     onToggleMute = { projectViewModel.toggleTrackMute(it) },
                     onToggleLock = { projectViewModel.toggleTrackLock(it) },
                     onAddTrack = { type -> projectViewModel.addTrack(type) },
@@ -456,16 +460,13 @@ fun ProjectScreen(
                     onClearSnap = { projectViewModel.clearSnapIndicator() },
                     onSplitClip = { clipId ->
                         projectViewModel.splitClipAtPlayhead(clipId)
-                        projectViewModel.recalculateTimelineDuration()
                     },
                     onDuplicateClip = { clipId ->
                         projectViewModel.duplicateClip(clipId)
-                        projectViewModel.recalculateTimelineDuration()
                     },
                     onDeleteClip = { clipId ->
                         projectViewModel.removeClip(clipId)
                         projectViewModel.selectClip(null)
-                        projectViewModel.recalculateTimelineDuration()
                     },
                 )
             }

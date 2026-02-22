@@ -49,7 +49,7 @@ class ProjectViewModel(
     private var sourceDurationMs: Long = 0L
     private var autoSaveJob: Job? = null
 
-    // PROJECT LIFECYCLE
+    private var preDragSnapshot: MinterProject? = null
 
     fun newProject(name: String, initialVideoPath: String) {
         viewModelScope.launch {
@@ -73,12 +73,9 @@ class ProjectViewModel(
                 undoManager.clear()
                 _state.update {
                     it.copy(
-                        project = project,
-                        selectedTrackId = track.id,
-                        isDirty = true,
-                        isLoading = false,
-                        canUndo = false,
-                        canRedo = false,
+                        project = project, selectedTrackId = track.id,
+                        isDirty = true, isLoading = false,
+                        canUndo = false, canRedo = false,
                     )
                 }
                 loadThumbnails(initialVideoPath)
@@ -98,13 +95,9 @@ class ProjectViewModel(
                 undoManager.clear()
                 _state.update {
                     it.copy(
-                        project = project,
-                        projectPath = path,
-                        playheadMs = 0,
-                        isDirty = false,
-                        isLoading = false,
-                        canUndo = false,
-                        canRedo = false,
+                        project = project, projectPath = path,
+                        playheadMs = 0, isDirty = false, isLoading = false,
+                        canUndo = false, canRedo = false,
                     )
                 }
                 val firstClip = project.timeline.tracks
@@ -141,8 +134,6 @@ class ProjectViewModel(
         }
     }
 
-    // AUTO-SAVE
-
     fun startAutoSave(enabled: Boolean, intervalSeconds: Float) {
         autoSaveJob?.cancel()
         if (!enabled) return
@@ -150,31 +141,23 @@ class ProjectViewModel(
             while (true) {
                 delay((intervalSeconds * 1000).toLong())
                 val s = _state.value
-                if (s.isDirty && s.projectPath != null && !s.isSaving) {
-                    saveProject()
-                }
+                if (s.isDirty && s.projectPath != null && !s.isSaving) saveProject()
             }
         }
     }
 
-    fun stopAutoSave() {
-        autoSaveJob?.cancel()
-        autoSaveJob = null
-    }
-
-    // UNDO / REDO
+    fun stopAutoSave() { autoSaveJob?.cancel(); autoSaveJob = null }
 
     fun undo() {
         val current = _state.value.project ?: return
         val previous = undoManager.undo(current) ?: return
         _state.update {
             it.copy(
-                project = previous,
-                isDirty = true,
-                canUndo = undoManager.canUndo,
-                canRedo = undoManager.canRedo,
+                project = previous, isDirty = true,
+                canUndo = undoManager.canUndo, canRedo = undoManager.canRedo,
             )
         }
+        autoRecalcDuration()
     }
 
     fun redo() {
@@ -182,15 +165,32 @@ class ProjectViewModel(
         val next = undoManager.redo(current) ?: return
         _state.update {
             it.copy(
-                project = next,
-                isDirty = true,
-                canUndo = undoManager.canUndo,
-                canRedo = undoManager.canRedo,
+                project = next, isDirty = true,
+                canUndo = undoManager.canUndo, canRedo = undoManager.canRedo,
             )
         }
+        autoRecalcDuration()
     }
 
-    // PLAYBACK
+    fun beginContinuousEdit() {
+        preDragSnapshot = _state.value.project
+    }
+
+    fun commitContinuousEdit() {
+        val snapshot = preDragSnapshot ?: return
+        undoManager.push(snapshot)
+        preDragSnapshot = null
+        _state.update {
+            it.copy(canUndo = undoManager.canUndo, canRedo = undoManager.canRedo)
+        }
+        autoRecalcDuration()
+    }
+
+    fun cancelContinuousEdit() {
+        val snapshot = preDragSnapshot ?: return
+        _state.update { it.copy(project = snapshot) }
+        preDragSnapshot = null
+    }
 
     fun setPlaying(playing: Boolean) {
         _state.update { it.copy(isPlaying = playing) }
@@ -204,8 +204,7 @@ class ProjectViewModel(
         if (!_state.value.isPlaying) return
         val totalMs = _state.value.project?.timeline?.durationMs ?: sourceDurationMs
         if (totalMs <= 0) return
-        val ms = ((sliderPos / 1000f) * totalMs).toLong()
-        _state.update { it.copy(playheadMs = ms.coerceIn(0, totalMs)) }
+        _state.update { it.copy(playheadMs = ((sliderPos / 1000f) * totalMs).toLong().coerceIn(0, totalMs)) }
     }
 
     fun onPlayerCompleted() {
@@ -220,31 +219,29 @@ class ProjectViewModel(
 
     fun getCurrentClipSpeed(): Float {
         val project = _state.value.project ?: return 1f
-        val playhead = _state.value.playheadMs
+        val ph = _state.value.playheadMs
         return project.timeline.tracks.flatMap { it.clips }
             .filterIsInstance<Clip.VideoClip>()
-            .firstOrNull { playhead >= it.startMs && playhead < it.startMs + it.durationMs }
+            .firstOrNull { ph >= it.startMs && ph < it.startMs + it.durationMs }
             ?.speed ?: 1f
     }
 
     fun getCurrentClipVolume(): Float {
         val project = _state.value.project ?: return 1f
-        val playhead = _state.value.playheadMs
+        val ph = _state.value.playheadMs
         return project.timeline.tracks.filter { !it.isMuted }.flatMap { it.clips }
             .filterIsInstance<Clip.VideoClip>()
-            .firstOrNull { playhead >= it.startMs && playhead < it.startMs + it.durationMs }
+            .firstOrNull { ph >= it.startMs && ph < it.startMs + it.durationMs }
             ?.volume ?: 1f
     }
 
     fun getVisibleTextClips(): List<Clip.TextClip> {
         val project = _state.value.project ?: return emptyList()
-        val playhead = _state.value.playheadMs
+        val ph = _state.value.playheadMs
         return project.timeline.tracks.flatMap { it.clips }
             .filterIsInstance<Clip.TextClip>()
-            .filter { playhead >= it.startMs && playhead < it.startMs + it.durationMs }
+            .filter { ph >= it.startMs && ph < it.startMs + it.durationMs }
     }
-
-    // IMPORT MEDIA INTO OPEN PROJECT
 
     fun importVideoClip(sourcePath: String, targetTrackId: String? = null) {
         viewModelScope.launch {
@@ -252,30 +249,20 @@ class ProjectViewModel(
                 _state.update { it.copy(isLoading = true) }
                 val info = engine.probeVideo(sourcePath)
                 val project = _state.value.project ?: return@launch
-
                 val trackId = targetTrackId
                     ?: project.timeline.tracks.firstOrNull { it.type == TrackType.Video }?.id
                     ?: return@launch
-
                 val track = project.timeline.tracks.find { it.id == trackId } ?: return@launch
                 val insertAt = track.clips.maxOfOrNull { it.startMs + it.durationMs } ?: 0L
 
                 recordAndMutate { p ->
                     val clip = Clip.VideoClip(
-                        id = randomUuid(),
-                        startMs = insertAt,
-                        durationMs = info.durationMs,
-                        sourcePath = sourcePath,
+                        id = randomUuid(), startMs = insertAt,
+                        durationMs = info.durationMs, sourcePath = sourcePath,
                         sourceEndMs = info.durationMs,
                     )
-                    p.copy(
-                        timeline = p.timeline.copy(
-                            tracks = p.timeline.tracks.map { t ->
-                                if (t.id == trackId) t.copy(clips = t.clips + clip) else t
-                            },
-                            durationMs = maxOf(p.timeline.durationMs, insertAt + info.durationMs),
-                        )
-                    )
+                    p.withClipAddedToTrack(trackId, clip)
+                        .withRecalculatedDuration()
                 }
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.show("Video clip added")
@@ -302,25 +289,18 @@ class ProjectViewModel(
                         ?.lastOrNull { it.type == TrackType.Audio }?.id ?: return@launch
                 }
 
-                val track = _state.value.project?.timeline?.tracks?.find { it.id == audioTrackId } ?: return@launch
+                val track = _state.value.project?.timeline?.tracks
+                    ?.find { it.id == audioTrackId } ?: return@launch
                 val insertAt = track.clips.maxOfOrNull { it.startMs + it.durationMs } ?: 0L
 
                 recordAndMutate { p ->
                     val clip = Clip.AudioClip(
-                        id = randomUuid(),
-                        startMs = insertAt,
-                        durationMs = info.durationMs,
-                        sourcePath = sourcePath,
+                        id = randomUuid(), startMs = insertAt,
+                        durationMs = info.durationMs, sourcePath = sourcePath,
                         sourceEndMs = info.durationMs,
                     )
-                    p.copy(
-                        timeline = p.timeline.copy(
-                            tracks = p.timeline.tracks.map { t ->
-                                if (t.id == audioTrackId) t.copy(clips = t.clips + clip) else t
-                            },
-                            durationMs = maxOf(p.timeline.durationMs, insertAt + info.durationMs),
-                        )
-                    )
+                    p.withClipAddedToTrack(audioTrackId!!, clip)
+                        .withRecalculatedDuration()
                 }
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.show("Audio clip added")
@@ -330,8 +310,6 @@ class ProjectViewModel(
             }
         }
     }
-
-    // THUMBNAILS
 
     private fun loadThumbnails(videoPath: String) {
         viewModelScope.launch {
@@ -345,8 +323,6 @@ class ProjectViewModel(
         }
     }
 
-    // EXPORT
-
     fun exportProject(outputPath: String) {
         val project = _state.value.project ?: return
         viewModelScope.launch { engine.exportVideo(project, outputPath) }
@@ -354,13 +330,13 @@ class ProjectViewModel(
     fun cancelExport() = engine.cancelExport()
     fun resetExport() = engine.reset()
 
-    // TRACK MANAGEMENT
-
     fun addTrack(type: TrackType, label: String? = null) {
         recordAndMutate { project ->
             val count = project.timeline.tracks.count { it.type == type }
-            val id = "${type.name.lowercase()}-$count"
-            val newTrack = Track(id = id, type = type, label = label ?: "${type.name} ${count + 1}")
+            val newTrack = Track(
+                id = "${type.name.lowercase()}-$count", type = type,
+                label = label ?: "${type.name} ${count + 1}",
+            )
             project.copy(timeline = project.timeline.copy(tracks = project.timeline.tracks + newTrack))
         }
     }
@@ -368,22 +344,174 @@ class ProjectViewModel(
     fun removeTrack(trackId: String) {
         val project = _state.value.project ?: return
         val track = project.timeline.tracks.find { it.id == trackId } ?: return
-        if (track.type == TrackType.Video && project.timeline.tracks.count { it.type == TrackType.Video } <= 1) {
+        if (track.type == TrackType.Video &&
+            project.timeline.tracks.count { it.type == TrackType.Video } <= 1
+        ) {
             snackbarManager.showError("Cannot remove the only video track")
             return
         }
         recordAndMutate { p ->
-            p.copy(timeline = p.timeline.copy(tracks = p.timeline.tracks.filter { it.id != trackId }))
+            p.copy(
+                timeline = p.timeline.copy(tracks = p.timeline.tracks.filter { it.id != trackId })
+            ).withRecalculatedDuration()
         }
     }
 
-    // CLIP OPERATIONS
+    fun moveClipAbsolute(clipId: String, absoluteStartMs: Long) {
+        val project = _state.value.project ?: return
+        val newStart = absoluteStartMs.coerceAtLeast(0)
+
+        var targetTrack: Track? = null
+        var movingClip: Clip? = null
+        for (track in project.timeline.tracks) {
+            val c = track.clips.find { it.id == clipId }
+            if (c != null) { targetTrack = track; movingClip = c; break }
+        }
+        if (targetTrack == null || movingClip == null) return
+
+        val movingEnd = newStart + movingClip.durationMs
+        val hasOverlap = targetTrack.clips.any { other ->
+            other.id != clipId &&
+                    newStart < other.startMs + other.durationMs &&
+                    other.startMs < movingEnd
+        }
+
+        val finalStart = if (hasOverlap) {
+            findNonOverlappingPosition(targetTrack, movingClip, newStart)
+        } else newStart
+
+        applyContinuousEdit { p ->
+            p.withClipStartMs(clipId, finalStart)
+        }
+    }
+
+    fun moveClipToTrack(clipId: String, fromTrackId: String, toTrackId: String) {
+        val project = _state.value.project ?: return
+        val fromTrack = project.timeline.tracks.find { it.id == fromTrackId } ?: return
+        val toTrack = project.timeline.tracks.find { it.id == toTrackId } ?: return
+        val clip = fromTrack.clips.find { it.id == clipId } ?: return
+
+        if (fromTrack.type != toTrack.type) return
+        if (toTrack.isLocked) return
+
+        val hasOverlap = toTrack.clips.any { other ->
+            clip.startMs < other.startMs + other.durationMs &&
+                    other.startMs < clip.startMs + clip.durationMs
+        }
+        val finalStart = if (hasOverlap) {
+            findNonOverlappingPosition(toTrack, clip, clip.startMs)
+        } else clip.startMs
+
+        val movedClip = when (clip) {
+            is Clip.VideoClip -> clip.copy(startMs = finalStart)
+            is Clip.AudioClip -> clip.copy(startMs = finalStart)
+            is Clip.TextClip -> clip.copy(startMs = finalStart)
+        }
+
+        recordAndMutate { p ->
+            p.copy(
+                timeline = p.timeline.copy(
+                    tracks = p.timeline.tracks.map { t ->
+                        when (t.id) {
+                            fromTrackId -> t.copy(clips = t.clips.filter { it.id != clipId })
+                            toTrackId -> t.copy(clips = t.clips + movedClip)
+                            else -> t
+                        }
+                    }
+                )
+            ).withRecalculatedDuration()
+        }
+    }
+
+    private fun findNonOverlappingPosition(track: Track, clip: Clip, desiredStart: Long): Long {
+        val duration = clip.durationMs
+        val sorted = track.clips.filter { it.id != clip.id }.sortedBy { it.startMs }
+        var candidate = desiredStart.coerceAtLeast(0)
+        for (other in sorted) {
+            val otherEnd = other.startMs + other.durationMs
+            if (candidate < otherEnd && other.startMs < candidate + duration) {
+                candidate = otherEnd
+            }
+        }
+        return candidate
+    }
+
+    fun trimClipStartAbsolute(clipId: String, newStartMs: Long) {
+        applyContinuousEdit { project ->
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map { track ->
+                        track.copy(clips = track.clips.map { clip ->
+                            if (clip.id == clipId && clip is Clip.VideoClip) {
+                                val maxStart = clip.startMs + clip.durationMs - 100
+                                val clampedStart = newStartMs.coerceIn(
+                                    clip.startMs - clip.sourceStartMs,
+                                    maxStart,
+                                )
+                                val delta = clampedStart - clip.startMs
+                                clip.copy(
+                                    startMs = clampedStart,
+                                    durationMs = clip.durationMs - delta,
+                                    sourceStartMs = clip.sourceStartMs + delta,
+                                )
+                            } else clip
+                        })
+                    }
+                )
+            )
+        }
+    }
+
+    fun trimClipEndAbsolute(clipId: String, newEndMs: Long) {
+        val project = _state.value.project ?: return
+
+        var targetTrack: Track? = null
+        var thisClip: Clip.VideoClip? = null
+        for (track in project.timeline.tracks) {
+            val c = track.clips.find { it.id == clipId }
+            if (c != null && c is Clip.VideoClip) {
+                targetTrack = track; thisClip = c; break
+            }
+        }
+        if (targetTrack == null || thisClip == null) return
+
+        val minEnd = thisClip.startMs + 100
+        var clampedEnd = newEndMs.coerceAtLeast(minEnd)
+
+        val nextClip = targetTrack.clips
+            .filter { it.id != clipId && it.startMs > thisClip.startMs }
+            .minByOrNull { it.startMs }
+        if (nextClip != null) {
+            clampedEnd = clampedEnd.coerceAtMost(nextClip.startMs)
+        }
+
+        val newDuration = clampedEnd - thisClip.startMs
+
+        applyContinuousEdit { p ->
+            p.copy(
+                timeline = p.timeline.copy(
+                    tracks = p.timeline.tracks.map { track ->
+                        track.copy(clips = track.clips.map { clip ->
+                            if (clip.id == clipId && clip is Clip.VideoClip) {
+                                clip.copy(
+                                    durationMs = newDuration,
+                                    sourceEndMs = clip.sourceStartMs + newDuration,
+                                )
+                            } else clip
+                        })
+                    }
+                )
+            )
+        }
+    }
 
     fun addTextClip(trackId: String, text: String, startMs: Long, durationMs: Long = 3000) {
         recordAndMutate { project ->
             val textTrack = project.timeline.tracks.firstOrNull { it.type == TrackType.Text }
                 ?: Track(id = "text-0", type = TrackType.Text)
-            val clip = Clip.TextClip(id = randomUuid(), startMs = startMs, durationMs = durationMs, text = text)
+            val clip = Clip.TextClip(
+                id = randomUuid(), startMs = startMs, durationMs = durationMs, text = text,
+            )
             val updatedTrack = textTrack.copy(clips = textTrack.clips + clip)
             project.copy(
                 timeline = project.timeline.copy(
@@ -391,7 +519,7 @@ class ProjectViewModel(
                         project.timeline.tracks.map { if (it.id == updatedTrack.id) updatedTrack else it }
                     } else project.timeline.tracks + updatedTrack
                 )
-            )
+            ).withRecalculatedDuration()
         }
     }
 
@@ -399,9 +527,11 @@ class ProjectViewModel(
         recordAndMutate { project ->
             project.copy(
                 timeline = project.timeline.copy(
-                    tracks = project.timeline.tracks.map { t -> t.copy(clips = t.clips.filter { it.id != clipId }) }
+                    tracks = project.timeline.tracks.map { t ->
+                        t.copy(clips = t.clips.filter { it.id != clipId })
+                    }
                 )
-            )
+            ).withRecalculatedDuration()
         }
     }
 
@@ -420,7 +550,7 @@ class ProjectViewModel(
                         track.copy(clips = track.clips + newClip)
                     }
                 )
-            )
+            ).withRecalculatedDuration()
         }
     }
 
@@ -431,11 +561,24 @@ class ProjectViewModel(
                 timeline = project.timeline.copy(
                     tracks = project.timeline.tracks.map { track ->
                         val clip = track.clips.find { it.id == clipId }
-                        if (clip != null && clip is Clip.VideoClip && playhead > clip.startMs && playhead < clip.startMs + clip.durationMs) {
+                        if (clip != null && clip is Clip.VideoClip
+                            && playhead > clip.startMs
+                            && playhead < clip.startMs + clip.durationMs
+                        ) {
                             val splitPoint = playhead - clip.startMs
-                            val firstHalf = clip.copy(durationMs = splitPoint, sourceEndMs = clip.sourceStartMs + splitPoint)
-                            val secondHalf = clip.copy(id = randomUuid(), startMs = playhead, durationMs = clip.durationMs - splitPoint, sourceStartMs = clip.sourceStartMs + splitPoint)
-                            track.copy(clips = track.clips.flatMap { if (it.id == clipId) listOf(firstHalf, secondHalf) else listOf(it) })
+                            val firstHalf = clip.copy(
+                                durationMs = splitPoint,
+                                sourceEndMs = clip.sourceStartMs + splitPoint,
+                            )
+                            val secondHalf = clip.copy(
+                                id = randomUuid(),
+                                startMs = playhead,
+                                durationMs = clip.durationMs - splitPoint,
+                                sourceStartMs = clip.sourceStartMs + splitPoint,
+                            )
+                            track.copy(clips = track.clips.flatMap {
+                                if (it.id == clipId) listOf(firstHalf, secondHalf) else listOf(it)
+                            })
                         } else track
                     }
                 )
@@ -443,235 +586,144 @@ class ProjectViewModel(
         }
     }
 
-    fun moveClip(clipId: String, newStartMs: Long) {
-        val project = _state.value.project ?: return
-        val clampedStart = newStartMs.coerceAtLeast(0)
-
-        var targetTrack: Track? = null
-        var movingClip: Clip? = null
-        for (track in project.timeline.tracks) {
-            val c = track.clips.find { it.id == clipId }
-            if (c != null) { targetTrack = track; movingClip = c; break }
-        }
-        if (targetTrack == null || movingClip == null) return
-
-        val movingEnd = clampedStart + movingClip.durationMs
-        val hasOverlap = targetTrack.clips.any { other ->
-            if (other.id == clipId) return@any false
-            val otherEnd = other.startMs + other.durationMs
-            clampedStart < otherEnd && other.startMs < movingEnd
-        }
-
-        if (hasOverlap) {
-            val adjusted = findNonOverlappingPosition(targetTrack, movingClip, clampedStart)
-            mutateNoUndo { p ->
-                p.copy(timeline = p.timeline.copy(
-                    tracks = p.timeline.tracks.map { track ->
-                        track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId) {
-                                when (clip) {
-                                    is Clip.VideoClip -> clip.copy(startMs = adjusted)
-                                    is Clip.AudioClip -> clip.copy(startMs = adjusted)
-                                    is Clip.TextClip -> clip.copy(startMs = adjusted)
-                                }
-                            } else clip
-                        })
-                    }
-                ))
-            }
-        } else {
-            mutateNoUndo { p ->
-                p.copy(timeline = p.timeline.copy(
-                    tracks = p.timeline.tracks.map { track ->
-                        track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId) {
-                                when (clip) {
-                                    is Clip.VideoClip -> clip.copy(startMs = clampedStart)
-                                    is Clip.AudioClip -> clip.copy(startMs = clampedStart)
-                                    is Clip.TextClip -> clip.copy(startMs = clampedStart)
-                                }
-                            } else clip
-                        })
-                    }
-                ))
-            }
-        }
-    }
-
-    fun commitMove() {
-        val project = _state.value.project ?: return
-        undoManager.push(project)
-        syncUndoState()
-    }
-
-    private fun findNonOverlappingPosition(track: Track, clip: Clip, desiredStart: Long): Long {
-        val duration = clip.durationMs
-        val otherClips = track.clips.filter { it.id != clip.id }.sortedBy { it.startMs }
-        var candidate = desiredStart
-        for (other in otherClips) {
-            val otherEnd = other.startMs + other.durationMs
-            if (candidate < otherEnd && other.startMs < candidate + duration) {
-                candidate = otherEnd
-            }
-        }
-        return candidate.coerceAtLeast(0)
-    }
-
-    fun trimClipStartEdge(clipId: String, deltaMs: Long) {
-        mutateNoUndo { project ->
-            project.copy(
-                timeline = project.timeline.copy(
-                    tracks = project.timeline.tracks.map { track ->
-                        track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId && clip is Clip.VideoClip) {
-                                val trimmed = deltaMs.coerceIn(-clip.sourceStartMs, clip.durationMs - 100)
-                                clip.copy(startMs = clip.startMs + trimmed, durationMs = clip.durationMs - trimmed, sourceStartMs = clip.sourceStartMs + trimmed)
-                            } else clip
-                        })
-                    }
-                )
-            )
-        }
-    }
-
-    fun trimClipEndEdge(clipId: String, deltaMs: Long) {
-        mutateNoUndo { project ->
-            project.copy(
-                timeline = project.timeline.copy(
-                    tracks = project.timeline.tracks.map { track ->
-                        track.copy(clips = track.clips.map { clip ->
-                            if (clip.id == clipId && clip is Clip.VideoClip) {
-                                val newDuration = (clip.durationMs + deltaMs).coerceAtLeast(100)
-                                clip.copy(durationMs = newDuration, sourceEndMs = clip.sourceStartMs + newDuration)
-                            } else clip
-                        })
-                    }
-                )
-            )
-        }
-    }
-
-    fun commitTrim() {
-        val project = _state.value.project ?: return
-        undoManager.push(project)
-        syncUndoState()
-    }
-
     fun setClipSpeed(clipId: String, speed: Float) {
+        val clamped = speed.coerceIn(0.25f, 4.0f)
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { track ->
-                    track.copy(clips = track.clips.map { clip ->
-                        if (clip.id == clipId && clip is Clip.VideoClip) clip.copy(speed = speed.coerceIn(0.25f, 4.0f)) else clip
-                    })
-                }
-            ))
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map { track ->
+                        track.copy(clips = track.clips.map { clip ->
+                            if (clip.id == clipId && clip is Clip.VideoClip) {
+                                val sourceDuration = clip.sourceEndMs - clip.sourceStartMs
+                                val newDuration = (sourceDuration / clamped).toLong().coerceAtLeast(100)
+                                clip.copy(speed = clamped, durationMs = newDuration)
+                            } else clip
+                        })
+                    }
+                )
+            ).withRecalculatedDuration()
         }
     }
 
     fun setClipVolume(clipId: String, volume: Float) {
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { track ->
-                    track.copy(clips = track.clips.map { clip ->
-                        when {
-                            clip.id == clipId && clip is Clip.VideoClip -> clip.copy(volume = volume.coerceIn(0f, 2f))
-                            clip.id == clipId && clip is Clip.AudioClip -> clip.copy(volume = volume.coerceIn(0f, 2f))
-                            else -> clip
-                        }
-                    })
+            project.withClipTransform(clipId) { clip ->
+                when (clip) {
+                    is Clip.VideoClip -> clip.copy(volume = volume.coerceIn(0f, 2f))
+                    is Clip.AudioClip -> clip.copy(volume = volume.coerceIn(0f, 2f))
+                    else -> clip
                 }
-            ))
+            }
         }
     }
 
     fun setClipOpacity(clipId: String, opacity: Float) {
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { track ->
-                    track.copy(clips = track.clips.map { clip ->
-                        if (clip.id == clipId && clip is Clip.VideoClip) clip.copy(opacity = opacity.coerceIn(0f, 1f)) else clip
-                    })
-                }
-            ))
+            project.withClipTransform(clipId) { clip ->
+                if (clip is Clip.VideoClip) clip.copy(opacity = opacity.coerceIn(0f, 1f)) else clip
+            }
         }
     }
 
     fun updateTextClip(clipId: String, newText: String) {
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { track ->
-                    track.copy(clips = track.clips.map { clip ->
-                        if (clip.id == clipId && clip is Clip.TextClip) clip.copy(text = newText) else clip
-                    })
-                }
-            ))
+            project.withClipTransform(clipId) { clip ->
+                if (clip is Clip.TextClip) clip.copy(text = newText) else clip
+            }
         }
     }
 
-    fun updateTextClipStyle(clipId: String, fontSizeSp: Float?, colorHex: String?, backgroundColorHex: String?, positionX: Float?, positionY: Float?) {
+    fun updateTextClipStyle(
+        clipId: String,
+        fontSizeSp: Float? = null,
+        colorHex: String? = null,
+        backgroundColorHex: String? = null,
+        positionX: Float? = null,
+        positionY: Float? = null,
+    ) {
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { track ->
-                    track.copy(clips = track.clips.map { clip ->
-                        if (clip.id == clipId && clip is Clip.TextClip) {
-                            clip.copy(fontSizeSp = fontSizeSp ?: clip.fontSizeSp, colorHex = colorHex ?: clip.colorHex, backgroundColorHex = backgroundColorHex ?: clip.backgroundColorHex, positionX = positionX ?: clip.positionX, positionY = positionY ?: clip.positionY)
-                        } else clip
-                    })
-                }
-            ))
+            project.withClipTransform(clipId) { clip ->
+                if (clip is Clip.TextClip) {
+                    clip.copy(
+                        fontSizeSp = fontSizeSp ?: clip.fontSizeSp,
+                        colorHex = colorHex ?: clip.colorHex,
+                        backgroundColorHex = backgroundColorHex ?: clip.backgroundColorHex,
+                        positionX = positionX ?: clip.positionX,
+                        positionY = positionY ?: clip.positionY,
+                    )
+                } else clip
+            }
+        }
+    }
+
+    fun setTextClipDuration(clipId: String, durationMs: Long) {
+        recordAndMutate { project ->
+            project.withClipTransform(clipId) { clip ->
+                if (clip is Clip.TextClip) clip.copy(durationMs = durationMs.coerceAtLeast(100))
+                else clip
+            }.withRecalculatedDuration()
+        }
+    }
+
+    fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {
+        recordAndMutate { project ->
+            project.withClipTransform(clipId) { clip ->
+                if (clip is Clip.VideoClip && filterIndex in clip.filters.indices) {
+                    val updated = clip.filters.toMutableList()
+                    updated[filterIndex] = updated[filterIndex].copy(params = newParams)
+                    clip.copy(filters = updated)
+                } else clip
+            }
         }
     }
 
     fun addFilter(clipId: String, filter: VideoFilter) {
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { track ->
-                    track.copy(clips = track.clips.map { clip ->
-                        if (clip.id == clipId && clip is Clip.VideoClip) clip.copy(filters = clip.filters + filter) else clip
-                    })
-                }
-            ))
+            project.withClipTransform(clipId) { clip ->
+                if (clip is Clip.VideoClip) clip.copy(filters = clip.filters + filter) else clip
+            }
         }
     }
 
     fun removeFilter(clipId: String, filterIndex: Int) {
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { track ->
-                    track.copy(clips = track.clips.map { clip ->
-                        if (clip.id == clipId && clip is Clip.VideoClip) clip.copy(filters = clip.filters.filterIndexed { i, _ -> i != filterIndex }) else clip
-                    })
-                }
-            ))
+            project.withClipTransform(clipId) { clip ->
+                if (clip is Clip.VideoClip)
+                    clip.copy(filters = clip.filters.filterIndexed { i, _ -> i != filterIndex })
+                else clip
+            }
         }
     }
 
     fun setTransition(clipId: String, transition: Transition?) {
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { track ->
-                    track.copy(clips = track.clips.map { clip ->
-                        if (clip.id == clipId && clip is Clip.VideoClip) clip.copy(transition = transition) else clip
-                    })
-                }
-            ))
+            project.withClipTransform(clipId) { clip ->
+                if (clip is Clip.VideoClip) clip.copy(transition = transition) else clip
+            }
         }
     }
 
     fun toggleTrackMute(trackId: String) {
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { if (it.id == trackId) it.copy(isMuted = !it.isMuted) else it }
-            ))
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map {
+                        if (it.id == trackId) it.copy(isMuted = !it.isMuted) else it
+                    }
+                )
+            )
         }
     }
 
     fun toggleTrackLock(trackId: String) {
         recordAndMutate { project ->
-            project.copy(timeline = project.timeline.copy(
-                tracks = project.timeline.tracks.map { if (it.id == trackId) it.copy(isLocked = !it.isLocked) else it }
-            ))
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map {
+                        if (it.id == trackId) it.copy(isLocked = !it.isLocked) else it
+                    }
+                )
+            )
         }
     }
 
@@ -683,15 +735,6 @@ class ProjectViewModel(
         _state.update { it.copy(zoomLevel = zoom.coerceIn(0.1f, 10f)) }
     }
 
-    fun recalculateTimelineDuration() {
-        mutateNoUndo { project ->
-            val maxEnd = project.timeline.tracks.flatMap { it.clips }.maxOfOrNull { it.startMs + it.durationMs } ?: 0L
-            project.copy(timeline = project.timeline.copy(durationMs = maxEnd))
-        }
-    }
-
-    // SNAP
-
     fun snapPosition(ms: Long, excludeClipId: String? = null): Long {
         val snapThresholdMs = (200 / _state.value.zoomLevel).toLong().coerceAtLeast(50)
         val project = _state.value.project ?: return ms
@@ -700,16 +743,15 @@ class ProjectViewModel(
         var nearest = ms
         var minDist = snapThresholdMs
 
-        val distToPlayhead = kotlin.math.abs(ms - playhead)
-        if (distToPlayhead < minDist) { nearest = playhead; minDist = distToPlayhead }
+        val dph = kotlin.math.abs(ms - playhead)
+        if (dph < minDist) { nearest = playhead; minDist = dph }
 
         for (clip in project.timeline.tracks.flatMap { it.clips }) {
             if (clip.id == excludeClipId) continue
-            val distToStart = kotlin.math.abs(ms - clip.startMs)
-            if (distToStart < minDist) { nearest = clip.startMs; minDist = distToStart }
-            val clipEnd = clip.startMs + clip.durationMs
-            val distToEnd = kotlin.math.abs(ms - clipEnd)
-            if (distToEnd < minDist) { nearest = clipEnd; minDist = distToEnd }
+            val ds = kotlin.math.abs(ms - clip.startMs)
+            if (ds < minDist) { nearest = clip.startMs; minDist = ds }
+            val de = kotlin.math.abs(ms - (clip.startMs + clip.durationMs))
+            if (de < minDist) { nearest = clip.startMs + clip.durationMs; minDist = de }
         }
 
         if (ms < snapThresholdMs) nearest = 0
@@ -722,25 +764,79 @@ class ProjectViewModel(
         _state.update { it.copy(snapIndicatorMs = null) }
     }
 
-    // INTERNAL MUTATION HELPERS
-
     private fun recordAndMutate(transform: (MinterProject) -> MinterProject) {
         _state.update { state ->
             val project = state.project ?: return@update state
             undoManager.push(project)
-            val newProject = transform(project)
-            state.copy(project = newProject, isDirty = true, canUndo = undoManager.canUndo, canRedo = undoManager.canRedo)
+            state.copy(
+                project = transform(project),
+                isDirty = true,
+                canUndo = undoManager.canUndo,
+                canRedo = undoManager.canRedo,
+            )
         }
     }
 
-    private fun mutateNoUndo(transform: (MinterProject) -> MinterProject) {
+    private fun applyContinuousEdit(transform: (MinterProject) -> MinterProject) {
         _state.update { state ->
             val project = state.project ?: return@update state
             state.copy(project = transform(project), isDirty = true)
         }
     }
 
-    private fun syncUndoState() {
-        _state.update { it.copy(canUndo = undoManager.canUndo, canRedo = undoManager.canRedo) }
+    private fun autoRecalcDuration() {
+        _state.update { state ->
+            val p = state.project ?: return@update state
+            state.copy(project = p.withRecalculatedDuration())
+        }
     }
+}
+
+private fun MinterProject.withRecalculatedDuration(): MinterProject {
+    val maxEnd = timeline.tracks.flatMap { it.clips }
+        .maxOfOrNull { it.startMs + it.durationMs } ?: 0L
+    return copy(timeline = timeline.copy(durationMs = maxEnd))
+}
+
+private fun MinterProject.withClipStartMs(clipId: String, startMs: Long): MinterProject {
+    return copy(
+        timeline = timeline.copy(
+            tracks = timeline.tracks.map { track ->
+                track.copy(clips = track.clips.map { clip ->
+                    if (clip.id == clipId) {
+                        when (clip) {
+                            is Clip.VideoClip -> clip.copy(startMs = startMs)
+                            is Clip.AudioClip -> clip.copy(startMs = startMs)
+                            is Clip.TextClip -> clip.copy(startMs = startMs)
+                        }
+                    } else clip
+                })
+            }
+        )
+    )
+}
+
+private fun MinterProject.withClipTransform(
+    clipId: String,
+    transform: (Clip) -> Clip,
+): MinterProject {
+    return copy(
+        timeline = timeline.copy(
+            tracks = timeline.tracks.map { track ->
+                track.copy(clips = track.clips.map { clip ->
+                    if (clip.id == clipId) transform(clip) else clip
+                })
+            }
+        )
+    )
+}
+
+private fun MinterProject.withClipAddedToTrack(trackId: String, clip: Clip): MinterProject {
+    return copy(
+        timeline = timeline.copy(
+            tracks = timeline.tracks.map { t ->
+                if (t.id == trackId) t.copy(clips = t.clips + clip) else t
+            }
+        )
+    )
 }

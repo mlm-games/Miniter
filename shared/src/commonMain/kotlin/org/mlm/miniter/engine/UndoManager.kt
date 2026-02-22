@@ -12,8 +12,8 @@ class UndoManager(private val maxHistory: Int = 50) {
     val undoCount: Int get() = undoStack.size
     val redoCount: Int get() = redoStack.size
 
-    fun push(currentState: MinterProject) {
-        undoStack.addLast(currentState)
+    fun push(stateBeforeChange: MinterProject) {
+        undoStack.addLast(stateBeforeChange)
         if (undoStack.size > maxHistory) {
             undoStack.removeFirst()
         }
