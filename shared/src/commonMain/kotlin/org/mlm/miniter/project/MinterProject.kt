@@ -48,11 +48,12 @@ sealed interface Clip {
         override val startMs: Long,
         override val durationMs: Long,
         val sourcePath: String,
-        val sourceStartMs: Long = 0,    // trim start within the source file
+        val sourceStartMs: Long = 0,
         val sourceEndMs: Long = durationMs,
         val speed: Float = 1.0f,
         val filters: List<VideoFilter> = emptyList(),
         val volume: Float = 1.0f,
+        val opacity: Float = 1.0f,
         val transition: Transition? = null,
     ) : Clip
 
@@ -119,3 +120,11 @@ enum class ExportFormat(val extension: String, val mimeType: String) {
     WebM("webm", "video/webm"),
     MOV("mov", "video/quicktime"),
 }
+
+@Serializable
+data class RecentProject(
+    val path: String,
+    val name: String,
+    val lastOpenedAt: Long = Clock.System.now().toEpochMilliseconds(),
+    val thumbnailPath: String? = null,
+)

@@ -24,6 +24,7 @@ fun PropertiesPanel(
     onSetTransition: (String, Transition?) -> Unit,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?) -> Unit,
+    onSetOpacity: (String, Float) -> Unit = { _, _ -> },
 ) {
     val clip = project?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -59,7 +60,7 @@ fun PropertiesPanel(
 
         when (clip) {
             is Clip.VideoClip -> VideoClipProperties(
-                clip, onAddFilter, onRemoveFilter, onSetSpeed, onSetVolume, onSetTransition
+                clip, onAddFilter, onRemoveFilter, onSetSpeed, onSetVolume, onSetTransition, onSetOpacity
             )
             is Clip.AudioClip -> AudioClipProperties(clip, onSetVolume)
             is Clip.TextClip -> TextClipProperties(clip, onUpdateText, onUpdateTextStyle)
@@ -75,6 +76,7 @@ private fun VideoClipProperties(
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
     onSetTransition: (String, Transition?) -> Unit,
+    onSetOpacity: (String, Float) -> Unit = { _, _ -> },
 ) {
     val fileName = clip.sourcePath.substringAfterLast("/").substringAfterLast("\\")
 
@@ -111,6 +113,18 @@ private fun VideoClipProperties(
         steps = 19,
     )
     Text("${(volumeValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+
+    Spacer(Modifier.height(16.dp))
+
+    Text("Opacity", style = MaterialTheme.typography.labelMedium)
+    var opacityValue by remember(clip.opacity) { mutableFloatStateOf(clip.opacity) }
+    Slider(
+        value = opacityValue,
+        onValueChange = { opacityValue = it },
+        onValueChangeFinished = { onSetOpacity(clip.id, opacityValue) },
+        valueRange = 0f..1f,
+    )
+    Text("${(opacityValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(16.dp))
 

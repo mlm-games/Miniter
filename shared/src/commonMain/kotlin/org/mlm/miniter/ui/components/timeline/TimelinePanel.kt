@@ -16,8 +16,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -45,16 +48,23 @@ fun TimelinePanel(
     zoomLevel: Float,
     isPlaying: Boolean = false,
     selectedClipId: String?,
+    snapIndicatorMs: Long? = null,
     onPlayheadChange: (Long) -> Unit,
     onClipSelected: (String?) -> Unit,
     onClipMoved: (clipId: String, newStartMs: Long) -> Unit,
+    onClipMoveFinished: () -> Unit = {},
     onClipTrimStart: (clipId: String, deltaMs: Long) -> Unit,
     onClipTrimEnd: (clipId: String, deltaMs: Long) -> Unit,
+    onClipTrimFinished: () -> Unit = {},
     onToggleMute: (String) -> Unit,
     onToggleLock: (String) -> Unit,
     onAddTrack: (TrackType) -> Unit,
     onRemoveTrack: (String) -> Unit,
     onSnapPosition: (Long, String?) -> Long,
+    onClearSnap: () -> Unit = {},
+    onSplitClip: (String) -> Unit = {},
+    onDuplicateClip: (String) -> Unit = {},
+    onDeleteClip: (String) -> Unit = {},
 ) {
     if (project == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -120,12 +130,20 @@ fun TimelinePanel(
                         canRemove = !(track.type == TrackType.Video && tracks.count { it.type == TrackType.Video } <= 1),
                         onClipSelected = onClipSelected,
                         onClipMoved = onClipMoved,
+                        onClipMoveFinished = onClipMoveFinished,
                         onClipTrimStart = onClipTrimStart,
                         onClipTrimEnd = onClipTrimEnd,
+                        onClipTrimFinished = onClipTrimFinished,
                         onToggleMute = { onToggleMute(track.id) },
                         onToggleLock = { onToggleLock(track.id) },
                         onRemoveTrack = { onRemoveTrack(track.id) },
                         onSnapPosition = onSnapPosition,
+                        onClearSnap = onClearSnap,
+                        onSplitClip = onSplitClip,
+                        onDuplicateClip = onDuplicateClip,
+                        onDeleteClip = onDeleteClip,
+                        snapIndicatorMs = snapIndicatorMs,
+                        onPlayheadChange = onPlayheadChange,
                     )
                     HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
                 }
@@ -227,12 +245,20 @@ private fun TrackRow(
     canRemove: Boolean,
     onClipSelected: (String?) -> Unit,
     onClipMoved: (String, Long) -> Unit,
+    onClipMoveFinished: () -> Unit = {},
     onClipTrimStart: (String, Long) -> Unit,
     onClipTrimEnd: (String, Long) -> Unit,
+    onClipTrimFinished: () -> Unit = {},
     onToggleMute: () -> Unit,
     onToggleLock: () -> Unit,
     onRemoveTrack: () -> Unit,
     onSnapPosition: (Long, String?) -> Long,
+    onClearSnap: () -> Unit = {},
+    onSplitClip: (String) -> Unit = {},
+    onDuplicateClip: (String) -> Unit = {},
+    onDeleteClip: (String) -> Unit = {},
+    snapIndicatorMs: Long? = null,
+    onPlayheadChange: (Long) -> Unit = {},
 ) {
     val density = LocalDensity.current
     val playheadColor = MaterialTheme.colorScheme.error
@@ -264,6 +290,7 @@ private fun TrackRow(
                     val widthDp = (clip.durationMs * dpPerMs).dp.coerceAtLeast(MIN_CLIP_WIDTH_DP.dp)
                     val isSelected = clip.id == selectedClipId
                     val isLocked = track.isLocked
+                    val canSplit = isSelected && clip is Clip.VideoClip && playheadMs > clip.startMs && playheadMs < clip.startMs + clip.durationMs
 
                     ClipBlock(
                         clip = clip,
@@ -273,6 +300,7 @@ private fun TrackRow(
                         isLocked = isLocked,
                         isMuted = track.isMuted,
                         dpPerMs = dpPerMs,
+                        canSplit = canSplit,
                         modifier = Modifier.offset(x = leftDp).fillMaxHeight().padding(vertical = 2.dp),
                         onTap = { onClipSelected(clip.id) },
                         onMoved = { deltaMs ->
@@ -282,8 +310,14 @@ private fun TrackRow(
                                 onClipMoved(clip.id, snapped)
                             }
                         },
+                        onMoveFinished = { onClipMoveFinished(); onClearSnap() },
                         onTrimStart = { deltaMs -> if (!isLocked) onClipTrimStart(clip.id, deltaMs) },
                         onTrimEnd = { deltaMs -> if (!isLocked) onClipTrimEnd(clip.id, deltaMs) },
+                        onTrimFinished = { onClipTrimFinished() },
+                        onSplit = { onSplitClip(clip.id) },
+                        onDuplicate = { onDuplicateClip(clip.id) },
+                        onDelete = { onDeleteClip(clip.id) },
+                        onSetPlayhead = { onPlayheadChange(clip.startMs) },
                     )
                 }
 
@@ -292,6 +326,25 @@ private fun TrackRow(
                     modifier = Modifier.offset(x = phDp - 0.5.dp).width(1.5.dp).fillMaxHeight()
                         .background(playheadColor)
                 )
+
+                if (snapIndicatorMs != null) {
+                    val snapDp = (snapIndicatorMs * dpPerMs).dp
+                    Box(
+                        modifier = Modifier
+                            .offset(x = snapDp - 0.5.dp)
+                            .width(1.dp)
+                            .fillMaxHeight()
+                            .drawBehind {
+                                drawLine(
+                                    color = Color.Cyan,
+                                    start = Offset(0.5f, 0f),
+                                    end = Offset(0.5f, size.height),
+                                    strokeWidth = 1.5f,
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f)),
+                                )
+                            }
+                    )
+                }
             }
         }
     }
@@ -349,12 +402,20 @@ private fun ClipBlock(
     isLocked: Boolean,
     isMuted: Boolean,
     dpPerMs: Float,
+    canSplit: Boolean = false,
     modifier: Modifier = Modifier,
     onTap: () -> Unit,
     onMoved: (deltaMs: Long) -> Unit,
+    onMoveFinished: () -> Unit = {},
     onTrimStart: (deltaMs: Long) -> Unit,
     onTrimEnd: (deltaMs: Long) -> Unit,
+    onTrimFinished: () -> Unit = {},
+    onSplit: () -> Unit = {},
+    onDuplicate: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    onSetPlayhead: () -> Unit = {},
 ) {
+    var showContextMenu by remember { mutableStateOf(false) }
     val density = LocalDensity.current
 
     val bgColor = when (trackType) {
@@ -384,7 +445,7 @@ private fun ClipBlock(
         Surface(
             modifier = Modifier.fillMaxSize().padding(horizontal = TRIM_HANDLE_WIDTH)
                 .clip(RoundedCornerShape(6.dp)).border(borderWidth, borderColor, RoundedCornerShape(6.dp))
-                .pointerInput(clip.id) { detectTapGestures { onTap() } }
+                .pointerInput(clip.id) { detectTapGestures(onTap = { onTap() }, onLongPress = { showContextMenu = true }) }
                 .pointerInput(clip.id, dpPerMs, isLocked) {
                     if (isLocked) return@pointerInput
                     var accumulatedDx = 0f
@@ -393,7 +454,7 @@ private fun ClipBlock(
                         accumulatedDx += dragAmount.x
                         val deltaMs = (accumulatedDx / density.density / dpPerMs).toLong()
                         if (deltaMs != 0L) { onMoved(deltaMs); accumulatedDx = 0f }
-                    })
+                    }, onDragEnd = { onMoveFinished() }, onDragCancel = { onMoveFinished() })
                 },
             color = bgColor, shape = RoundedCornerShape(6.dp),
             tonalElevation = if (isSelected) 4.dp else 1.dp,
@@ -447,10 +508,22 @@ private fun ClipBlock(
                             accDx += dragAmount.x
                             val deltaMs = (accDx / density.density / dpPerMs).toLong()
                             if (deltaMs != 0L) { onTrimEnd(deltaMs); accDx = 0f }
-                        })
+                        }, onDragEnd = { onTrimFinished() }, onDragCancel = { onTrimFinished() })
                     },
             )
         }
+
+        ClipContextMenu(
+            expanded = showContextMenu,
+            clip = clip,
+            canSplit = canSplit,
+            isLocked = isLocked,
+            onDismiss = { showContextMenu = false },
+            onSplit = onSplit,
+            onDuplicate = onDuplicate,
+            onDelete = onDelete,
+            onSetAsPlayhead = onSetPlayhead,
+        )
     }
 }
 

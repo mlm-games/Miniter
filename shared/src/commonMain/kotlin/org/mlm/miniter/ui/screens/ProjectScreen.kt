@@ -32,6 +32,8 @@ import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.nav.Route
 import org.mlm.miniter.project.Clip
 import org.mlm.miniter.project.FilterType
+import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
+import org.mlm.miniter.ui.components.dialogs.ShortcutHelpDialog
 import org.mlm.miniter.ui.components.properties.PropertiesPanel
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.components.timeline.TimelinePanel
@@ -90,6 +92,29 @@ fun ProjectScreen(
         // playerState.volume = currentVolume // Library may not support this
     }
 
+    var showShortcutHelp by remember { mutableStateOf(false) }
+    var showUnsavedDialog by remember { mutableStateOf(false) }
+
+    if (showShortcutHelp) {
+        ShortcutHelpDialog(onDismiss = { showShortcutHelp = false })
+    }
+
+    if (showUnsavedDialog) {
+        ConfirmDialog(
+            title = "Unsaved Changes",
+            message = "You have unsaved changes. Are you sure you want to leave?",
+            confirmText = "Leave",
+            dismissText = "Stay",
+            onConfirm = {
+                showUnsavedDialog = false
+                playerState.pause()
+                projectViewModel.setPlaying(false)
+                backStack.popBack()
+            },
+            onDismiss = { showUnsavedDialog = false },
+        )
+    }
+
     val togglePlayPause: () -> Unit = {
         val nowPlaying = !uiState.isPlaying
         projectViewModel.setPlaying(nowPlaying)
@@ -145,14 +170,30 @@ fun ProjectScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = {
-                        playerState.pause()
-                        projectViewModel.setPlaying(false)
-                        backStack.popBack()
+                        if (uiState.isDirty) {
+                            showUnsavedDialog = true
+                        } else {
+                            playerState.pause()
+                            projectViewModel.setPlaying(false)
+                            backStack.popBack()
+                        }
                     }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { projectViewModel.undo() },
+                        enabled = uiState.canUndo,
+                    ) {
+                        Icon(Icons.Default.Undo, "Undo")
+                    }
+                    IconButton(
+                        onClick = { projectViewModel.redo() },
+                        enabled = uiState.canRedo,
+                    ) {
+                        Icon(Icons.Default.Redo, "Redo")
+                    }
                     IconButton(
                         onClick = {
                             val path = uiState.projectPath
@@ -171,6 +212,9 @@ fun ProjectScreen(
                         backStack.add(Route.Export(projectPath))
                     }) {
                         Icon(Icons.Default.FileDownload, "Export")
+                    }
+                    IconButton(onClick = { showShortcutHelp = true }) {
+                        Icon(Icons.Default.HelpOutline, "Shortcuts")
                     }
                 }
             )
@@ -217,6 +261,15 @@ fun ProjectScreen(
                             projectViewModel.saveProject(path)
                             snackbarManager.show("Project saved")
                             true
+                        }
+                        event.key == Key.Z && event.isCtrlPressed && !event.isShiftPressed -> {
+                            projectViewModel.undo(); true
+                        }
+                        event.key == Key.Z && event.isCtrlPressed && event.isShiftPressed -> {
+                            projectViewModel.redo(); true
+                        }
+                        event.key == Key.Slash && event.isShiftPressed -> {
+                            showShortcutHelp = true; true
                         }
                         event.key == Key.DirectionLeft -> {
                             val step = if (event.isShiftPressed) 5000L else 1000L
@@ -299,8 +352,16 @@ fun ProjectScreen(
                         },
                         onUpdateTextStyle = { clipId, fontSize, color ->
                             projectViewModel.updateTextClipStyle(
-                                clipId, fontSizeSp = fontSize, colorHex = color
+                                clipId,
+                                fontSizeSp = fontSize,
+                                colorHex = color,
+                                backgroundColorHex = null,
+                                positionX = null,
+                                positionY = null,
                             )
+                        },
+                        onSetOpacity = { clipId, opacity ->
+                            projectViewModel.setClipOpacity(clipId, opacity)
                         },
                     )
                 }
@@ -371,23 +432,40 @@ fun ProjectScreen(
                     zoomLevel = uiState.zoomLevel,
                     isPlaying = uiState.isPlaying,
                     selectedClipId = uiState.selectedClipId,
+                    snapIndicatorMs = uiState.snapIndicatorMs,
                     onPlayheadChange = { ms -> seekToMs(ms) },
                     onClipSelected = { projectViewModel.selectClip(it) },
                     onClipMoved = { clipId, newStart ->
                         projectViewModel.moveClip(clipId, newStart)
                     },
+                    onClipMoveFinished = { projectViewModel.commitMove(); projectViewModel.clearSnapIndicator() },
                     onClipTrimStart = { clipId, deltaMs ->
                         projectViewModel.trimClipStartEdge(clipId, deltaMs)
                     },
                     onClipTrimEnd = { clipId, deltaMs ->
                         projectViewModel.trimClipEndEdge(clipId, deltaMs)
                     },
+                    onClipTrimFinished = { projectViewModel.commitTrim() },
                     onToggleMute = { projectViewModel.toggleTrackMute(it) },
                     onToggleLock = { projectViewModel.toggleTrackLock(it) },
                     onAddTrack = { type -> projectViewModel.addTrack(type) },
                     onRemoveTrack = { trackId -> projectViewModel.removeTrack(trackId) },
                     onSnapPosition = { ms, excludeId ->
                         projectViewModel.snapPosition(ms, excludeId)
+                    },
+                    onClearSnap = { projectViewModel.clearSnapIndicator() },
+                    onSplitClip = { clipId ->
+                        projectViewModel.splitClipAtPlayhead(clipId)
+                        projectViewModel.recalculateTimelineDuration()
+                    },
+                    onDuplicateClip = { clipId ->
+                        projectViewModel.duplicateClip(clipId)
+                        projectViewModel.recalculateTimelineDuration()
+                    },
+                    onDeleteClip = { clipId ->
+                        projectViewModel.removeClip(clipId)
+                        projectViewModel.selectClip(null)
+                        projectViewModel.recalculateTimelineDuration()
                     },
                 )
             }
