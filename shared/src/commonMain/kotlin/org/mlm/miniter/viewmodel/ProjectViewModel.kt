@@ -54,7 +54,7 @@ class ProjectViewModel(
 
     private var preDragSnapshot: MinterProject? = null
 
-    fun newProject(name: String, initialVideoPath: String) {
+    fun newProject(name: String, initialVideoPath: String, savePath: String? = null) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             try {
@@ -76,7 +76,7 @@ class ProjectViewModel(
                 undoManager.clear()
                 _state.update {
                     it.copy(
-                        project = project, selectedTrackId = track.id,
+                        project = project, projectPath = savePath, selectedTrackId = track.id,
                         isDirty = true, isLoading = false,
                         canUndo = false, canRedo = false,
                     )
@@ -134,6 +134,16 @@ class ProjectViewModel(
                 _state.update { it.copy(isSaving = false) }
                 snackbarManager.showError("Failed to save: ${e.message}")
             }
+        }
+    }
+
+    fun renameProject(newName: String) {
+        val project = _state.value.project ?: return
+        _state.update {
+            it.copy(
+                project = project.copy(name = newName),
+                isDirty = true,
+            )
         }
     }
 

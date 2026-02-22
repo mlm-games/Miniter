@@ -20,28 +20,43 @@ import io.github.vinceglb.filekit.name
 import io.github.vinceglb.filekit.path
 import org.koin.compose.koinInject
 import org.mlm.miniter.project.RecentProject
+import org.mlm.miniter.ui.components.dialogs.NewProjectDialog
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.viewmodel.EditorViewModel
 
 @Composable
 fun EditorScreen(
     onOpenSettings: () -> Unit,
-    onOpenProject: (String, String) -> Unit,
+    onOpenProject: (String, String, String?) -> Unit,
     editorViewModel: EditorViewModel = koinInject(),
 ) {
     val snackbarManager: SnackbarManager = koinInject()
     val recentProjects by editorViewModel.recentProjects.collectAsState()
 
+    var pendingVideo by remember { mutableStateOf<PlatformFile?>(null) }
+
     val videoPicker = rememberFilePickerLauncher(
         type = FileKitType.File(extensions = listOf("mp4", "webm", "mov", "mkv", "avi")),
     ) { file: PlatformFile? ->
-        file?.let { onOpenProject(it.path, it.name) }
+        pendingVideo = file
     }
 
     val projectPicker = rememberFilePickerLauncher(
         type = FileKitType.File(extensions = listOf("mntr")),
     ) { file: PlatformFile? ->
-        file?.let { onOpenProject(it.path, it.name) }
+        file?.let { onOpenProject(it.path, it.name, null) }
+    }
+
+    pendingVideo?.let { video ->
+        NewProjectDialog(
+            videoPath = video.path,
+            videoName = video.name,
+            onDismiss = { pendingVideo = null },
+            onCreate = { projectName, savePath ->
+                pendingVideo = null
+                onOpenProject(video.path, projectName, savePath)
+            },
+        )
     }
 
     Scaffold(
@@ -109,7 +124,12 @@ fun EditorScreen(
                     items(recentProjects, key = { it.path }) { recent ->
                         RecentProjectItem(
                             recent = recent,
-                            onClick = { onOpenProject(recent.path, recent.name) },
+                            onClick = {
+                                if (recent.path.endsWith(".mntr")) {
+                                    onOpenProject(recent.path, recent.name, null)
+                                } else {
+                                }
+                            },
                             onRemove = { editorViewModel.removeRecent(recent.path) },
                         )
                     }

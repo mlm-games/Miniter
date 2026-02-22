@@ -39,6 +39,7 @@ import org.mlm.miniter.nav.Route
 import org.mlm.miniter.project.Clip
 import org.mlm.miniter.project.FilterType
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
+import org.mlm.miniter.ui.components.dialogs.SaveProjectDialog
 import org.mlm.miniter.ui.components.dialogs.ShortcutHelpDialog
 import org.mlm.miniter.ui.components.properties.PropertiesPanel
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
@@ -54,6 +55,7 @@ fun ProjectScreen(
     videoName: String,
     backStack: NavBackStack<NavKey>,
     projectViewModel: ProjectViewModel = koinInject(),
+    savePath: String? = null,
 ) {
     val snackbarManager: SnackbarManager = koinInject()
     val uiState by projectViewModel.state.collectAsState()
@@ -64,7 +66,7 @@ fun ProjectScreen(
             if (videoPath.endsWith(".mntr")) {
                 projectViewModel.loadProject(videoPath)
             } else {
-                projectViewModel.newProject(videoName, videoPath)
+                projectViewModel.newProject(videoName, videoPath, savePath)
             }
         }
     }
@@ -100,10 +102,24 @@ fun ProjectScreen(
 
     var showShortcutHelp by remember { mutableStateOf(false) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
+    var showSaveAsDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     if (showShortcutHelp) {
         ShortcutHelpDialog(onDismiss = { showShortcutHelp = false })
+    }
+
+    if (showSaveAsDialog) {
+        SaveProjectDialog(
+            defaultName = uiState.project?.name ?: videoName,
+            onDismiss = { showSaveAsDialog = false },
+            onSave = { projectName, path ->
+                showSaveAsDialog = false
+                projectViewModel.renameProject(projectName)
+                projectViewModel.saveProject(path)
+                snackbarManager.show("Project saved")
+            },
+        )
     }
 
     if (showUnsavedDialog) {
@@ -228,13 +244,21 @@ fun ProjectScreen(
                     IconButton(
                         onClick = {
                             val path = uiState.projectPath
-                                ?: "${videoPath.substringBeforeLast(".")}.mntr"
-                            projectViewModel.saveProject(path)
-                            snackbarManager.show("Project saved")
+                            if (path != null) {
+                                projectViewModel.saveProject(path)
+                                snackbarManager.show("Project saved")
+                            } else {
+                                showSaveAsDialog = true
+                            }
                         },
                         enabled = uiState.isDirty,
                     ) {
                         Icon(Icons.Default.Save, "Save Project")
+                    }
+                    IconButton(onClick = {
+                        showSaveAsDialog = true
+                    }) {
+                        Icon(Icons.Default.SaveAs, "Save As")
                     }
                     IconButton(onClick = {
                         playerState.pause()
@@ -285,9 +309,13 @@ fun ProjectScreen(
                             true
                         }
                         event.key == Key.S && event.isCtrlPressed -> {
-                            val path = uiState.projectPath ?: "${videoPath.substringBeforeLast(".")}.mntr"
-                            projectViewModel.saveProject(path)
-                            snackbarManager.show("Project saved")
+                            val path = uiState.projectPath
+                            if (path != null) {
+                                projectViewModel.saveProject(path)
+                                snackbarManager.show("Project saved")
+                            } else {
+                                showSaveAsDialog = true
+                            }
                             true
                         }
                         event.key == Key.Z && event.isCtrlPressed && !event.isShiftPressed -> {
