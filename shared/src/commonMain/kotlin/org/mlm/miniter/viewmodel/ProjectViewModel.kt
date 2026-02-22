@@ -6,8 +6,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.mlm.miniter.engine.ImageData
+import org.mlm.miniter.engine.PlatformVideoEngine
+import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.*
-import java.util.UUID
 
 data class ProjectUiState(
     val project: MinterProject? = null,
@@ -18,39 +20,78 @@ data class ProjectUiState(
     val isPlaying: Boolean = false,
     val isSaving: Boolean = false,
     val isDirty: Boolean = false,
-    val zoomLevel: Float = 1f,      // pixels per ms
+    val zoomLevel: Float = 1f,
+    val thumbnails: List<ImageData> = emptyList(),
+    val isLoadingThumbnails: Boolean = false,
 )
 
 class ProjectViewModel(
     private val projectRepository: ProjectRepository,
+    private val engine: PlatformVideoEngine,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ProjectUiState())
     val state: StateFlow<ProjectUiState> = _state
 
+    val exportProgress = engine.exportProgress
+
     fun newProject(name: String, initialVideoPath: String) {
         viewModelScope.launch {
-            val clip = Clip.VideoClip(
-                id = uuid(),
-                startMs = 0,
-                durationMs = 0, // will be updated when we probe
-                sourcePath = initialVideoPath,
-            )
-            val track = Track(
-                id = "video-0",
-                type = TrackType.Video,
-                clips = listOf(clip),
-            )
-            val project = MinterProject(
-                name = name,
-                timeline = Timeline(tracks = listOf(track)),
-            )
-            _state.update {
-                it.copy(
-                    project = project,
-                    selectedTrackId = track.id,
-                    isDirty = true,
+            try {
+                val info = engine.probeVideo(initialVideoPath)
+
+                val clip = Clip.VideoClip(
+                    id = randomUuid(),
+                    startMs = 0,
+                    durationMs = info.durationMs,
+                    sourcePath = initialVideoPath,
+                    sourceEndMs = info.durationMs,
                 )
+                val track = Track(
+                    id = "video-0",
+                    type = TrackType.Video,
+                    clips = listOf(clip),
+                )
+                val project = MinterProject(
+                    name = name,
+                    timeline = Timeline(
+                        tracks = listOf(track),
+                        durationMs = info.durationMs,
+                    ),
+                )
+                _state.update {
+                    it.copy(
+                        project = project,
+                        selectedTrackId = track.id,
+                        isDirty = true,
+                    )
+                }
+
+                loadThumbnails(initialVideoPath)
+
+            } catch (e: Exception) {
+                val clip = Clip.VideoClip(
+                    id = randomUuid(),
+                    startMs = 0,
+                    durationMs = 0,
+                    sourcePath = initialVideoPath,
+                )
+                val track = Track(
+                    id = "video-0",
+                    type = TrackType.Video,
+                    clips = listOf(clip),
+                )
+                val project = MinterProject(
+                    name = name,
+                    timeline = Timeline(tracks = listOf(track)),
+                )
+                _state.update {
+                    it.copy(
+                        project = project,
+                        selectedTrackId = track.id,
+                        isDirty = true,
+                    )
+                }
             }
         }
     }
@@ -67,8 +108,15 @@ class ProjectViewModel(
                         isDirty = false,
                     )
                 }
+
+                val firstClip = project.timeline.tracks
+                    .flatMap { it.clips }
+                    .filterIsInstance<Clip.VideoClip>()
+                    .firstOrNull()
+                if (firstClip != null) {
+                    loadThumbnails(firstClip.sourcePath)
+                }
             } catch (e: Exception) {
-                // Handle via snackbar
             }
         }
     }
@@ -87,25 +135,61 @@ class ProjectViewModel(
         }
     }
 
-    // ── Timeline manipulation ──
-
-    fun addVideoClip(trackId: String, sourcePath: String, atMs: Long, durationMs: Long) {
-        mutateProject { project ->
-            val clip = Clip.VideoClip(
-                id = uuid(),
-                startMs = atMs,
-                durationMs = durationMs,
-                sourcePath = sourcePath,
-                sourceEndMs = durationMs,
-            )
-            project.copy(
-                timeline = project.timeline.copy(
-                    tracks = project.timeline.tracks.map { track ->
-                        if (track.id == trackId) track.copy(clips = track.clips + clip)
-                        else track
-                    }
+    private fun loadThumbnails(videoPath: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(isLoadingThumbnails = true) }
+            try {
+                val thumbs = engine.extractThumbnails(
+                    path = videoPath,
+                    count = 12,
+                    width = 160,
+                    height = 90,
                 )
-            )
+                _state.update { it.copy(thumbnails = thumbs, isLoadingThumbnails = false) }
+            } catch (e: Exception) {
+                _state.update { it.copy(isLoadingThumbnails = false) }
+            }
+        }
+    }
+
+    fun exportProject(outputPath: String) {
+        val project = _state.value.project ?: return
+        viewModelScope.launch {
+            engine.exportVideo(project, outputPath)
+        }
+    }
+
+    fun cancelExport() {
+        engine.cancelExport()
+    }
+
+    fun resetExport() {
+        engine.reset()
+    }
+
+    fun addVideoClip(trackId: String, sourcePath: String, atMs: Long) {
+        viewModelScope.launch {
+            try {
+                val info = engine.probeVideo(sourcePath)
+                mutateProject { project ->
+                    val clip = Clip.VideoClip(
+                        id = randomUuid(),
+                        startMs = atMs,
+                        durationMs = info.durationMs,
+                        sourcePath = sourcePath,
+                        sourceEndMs = info.durationMs,
+                    )
+                    project.copy(
+                        timeline = project.timeline.copy(
+                            tracks = project.timeline.tracks.map { track ->
+                                if (track.id == trackId) track.copy(clips = track.clips + clip)
+                                else track
+                            },
+                            durationMs = maxOf(project.timeline.durationMs, atMs + info.durationMs),
+                        )
+                    )
+                }
+            } catch (_: Exception) { }
         }
     }
 
@@ -127,7 +211,7 @@ class ProjectViewModel(
                 ?: Track(id = "text-0", type = TrackType.Text)
 
             val clip = Clip.TextClip(
-                id = uuid(),
+                id = randomUuid(),
                 startMs = startMs,
                 durationMs = durationMs,
                 text = text,
@@ -194,7 +278,7 @@ class ProjectViewModel(
                                 sourceEndMs = clip.sourceStartMs + splitPoint,
                             )
                             val secondHalf = clip.copy(
-                                id = uuid(),
+                                id = randomUuid(),
                                 startMs = playhead,
                                 durationMs = clip.durationMs - splitPoint,
                                 sourceStartMs = clip.sourceStartMs + splitPoint,
@@ -339,6 +423,4 @@ class ProjectViewModel(
             state.copy(project = transform(project), isDirty = true)
         }
     }
-
-    private fun uuid(): String = UUID.randomUUID().toString()
 }

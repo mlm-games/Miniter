@@ -1,7 +1,10 @@
 package org.mlm.miniter.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -9,19 +12,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
-import io.github.kdroidfilter.composemediaplayer.VideoPlayerState
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
 import io.github.vinceglb.filekit.PlatformFile
 import org.koin.compose.koinInject
+import org.mlm.miniter.engine.toImageBitmap
+import org.mlm.miniter.nav.Route
+import org.mlm.miniter.ui.components.properties.PropertiesPanel
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.components.timeline.TimelinePanel
 import org.mlm.miniter.ui.components.toolbar.EditorToolbar
-import org.mlm.miniter.ui.components.properties.PropertiesPanel
 import org.mlm.miniter.ui.util.popBack
 import org.mlm.miniter.viewmodel.ProjectViewModel
 import java.io.File
@@ -37,7 +42,6 @@ fun ProjectScreen(
     val uiState by projectViewModel.state.collectAsState()
     val playerState = rememberVideoPlayerState()
 
-    // Init project if not loaded
     LaunchedEffect(videoPath) {
         if (uiState.project == null) {
             if (videoPath.endsWith(".mntr")) {
@@ -86,13 +90,14 @@ fun ProjectScreen(
                             projectViewModel.saveProject(path)
                             snackbarManager.show("Project saved")
                         },
-                        enabled = uiState.isDirty
+                        enabled = uiState.isDirty,
                     ) {
                         Icon(Icons.Default.Save, "Save Project")
                     }
 
                     IconButton(onClick = {
-                        snackbarManager.show("Export functionality ready — wire to ExportScreen")
+                        val projectPath = uiState.projectPath ?: videoPath
+                        backStack.add(Route.Export(projectPath))
                     }) {
                         Icon(Icons.Default.FileDownload, "Export")
                     }
@@ -115,16 +120,24 @@ fun ProjectScreen(
                         .weight(0.65f)
                         .fillMaxHeight()
                         .background(MaterialTheme.colorScheme.surfaceContainerLowest),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
-                    VideoPreviewPanel(playerState = playerState)
+                    VideoPreviewPanel(
+                        playerState = playerState,
+                        isPlaying = uiState.isPlaying,
+                        onPlayPause = {
+                            val nowPlaying = !uiState.isPlaying
+                            projectViewModel.setPlaying(nowPlaying)
+                            if (nowPlaying) playerState.play() else playerState.pause()
+                        },
+                    )
                 }
 
                 Box(
                     modifier = Modifier
                         .weight(0.35f)
                         .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .background(MaterialTheme.colorScheme.surfaceContainer),
                 ) {
                     PropertiesPanel(
                         project = uiState.project,
@@ -140,7 +153,7 @@ fun ProjectScreen(
                         },
                         onSetTransition = { clipId, transition ->
                             projectViewModel.setTransition(clipId, transition)
-                        }
+                        },
                     )
                 }
             }
@@ -165,19 +178,29 @@ fun ProjectScreen(
                     projectViewModel.addTextClip(
                         trackId = "text-0",
                         text = "New Text",
-                        startMs = uiState.playheadMs
+                        startMs = uiState.playheadMs,
                     )
                 },
                 onZoomIn = { projectViewModel.setZoom(uiState.zoomLevel * 1.5f) },
                 onZoomOut = { projectViewModel.setZoom(uiState.zoomLevel / 1.5f) },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             )
+
+            if (uiState.thumbnails.isNotEmpty()) {
+                ThumbnailStrip(
+                    thumbnails = uiState.thumbnails,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                )
+            }
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(0.45f)
-                    .background(MaterialTheme.colorScheme.surfaceDim)
+                    .background(MaterialTheme.colorScheme.surfaceDim),
             ) {
                 TimelinePanel(
                     project = uiState.project,
@@ -186,7 +209,9 @@ fun ProjectScreen(
                     selectedClipId = uiState.selectedClipId,
                     onPlayheadChange = { projectViewModel.setPlayhead(it) },
                     onClipSelected = { projectViewModel.selectClip(it) },
-                    onClipMoved = { clipId, newStart -> projectViewModel.moveClip(clipId, newStart) },
+                    onClipMoved = { clipId, newStart ->
+                        projectViewModel.moveClip(clipId, newStart)
+                    },
                     onToggleMute = { projectViewModel.toggleTrackMute(it) },
                     onToggleLock = { projectViewModel.toggleTrackLock(it) },
                 )
@@ -196,7 +221,11 @@ fun ProjectScreen(
 }
 
 @Composable
-private fun VideoPreviewPanel(playerState: VideoPlayerState) {
+private fun VideoPreviewPanel(
+    playerState: io.github.kdroidfilter.composemediaplayer.VideoPlayerState,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+) {
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -210,7 +239,7 @@ private fun VideoPreviewPanel(playerState: VideoPlayerState) {
         ) {
             VideoPlayerSurface(
                 playerState = playerState,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
             )
         }
 
@@ -221,16 +250,14 @@ private fun VideoPreviewPanel(playerState: VideoPlayerState) {
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { playerState.seekTo(0F) }) {
+            IconButton(onClick = { playerState.seekTo(0f) }) {
                 Icon(Icons.Default.SkipPrevious, "Rewind to start")
             }
-            IconButton(onClick = {
-                if (playerState.isPlaying) playerState.pause() else playerState.play()
-            }) {
+            IconButton(onClick = onPlayPause) {
                 Icon(
-                    if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     "Play/Pause",
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(36.dp),
                 )
             }
             IconButton(onClick = { /* TODO: seek forward 5s */ }) {
@@ -240,7 +267,7 @@ private fun VideoPreviewPanel(playerState: VideoPlayerState) {
             Spacer(Modifier.width(16.dp))
 
             Text(
-                text = playerState.positionText + " / " + playerState.durationText,
+                text = "${playerState.positionText} / ${playerState.durationText}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -248,9 +275,23 @@ private fun VideoPreviewPanel(playerState: VideoPlayerState) {
     }
 }
 
-private fun formatTime(ms: Long): String {
-    val totalSec = ms / 1000
-    val min = totalSec / 60
-    val sec = totalSec % 60
-    return "%02d:%02d".format(min, sec)
+@Composable
+private fun ThumbnailStrip(
+    thumbnails: List<org.mlm.miniter.engine.ImageData>,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        items(thumbnails) { thumb ->
+            val imageBitmap = remember(thumb) { thumb.toImageBitmap() }
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = null,
+                modifier = Modifier.fillMaxHeight().aspectRatio(16f / 9f),
+                contentScale = ContentScale.Crop,
+            )
+        }
+    }
 }

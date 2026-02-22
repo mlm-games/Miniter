@@ -23,6 +23,12 @@ kotlin {
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         androidResources { enable = true }
+        
+        packaging {
+            resources {
+                excludes += "/lib/**/*"
+            }
+        }
     }
 
     jvm()
@@ -54,12 +60,15 @@ kotlin {
             implementation(libs.filekit.core)
             implementation(libs.filekit.dialogs.compose)
             implementation(libs.compose.media.player)
+            implementation(libs.okio)
         }
 
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.ktx)
             implementation(libs.koin.android)
+            implementation(libs.ffmpegkit.full)
+            implementation(libs.okio)
         }
 
         jvmMain.dependencies {

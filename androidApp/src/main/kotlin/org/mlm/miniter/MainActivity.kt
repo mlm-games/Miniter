@@ -8,7 +8,6 @@ import io.github.vinceglb.filekit.FileKit
 import io.github.mlmgames.settings.core.SettingsRepository
 import io.github.mlmgames.settings.core.datastore.createSettingsDataStore
 import io.github.vinceglb.filekit.dialogs.init
-import org.mlm.miniter.datastore.createDataStore
 import org.mlm.miniter.di.initKoin
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.settings.AppSettingsSchema

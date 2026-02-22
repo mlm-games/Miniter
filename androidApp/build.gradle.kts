@@ -55,6 +55,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/lib/**/*"
         }
     }
 
@@ -80,5 +81,5 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.filekit.core)
     implementation(libs.filekit.dialogs.compose)
-    implementation(libs.javacv.platform)
+    implementation(libs.androidx.datastore.preferences.core)
 }
