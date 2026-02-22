@@ -5,7 +5,10 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import io.github.vinceglb.filekit.PlatformFile
@@ -48,6 +51,27 @@ class ProjectViewModel(
     val state: StateFlow<ProjectUiState> = _state
 
     val exportProgress = engine.exportProgress
+
+    val project: StateFlow<MinterProject?> = _state.map { it.project }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val playheadMs: StateFlow<Long> = _state.map { it.playheadMs }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+    val isPlaying: StateFlow<Boolean> = _state.map { it.isPlaying }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val selectedClipId: StateFlow<String?> = _state.map { it.selectedClipId }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val zoomLevel: StateFlow<Float> = _state.map { it.zoomLevel }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1f)
+    val snapIndicatorMs: StateFlow<Long?> = _state.map { it.snapIndicatorMs }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val canUndo: StateFlow<Boolean> = _state.map { it.canUndo }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val canRedo: StateFlow<Boolean> = _state.map { it.canRedo }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val isDirty: StateFlow<Boolean> = _state.map { it.isDirty }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val previewFrame: StateFlow<ImageData?> = _state.map { it.thumbnails.firstOrNull() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private var sourceDurationMs: Long = 0L
     private var autoSaveJob: Job? = null
@@ -207,6 +231,59 @@ class ProjectViewModel(
         val snapshot = preDragSnapshot ?: return
         _state.update { it.copy(project = snapshot) }
         preDragSnapshot = null
+    }
+
+    fun beginEdit() = beginContinuousEdit()
+    fun commitEdit() = commitContinuousEdit()
+    fun cancelEdit() = cancelContinuousEdit()
+
+    fun initProject(videoPath: String, projectName: String, savePath: String?) {
+        if (savePath != null && savePath.endsWith(".mntr") && projectRepository.exists(savePath)) {
+            loadProject(savePath)
+        } else {
+            newProject(projectName, videoPath, savePath)
+        }
+    }
+
+    fun togglePlayPause() {
+        val current = _state.value.isPlaying
+        setPlaying(!current)
+    }
+
+    fun seekTo(ms: Long) = setPlayhead(ms)
+
+    fun seekRelative(deltaMs: Long) {
+        val current = _state.value.playheadMs
+        val max = _state.value.project?.timeline?.durationMs ?: Long.MAX_VALUE
+        setPlayhead((current + deltaMs).coerceIn(0, max))
+    }
+
+    fun seekToStart() = setPlayhead(0)
+
+    fun seekToEnd() {
+        val max = _state.value.project?.timeline?.durationMs ?: 0L
+        setPlayhead(max)
+    }
+
+    fun zoomIn() {
+        val current = _state.value.zoomLevel
+        setZoom(current * 1.25f)
+    }
+
+    fun zoomOut() {
+        val current = _state.value.zoomLevel
+        setZoom(current / 1.25f)
+    }
+
+    fun addTextOverlay() {
+        val ph = _state.value.playheadMs
+        addTextClip("text-0", "Text", ph)
+    }
+
+    fun deleteSelectedClip() {
+        val clipId = _state.value.selectedClipId ?: return
+        removeClip(clipId)
+        selectClip(null)
     }
 
     fun setPlaying(playing: Boolean) {

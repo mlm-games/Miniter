@@ -31,13 +31,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.mlm.miniter.project.*
 
-private val TRACK_HEIGHT = 56.dp
-private val TRACK_HEADER_WIDTH = 130.dp
-private val RULER_HEIGHT = 32.dp
-private val TRIM_HANDLE_WIDTH = 8.dp
+private val TRACK_HEIGHT = 52.dp
+private val TRACK_HEADER_WIDTH = 48.dp
+private val RULER_HEIGHT = 28.dp
+private val TRIM_HANDLE_WIDTH = 12.dp
 private val PLAYHEAD_HEAD_SIZE = 10.dp
-private val ADD_TRACK_ROW_HEIGHT = 40.dp
-private const val MIN_CLIP_WIDTH_DP = 8f
+private val ADD_TRACK_ROW_HEIGHT = 36.dp
+private const val MIN_CLIP_WIDTH_DP = 12f
 private const val MIN_TIMELINE_DURATION_MS = 30_000L
 
 @Composable
@@ -563,79 +563,4 @@ private fun ClipBlock(
             onSetAsPlayhead = onSetPlayhead,
         )
     }
-}
-
-@Composable
-private fun TrackHeader(
-    track: Track, canRemove: Boolean,
-    onToggleMute: () -> Unit, onToggleLock: () -> Unit, onRemoveTrack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                when (track.type) { TrackType.Video -> Icons.Default.Videocam
-                    TrackType.Audio -> Icons.Default.Audiotrack; TrackType.Text -> Icons.Default.TextFields },
-                null, Modifier.size(14.dp), MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(3.dp))
-            Text(track.label, style = MaterialTheme.typography.labelSmall, maxLines = 1,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            IconButton(onClick = onToggleMute, modifier = Modifier.size(18.dp)) {
-                Icon(if (track.isMuted) Icons.AutoMirrored.Filled.VolumeOff
-                else Icons.AutoMirrored.Filled.VolumeUp,
-                    "Mute", Modifier.size(12.dp),
-                    if (track.isMuted) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(onClick = onToggleLock, modifier = Modifier.size(18.dp)) {
-                Icon(if (track.isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                    "Lock", Modifier.size(12.dp),
-                    if (track.isLocked) MaterialTheme.colorScheme.tertiary
-                    else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (canRemove) {
-                IconButton(onClick = onRemoveTrack, modifier = Modifier.size(18.dp)) {
-                    Icon(Icons.Default.Close, "Remove", Modifier.size(12.dp),
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(0.6f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AddTrackRow(onAddTrack: (TrackType) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Surface(Modifier.fillMaxWidth().height(ADD_TRACK_ROW_HEIGHT),
-        color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Box {
-                TextButton(onClick = { expanded = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                    Icon(Icons.Default.Add, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Add Track", style = MaterialTheme.typography.labelMedium)
-                }
-                DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                    DropdownMenuItem(text = { Text("Video Track") },
-                        leadingIcon = { Icon(Icons.Default.Videocam, null, Modifier.size(18.dp)) },
-                        onClick = { onAddTrack(TrackType.Video); expanded = false })
-                    DropdownMenuItem(text = { Text("Audio Track") },
-                        leadingIcon = { Icon(Icons.Default.Audiotrack, null, Modifier.size(18.dp)) },
-                        onClick = { onAddTrack(TrackType.Audio); expanded = false })
-                    DropdownMenuItem(text = { Text("Text Track") },
-                        leadingIcon = { Icon(Icons.Default.TextFields, null, Modifier.size(18.dp)) },
-                        onClick = { onAddTrack(TrackType.Text); expanded = false })
-                }
-            }
-        }
-    }
-}
-
-private fun formatRulerTime(ms: Long): String {
-    val totalSec = ms / 1000; val min = totalSec / 60; val sec = totalSec % 60
-    val tenths = (ms % 1000) / 100
-    return if (min > 0) "%d:%02d.%d".format(min, sec, tenths) else "%d.%ds".format(sec, tenths)
 }
