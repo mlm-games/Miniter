@@ -515,6 +515,137 @@ class ProjectViewModel(
         _state.update { it.copy(zoomLevel = zoom.coerceIn(0.1f, 10f)) }
     }
 
+    // ── Track management ──
+
+    fun addTrack(type: TrackType, label: String? = null) {
+        mutateProject { project ->
+            val count = project.timeline.tracks.count { it.type == type }
+            val id = "${type.name.lowercase()}-$count"
+            val newTrack = Track(
+                id = id,
+                type = type,
+                label = label ?: "${type.name} ${count + 1}",
+            )
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks + newTrack
+                )
+            )
+        }
+    }
+
+    fun removeTrack(trackId: String) {
+        mutateProject { project ->
+            val track = project.timeline.tracks.find { it.id == trackId } ?: return@mutateProject project
+            if (track.type == TrackType.Video && project.timeline.tracks.count { it.type == TrackType.Video } <= 1) {
+                return@mutateProject project
+            }
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.filter { it.id != trackId }
+                )
+            )
+        }
+    }
+
+    fun duplicateClip(clipId: String) {
+        mutateProject { project ->
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map { track ->
+                        val clip = track.clips.find { it.id == clipId } ?: return@map track
+                        val endOfTrack = track.clips.maxOfOrNull { it.startMs + it.durationMs } ?: 0L
+                        val newClip = when (clip) {
+                            is Clip.VideoClip -> clip.copy(id = randomUuid(), startMs = endOfTrack)
+                            is Clip.AudioClip -> clip.copy(id = randomUuid(), startMs = endOfTrack)
+                            is Clip.TextClip -> clip.copy(id = randomUuid(), startMs = endOfTrack)
+                        }
+                        track.copy(clips = track.clips + newClip)
+                    }
+                )
+            )
+        }
+    }
+
+    fun trimClipStartEdge(clipId: String, deltaMs: Long) {
+        mutateProject { project ->
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map { track ->
+                        track.copy(clips = track.clips.map { clip ->
+                            if (clip.id == clipId && clip is Clip.VideoClip) {
+                                val trimmed = deltaMs.coerceIn(-clip.sourceStartMs, clip.durationMs - 100)
+                                clip.copy(
+                                    startMs = clip.startMs + trimmed,
+                                    durationMs = clip.durationMs - trimmed,
+                                    sourceStartMs = clip.sourceStartMs + trimmed,
+                                )
+                            } else clip
+                        })
+                    }
+                )
+            )
+        }
+    }
+
+    fun trimClipEndEdge(clipId: String, deltaMs: Long) {
+        mutateProject { project ->
+            project.copy(
+                timeline = project.timeline.copy(
+                    tracks = project.timeline.tracks.map { track ->
+                        track.copy(clips = track.clips.map { clip ->
+                            if (clip.id == clipId && clip is Clip.VideoClip) {
+                                val newDuration = (clip.durationMs + deltaMs).coerceAtLeast(100)
+                                val newSourceEnd = clip.sourceStartMs + newDuration
+                                clip.copy(durationMs = newDuration, sourceEndMs = newSourceEnd)
+                            } else clip
+                        })
+                    }
+                )
+            )
+        }
+    }
+
+    fun recalculateTimelineDuration() {
+        mutateProject { project ->
+            val maxEnd = project.timeline.tracks.flatMap { it.clips }.maxOfOrNull { it.startMs + it.durationMs } ?: 0L
+            project.copy(timeline = project.timeline.copy(durationMs = maxEnd))
+        }
+    }
+
+    fun snapPosition(ms: Long, excludeClipId: String? = null): Long {
+        val snapThresholdMs = (200 / _state.value.zoomLevel).toLong().coerceAtLeast(50)
+        val project = _state.value.project ?: return ms
+        val playhead = _state.value.playheadMs
+
+        var nearest = ms
+        var minDist = snapThresholdMs
+
+        val distToPlayhead = kotlin.math.abs(ms - playhead)
+        if (distToPlayhead < minDist) {
+            nearest = playhead
+            minDist = distToPlayhead
+        }
+
+        for (clip in project.timeline.tracks.flatMap { it.clips }) {
+            if (clip.id == excludeClipId) continue
+            val distToStart = kotlin.math.abs(ms - clip.startMs)
+            if (distToStart < minDist) {
+                nearest = clip.startMs
+                minDist = distToStart
+            }
+            val clipEnd = clip.startMs + clip.durationMs
+            val distToEnd = kotlin.math.abs(ms - clipEnd)
+            if (distToEnd < minDist) {
+                nearest = clipEnd
+                minDist = distToEnd
+            }
+        }
+
+        if (ms < snapThresholdMs) nearest = 0
+        return nearest
+    }
+
     private fun mutateProject(transform: (MinterProject) -> MinterProject) {
         _state.update { state ->
             val project = state.project ?: return@update state

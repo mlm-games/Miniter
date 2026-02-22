@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -114,6 +115,15 @@ fun ProjectScreen(
         seekToMs(newMs)
     }
 
+    val selectedClip = uiState.project?.timeline?.tracks
+        ?.flatMap { it.clips }
+        ?.find { it.id == uiState.selectedClipId }
+
+    val canSplit = selectedClip != null &&
+            selectedClip is Clip.VideoClip &&
+            uiState.playheadMs > selectedClip.startMs &&
+            uiState.playheadMs < selectedClip.startMs + selectedClip.durationMs
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -170,6 +180,69 @@ fun ProjectScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when {
+                        event.key == Key.Spacebar -> { togglePlayPause(); true }
+                        event.key == Key.S && !event.isCtrlPressed -> {
+                            if (canSplit) {
+                                uiState.selectedClipId?.let {
+                                    projectViewModel.splitClipAtPlayhead(it)
+                                    projectViewModel.recalculateTimelineDuration()
+                                }
+                            }
+                            true
+                        }
+                        event.key == Key.Delete || event.key == Key.Backspace -> {
+                            uiState.selectedClipId?.let {
+                                projectViewModel.removeClip(it)
+                                projectViewModel.selectClip(null)
+                                projectViewModel.recalculateTimelineDuration()
+                            }
+                            true
+                        }
+                        event.key == Key.D && !event.isCtrlPressed -> {
+                            uiState.selectedClipId?.let {
+                                projectViewModel.duplicateClip(it)
+                                projectViewModel.recalculateTimelineDuration()
+                            }
+                            true
+                        }
+                        event.key == Key.T && !event.isCtrlPressed -> {
+                            projectViewModel.addTextClip("text-0", "New Text", uiState.playheadMs)
+                            true
+                        }
+                        event.key == Key.S && event.isCtrlPressed -> {
+                            val path = uiState.projectPath ?: "${videoPath.substringBeforeLast(".")}.mntr"
+                            projectViewModel.saveProject(path)
+                            snackbarManager.show("Project saved")
+                            true
+                        }
+                        event.key == Key.DirectionLeft -> {
+                            val step = if (event.isShiftPressed) 5000L else 1000L
+                            seekToMs((uiState.playheadMs - step).coerceAtLeast(0))
+                            true
+                        }
+                        event.key == Key.DirectionRight -> {
+                            val step = if (event.isShiftPressed) 5000L else 1000L
+                            val maxMs = uiState.project?.timeline?.durationMs ?: Long.MAX_VALUE
+                            seekToMs((uiState.playheadMs + step).coerceAtMost(maxMs))
+                            true
+                        }
+                        event.key == Key.Home -> { seekToMs(0); true }
+                        event.key == Key.Period -> { // End key - using period for now
+                            seekToMs(uiState.project?.timeline?.durationMs ?: 0L); true
+                        }
+                        event.key == Key.Plus || event.key == Key.Equals -> {
+                            projectViewModel.setZoom(uiState.zoomLevel * 1.5f); true
+                        }
+                        event.key == Key.Minus -> {
+                            projectViewModel.setZoom(uiState.zoomLevel / 1.5f); true
+                        }
+                        event.key == Key.Escape -> { projectViewModel.selectClip(null); true }
+                        else -> false
+                    }
+                }
         ) {
             Row(
                 modifier = Modifier
@@ -235,14 +308,26 @@ fun ProjectScreen(
 
             EditorToolbar(
                 isPlaying = uiState.isPlaying,
+                hasSelection = uiState.selectedClipId != null,
+                canSplit = canSplit,
                 onPlayPause = togglePlayPause,
                 onSplit = {
-                    uiState.selectedClipId?.let { projectViewModel.splitClipAtPlayhead(it) }
+                    uiState.selectedClipId?.let {
+                        projectViewModel.splitClipAtPlayhead(it)
+                        projectViewModel.recalculateTimelineDuration()
+                    }
                 },
                 onDelete = {
                     uiState.selectedClipId?.let {
                         projectViewModel.removeClip(it)
                         projectViewModel.selectClip(null)
+                        projectViewModel.recalculateTimelineDuration()
+                    }
+                },
+                onDuplicate = {
+                    uiState.selectedClipId?.let {
+                        projectViewModel.duplicateClip(it)
+                        projectViewModel.recalculateTimelineDuration()
                     }
                 },
                 onAddText = {
@@ -254,6 +339,13 @@ fun ProjectScreen(
                 },
                 onZoomIn = { projectViewModel.setZoom(uiState.zoomLevel * 1.5f) },
                 onZoomOut = { projectViewModel.setZoom(uiState.zoomLevel / 1.5f) },
+                onZoomFit = {
+                    val duration = uiState.project?.timeline?.durationMs ?: 30_000L
+                    val targetDp = 480f
+                    val newZoom = (targetDp / (duration * 0.1f)).coerceIn(0.1f, 10f)
+                    projectViewModel.setZoom(newZoom)
+                },
+                zoomPercent = (uiState.zoomLevel * 100).toInt(),
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -277,14 +369,26 @@ fun ProjectScreen(
                     project = uiState.project,
                     playheadMs = uiState.playheadMs,
                     zoomLevel = uiState.zoomLevel,
+                    isPlaying = uiState.isPlaying,
                     selectedClipId = uiState.selectedClipId,
                     onPlayheadChange = { ms -> seekToMs(ms) },
                     onClipSelected = { projectViewModel.selectClip(it) },
                     onClipMoved = { clipId, newStart ->
                         projectViewModel.moveClip(clipId, newStart)
                     },
+                    onClipTrimStart = { clipId, deltaMs ->
+                        projectViewModel.trimClipStartEdge(clipId, deltaMs)
+                    },
+                    onClipTrimEnd = { clipId, deltaMs ->
+                        projectViewModel.trimClipEndEdge(clipId, deltaMs)
+                    },
                     onToggleMute = { projectViewModel.toggleTrackMute(it) },
                     onToggleLock = { projectViewModel.toggleTrackLock(it) },
+                    onAddTrack = { type -> projectViewModel.addTrack(type) },
+                    onRemoveTrack = { trackId -> projectViewModel.removeTrack(trackId) },
+                    onSnapPosition = { ms, excludeId ->
+                        projectViewModel.snapPosition(ms, excludeId)
+                    },
                 )
             }
         }
