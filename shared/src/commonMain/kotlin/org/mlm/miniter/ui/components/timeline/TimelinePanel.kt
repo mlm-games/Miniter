@@ -120,10 +120,9 @@ fun TimelinePanel(
         Column(
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
         ) {
-            tracks.forEachIndexed { trackIndex, track ->
+            tracks.forEach { track ->
                 TrackRow(
                     track = track,
-                    trackIndex = trackIndex,
                     allTracks = tracks,
                     dpPerMs = dpPerMs,
                     totalContentWidthDp = totalContentWidthDp,
@@ -230,7 +229,6 @@ private fun TimelineRuler(
 @Composable
 private fun TrackRow(
     track: Track,
-    trackIndex: Int,
     allTracks: List<Track>,
     dpPerMs: Float,
     totalContentWidthDp: Dp,
@@ -274,12 +272,15 @@ private fun TrackRow(
                 }
         ) {
             Box(Modifier.width(totalContentWidthDp).fillMaxHeight()) {
+                val sameTypeUnlocked = allTracks
+                    .filter { it.type == track.type && !it.isLocked }
+                    .map { it.id }
+                val sameTypeIndex = sameTypeUnlocked.indexOf(track.id)
+
                 track.clips.forEach { clip ->
                     val leftDp = (clip.startMs * dpPerMs).dp
                     val widthDp = (clip.durationMs * dpPerMs).dp.coerceAtLeast(MIN_CLIP_WIDTH_DP.dp)
                     val isSelected = clip.id == selectedClipId
-
-                    val compatibleTracks = allTracks.filter { it.type == track.type && !it.isLocked }
 
                     ClipBlock(
                         clip = clip,
@@ -312,8 +313,8 @@ private fun TrackRow(
                         onDuplicate = { onDuplicateClip(clip.id) },
                         onDelete = { onDeleteClip(clip.id) },
                         trackId = track.id,
-                        trackIndex = trackIndex,
-                        compatibleTrackIds = compatibleTracks.map { it.id },
+                        sameTypeIndex = sameTypeIndex,
+                        sameTypeTrackIds = sameTypeUnlocked,
                         onMoveToTrack = { toTrackId ->
                             onClipMoveToTrack(clip.id, track.id, toTrackId)
                         },
@@ -367,8 +368,8 @@ private fun ClipBlock(
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     trackId: String,
-    trackIndex: Int,
-    compatibleTrackIds: List<String>,
+    sameTypeIndex: Int,
+    sameTypeTrackIds: List<String>,
     onMoveToTrack: (toTrackId: String) -> Unit,
 ) {
     val density = LocalDensity.current
@@ -420,21 +421,37 @@ private fun ClipBlock(
                 .pointerInput(clip.id, dpPerMs, isLocked) {
                     if (isLocked) return@pointerInput
                     var dragStartMs = 0L
-                    var totalDragPx = 0f
+                    var totalDragPxX = 0f
+                    var totalDragPxY = 0f
+
+                    val trackHeightPx = with(density) { TRACK_HEIGHT.toPx() }
+
                     detectDragGestures(
                         onDragStart = {
                             dragStartMs = currentStartMs
-                            totalDragPx = 0f
+                            totalDragPxX = 0f
+                            totalDragPxY = 0f
                             onBeginEdit()
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            totalDragPx += dragAmount.x
-                            val totalDeltaMs = (totalDragPx / density.density / dpPerMs).toLong()
-                            val absoluteMs = (dragStartMs + totalDeltaMs).coerceAtLeast(0)
-                            onDragAbsolute(absoluteMs)
+                            totalDragPxX += dragAmount.x
+                            totalDragPxY += dragAmount.y
+
+                            val totalDeltaMs = (totalDragPxX / density.density / dpPerMs).toLong()
+                            onDragAbsolute((dragStartMs + totalDeltaMs).coerceAtLeast(0))
                         },
-                        onDragEnd = onDragEnd,
+                        onDragEnd = {
+                            val shift = (totalDragPxY / trackHeightPx).toInt()
+                            val targetIndex = (sameTypeIndex + shift).coerceIn(0, sameTypeTrackIds.lastIndex)
+                            val targetTrackId = sameTypeTrackIds.getOrNull(targetIndex)
+
+                            if (targetTrackId != null && targetTrackId != trackId) {
+                                onMoveToTrack(targetTrackId)
+                            }
+
+                            onDragEnd()
+                        },
                         onDragCancel = onDragCancel,
                     )
                 },

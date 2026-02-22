@@ -29,7 +29,8 @@ actual object PlatformFileSystem {
     }
 
     actual fun getAppDataDirectory(appName: String): String {
-        val dir = File(System.getProperty("user.dir") ?: "/data/local/tmp", appName)
+        val context = AndroidContext.get()
+        val dir = File(context.filesDir, appName)
         dir.mkdirs()
         return dir.absolutePath
     }

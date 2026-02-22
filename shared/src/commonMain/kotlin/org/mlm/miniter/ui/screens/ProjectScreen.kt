@@ -84,12 +84,12 @@ fun ProjectScreen(
 
     val currentSpeed = projectViewModel.getCurrentClipSpeed()
     LaunchedEffect(currentSpeed) {
-        // playerState.speed = currentSpeed // Library may not support this
+        playerState.playbackSpeed = currentSpeed.coerceIn(0.5f, 2.0f)
     }
 
     val currentVolume = projectViewModel.getCurrentClipVolume()
     LaunchedEffect(currentVolume) {
-        // playerState.volume = currentVolume // Library may not support this
+        playerState.volume = currentVolume.coerceIn(0f, 1f)
     }
 
     var showShortcutHelp by remember { mutableStateOf(false) }

@@ -178,12 +178,16 @@ class ProjectViewModel(
 
     fun commitContinuousEdit() {
         val snapshot = preDragSnapshot ?: return
-        undoManager.push(snapshot)
+        val current = _state.value.project
         preDragSnapshot = null
-        _state.update {
-            it.copy(canUndo = undoManager.canUndo, canRedo = undoManager.canRedo)
+
+        if (current != null && current !== snapshot) {
+            undoManager.push(snapshot)
+            _state.update {
+                it.copy(canUndo = undoManager.canUndo, canRedo = undoManager.canRedo)
+            }
+            autoRecalcDuration()
         }
-        autoRecalcDuration()
     }
 
     fun cancelContinuousEdit() {
@@ -408,18 +412,36 @@ class ProjectViewModel(
             is Clip.TextClip -> clip.copy(startMs = finalStart)
         }
 
-        recordAndMutate { p ->
-            p.copy(
-                timeline = p.timeline.copy(
-                    tracks = p.timeline.tracks.map { t ->
-                        when (t.id) {
-                            fromTrackId -> t.copy(clips = t.clips.filter { it.id != clipId })
-                            toTrackId -> t.copy(clips = t.clips + movedClip)
-                            else -> t
+        val isContinuous = preDragSnapshot != null
+
+        if (isContinuous) {
+            applyContinuousEdit { p ->
+                p.copy(
+                    timeline = p.timeline.copy(
+                        tracks = p.timeline.tracks.map { t ->
+                            when (t.id) {
+                                fromTrackId -> t.copy(clips = t.clips.filter { it.id != clipId })
+                                toTrackId -> t.copy(clips = t.clips + movedClip)
+                                else -> t
+                            }
                         }
-                    }
-                )
-            ).withRecalculatedDuration()
+                    )
+                ).withRecalculatedDuration()
+            }
+        } else {
+            recordAndMutate { p ->
+                p.copy(
+                    timeline = p.timeline.copy(
+                        tracks = p.timeline.tracks.map { t ->
+                            when (t.id) {
+                                fromTrackId -> t.copy(clips = t.clips.filter { it.id != clipId })
+                                toTrackId -> t.copy(clips = t.clips + movedClip)
+                                else -> t
+                            }
+                        }
+                    )
+                ).withRecalculatedDuration()
+            }
         }
     }
 

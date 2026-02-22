@@ -1,6 +1,7 @@
 package org.mlm.miniter.engine
 
 import android.media.MediaMetadataRetriever
+import android.net.Uri
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import com.arthenica.ffmpegkit.Statistics
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import org.mlm.miniter.platform.AndroidContext
 import org.mlm.miniter.project.*
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -24,10 +26,18 @@ actual class PlatformVideoEngine actual constructor() {
     @Volatile
     private var currentSessionId: Long = -1L
 
+    private fun MediaMetadataRetriever.setDataSourceCompat(path: String) {
+        if (path.startsWith("content://")) {
+            setDataSource(AndroidContext.get(), Uri.parse(path))
+        } else {
+            setDataSource(path)
+        }
+    }
+
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
         try {
-            retriever.setDataSource(path)
+            retriever.setDataSourceCompat(path)
 
             val duration = retriever.extractMetadata(
                 MediaMetadataRetriever.METADATA_KEY_DURATION
@@ -330,7 +340,7 @@ actual class PlatformVideoEngine actual constructor() {
         val thumbnails = mutableListOf<ImageData>()
 
         try {
-            retriever.setDataSource(path)
+            retriever.setDataSourceCompat(path)
             val durationMs = retriever.extractMetadata(
                 MediaMetadataRetriever.METADATA_KEY_DURATION
             )?.toLongOrNull() ?: return@withContext emptyList()
@@ -365,7 +375,7 @@ actual class PlatformVideoEngine actual constructor() {
     ): ImageData? = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
         try {
-            retriever.setDataSource(path)
+            retriever.setDataSourceCompat(path)
             val bitmap = retriever.getFrameAtTime(
                 timestampMs * 1000,
                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
