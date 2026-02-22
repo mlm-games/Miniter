@@ -16,7 +16,7 @@ import org.koin.compose.koinInject
 import org.mlm.miniter.nav.Route
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.components.dialogs.ShortcutHelpDialog
-import org.mlm.miniter.ui.components.preview.VideoPreviewPanel
+import org.mlm.miniter.ui.components.preview.EditorVideoPreview
 import org.mlm.miniter.ui.components.properties.PropertiesBottomSheet
 import org.mlm.miniter.ui.components.timeline.TimelinePanel
 import org.mlm.miniter.ui.components.toolbar.ActionBar
@@ -117,8 +117,13 @@ fun ProjectScreen(
             onShortcutHelp = { showShortcutHelp = true },
         )
 
-        VideoPreviewPanel(
-            previewFrame = uiState.thumbnails.firstOrNull(),
+        EditorVideoPreview(
+            project = project,
+            playheadMs = playheadMs,
+            isPlaying = isPlaying,
+            onPlayingChange = { vm.setPlaying(it) },
+            onPlayheadChange = { vm.seekTo(it) },
+            thumbnailFallback = uiState.thumbnails.firstOrNull(),
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.40f),
