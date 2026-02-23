@@ -31,6 +31,9 @@ actual class PlatformVideoEngine actual constructor() {
         try { FFmpegLogCallback.set() } catch (_: Exception) {}
     }
 
+    /** Round up to nearest even number for yuv420p compatibility */
+    private fun evenUp(value: Int): Int = if (value % 2 == 0) value else value + 1
+
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
         val grabber = FFmpegFrameGrabber(path)
         try {
@@ -59,7 +62,7 @@ actual class PlatformVideoEngine actual constructor() {
         outputPath: String,
     ) = withContext(Dispatchers.IO) {
         exportJob = currentCoroutineContext()[Job]
-        
+
         try {
             _exportProgress.value = ExportProgress(phase = "Preparing…", progress = 0f)
 
@@ -77,16 +80,16 @@ actual class PlatformVideoEngine actual constructor() {
             }
 
             val firstInfo = probeVideo(videoClips.first().sourcePath)
-            val outWidth = if (project.exportSettings.width > 0) {
-                project.exportSettings.width
-            } else {
-                firstInfo.width
-            }
-            val outHeight = if (project.exportSettings.height > 0) {
-                project.exportSettings.height
-            } else {
-                firstInfo.height
-            }
+
+            // Force even dimensions throughout the entire pipeline
+            val outWidth = evenUp(
+                if (project.exportSettings.width > 0) project.exportSettings.width
+                else firstInfo.width
+            )
+            val outHeight = evenUp(
+                if (project.exportSettings.height > 0) project.exportSettings.height
+                else firstInfo.height
+            )
             val outFrameRate = firstInfo.frameRate
 
             val format = project.exportSettings.format
@@ -159,7 +162,6 @@ actual class PlatformVideoEngine actual constructor() {
             _exportProgress.value = ExportProgress(
                 error = "Export failed: ${e.message}"
             )
-            e.printStackTrace()
         }
     }
 
@@ -189,8 +191,17 @@ actual class PlatformVideoEngine actual constructor() {
             )
 
             if (filterStr.isNotEmpty()) {
-                filter = FFmpegFrameFilter(filterStr, outWidth, outHeight)
-                filter.pixelFormat = grabber.pixelFormat
+                // Use GRABBER dimensions as input — the filter chain handles resize
+                val inputW = grabber.imageWidth
+                val inputH = grabber.imageHeight
+
+                filter = FFmpegFrameFilter(filterStr, inputW, inputH)
+
+                // Use grabber's native pixel format so the buffer source matches actual frames.
+                // The format=yuv420p at the start of the filter string normalizes it.
+                val grabberFmt = grabber.pixelFormat
+                filter.pixelFormat = if (grabberFmt >= 0) grabberFmt else avutil.AV_PIX_FMT_YUV420P
+
                 filter.start()
             }
 

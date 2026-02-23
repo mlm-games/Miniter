@@ -5,6 +5,12 @@ import org.mlm.miniter.project.VideoFilter
 
 object FilterGraphBuilder {
 
+    /**
+     * Round up to the nearest even number. Required for yuv420p pixel format
+     * which needs dimensions divisible by 2 for chroma subsampling.
+     */
+    private fun evenUp(value: Int): Int = if (value % 2 == 0) value else value + 1
+
     fun buildVideoFilterString(
         filters: List<VideoFilter>,
         speed: Float,
@@ -14,9 +20,20 @@ object FilterGraphBuilder {
     ): String {
         val parts = mutableListOf<String>()
 
-        parts.add("scale=$outWidth:$outHeight:force_original_aspect_ratio=decrease")
-        parts.add("pad=$outWidth:$outHeight:(ow-iw)/2:(oh-ih)/2")
+        // Ensure even dimensions for yuv420p compatibility
+        val w = evenUp(outWidth)
+        val h = evenUp(outHeight)
 
+        // Normalize pixel format first
+        parts.add("format=yuv420p")
+
+        // Scale to fit within target, force output to even dimensions
+        parts.add("scale=$w:$h:force_original_aspect_ratio=decrease:force_divisible_by=2")
+
+        // Pad to exact target dimensions (scale output may be smaller due to aspect ratio)
+        parts.add("pad=$w:$h:(ow-iw)/2:(oh-ih)/2:color=black")
+
+        // Merge adjacent eq= parameters
         val eqParams = mutableMapOf<String, String>()
         for (f in filters) {
             when (f.type) {
@@ -39,7 +56,7 @@ object FilterGraphBuilder {
                 }
                 FilterType.Sharpen -> parts.add("unsharp=5:5:1.0:5:5:0.0")
                 FilterType.Sepia -> parts.add(
-                    "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131"
+                    "colorchannelmixer=rr=0.393:rg=0.769:rb=0.189:gr=0.349:gg=0.686:gb=0.168:br=0.272:bg=0.534:bb=0.131"
                 )
             }
         }
@@ -49,7 +66,7 @@ object FilterGraphBuilder {
         }
 
         if (opacity < 1.0f) {
-            parts.add("format=rgba,colorchannelmixer=aa=${opacity}")
+            parts.add("format=rgba,colorchannelmixer=aa=$opacity")
         }
 
         if (speed != 1.0f) {
@@ -88,6 +105,8 @@ object FilterGraphBuilder {
     }
 
     fun buildGapInput(durationSec: Double, width: Int, height: Int): String {
-        return "color=c=black:s=${width}x${height}:d=$durationSec:r=30"
+        val w = evenUp(width)
+        val h = evenUp(height)
+        return "color=c=black:s=${w}x${h}:d=$durationSec:r=30"
     }
 }
