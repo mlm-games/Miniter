@@ -7,9 +7,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import io.github.mlmgames.settings.core.SettingsRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.mlm.miniter.nav.Route
+import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.components.preview.EditorVideoPreview
 import org.mlm.miniter.ui.components.properties.PropertiesBottomSheet
@@ -46,9 +48,22 @@ fun ProjectScreen(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val scope = rememberCoroutineScope()
 
+    val settingsRepository: SettingsRepository<AppSettings> = koinInject()
+    val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
+
     LaunchedEffect(videoPath) {
         if (project == null) {
             vm.initProject(videoPath, videoName, savePath)
+        }
+    }
+
+    LaunchedEffect(settings.autoSaveProject, settings.autoSaveIntervalSeconds) {
+        vm.startAutoSave(settings.autoSaveProject, settings.autoSaveIntervalSeconds)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            vm.stopAutoSave()
         }
     }
 

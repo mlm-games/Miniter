@@ -1,19 +1,18 @@
 package org.mlm.miniter.platform
 
 import android.content.Context
-import java.lang.ref.WeakReference
 
 object AndroidContext {
-    private var contextRef: WeakReference<Context>? = null
+    private var appContext: Context? = null
 
     fun init(context: Context) {
-        contextRef = WeakReference(context.applicationContext)
+        appContext = context.applicationContext
     }
 
     fun get(): Context {
-        return contextRef?.get()
+        return appContext
             ?: throw IllegalStateException(
-                "AndroidContext not initialized. Call AndroidContext.init(context) in Application.onCreate()"
+                "AndroidContext not initialized. Call AndroidContext.init(context) in MainActivity.onCreate()"
             )
     }
 }

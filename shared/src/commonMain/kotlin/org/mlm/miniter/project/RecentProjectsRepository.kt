@@ -27,8 +27,11 @@ class RecentProjectsRepository(private val json: Json) {
             val list = json.decodeFromString<List<RecentProject>>(content)
             val valid = list.filter { PlatformFileSystem.exists(it.path) }
             _recents.value = valid
-        } catch (_: Exception) {
-            _recents.value = emptyList()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            if (_recents.value.isEmpty()) {
+                _recents.value = emptyList()
+            }
         }
     }
 

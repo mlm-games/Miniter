@@ -1,6 +1,7 @@
 package org.mlm.miniter.engine
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -88,10 +89,14 @@ actual class PlatformFrameGrabber {
     }
 
     actual fun release() {
-        grabber?.stop()
-        grabber?.release()
-        grabber = null
-        currentPath = null
+        runBlocking {
+            mutex.withLock {
+                try { grabber?.stop() } catch (_: Exception) {}
+                try { grabber?.release() } catch (_: Exception) {}
+                grabber = null
+                currentPath = null
+            }
+        }
     }
 }
 

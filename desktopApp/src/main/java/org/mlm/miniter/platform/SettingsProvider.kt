@@ -13,7 +13,7 @@ object SettingsProvider {
        repository?.let { return it }
        synchronized(this) {
            repository?.let { return it }
-           val dataStore = createSettingsDataStore("mages_settings")
+           val dataStore = createSettingsDataStore("miniter_settings")
            val repo = SettingsRepository(dataStore, AppSettingsSchema)
            repository = repo
            return repo

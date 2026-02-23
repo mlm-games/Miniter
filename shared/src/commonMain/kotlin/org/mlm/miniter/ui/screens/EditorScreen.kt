@@ -19,6 +19,7 @@ import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import io.github.vinceglb.filekit.name
 import io.github.vinceglb.filekit.path
 import org.koin.compose.koinInject
+import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.project.RecentProject
 import org.mlm.miniter.ui.components.dialogs.NewProjectDialog
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
@@ -42,7 +43,7 @@ fun EditorScreen(
     var pendingVideo by remember { mutableStateOf<PlatformFile?>(null) }
 
     val videoPicker = rememberFilePickerLauncher(
-        type = FileKitType.File(extensions = listOf("mp4", "webm", "mov", "mkv", "avi")),
+        type = FileKitType.File(extensions = SupportedFormats.videoExtensions),
     ) { file: PlatformFile? ->
         pendingVideo = file
     }
