@@ -13,6 +13,7 @@ import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameFilter
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.bytedeco.javacv.FFmpegFrameRecorder
+import org.bytedeco.javacv.FFmpegLogCallback
 import org.bytedeco.javacv.Frame
 import org.bytedeco.javacv.Java2DFrameConverter
 import org.mlm.miniter.project.*
@@ -25,6 +26,10 @@ actual class PlatformVideoEngine actual constructor() {
 
     @Volatile
     private var exportJob: Job? = null
+
+    init {
+        try { FFmpegLogCallback.set() } catch (_: Exception) {}
+    }
 
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
         val grabber = FFmpegFrameGrabber(path)
@@ -154,6 +159,7 @@ actual class PlatformVideoEngine actual constructor() {
             _exportProgress.value = ExportProgress(
                 error = "Export failed: ${e.message}"
             )
+            e.printStackTrace()
         }
     }
 

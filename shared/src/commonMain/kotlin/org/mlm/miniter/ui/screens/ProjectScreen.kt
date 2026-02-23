@@ -8,9 +8,13 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import io.github.mlmgames.settings.core.SettingsRepository
+import io.github.vinceglb.filekit.dialogs.FileKitMode
+import io.github.vinceglb.filekit.dialogs.FileKitType
+import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.mlm.miniter.nav.Route
+import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.components.preview.EditorVideoPreview
@@ -51,6 +55,13 @@ fun ProjectScreen(
     val settingsRepository: SettingsRepository<AppSettings> = koinInject()
     val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
 
+    val importPicker = rememberFilePickerLauncher(
+        type = FileKitType.File(extensions = SupportedFormats.videoExtensions.toSet()),
+        mode = FileKitMode.Multiple(),
+    ) { files ->
+        if (files != null) vm.importMediaFiles(files)
+    }
+
     LaunchedEffect(videoPath) {
         if (project == null) {
             vm.initProject(videoPath, videoName, savePath)
@@ -82,7 +93,7 @@ fun ProjectScreen(
             onUndo = { vm.undo() },
             onRedo = { vm.redo() },
             onExport = { backStack.add(Route.Export(savePath ?: "")) },
-            onImport = { /*TODO: Wire import media for extra audio and video*/ },
+            onImport = { importPicker.launch() },
         )
 
         EditorVideoPreview(
