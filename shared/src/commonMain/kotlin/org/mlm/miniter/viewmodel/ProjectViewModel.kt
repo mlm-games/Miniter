@@ -110,6 +110,7 @@ class ProjectViewModel(
             } catch (e: Exception) {
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.showError("Failed to open video: ${e.message}")
+                e.printStackTrace()
             }
         }
     }

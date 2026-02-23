@@ -6,6 +6,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.bytedeco.javacv.FFmpegFrameGrabber
+import org.bytedeco.javacv.FFmpegLogCallback
 import org.bytedeco.javacv.Java2DFrameConverter
 import org.mlm.miniter.project.FilterType
 import org.mlm.miniter.project.VideoFilter
@@ -18,6 +19,10 @@ actual class PlatformFrameGrabber {
     private val mutex = Mutex()
     private var currentPath: String? = null
 
+    init {
+        try { FFmpegLogCallback.set() } catch (_: Exception) {}
+    }
+
     actual suspend fun open(path: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
             if (currentPath == path) return@withContext
@@ -26,16 +31,16 @@ actual class PlatformFrameGrabber {
             grabber = null
             currentPath = null
 
-            oldGrabber?.stop()
-            oldGrabber?.release()
+            try { oldGrabber?.stop() } catch (_: Exception) {}
+            try { oldGrabber?.release() } catch (_: Exception) {}
 
             try {
                 val newGrabber = FFmpegFrameGrabber(path)
-                newGrabber.setOption("rtsp_transport", "tcp")
                 newGrabber.start()
                 grabber = newGrabber
                 currentPath = path
             } catch (e: Exception) {
+                System.err.println("PlatformFrameGrabber.open failed for '$path': ${e.message}")
                 grabber = null
             }
         }
@@ -198,9 +203,7 @@ private fun adjustSaturation(img: BufferedImage, factor: Float): BufferedImage {
     return result
 }
 
-private fun toGrayscale(img: BufferedImage): BufferedImage {
-    return adjustSaturation(img, 0f)
-}
+private fun toGrayscale(img: BufferedImage): BufferedImage = adjustSaturation(img, 0f)
 
 private fun toSepia(img: BufferedImage): BufferedImage {
     val result = BufferedImage(img.width, img.height, BufferedImage.TYPE_INT_ARGB)

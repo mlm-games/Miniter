@@ -17,19 +17,20 @@ object FilterGraphBuilder {
         parts.add("scale=$outWidth:$outHeight:force_original_aspect_ratio=decrease")
         parts.add("pad=$outWidth:$outHeight:(ow-iw)/2:(oh-ih)/2")
 
+        val eqParams = mutableMapOf<String, String>()
         for (f in filters) {
             when (f.type) {
                 FilterType.Brightness -> {
                     val v = f.params["value"] ?: 0f
-                    parts.add("eq=brightness=${v / 100f}")
+                    eqParams["brightness"] = "${v / 100f}"
                 }
                 FilterType.Contrast -> {
                     val v = f.params["value"] ?: 1f
-                    parts.add("eq=contrast=$v")
+                    eqParams["contrast"] = "$v"
                 }
                 FilterType.Saturation -> {
                     val v = f.params["value"] ?: 1f
-                    parts.add("eq=saturation=$v")
+                    eqParams["saturation"] = "$v"
                 }
                 FilterType.Grayscale -> parts.add("hue=s=0")
                 FilterType.Blur -> {
@@ -41,6 +42,10 @@ object FilterGraphBuilder {
                     "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131"
                 )
             }
+        }
+
+        if (eqParams.isNotEmpty()) {
+            parts.add("eq=" + eqParams.entries.joinToString(":") { "${it.key}=${it.value}" })
         }
 
         if (opacity < 1.0f) {
@@ -70,9 +75,9 @@ object FilterGraphBuilder {
                 parts.add("atempo=0.5")
                 remaining /= 0.5
             }
-            while (remaining > 100.0) {
-                parts.add("atempo=100.0")
-                remaining /= 100.0
+            while (remaining > 2.0) {
+                parts.add("atempo=2.0")
+                remaining /= 2.0
             }
             if (remaining != 1.0) {
                 parts.add("atempo=$remaining")
