@@ -15,6 +15,9 @@ import androidx.compose.ui.unit.dp
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.sample
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.project.*
@@ -71,7 +74,8 @@ fun EditorVideoPreview(
         playerState.volume = clipVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(isPlaying) {
+    LaunchedEffect(isPlaying, playerReady) {
+        if (!playerReady) return@LaunchedEffect
         if (isPlaying) {
             playerState.play()
         } else {
@@ -79,9 +83,9 @@ fun EditorVideoPreview(
         }
     }
 
-    LaunchedEffect(playheadMs, isPlaying, playerReady, currentClip) {
-        if (isPlaying || !playerReady || currentClip == null) return@LaunchedEffect
-        if (fullFileDurationMs <= 0) return@LaunchedEffect
+    LaunchedEffect(playheadMs, isPlaying, playerReady, fullFileDurationMs) {
+        if (isPlaying || !playerReady) return@LaunchedEffect
+        if (currentClip == null || fullFileDurationMs <= 0L) return@LaunchedEffect
 
         val offsetInClip = playheadMs - currentClip.startMs
         val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
@@ -90,70 +94,71 @@ fun EditorVideoPreview(
 
         val sliderTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
             .coerceIn(0f, 1000f)
-
         if (sliderTarget.isNaN() || sliderTarget.isInfinite()) return@LaunchedEffect
 
         editorIsSeeking = true
 
         playerState.sliderPos = sliderTarget
         playerState.userDragging = true
-
         delay(50)
-
         playerState.userDragging = false
         playerState.seekTo(playerState.sliderPos)
-
         delay(100)
+
         editorIsSeeking = false
     }
 
-    LaunchedEffect(isPlaying, currentClip?.id, playerReady) {
+    LaunchedEffect(isPlaying, currentClip?.id, playerReady, fullFileDurationMs) {
         if (!isPlaying || currentClip == null || !playerReady) return@LaunchedEffect
-        if (fullFileDurationMs <= 0) return@LaunchedEffect
+        if (fullFileDurationMs <= 0L) return@LaunchedEffect
 
-        run {
-            val offsetInClip = playheadMs - currentClip.startMs
-            val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
-            val sliderTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
-                .coerceIn(0f, 1000f)
+        val offsetInClip = playheadMs - currentClip.startMs
+        val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
+        val sliderTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
+            .coerceIn(0f, 1000f)
 
-            if (!sliderTarget.isNaN() && !sliderTarget.isInfinite()) {
-                playerState.sliderPos = sliderTarget
-                playerState.userDragging = true
-                delay(30)
-                playerState.userDragging = false
-                playerState.seekTo(playerState.sliderPos)
-                delay(50)
-            }
+        if (!sliderTarget.isNaN() && !sliderTarget.isInfinite()) {
+            playerState.sliderPos = sliderTarget
+            playerState.userDragging = true
+            delay(30)
+            playerState.userDragging = false
+            playerState.seekTo(playerState.sliderPos)
+            delay(80)
         }
 
         playerState.play()
+    }
 
-        while (true) {
-            delay(50)
+    LaunchedEffect(isPlaying, currentClip?.id, playerReady, fullFileDurationMs) {
+        if (!isPlaying || currentClip == null || !playerReady) return@LaunchedEffect
+        if (fullFileDurationMs <= 0L) return@LaunchedEffect
 
-            if (editorIsSeeking) continue
+        snapshotFlow { playerState.sliderPos }
+            .drop(1)
+            .sample(50)
+            .collectLatest { sliderPos ->
+                if (editorIsSeeking) return@collectLatest
 
-            val sliderFraction = playerState.sliderPos / 1000f
+                val sliderFraction = sliderPos / 1000f
+                val sourceMs = (sliderFraction * fullFileDurationMs).toLong()
 
-            val sourceMs = (sliderFraction * fullFileDurationMs).toLong()
+                val offsetFromSourceStart = sourceMs - currentClip.sourceStartMs
+                val timelineMs = currentClip.startMs +
+                    (offsetFromSourceStart / currentClip.speed).toLong()
 
-            val offsetFromSourceStart = sourceMs - currentClip.sourceStartMs
-            val timelineMs = currentClip.startMs + (offsetFromSourceStart / currentClip.speed).toLong()
+                val clipEndMs = currentClip.startMs + currentClip.durationMs
 
-            val clipEndMs = currentClip.startMs + currentClip.durationMs
+                if (timelineMs >= clipEndMs - 50) {
+                    onPlayheadChange(clipEndMs)
+                    onPlayingChange(false)
+                    playerState.pause()
+                    return@collectLatest
+                }
 
-            if (timelineMs >= clipEndMs - 50) {
-                onPlayheadChange(clipEndMs)
-                onPlayingChange(false)
-                playerState.pause()
-                break
+                if (timelineMs >= currentClip.startMs) {
+                    onPlayheadChange(timelineMs)
+                }
             }
-
-            if (timelineMs >= currentClip.startMs) {
-                onPlayheadChange(timelineMs)
-            }
-        }
     }
 
     Box(
@@ -169,9 +174,7 @@ fun EditorVideoPreview(
             val filters = currentClip?.filters ?: emptyList()
             if (filters.isNotEmpty()) {
                 Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
                     shape = MaterialTheme.shapes.small,
                 ) {
@@ -186,9 +189,7 @@ fun EditorVideoPreview(
 
             if (clipSpeed != 1f) {
                 Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(4.dp),
+                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
                     shape = MaterialTheme.shapes.small,
                 ) {
