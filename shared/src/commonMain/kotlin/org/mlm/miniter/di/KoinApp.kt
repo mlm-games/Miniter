@@ -6,6 +6,7 @@ import org.koin.compose.KoinApplication
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.core.module.Module
+import org.koin.dsl.koinConfiguration
 import org.mlm.miniter.settings.AppSettings
 
 @Composable
@@ -13,11 +14,13 @@ fun KoinApp(
     settingsRepository: SettingsRepository<AppSettings>,
     content: @Composable () -> Unit
 ) {
-    KoinApplication(
-        application = {
-            modules(appModules(settingsRepository))
-        },
-        content = content
+    KoinApplication(configuration = koinConfiguration(declaration = {
+        modules(
+            appModules(
+                settingsRepository
+            )
+        )
+    }), content = content
     )
 }
 

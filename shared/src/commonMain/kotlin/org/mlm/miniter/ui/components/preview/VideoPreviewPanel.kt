@@ -90,7 +90,7 @@ fun EditorVideoPreview(
             }
 
             if (fullFileDurationMs <= 0L) {
-                fullFileDurationMs = currentClip?.sourceEndMs ?: 0L
+                fullFileDurationMs = currentClip.sourceEndMs
             }
 
             playerReady = true
@@ -129,7 +129,7 @@ fun EditorVideoPreview(
 
         val offsetInClip = playheadMs - currentClip.startMs
         val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
-        if (sourceTimeMs < 0 || sourceTimeMs > fullFileDurationMs) return@LaunchedEffect
+        if (sourceTimeMs !in 0..fullFileDurationMs) return@LaunchedEffect
 
         val sliderTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
             .coerceIn(0f, 1000f)

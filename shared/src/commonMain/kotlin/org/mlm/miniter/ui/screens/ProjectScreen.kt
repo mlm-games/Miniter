@@ -82,7 +82,7 @@ fun ProjectScreen(
             onUndo = { vm.undo() },
             onRedo = { vm.redo() },
             onExport = { backStack.add(Route.Export(savePath ?: "")) },
-            onImport = { /*TODO: Wire*/ },
+            onImport = { /*TODO: Wire import media for extra audio and video*/ },
         )
 
         EditorVideoPreview(

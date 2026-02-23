@@ -6,7 +6,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -64,7 +63,7 @@ fun App() {
                     popTransitionSpec = popTransition,
                     predictivePopTransitionSpec = { _ -> popTransition.invoke(this) },
                     onBack = {
-                        if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+                        backStack.popBack()
                     },
                     entryProvider = entryProvider {
                         entry<Route.Editor> {
