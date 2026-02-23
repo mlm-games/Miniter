@@ -1,13 +1,9 @@
 package org.mlm.miniter.ui.screens
 
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -15,7 +11,6 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.mlm.miniter.nav.Route
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
-import org.mlm.miniter.ui.components.dialogs.ShortcutHelpDialog
 import org.mlm.miniter.ui.components.preview.EditorVideoPreview
 import org.mlm.miniter.ui.components.properties.PropertiesBottomSheet
 import org.mlm.miniter.ui.components.timeline.TimelinePanel
@@ -45,14 +40,11 @@ fun ProjectScreen(
     val canRedo = uiState.canRedo
     val isDirty = uiState.isDirty
 
-    var showShortcutHelp by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
     var showPropertiesSheet by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val scope = rememberCoroutineScope()
-
-    val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(videoPath) {
         if (project == null) {
@@ -60,47 +52,8 @@ fun ProjectScreen(
         }
     }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    Column(modifier = Modifier.fillMaxSize()) {
 
-    val keyHandler = Modifier.onPreviewKeyEvent { event ->
-        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-        val ctrl = event.isCtrlPressed || event.isMetaPressed
-        val shift = event.isShiftPressed
-        when {
-            event.key == Key.Spacebar -> { vm.togglePlayPause(); true }
-            event.key == Key.S && ctrl -> { vm.saveProject(); true }
-            event.key == Key.Z && ctrl && shift -> { vm.redo(); true }
-            event.key == Key.Z && ctrl -> { vm.undo(); true }
-            event.key == Key.S && !ctrl -> {
-                selectedClipId?.let { vm.splitClipAtPlayhead(it) }; true
-            }
-            event.key == Key.D -> {
-                selectedClipId?.let { vm.duplicateClip(it) }; true
-            }
-            event.key == Key.T -> { vm.addTextOverlay(); true }
-            event.key == Key.Delete || event.key == Key.Backspace -> {
-                vm.deleteSelectedClip(); true
-            }
-            event.key == Key.DirectionLeft && shift -> { vm.seekRelative(-5000); true }
-            event.key == Key.DirectionRight && shift -> { vm.seekRelative(5000); true }
-            event.key == Key.DirectionLeft -> { vm.seekRelative(-1000); true }
-            event.key == Key.DirectionRight -> { vm.seekRelative(1000); true }
-            event.key == Key.MoveHome -> { vm.seekToStart(); true }
-            event.key == Key.MoveEnd -> { vm.seekToEnd(); true }
-            event.key == Key.Equals -> { vm.zoomIn(); true }
-            event.key == Key.Minus -> { vm.zoomOut(); true }
-            event.key == Key.Escape -> { vm.selectClip(null); true }
-            else -> false
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .then(keyHandler)
-            .focusRequester(focusRequester)
-            .focusable(),
-    ) {
         CompactTopBar(
             projectName = project?.name ?: videoName,
             isDirty = isDirty,
@@ -114,7 +67,7 @@ fun ProjectScreen(
             onUndo = { vm.undo() },
             onRedo = { vm.redo() },
             onExport = { backStack.add(Route.Export(savePath ?: "")) },
-            onShortcutHelp = { showShortcutHelp = true },
+            onImport = { /*TODO: Wire*/ },
         )
 
         EditorVideoPreview(
@@ -212,10 +165,6 @@ fun ProjectScreen(
             onSetOpacity = vm::setClipOpacity,
             onSetTextDuration = vm::setTextClipDuration,
         )
-    }
-
-    if (showShortcutHelp) {
-        ShortcutHelpDialog(onDismiss = { showShortcutHelp = false })
     }
 
     if (showExitConfirm) {

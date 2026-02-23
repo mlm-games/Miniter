@@ -25,7 +25,7 @@ fun CompactTopBar(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onExport: () -> Unit,
-    onShortcutHelp: () -> Unit,
+    onImport: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -72,9 +72,9 @@ fun CompactTopBar(
                     )
                     HorizontalDivider()
                     DropdownMenuItem(
-                        text = { Text("Keyboard Shortcuts") },
-                        leadingIcon = { Icon(Icons.Default.Keyboard, null, Modifier.size(20.dp)) },
-                        onClick = { onShortcutHelp(); showMenu = false },
+                        text = { Text("Import to Existing Track") },
+                        leadingIcon = { Icon(Icons.Default.VideoFile, null, Modifier.size(20.dp)) },
+                        onClick = { onImport(); showMenu = false },
                     )
                 }
             }

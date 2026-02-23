@@ -54,41 +54,46 @@ fun EditorVideoPreview(
     val clipOpacity = currentClip?.opacity ?: 1f
     val hasFilters = clipFilters.isNotEmpty() || clipOpacity < 1f
 
-    val fullFileDurationMs = remember(currentClip) {
-        currentClip?.sourceEndMs ?: 0L
-    }
-
+    var fullFileDurationMs by remember { mutableLongStateOf(0L) }
     var lastLoadedPath by remember { mutableStateOf<String?>(null) }
     var playerReady by remember { mutableStateOf(false) }
     var editorIsSeeking by remember { mutableStateOf(false) }
-
     var scrubbedFrame by remember { mutableStateOf<ImageData?>(null) }
+    var grabberReady by remember { mutableStateOf(false) }
 
     LaunchedEffect(clipSourcePath) {
         if (clipSourcePath != null && clipSourcePath != lastLoadedPath) {
             playerReady = false
+            grabberReady = false
             scrubbedFrame = null
+            fullFileDurationMs = 0L
             lastLoadedPath = clipSourcePath
 
             playerState.openUri(clipSourcePath)
             delay(150)
             playerState.pause()
 
-            if (hasFilters) {
-                try {
-                    frameGrabber.open(clipSourcePath)
-                } catch (_: Exception) {
-                }
+            try {
+                frameGrabber.open(clipSourcePath)
+                grabberReady = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                grabberReady = false
             }
 
             var attempts = 0
             while (attempts < 40) {
                 val dur = playerState.metadata.duration
                 if (dur != null && dur > 0L) {
+                    fullFileDurationMs = dur
                     break
                 }
                 delay(100)
                 attempts++
+            }
+
+            if (fullFileDurationMs <= 0L) {
+                fullFileDurationMs = currentClip?.sourceEndMs ?: 0L
             }
 
             playerReady = true
@@ -112,15 +117,15 @@ fun EditorVideoPreview(
         }
     }
 
-    LaunchedEffect(playheadMs, isPlaying, playerReady, clipFilters, clipOpacity) {
-        if (isPlaying || !playerReady) return@LaunchedEffect
+    LaunchedEffect(playheadMs, isPlaying, grabberReady, clipFilters, clipOpacity) {
+        if (isPlaying || !grabberReady) return@LaunchedEffect
         if (currentClip == null || clipSourcePath == null) return@LaunchedEffect
-        if (!hasFilters) return@LaunchedEffect
 
         val offsetInClip = playheadMs - currentClip.startMs
         val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
-
         if (sourceTimeMs < 0) return@LaunchedEffect
+
+        delay(30)
 
         try {
             val frame = frameGrabber.grabFrame(
@@ -130,7 +135,6 @@ fun EditorVideoPreview(
             )
             scrubbedFrame = frame
         } catch (_: Exception) {
-            scrubbedFrame = null
         }
     }
 
@@ -210,7 +214,7 @@ fun EditorVideoPreview(
                 val bitmap = remember(scrubbedFrame) { scrubbedFrame!!.toImageBitmap() }
                 Image(
                     bitmap = bitmap,
-                    contentDescription = "Filtered preview",
+                    contentDescription = "Preview",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
                 )
