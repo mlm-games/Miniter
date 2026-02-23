@@ -15,13 +15,12 @@ import androidx.compose.ui.unit.dp
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.isActive
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.project.*
+import kotlin.time.TimeSource
 
 @Composable
 fun EditorVideoPreview(
@@ -52,12 +51,10 @@ fun EditorVideoPreview(
     val clipVolume = currentClip?.volume ?: 1f
     val clipFilters = currentClip?.filters ?: emptyList()
     val clipOpacity = currentClip?.opacity ?: 1f
-    val hasFilters = clipFilters.isNotEmpty() || clipOpacity < 1f
 
     var fullFileDurationMs by remember { mutableLongStateOf(0L) }
     var lastLoadedPath by remember { mutableStateOf<String?>(null) }
     var playerReady by remember { mutableStateOf(false) }
-    var editorIsSeeking by remember { mutableStateOf(false) }
     var scrubbedFrame by remember { mutableStateOf<ImageData?>(null) }
     var grabberReady by remember { mutableStateOf(false) }
 
@@ -70,7 +67,7 @@ fun EditorVideoPreview(
             lastLoadedPath = clipSourcePath
 
             playerState.openUri(clipSourcePath)
-            delay(150)
+            delay(200)
             playerState.pause()
 
             try {
@@ -107,16 +104,6 @@ fun EditorVideoPreview(
         playerState.volume = clipVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(isPlaying, playerReady) {
-        if (!playerReady) return@LaunchedEffect
-        if (isPlaying) {
-            scrubbedFrame = null
-            playerState.play()
-        } else {
-            playerState.pause()
-        }
-    }
-
     LaunchedEffect(playheadMs, isPlaying, grabberReady, clipFilters, clipOpacity) {
         if (isPlaying || !grabberReady) return@LaunchedEffect
         if (currentClip == null || clipSourcePath == null) return@LaunchedEffect
@@ -125,17 +112,15 @@ fun EditorVideoPreview(
         val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
         if (sourceTimeMs < 0) return@LaunchedEffect
 
-        delay(30)
+        delay(50)
 
         try {
-            val frame = frameGrabber.grabFrame(
+            scrubbedFrame = frameGrabber.grabFrame(
                 timestampMs = sourceTimeMs,
                 filters = clipFilters,
                 opacity = clipOpacity,
             )
-            scrubbedFrame = frame
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
     }
 
     LaunchedEffect(playheadMs, isPlaying, playerReady, fullFileDurationMs) {
@@ -150,59 +135,66 @@ fun EditorVideoPreview(
             .coerceIn(0f, 1000f)
         if (sliderTarget.isNaN() || sliderTarget.isInfinite()) return@LaunchedEffect
 
-        editorIsSeeking = true
         playerState.sliderPos = sliderTarget
         playerState.userDragging = true
         delay(50)
         playerState.userDragging = false
         playerState.seekTo(playerState.sliderPos)
-        delay(100)
-        editorIsSeeking = false
     }
 
     LaunchedEffect(isPlaying, currentClip?.id, playerReady, fullFileDurationMs) {
-        if (!isPlaying || currentClip == null || !playerReady) return@LaunchedEffect
-        if (fullFileDurationMs <= 0L) return@LaunchedEffect
+        if (!playerReady) return@LaunchedEffect
+
+        if (!isPlaying) {
+            playerState.pause()
+            return@LaunchedEffect
+        }
+
+        if (currentClip == null || fullFileDurationMs <= 0L) {
+            onPlayingChange(false)
+            return@LaunchedEffect
+        }
+
+        scrubbedFrame = null
+
+        val clipEndMs = currentClip.startMs + currentClip.durationMs
+        val speed = currentClip.speed
 
         val offsetInClip = playheadMs - currentClip.startMs
-        val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
-        val sliderTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
-            .coerceIn(0f, 1000f)
+        val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * speed).toLong()
+        val seekTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
+            .coerceIn(0f, 999f)
 
-        if (!sliderTarget.isNaN() && !sliderTarget.isInfinite()) {
-            playerState.sliderPos = sliderTarget
+        if (!seekTarget.isNaN() && !seekTarget.isInfinite()) {
+            playerState.sliderPos = seekTarget
             playerState.userDragging = true
-            delay(30)
+            delay(50)
             playerState.userDragging = false
             playerState.seekTo(playerState.sliderPos)
-            delay(80)
+            delay(100)
         }
 
         playerState.play()
 
-        snapshotFlow { playerState.sliderPos }
-            .drop(1)
-            .sample(50)
-            .collectLatest { sliderPos ->
-                if (editorIsSeeking) return@collectLatest
+        val startMark = TimeSource.Monotonic.markNow()
+        val startPlayheadMs = playheadMs
 
-                val sliderFraction = sliderPos / 1000f
-                val sourceMs = (sliderFraction * fullFileDurationMs).toLong()
-                val offsetFromSourceStart = sourceMs - currentClip.sourceStartMs
-                val timelineMs = currentClip.startMs + (offsetFromSourceStart / currentClip.speed).toLong()
-                val clipEndMs = currentClip.startMs + currentClip.durationMs
+        while (isActive) {
+            delay(33)
 
-                if (timelineMs >= clipEndMs - 50) {
-                    onPlayheadChange(clipEndMs)
-                    onPlayingChange(false)
-                    playerState.pause()
-                    return@collectLatest
-                }
+            val elapsedMs = startMark.elapsedNow().inWholeMilliseconds
+            val advancedMs = (elapsedMs * speed).toLong()
+            val newPlayhead = startPlayheadMs + advancedMs
 
-                if (timelineMs >= currentClip.startMs) {
-                    onPlayheadChange(timelineMs)
-                }
+            if (newPlayhead >= clipEndMs) {
+                onPlayheadChange(clipEndMs)
+                onPlayingChange(false)
+                playerState.pause()
+                break
             }
+
+            onPlayheadChange(newPlayhead)
+        }
     }
 
     Box(
