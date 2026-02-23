@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.sample
 import org.mlm.miniter.engine.ImageData
+import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.project.*
 
@@ -33,6 +34,11 @@ fun EditorVideoPreview(
     thumbnailFallback: ImageData? = null,
 ) {
     val playerState = rememberVideoPlayerState()
+    val frameGrabber = remember { PlatformFrameGrabber() }
+
+    DisposableEffect(Unit) {
+        onDispose { frameGrabber.release() }
+    }
 
     val currentClip = remember(project, playheadMs) {
         project?.timeline?.tracks
@@ -44,6 +50,9 @@ fun EditorVideoPreview(
     val clipSourcePath = currentClip?.sourcePath
     val clipSpeed = currentClip?.speed ?: 1f
     val clipVolume = currentClip?.volume ?: 1f
+    val clipFilters = currentClip?.filters ?: emptyList()
+    val clipOpacity = currentClip?.opacity ?: 1f
+    val hasFilters = clipFilters.isNotEmpty() || clipOpacity < 1f
 
     val fullFileDurationMs = remember(currentClip) {
         currentClip?.sourceEndMs ?: 0L
@@ -53,14 +62,34 @@ fun EditorVideoPreview(
     var playerReady by remember { mutableStateOf(false) }
     var editorIsSeeking by remember { mutableStateOf(false) }
 
+    var scrubbedFrame by remember { mutableStateOf<ImageData?>(null) }
+
     LaunchedEffect(clipSourcePath) {
         if (clipSourcePath != null && clipSourcePath != lastLoadedPath) {
             playerReady = false
+            scrubbedFrame = null
             lastLoadedPath = clipSourcePath
 
             playerState.openUri(clipSourcePath)
             delay(150)
             playerState.pause()
+
+            if (hasFilters) {
+                try {
+                    frameGrabber.open(clipSourcePath)
+                } catch (_: Exception) {
+                }
+            }
+
+            var attempts = 0
+            while (attempts < 40) {
+                val dur = playerState.metadata.duration
+                if (dur != null && dur > 0L) {
+                    break
+                }
+                delay(100)
+                attempts++
+            }
 
             playerReady = true
         }
@@ -69,7 +98,6 @@ fun EditorVideoPreview(
     LaunchedEffect(clipSpeed) {
         playerState.playbackSpeed = clipSpeed.coerceIn(0.25f, 4f)
     }
-
     LaunchedEffect(clipVolume) {
         playerState.volume = clipVolume.coerceIn(0f, 1f)
     }
@@ -77,9 +105,32 @@ fun EditorVideoPreview(
     LaunchedEffect(isPlaying, playerReady) {
         if (!playerReady) return@LaunchedEffect
         if (isPlaying) {
+            scrubbedFrame = null
             playerState.play()
         } else {
             playerState.pause()
+        }
+    }
+
+    LaunchedEffect(playheadMs, isPlaying, playerReady, clipFilters, clipOpacity) {
+        if (isPlaying || !playerReady) return@LaunchedEffect
+        if (currentClip == null || clipSourcePath == null) return@LaunchedEffect
+        if (!hasFilters) return@LaunchedEffect
+
+        val offsetInClip = playheadMs - currentClip.startMs
+        val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
+
+        if (sourceTimeMs < 0) return@LaunchedEffect
+
+        try {
+            val frame = frameGrabber.grabFrame(
+                timestampMs = sourceTimeMs,
+                filters = clipFilters,
+                opacity = clipOpacity,
+            )
+            scrubbedFrame = frame
+        } catch (_: Exception) {
+            scrubbedFrame = null
         }
     }
 
@@ -89,7 +140,6 @@ fun EditorVideoPreview(
 
         val offsetInClip = playheadMs - currentClip.startMs
         val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
-
         if (sourceTimeMs < 0 || sourceTimeMs > fullFileDurationMs) return@LaunchedEffect
 
         val sliderTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
@@ -97,14 +147,12 @@ fun EditorVideoPreview(
         if (sliderTarget.isNaN() || sliderTarget.isInfinite()) return@LaunchedEffect
 
         editorIsSeeking = true
-
         playerState.sliderPos = sliderTarget
         playerState.userDragging = true
         delay(50)
         playerState.userDragging = false
         playerState.seekTo(playerState.sliderPos)
         delay(100)
-
         editorIsSeeking = false
     }
 
@@ -127,11 +175,6 @@ fun EditorVideoPreview(
         }
 
         playerState.play()
-    }
-
-    LaunchedEffect(isPlaying, currentClip?.id, playerReady, fullFileDurationMs) {
-        if (!isPlaying || currentClip == null || !playerReady) return@LaunchedEffect
-        if (fullFileDurationMs <= 0L) return@LaunchedEffect
 
         snapshotFlow { playerState.sliderPos }
             .drop(1)
@@ -141,11 +184,8 @@ fun EditorVideoPreview(
 
                 val sliderFraction = sliderPos / 1000f
                 val sourceMs = (sliderFraction * fullFileDurationMs).toLong()
-
                 val offsetFromSourceStart = sourceMs - currentClip.sourceStartMs
-                val timelineMs = currentClip.startMs +
-                    (offsetFromSourceStart / currentClip.speed).toLong()
-
+                val timelineMs = currentClip.startMs + (offsetFromSourceStart / currentClip.speed).toLong()
                 val clipEndMs = currentClip.startMs + currentClip.durationMs
 
                 if (timelineMs >= clipEndMs - 50) {
@@ -165,28 +205,69 @@ fun EditorVideoPreview(
         modifier = modifier.background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        if (clipSourcePath != null && lastLoadedPath == clipSourcePath) {
-            VideoPlayerSurface(
-                playerState = playerState,
-                modifier = Modifier.fillMaxSize(),
-            )
+        when {
+            !isPlaying && scrubbedFrame != null -> {
+                val bitmap = remember(scrubbedFrame) { scrubbedFrame!!.toImageBitmap() }
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "Filtered preview",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                )
+            }
 
-            val filters = currentClip?.filters ?: emptyList()
-            if (filters.isNotEmpty()) {
+            clipSourcePath != null && lastLoadedPath == clipSourcePath -> {
+                VideoPlayerSurface(
+                    playerState = playerState,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            thumbnailFallback != null -> {
+                val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "Preview",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+
+            else -> {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.Default.VideoFile, null,
+                        modifier = Modifier.size(48.dp),
+                        tint = Color.White.copy(alpha = 0.3f),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "No video at playhead",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.4f),
+                    )
+                }
+            }
+        }
+
+        if (currentClip != null) {
+            if (clipFilters.isNotEmpty()) {
                 Surface(
                     modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
                     shape = MaterialTheme.shapes.small,
                 ) {
                     Text(
-                        text = "${filters.size} filter${if (filters.size > 1) "s" else ""}",
+                        "${clipFilters.size} filter${if (clipFilters.size > 1) "s" else ""}",
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
             }
-
             if (clipSpeed != 1f) {
                 Surface(
                     modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
@@ -194,38 +275,12 @@ fun EditorVideoPreview(
                     shape = MaterialTheme.shapes.small,
                 ) {
                     Text(
-                        text = "${clipSpeed}x",
+                        "${clipSpeed}x",
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                 }
-            }
-        } else if (thumbnailFallback != null) {
-            val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
-            Image(
-                bitmap = bitmap,
-                contentDescription = "Preview",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit,
-            )
-        } else {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(
-                    Icons.Default.VideoFile,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = Color.White.copy(alpha = 0.3f),
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "No video at playhead",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.4f),
-                )
             }
         }
     }

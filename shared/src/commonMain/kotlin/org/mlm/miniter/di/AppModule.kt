@@ -27,7 +27,8 @@ val coreModule = module {
     single { RecentProjectsRepository(get()) }
     single { PlatformVideoEngine() }
     single { UndoManager(maxHistory = 50) }
-    factory { ProjectViewModel(get(), get(), get(), get(), get()) }
+
+    single { ProjectViewModel(get(), get(), get(), get(), get()) }
     factory { EditorViewModel(get()) }
 }
 

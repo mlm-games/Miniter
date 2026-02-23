@@ -23,6 +23,7 @@ import org.mlm.miniter.project.RecentProject
 import org.mlm.miniter.ui.components.dialogs.NewProjectDialog
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.viewmodel.EditorViewModel
+import org.mlm.miniter.viewmodel.ProjectViewModel
 
 @Composable
 fun EditorScreen(
@@ -31,7 +32,12 @@ fun EditorScreen(
     editorViewModel: EditorViewModel = koinInject(),
 ) {
     val snackbarManager: SnackbarManager = koinInject()
+    val projectVm: ProjectViewModel = koinInject()
     val recentProjects by editorViewModel.recentProjects.collectAsState()
+
+    LaunchedEffect(Unit) {
+        projectVm.reset()
+    }
 
     var pendingVideo by remember { mutableStateOf<PlatformFile?>(null) }
 
@@ -127,7 +133,6 @@ fun EditorScreen(
                             onClick = {
                                 if (recent.path.endsWith(".mntr")) {
                                     onOpenProject(recent.path, recent.name, null)
-                                } else {
                                 }
                             },
                             onRemove = { editorViewModel.removeRecent(recent.path) },

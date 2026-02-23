@@ -510,6 +510,27 @@ class ProjectViewModel(
     fun cancelExport() = engine.cancelExport()
     fun resetExport() = engine.reset()
 
+    fun updateExportSettings(settings: ExportSettings) {
+        val project = _state.value.project ?: return
+        _state.update {
+            it.copy(project = project.copy(exportSettings = settings), isDirty = true)
+        }
+    }
+
+    fun startExport(outputPath: String) {
+        val project = _state.value.project ?: return
+        viewModelScope.launch { engine.exportVideo(project, outputPath) }
+    }
+
+    fun reset() {
+        stopAutoSave()
+        _state.update {
+            ProjectUiState()
+        }
+        undoManager.clear()
+        engine.reset()
+    }
+
     fun addTrack(type: TrackType, label: String? = null) {
         recordAndMutate { project ->
             val count = project.timeline.tracks.count { it.type == type }
