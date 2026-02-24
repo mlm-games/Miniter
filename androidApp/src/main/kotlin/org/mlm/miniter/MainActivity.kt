@@ -13,6 +13,7 @@ import io.github.vinceglb.filekit.FileKit
 import io.github.mlmgames.settings.core.SettingsRepository
 import io.github.vinceglb.filekit.dialogs.init
 import org.koin.core.context.GlobalContext
+import org.mlm.miniter.di.KoinApp
 import org.mlm.miniter.di.initKoin
 import org.mlm.miniter.platform.AndroidContext
 import org.mlm.miniter.settings.AppSettings

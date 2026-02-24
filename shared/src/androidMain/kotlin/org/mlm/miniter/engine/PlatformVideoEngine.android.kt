@@ -27,6 +27,10 @@ actual class PlatformVideoEngine actual constructor() {
     @Volatile
     private var currentSessionId: Long = -1L
 
+    companion object {
+        private const val ANDROID_FONT = "/system/fonts/Roboto-Regular.ttf"
+    }
+
     private fun MediaMetadataRetriever.setDataSourceCompat(path: String) {
         if (path.startsWith("content://")) {
             setDataSource(AndroidContext.get(), Uri.parse(path))
@@ -44,6 +48,8 @@ actual class PlatformVideoEngine actual constructor() {
             "\"$path\""
         }
     }
+
+    private fun evenUp(value: Int): Int = if (value % 2 == 0) value else value + 1
 
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
@@ -120,17 +126,20 @@ actual class PlatformVideoEngine actual constructor() {
                 return@withContext
             }
 
+            // Collect text clips
+            val textClips = project.timeline.tracks
+                .filter { it.type == TrackType.Text && !it.isMuted }
+                .flatMap { it.clips.filterIsInstance<Clip.TextClip>() }
+
             val firstInfo = probeVideo(videoClips.first().sourcePath)
-            val outWidth = if (project.exportSettings.width > 0) {
-                project.exportSettings.width
-            } else {
-                firstInfo.width
-            }
-            val outHeight = if (project.exportSettings.height > 0) {
-                project.exportSettings.height
-            } else {
-                firstInfo.height
-            }
+            val outWidth = evenUp(
+                if (project.exportSettings.width > 0) project.exportSettings.width
+                else firstInfo.width
+            )
+            val outHeight = evenUp(
+                if (project.exportSettings.height > 0) project.exportSettings.height
+                else firstInfo.height
+            )
 
             val audioTracks = project.timeline.tracks
                 .filter { it.type == TrackType.Audio && !it.isMuted }
@@ -142,6 +151,7 @@ actual class PlatformVideoEngine actual constructor() {
             val command = buildFFmpegCommand(
                 videoClips = videoClips,
                 audioClips = audioClips,
+                textClips = textClips,
                 format = project.exportSettings.format,
                 quality = project.exportSettings.quality,
                 outWidth = outWidth,
@@ -166,6 +176,7 @@ actual class PlatformVideoEngine actual constructor() {
     private fun buildFFmpegCommand(
         videoClips: List<Clip.VideoClip>,
         audioClips: List<Clip.AudioClip>,
+        textClips: List<Clip.TextClip>,
         format: ExportFormat,
         quality: Float,
         outWidth: Int,
@@ -213,11 +224,25 @@ actual class PlatformVideoEngine actual constructor() {
             }
         }
 
+        // Concat video
         for (i in videoClips.indices) {
             filterComplex.append("[v$i]")
         }
-        filterComplex.append("concat=n=${videoClips.size}:v=1:a=0[outv];")
+        filterComplex.append("concat=n=${videoClips.size}:v=1:a=0[outv_raw];")
 
+        // Apply text overlays after concat
+        val textFilters = FilterGraphBuilder.buildPostConcatTextFilters(
+            videoClips = videoClips,
+            textClips = textClips,
+            fontPath = ANDROID_FONT,
+        )
+        if (textFilters.isNotEmpty()) {
+            filterComplex.append("[outv_raw]$textFilters[outv];")
+        } else {
+            filterComplex.append("[outv_raw]null[outv];")
+        }
+
+        // Concat embedded audio
         if (videoHasAudio) {
             for (i in videoClips.indices) {
                 filterComplex.append("[va$i]")
@@ -225,6 +250,7 @@ actual class PlatformVideoEngine actual constructor() {
             filterComplex.append("concat=n=${videoClips.size}:v=0:a=1[video_audio];")
         }
 
+        // Process separate audio clips
         val audioInputs = mutableListOf<String>()
         if (videoHasAudio) {
             audioInputs.add("[video_audio]")
@@ -233,14 +259,14 @@ actual class PlatformVideoEngine actual constructor() {
         for ((i, clip) in audioClips.withIndex()) {
             val inputIdx = videoInputCount + i
             val af = mutableListOf<String>()
-            
+
             af.add("atrim=start=${clip.sourceStartMs / 1000.0}:end=${clip.sourceEndMs / 1000.0}")
             af.add("asetpts=PTS-STARTPTS")
-            
+
             if (clip.volume != 1.0f) {
                 af.add("volume=${clip.volume}")
             }
-            
+
             if (clip.fadeInMs > 0) {
                 af.add("afade=t=in:st=0:d=${clip.fadeInMs / 1000.0}")
             }

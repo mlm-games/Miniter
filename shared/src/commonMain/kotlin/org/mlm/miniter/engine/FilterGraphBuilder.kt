@@ -1,15 +1,24 @@
 package org.mlm.miniter.engine
 
+import org.mlm.miniter.project.Clip
 import org.mlm.miniter.project.FilterType
 import org.mlm.miniter.project.VideoFilter
 
 object FilterGraphBuilder {
 
-    /**
-     * Round up to the nearest even number. Required for yuv420p pixel format
-     * which needs dimensions divisible by 2 for chroma subsampling.
-     */
     private fun evenUp(value: Int): Int = if (value % 2 == 0) value else value + 1
+
+    private fun fmtSec(sec: Double): String {
+        val ms = (sec * 1000).toLong().coerceAtLeast(0)
+        return "${ms / 1000}.${(ms % 1000).toString().padStart(3, '0')}"
+    }
+
+    private fun escapeDrawtext(text: String): String {
+        return text
+            .replace("\\", "\\\\")
+            .replace("'", "'\\''")
+            .replace("%", "%%")
+    }
 
     fun buildVideoFilterString(
         filters: List<VideoFilter>,
@@ -20,20 +29,13 @@ object FilterGraphBuilder {
     ): String {
         val parts = mutableListOf<String>()
 
-        // Ensure even dimensions for yuv420p compatibility
         val w = evenUp(outWidth)
         val h = evenUp(outHeight)
 
-        // Normalize pixel format first
         parts.add("format=yuv420p")
-
-        // Scale to fit within target, force output to even dimensions
         parts.add("scale=$w:$h:force_original_aspect_ratio=decrease:force_divisible_by=2")
-
-        // Pad to exact target dimensions (scale output may be smaller due to aspect ratio)
         parts.add("pad=$w:$h:(ow-iw)/2:(oh-ih)/2:color=black")
 
-        // Merge adjacent eq= parameters
         val eqParams = mutableMapOf<String, String>()
         for (f in filters) {
             when (f.type) {
@@ -74,6 +76,108 @@ object FilterGraphBuilder {
         }
 
         return parts.joinToString(",")
+    }
+
+    /**
+     * @param textClips All text clips from the project
+     * @param timelineStartMs Video clip start on timeline
+     * @param timelineEndMs Video clip end on timeline
+     * @param outputOffsetSec Cumulative output seconds before this segment (for post-concat mode)
+     * @param perClip true = enable times relative to 0 (JVM per-clip filter);
+     *                false = enable times include outputOffsetSec (Android post-concat)
+     * @param fontPath Optional .ttf font file path
+     */
+    fun buildTextOverlayFilters(
+        textClips: List<Clip.TextClip>,
+        timelineStartMs: Long,
+        timelineEndMs: Long,
+        outputOffsetSec: Double = 0.0,
+        perClip: Boolean = true,
+        fontPath: String? = null,
+    ): String {
+        if (textClips.isEmpty()) return ""
+
+        val entries = mutableListOf<String>()
+
+        for (tc in textClips) {
+            val tStart = tc.startMs
+            val tEnd = tc.startMs + tc.durationMs
+
+            val overlapStart = maxOf(tStart, timelineStartMs)
+            val overlapEnd = minOf(tEnd, timelineEndMs)
+            if (overlapStart >= overlapEnd) continue
+
+            val enableStart = if (perClip) {
+                (overlapStart - timelineStartMs) / 1000.0
+            } else {
+                outputOffsetSec + (overlapStart - timelineStartMs) / 1000.0
+            }
+            val enableEnd = if (perClip) {
+                (overlapEnd - timelineStartMs) / 1000.0
+            } else {
+                outputOffsetSec + (overlapEnd - timelineStartMs) / 1000.0
+            }
+
+            val escaped = escapeDrawtext(tc.text)
+            val color = tc.colorHex.removePrefix("#").let { "0x$it" }
+            val x = "(w-tw)*${tc.positionX}"
+            val y = "(h-th)*${tc.positionY}"
+
+            val sb = StringBuilder("drawtext=text='$escaped'")
+            sb.append(":fontsize=${tc.fontSizeSp.toInt()}")
+            sb.append(":fontcolor=$color")
+            sb.append(":x=$x:y=$y")
+            // Escape commas inside enable expression so FFmpeg doesn't split on them
+            sb.append(":enable='between(t\\,${fmtSec(enableStart)}\\,${fmtSec(enableEnd)})'")
+            if (fontPath != null) {
+                sb.append(":fontfile='$fontPath'")
+            }
+            if (tc.backgroundColorHex != null) {
+                val bg = tc.backgroundColorHex.removePrefix("#")
+                sb.append(":box=1:boxcolor=0x${bg}@0.6:boxborderw=5")
+            }
+
+            entries.add(sb.toString())
+        }
+
+        return entries.joinToString(",")
+    }
+
+    /**
+     * Calculate text overlay segments for the entire concatenated output.
+     * Used by Android post-concat approach.
+     */
+    fun buildPostConcatTextFilters(
+        videoClips: List<Clip.VideoClip>,
+        textClips: List<Clip.TextClip>,
+        fontPath: String? = null,
+    ): String {
+        if (textClips.isEmpty()) return ""
+
+        val sorted = videoClips.sortedBy { it.startMs }
+        val allEntries = mutableListOf<String>()
+        var outputOffsetMs = 0L
+
+        for (clip in sorted) {
+            val clipStart = clip.startMs
+            val clipEnd = clip.startMs + clip.durationMs
+
+            val segment = buildTextOverlayFilters(
+                textClips = textClips,
+                timelineStartMs = clipStart,
+                timelineEndMs = clipEnd,
+                outputOffsetSec = outputOffsetMs / 1000.0,
+                perClip = false,
+                fontPath = fontPath,
+            )
+            if (segment.isNotEmpty()) {
+                allEntries.add(segment)
+            }
+
+            outputOffsetMs += clip.durationMs
+        }
+
+        return allEntries.joinToString(",")
     }
 
     fun buildAudioFilterString(
