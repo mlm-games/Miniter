@@ -142,6 +142,7 @@ class ProjectViewModel(
             } catch (e: Exception) {
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.showError("Failed to load project: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
@@ -158,6 +159,7 @@ class ProjectViewModel(
             } catch (e: Exception) {
                 _state.update { it.copy(isSaving = false) }
                 snackbarManager.showError("Failed to save: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
@@ -488,6 +490,7 @@ class ProjectViewModel(
             } catch (e: Exception) {
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.showError("Failed to import: ${e.message}")
+                e.printStackTrace()
             }
         }
     }

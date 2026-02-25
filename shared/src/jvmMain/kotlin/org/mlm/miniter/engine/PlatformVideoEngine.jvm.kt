@@ -19,6 +19,7 @@ import org.bytedeco.javacv.Java2DFrameConverter
 import org.mlm.miniter.project.*
 import java.awt.image.BufferedImage
 import java.io.File
+import kotlin.coroutines.cancellation.CancellationException
 
 actual class PlatformVideoEngine actual constructor() {
 
@@ -227,12 +228,13 @@ actual class PlatformVideoEngine actual constructor() {
                 )
                 throw e
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             _exportProgress.value = ExportProgress(
                 error = "Export failed: ${e.message}"
             )
+            e.printStackTrace()
         }
     }
 

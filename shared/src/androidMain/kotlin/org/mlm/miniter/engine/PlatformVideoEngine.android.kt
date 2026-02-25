@@ -211,6 +211,7 @@ actual class PlatformVideoEngine actual constructor() {
             _exportProgress.value = ExportProgress(
                 error = "Export failed: ${e.message}"
             )
+            e.printStackTrace()
         }
     }
 
