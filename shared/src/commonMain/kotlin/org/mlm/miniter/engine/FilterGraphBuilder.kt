@@ -36,25 +36,28 @@ object FilterGraphBuilder {
         parts.add("scale=$w:$h:force_original_aspect_ratio=decrease:force_divisible_by=2")
         parts.add("pad=$w:$h:(ow-iw)/2:(oh-ih)/2:color=black")
 
-        val eqParams = mutableMapOf<String, String>()
+        var brightness = 0f
+        var contrast = 1f
+        var saturation = -1f
+        var hasBrightnessOrContrast = false
+
         for (f in filters) {
             when (f.type) {
                 FilterType.Brightness -> {
-                    val v = f.params["value"] ?: 0f
-                    eqParams["brightness"] = "${v / 100f}"
+                    brightness = (f.params["value"] ?: 0f) / 100f
+                    hasBrightnessOrContrast = true
                 }
                 FilterType.Contrast -> {
-                    val v = f.params["value"] ?: 1f
-                    eqParams["contrast"] = "$v"
+                    contrast = f.params["value"] ?: 1f
+                    hasBrightnessOrContrast = true
                 }
                 FilterType.Saturation -> {
-                    val v = f.params["value"] ?: 1f
-                    eqParams["saturation"] = "$v"
+                    saturation = f.params["value"] ?: 1f
                 }
                 FilterType.Grayscale -> parts.add("hue=s=0")
                 FilterType.Blur -> {
-                    val r = (f.params["radius"] ?: 5f).toInt()
-                    parts.add("boxblur=$r:$r")
+                    val r = (f.params["radius"] ?: 5f).toInt().coerceIn(1, 20)
+                    parts.add("avgblur=sizeX=$r:sizeY=$r")
                 }
                 FilterType.Sharpen -> parts.add("unsharp=5:5:1.0:5:5:0.0")
                 FilterType.Sepia -> parts.add(
@@ -63,8 +66,17 @@ object FilterGraphBuilder {
             }
         }
 
-        if (eqParams.isNotEmpty()) {
-            parts.add("eq=" + eqParams.entries.joinToString(":") { "${it.key}=${it.value}" })
+        if (hasBrightnessOrContrast) {
+            val offset = (brightness * 255).toInt()
+            if (contrast != 1f || offset != 0) {
+                val contrastPart = if (contrast != 1f) "(val-128)*$contrast+128" else "val"
+                val fullExpr = if (offset != 0) "$contrastPart+$offset" else contrastPart
+                parts.add("lutyuv=y=$fullExpr")
+            }
+        }
+
+        if (saturation >= 0f && saturation != 1f) {
+            parts.add("hue=s=$saturation")
         }
 
         if (opacity < 1.0f) {
