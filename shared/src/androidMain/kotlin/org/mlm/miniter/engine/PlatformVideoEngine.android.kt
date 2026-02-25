@@ -139,14 +139,11 @@ actual class PlatformVideoEngine actual constructor() {
         try {
             _exportProgress.value = ExportProgress(phase = "Preparing…", progress = 0f)
 
-            val videoTrack = project.timeline.tracks
-                .firstOrNull { it.type == TrackType.Video }
-                ?: run {
-                    _exportProgress.value = ExportProgress(error = "No video track found")
-                    return@withContext
-                }
+            val videoClips = project.timeline.tracks
+                .filter { it.type == TrackType.Video && !it.isMuted }
+                .flatMap { it.clips.filterIsInstance<Clip.VideoClip>() }
+                .sortedBy { it.startMs }
 
-            val videoClips = videoTrack.clips.filterIsInstance<Clip.VideoClip>()
             if (videoClips.isEmpty()) {
                 _exportProgress.value = ExportProgress(error = "No video clips on timeline")
                 return@withContext
@@ -185,7 +182,6 @@ actual class PlatformVideoEngine actual constructor() {
                 outWidth = outWidth,
                 outHeight = outHeight,
                 outputPath = tempFile.absolutePath,
-                videoHasAudio = firstInfo.hasAudio,
             )
 
             _exportProgress.value = ExportProgress(phase = "Exporting…", progress = 0f)
@@ -215,7 +211,7 @@ actual class PlatformVideoEngine actual constructor() {
         }
     }
 
-    private fun buildFFmpegCommand(
+    private suspend fun buildFFmpegCommand(
         videoClips: List<Clip.VideoClip>,
         audioClips: List<Clip.AudioClip>,
         textClips: List<Clip.TextClip>,
@@ -223,12 +219,10 @@ actual class PlatformVideoEngine actual constructor() {
         quality: Float,
         outWidth: Int,
         outHeight: Int,
-        outputPath: String, // This is now always a local file path
-        videoHasAudio: Boolean,
+        outputPath: String,
     ): String {
         val sb = StringBuilder()
         val hasExtraAudio = audioClips.isNotEmpty()
-        val hasAudio = videoHasAudio || hasExtraAudio
 
         sb.append("-y ")
 
@@ -243,6 +237,14 @@ actual class PlatformVideoEngine actual constructor() {
         val filterComplex = StringBuilder()
         val videoInputCount = videoClips.size
 
+        val clipHasAudio = mutableListOf<Boolean>()
+        for (clip in videoClips) {
+            val info = probeVideo(clip.sourcePath)
+            clipHasAudio.add(info.hasAudio)
+        }
+        val anyEmbeddedAudio = clipHasAudio.any { it }
+        val hasAudio = anyEmbeddedAudio || hasExtraAudio
+
         for ((i, clip) in videoClips.withIndex()) {
             val vf = FilterGraphBuilder.buildVideoFilterString(
                 filters = clip.filters,
@@ -254,7 +256,7 @@ actual class PlatformVideoEngine actual constructor() {
                     "end=${clip.sourceEndMs / 1000.0},setpts=PTS-STARTPTS"
             filterComplex.append("[$i:v]$trimFilter,$vf[v$i];")
 
-            if (videoHasAudio) {
+            if (clipHasAudio[i]) {
                 val af = FilterGraphBuilder.buildAudioFilterString(
                     speed = clip.speed,
                     volume = clip.volume,
@@ -263,6 +265,12 @@ actual class PlatformVideoEngine actual constructor() {
                         "end=${clip.sourceEndMs / 1000.0},asetpts=PTS-STARTPTS"
                 val audioFilters = if (af.isNotEmpty()) "$atrimFilter,$af" else atrimFilter
                 filterComplex.append("[$i:a]$audioFilters[va$i];")
+            } else if (anyEmbeddedAudio) {
+                val durationSec = clip.durationMs / 1000.0
+                filterComplex.append(
+                    "anullsrc=r=44100:cl=stereo[silence$i];" +
+                    "[silence$i]atrim=0:$durationSec,asetpts=PTS-STARTPTS[va$i];"
+                )
             }
         }
 
@@ -285,7 +293,7 @@ actual class PlatformVideoEngine actual constructor() {
         }
 
         // Concat embedded audio
-        if (videoHasAudio) {
+        if (anyEmbeddedAudio) {
             for (i in videoClips.indices) {
                 filterComplex.append("[va$i]")
             }
@@ -294,7 +302,7 @@ actual class PlatformVideoEngine actual constructor() {
 
         // Process separate audio clips
         val audioInputs = mutableListOf<String>()
-        if (videoHasAudio) {
+        if (anyEmbeddedAudio) {
             audioInputs.add("[video_audio]")
         }
 

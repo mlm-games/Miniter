@@ -669,14 +669,15 @@ class ProjectViewModel(
                                 clip.id == clipId && clip is Clip.VideoClip -> {
                                     val maxStart = clip.startMs + clip.durationMs - 100
                                     val clampedStart = newStartMs.coerceIn(
-                                        clip.startMs - clip.sourceStartMs,
+                                        clip.startMs - (clip.sourceStartMs / clip.speed).toLong(),
                                         maxStart,
                                     )
-                                    val delta = clampedStart - clip.startMs
+                                    val timelineDelta = clampedStart - clip.startMs
+                                    val sourceDelta = (timelineDelta * clip.speed).toLong()
                                     clip.copy(
                                         startMs = clampedStart,
-                                        durationMs = clip.durationMs - delta,
-                                        sourceStartMs = clip.sourceStartMs + delta,
+                                        durationMs = clip.durationMs - timelineDelta,
+                                        sourceStartMs = clip.sourceStartMs + sourceDelta,
                                     )
                                 }
                                 clip.id == clipId && clip is Clip.AudioClip -> {
@@ -724,7 +725,7 @@ class ProjectViewModel(
             clampedEnd = clampedEnd.coerceAtMost(nextClip.startMs)
         }
 
-        val newDuration = clampedEnd - thisClip.startMs
+        val newTimelineDuration = clampedEnd - thisClip.startMs
 
         applyContinuousEdit { p ->
             p.copy(
@@ -733,15 +734,16 @@ class ProjectViewModel(
                         track.copy(clips = track.clips.map { clip ->
                             when {
                                 clip.id == clipId && clip is Clip.VideoClip -> {
+                                    val newSourceDuration = (newTimelineDuration * clip.speed).toLong()
                                     clip.copy(
-                                        durationMs = newDuration,
-                                        sourceEndMs = clip.sourceStartMs + newDuration,
+                                        durationMs = newTimelineDuration,
+                                        sourceEndMs = clip.sourceStartMs + newSourceDuration,
                                     )
                                 }
                                 clip.id == clipId && clip is Clip.AudioClip -> {
                                     clip.copy(
-                                        durationMs = newDuration,
-                                        sourceEndMs = clip.sourceStartMs + newDuration,
+                                        durationMs = newTimelineDuration,
+                                        sourceEndMs = clip.sourceStartMs + newTimelineDuration,
                                     )
                                 }
                                 else -> clip
