@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.mlm.miniter.platform.AndroidContext
 import org.mlm.miniter.project.FilterType
@@ -12,20 +15,23 @@ import org.mlm.miniter.project.VideoFilter
 actual class PlatformFrameGrabber {
 
     private var retriever: MediaMetadataRetriever? = null
+    private val mutex = Mutex()
     private var currentPath: String? = null
 
     actual suspend fun open(path: String) = withContext(Dispatchers.IO) {
-        if (currentPath == path) return@withContext
+        mutex.withLock {
+            if (currentPath == path) return@withContext
 
-        retriever?.release()
-        retriever = MediaMetadataRetriever().apply {
-            if (path.startsWith("content://")) {
-                setDataSource(AndroidContext.get(), Uri.parse(path))
-            } else {
-                setDataSource(path)
+            retriever?.release()
+            retriever = MediaMetadataRetriever().apply {
+                if (path.startsWith("content://")) {
+                    setDataSource(AndroidContext.get(), Uri.parse(path))
+                } else {
+                    setDataSource(path)
+                }
             }
+            currentPath = path
         }
-        currentPath = path
     }
 
     actual suspend fun grabFrame(
@@ -35,39 +41,45 @@ actual class PlatformFrameGrabber {
         width: Int,
         height: Int,
     ): ImageData? = withContext(Dispatchers.IO) {
-        val r = retriever ?: return@withContext null
+        mutex.withLock {
+            val r = retriever ?: return@withContext null
 
-        val bitmap = r.getFrameAtTime(
-            timestampMs * 1000,
-            MediaMetadataRetriever.OPTION_CLOSEST,
-        ) ?: return@withContext null
+            val bitmap = r.getFrameAtTime(
+                timestampMs * 1000,
+                MediaMetadataRetriever.OPTION_CLOSEST,
+            ) ?: return@withContext null
 
-        var resultBitmap = bitmap
+            var resultBitmap = bitmap
 
-        if (filters.isNotEmpty() || opacity < 1f) {
-            resultBitmap = applyFilters(bitmap, filters, opacity)
-            if (resultBitmap != bitmap) bitmap.recycle()
+            if (filters.isNotEmpty() || opacity < 1f) {
+                resultBitmap = applyFilters(bitmap, filters, opacity)
+                if (resultBitmap != bitmap) bitmap.recycle()
+            }
+
+            val finalWidth = if (width > 0) width else resultBitmap.width
+            val finalHeight = if (height > 0) height else resultBitmap.height
+
+            val scaled = if (resultBitmap.width != finalWidth || resultBitmap.height != finalHeight) {
+                val s = Bitmap.createScaledBitmap(resultBitmap, finalWidth, finalHeight, true)
+                if (resultBitmap != bitmap) resultBitmap.recycle()
+                s
+            } else resultBitmap
+
+            val imageData = scaled.toImageData()
+            scaled.recycle()
+
+            imageData
         }
-
-        val finalWidth = if (width > 0) width else resultBitmap.width
-        val finalHeight = if (height > 0) height else resultBitmap.height
-
-        val scaled = if (resultBitmap.width != finalWidth || resultBitmap.height != finalHeight) {
-            val s = Bitmap.createScaledBitmap(resultBitmap, finalWidth, finalHeight, true)
-            if (resultBitmap != bitmap) resultBitmap.recycle()
-            s
-        } else resultBitmap
-
-        val imageData = scaled.toImageData()
-        scaled.recycle()
-
-        imageData
     }
 
     actual fun release() {
-        retriever?.release()
-        retriever = null
-        currentPath = null
+        runBlocking {
+            mutex.withLock {
+                retriever?.release()
+                retriever = null
+                currentPath = null
+            }
+        }
     }
 }
 

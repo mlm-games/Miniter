@@ -331,14 +331,15 @@ actual class PlatformVideoEngine actual constructor() {
             filterComplex.append("${audioInputs[0]}acopy[outa]")
         }
 
-        sb.append("-filter_complex \"$filterComplex\" ")
-        sb.append("-map \"[outv]\" ")
-        if (hasAudio) sb.append("-map \"[outa]\" ")
+        val finalFilterComplex = filterComplex.toString().trimEnd(';')
+
+        sb.append("-filter_complex $finalFilterComplex ")
+        sb.append("-map [outv] ")
+        if (hasAudio) sb.append("-map [outa] ")
 
         appendCodecSettings(sb, format, quality, hasAudio)
 
-        // outputPath is now always a local cache file path
-        sb.append("\"$outputPath\"")
+        sb.append(outputPath)
 
         return sb.toString()
     }
