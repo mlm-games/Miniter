@@ -1,14 +1,11 @@
 package org.mlm.miniter.engine
 
 import android.media.MediaMetadataRetriever
-import android.net.Uri
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.ReturnCode
 import com.arthenica.ffmpegkit.Statistics
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,8 +13,11 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.mlm.miniter.platform.AndroidContext
 import org.mlm.miniter.project.*
+import java.io.File
+import java.io.FileInputStream
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import androidx.core.net.toUri
 
 actual class PlatformVideoEngine actual constructor() {
 
@@ -33,7 +33,7 @@ actual class PlatformVideoEngine actual constructor() {
 
     private fun MediaMetadataRetriever.setDataSourceCompat(path: String) {
         if (path.startsWith("content://")) {
-            setDataSource(AndroidContext.get(), Uri.parse(path))
+            setDataSource(AndroidContext.get(), path.toUri())
         } else {
             setDataSource(path)
         }
@@ -42,7 +42,7 @@ actual class PlatformVideoEngine actual constructor() {
     private fun normalizePathForFFmpeg(path: String): String {
         return if (path.startsWith("content://")) {
             val context = AndroidContext.get()
-            val uri = Uri.parse(path)
+            val uri = path.toUri()
             FFmpegKitConfig.getSafParameterForRead(context, uri)
         } else {
             "\"$path\""
@@ -50,6 +50,31 @@ actual class PlatformVideoEngine actual constructor() {
     }
 
     private fun evenUp(value: Int): Int = if (value % 2 == 0) value else value + 1
+
+    /**
+     * Create a temp file in cache dir for FFmpeg output, then copy to final destination.
+     * This avoids SAF URI issues with FFmpegKit's output path handling.
+     */
+    private fun createTempOutputFile(extension: String): File {
+        val cacheDir = File(AndroidContext.get().cacheDir, "export")
+        cacheDir.mkdirs()
+        return File(cacheDir, "export_${System.currentTimeMillis()}.$extension")
+    }
+
+    private fun copyToFinalDestination(tempFile: File, outputPath: String) {
+        if (outputPath.startsWith("content://")) {
+            val context = AndroidContext.get()
+            val uri = outputPath.toUri()
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                FileInputStream(tempFile).use { input ->
+                    input.copyTo(out)
+                }
+            }
+        } else {
+            tempFile.copyTo(File(outputPath), overwrite = true)
+        }
+        tempFile.delete()
+    }
 
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
@@ -110,6 +135,7 @@ actual class PlatformVideoEngine actual constructor() {
         project: MinterProject,
         outputPath: String,
     ) = withContext(Dispatchers.IO) {
+        var tempFile: File? = null
         try {
             _exportProgress.value = ExportProgress(phase = "Preparing…", progress = 0f)
 
@@ -126,7 +152,6 @@ actual class PlatformVideoEngine actual constructor() {
                 return@withContext
             }
 
-            // Collect text clips
             val textClips = project.timeline.tracks
                 .filter { it.type == TrackType.Text && !it.isMuted }
                 .flatMap { it.clips.filterIsInstance<Clip.TextClip>() }
@@ -148,6 +173,9 @@ actual class PlatformVideoEngine actual constructor() {
 
             val totalDurationMs = videoClips.sumOf { it.durationMs }.toFloat()
 
+            // Export to temp file to avoid SAF URI issues
+            tempFile = createTempOutputFile(project.exportSettings.format.extension)
+
             val command = buildFFmpegCommand(
                 videoClips = videoClips,
                 audioClips = audioClips,
@@ -156,17 +184,30 @@ actual class PlatformVideoEngine actual constructor() {
                 quality = project.exportSettings.quality,
                 outWidth = outWidth,
                 outHeight = outHeight,
-                outputPath = outputPath,
+                outputPath = tempFile.absolutePath,
                 videoHasAudio = firstInfo.hasAudio,
             )
 
             _exportProgress.value = ExportProgress(phase = "Exporting…", progress = 0f)
 
-            executeFFmpegCommand(command, totalDurationMs, outputPath)
+            executeFFmpegCommand(command, totalDurationMs, tempFile.absolutePath)
+
+            // Copy temp file to final destination
+            if (_exportProgress.value.isComplete) {
+                _exportProgress.value = ExportProgress(phase = "Saving…", progress = 0.99f)
+                copyToFinalDestination(tempFile, outputPath)
+                _exportProgress.value = ExportProgress(
+                    phase = "Complete",
+                    progress = 1f,
+                    isComplete = true,
+                )
+            }
 
         } catch (e: kotlinx.coroutines.CancellationException) {
+            tempFile?.delete()
             throw e
         } catch (e: Exception) {
+            tempFile?.delete()
             _exportProgress.value = ExportProgress(
                 error = "Export failed: ${e.message}"
             )
@@ -181,7 +222,7 @@ actual class PlatformVideoEngine actual constructor() {
         quality: Float,
         outWidth: Int,
         outHeight: Int,
-        outputPath: String,
+        outputPath: String, // This is now always a local file path
         videoHasAudio: Boolean,
     ): String {
         val sb = StringBuilder()
@@ -295,11 +336,19 @@ actual class PlatformVideoEngine actual constructor() {
         if (hasAudio) sb.append("-map \"[outa]\" ")
 
         appendCodecSettings(sb, format, quality, hasAudio)
+
+        // outputPath is now always a local cache file path
         sb.append("\"$outputPath\"")
 
         return sb.toString()
     }
 
+    /**
+     * Codec settings for LGPL FFmpegKit build.
+     * libx264 is NOT available (requires GPL build).
+     * mpeg4 is always available.
+     * libvpx-vp9 is included in LGPL builds for WebM.
+     */
     private fun appendCodecSettings(
         sb: StringBuilder,
         format: ExportFormat,
@@ -308,10 +357,10 @@ actual class PlatformVideoEngine actual constructor() {
     ) {
         when (format) {
             ExportFormat.MP4, ExportFormat.MOV -> {
-                sb.append("-c:v libx264 ")
-                val crf = ((100 - quality) / 100f * 45f + 6f).toInt().coerceIn(0, 51)
-                sb.append("-crf $crf ")
-                sb.append("-preset medium ")
+                // Use bitrate-based quality since mpeg4 doesn't support CRF.
+                sb.append("-c:v mpeg4 ")
+                val bitrate = (quality / 100f * 8000f + 500f).toInt().coerceIn(500, 8500)
+                sb.append("-b:v ${bitrate}k ")
                 sb.append("-pix_fmt yuv420p ")
                 if (hasAudio) sb.append("-c:a aac -b:a 192k ")
             }
@@ -322,14 +371,13 @@ actual class PlatformVideoEngine actual constructor() {
                 if (hasAudio) sb.append("-c:a libopus -b:a 128k ")
             }
         }
-
         sb.append("-f ${format.extension} ")
     }
 
     private suspend fun executeFFmpegCommand(
         command: String,
         totalDurationMs: Float,
-        outputPath: String,
+        tempOutputPath: String,
     ) = suspendCancellableCoroutine { continuation ->
 
         val session = FFmpegKit.executeAsync(
@@ -338,6 +386,7 @@ actual class PlatformVideoEngine actual constructor() {
                 val returnCode = session.returnCode
                 when {
                     ReturnCode.isSuccess(returnCode) -> {
+                        // Mark as complete — caller will copy to final destination
                         _exportProgress.value = ExportProgress(
                             phase = "Complete",
                             progress = 1f,
@@ -352,18 +401,30 @@ actual class PlatformVideoEngine actual constructor() {
                             phase = "Cancelled",
                             isCancelled = true,
                         )
-                        try { java.io.File(outputPath).delete() } catch (_: Exception) {}
+                        try { File(tempOutputPath).delete() } catch (_: Exception) {}
                         if (continuation.isActive) {
                             continuation.resume(Unit)
                         }
                     }
                     else -> {
+                        val logs = session.allLogsAsString ?: ""
+                        val errorDetail = when {
+                            "Unknown encoder" in logs -> {
+                                val encoder = Regex("Unknown encoder '(\\w+)'")
+                                    .find(logs)?.groupValues?.get(1) ?: "unknown"
+                                "Encoder '$encoder' not available."
+                            }
+                            "Error opening output" in logs ->
+                                "Cannot write to output location. Check storage permissions."
+                            else -> session.failStackTrace ?: "Unknown error (code ${returnCode.value})"
+                        }
                         _exportProgress.value = ExportProgress(
-                            error = "Export failed (code ${returnCode.value}): ${session.failStackTrace ?: "Unknown error"}"
+                            error = "Export failed: $errorDetail"
                         )
+                        try { File(tempOutputPath).delete() } catch (_: Exception) {}
                         if (continuation.isActive) {
                             continuation.resumeWithException(
-                                RuntimeException("FFmpeg failed: code ${returnCode.value}")
+                                RuntimeException("FFmpeg failed: $errorDetail")
                             )
                         }
                     }
@@ -386,7 +447,7 @@ actual class PlatformVideoEngine actual constructor() {
 
         continuation.invokeOnCancellation {
             FFmpegKit.cancel(session.sessionId)
-            try { java.io.File(outputPath).delete() } catch (_: Exception) {}
+            try { File(tempOutputPath).delete() } catch (_: Exception) {}
         }
     }
 

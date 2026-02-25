@@ -13,10 +13,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
-import io.github.vinceglb.filekit.FileKit
-import io.github.vinceglb.filekit.dialogs.openDirectoryPicker
+import io.github.vinceglb.filekit.PlatformFile
+import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.vinceglb.filekit.path
-import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.mlm.miniter.engine.ExportProgress
 import org.mlm.miniter.project.ExportFormat
@@ -31,26 +30,26 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val uiState by vm.state.collectAsState()
     val project = uiState.project
     val progress by vm.exportProgress.collectAsState()
-    val scope = rememberCoroutineScope()
 
     val settings = project?.exportSettings ?: ExportSettings()
     var format by remember(settings.format) { mutableStateOf(settings.format) }
     var quality by remember(settings.quality) { mutableFloatStateOf(settings.quality) }
     var customWidth by remember(settings.width) { mutableStateOf(settings.width.takeIf { it > 0 }?.toString() ?: "") }
     var customHeight by remember(settings.height) { mutableStateOf(settings.height.takeIf { it > 0 }?.toString() ?: "") }
-    var outputDir by remember { mutableStateOf<String?>(null) }
+
+    var outputFile by remember { mutableStateOf<PlatformFile?>(null) }
 
     val isExporting = progress.progress > 0f &&
             !progress.isComplete &&
             !progress.isCancelled &&
             progress.error == null
 
-    val isIdle = progress.phase == "Idle" &&
-            !progress.isComplete &&
-            progress.error == null
-
     DisposableEffect(Unit) {
         onDispose { vm.resetExport() }
+    }
+
+    val fileSaverLauncher = rememberFileSaverLauncher { file: PlatformFile? ->
+        outputFile = file
     }
 
     Scaffold(
@@ -146,14 +145,15 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
 
             HorizontalDivider()
 
-            Text("Save to", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            // Output file picker — uses native Save dialog
+            Text("Save as", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
-                    value = outputDir ?: "Choose a folder…",
+                    value = outputFile?.path ?: "Choose save location…",
                     onValueChange = {},
                     readOnly = true,
                     modifier = Modifier.weight(1f),
@@ -162,10 +162,10 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 )
                 FilledTonalButton(
                     onClick = {
-                        scope.launch {
-                            val dir = FileKit.openDirectoryPicker(title = "Export to…")
-                            outputDir = dir?.path
-                        }
+                        fileSaverLauncher.launch(
+                            suggestedName = project?.name ?: "export",
+                            extension = format.extension,
+                        )
                     },
                     enabled = !isExporting,
                 ) {
@@ -210,7 +210,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                         Text(
-                                            "${project?.name ?: "video"}.${format.extension}",
+                                            outputFile?.path ?: "${project?.name}.${format.extension}",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                         )
@@ -218,7 +218,10 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { vm.resetExport() }) {
+                                OutlinedButton(onClick = {
+                                    vm.resetExport()
+                                    outputFile = null
+                                }) {
                                     Text("Export Again")
                                 }
                                 OutlinedButton(onClick = { backStack.popBack() }) {
@@ -297,10 +300,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     else -> {
                         Button(
                             onClick = {
-                                val dir = outputDir ?: return@Button
-                                val name = project?.name ?: "export"
-                                val outputPath = "$dir/$name.${format.extension}"
-
+                                val file = outputFile ?: return@Button
                                 vm.updateExportSettings(
                                     ExportSettings(
                                         format = format,
@@ -309,9 +309,12 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                         height = customHeight.toIntOrNull() ?: 0,
                                     )
                                 )
-                                vm.startExport(outputPath)
+                                // Pass the platform file path — on Android this is a
+                                // content:// URI that PlatformVideoEngine handles via
+                                // the temp-file + contentResolver.openOutputStream approach
+                                vm.startExport(file.path)
                             },
-                            enabled = outputDir != null && project != null,
+                            enabled = outputFile != null && project != null,
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                         ) {
                             Icon(Icons.Default.FileDownload, null)
@@ -332,7 +335,11 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     ),
                 ) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("Project Info", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Project Info",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                         Spacer(Modifier.height(4.dp))
 
                         val totalClips = project.timeline.tracks.sumOf { it.clips.size }
