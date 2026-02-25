@@ -1,0 +1,31 @@
+name: miniter
+base: core22
+version: "0.0.0"
+summary: Basic Video editor built for simple tasks.
+description: |
+  Miniter is a video editor built for simple tasks, and isn't meant to have any advanced functionality, as it is limited by multiplatform media player (preview) functionalities and would require a rewrite for advanced tasks. Planning to have a rust based video editor (had started it long back, and it would take a lot more time, so this works for basic tasks until then)
+
+grade: stable
+confinement: strict
+
+apps:
+  miniter:
+    command: miniter.AppImage
+    plugs:
+      - network
+      - network-bind
+      - pulseaudio
+      - wayland
+      - x11
+      - home
+
+parts:
+  miniter:
+    plugin: dump
+    source: ./builds/
+    source-type: local
+    organize:
+      'miniter.AppImage': miniter.AppImage
+    override-build: |
+      craftctl default
+      chmod +x $CRAFT_PART_INSTALL/miniter.AppImage

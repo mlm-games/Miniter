@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.mlm_games.miniter</id>
+  <name>Miniter</name>
+  <summary>Extemely Basic Video editor</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <developer id="io.github.mlm_games">
+    <name>MLM Games</name>
+  </developer>
+  <description>
+    <p>
+      Miniter is an basic video editor built for simple video editing tasks. Has a simpler UI compared to most other video editors.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>Video editing capabilities</li>
+      <li>Cross-platform support (Windows, macOS, Linux, Android)</li>
+      <li>Modern Material Design 3 UI</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.mlm_games.miniter.desktop</launchable>
+  <url type="homepage">https://github.com/mlm-games/miniter</url>
+  <url type="bugtracker">https://github.com/mlm-games/miniter/issues</url>
+  <url type="vcs-browser">https://github.com/mlm-games/miniter</url>
+  <branding>
+    <color type="primary" scheme_preference="light">#6750A4</color>
+    <color type="primary" scheme_preference="dark">#D0BCFF</color>
+  </branding>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-02-25" type="stable">
+      <description>
+        <ul>
+          <li>Initial release</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+  <supports>
+    <control>touch</control>
+  </supports>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+  </categories>
+  <keywords>
+    <keyword>video</keyword>
+    <keyword>editor</keyword>
+    <keyword>multimedia</keyword>
+  </keywords>
+</component>

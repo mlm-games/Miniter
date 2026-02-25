@@ -1,4 +1,4 @@
-name: Desktop Releases
+name: Desktop Releases (Windows)
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: desktop-release-${{ inputs.version_tag }}
+  group: desktop-release-windows-${{ inputs.version_tag }}
   cancel-in-progress: false
 
 env:
@@ -26,14 +26,15 @@ env:
   JAVA_DISTRIBUTION: 'temurin'
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  build-windows:
+    runs-on: windows-latest
     env:
       APP_VERSION: ${{ inputs.version_tag }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.version_tag }}
 
       - uses: actions/setup-java@v5
         with:
@@ -45,30 +46,39 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Package desktop application
-        run: ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon
+        run: |
+          ./gradlew :desktopApp:packageMsi --no-daemon
 
       - name: Collect desktop artifacts
+        shell: pwsh
         run: |
-          mkdir -p dist
-          find desktopApp/build/compose/binaries/main -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} dist/ \;
-          ls -la dist
+          New-Item -ItemType Directory -Force -Path dist
+          Get-ChildItem -Path desktopApp/build/compose/binaries/main -Recurse -Include *.msi,*.exe | ForEach-Object {
+            $newName = "$($_.BaseName)-${{ inputs.version_tag }}-x64$($_.Extension)"
+            Copy-Item -Path $_.FullName -Destination "dist/$newName"
+          }
+          Get-ChildItem dist
 
-      - name: Upload artifacts (CI)
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-desktop
+          name: windows-desktop-x64
           path: dist/*
 
   release:
-    needs: build-linux
+    needs: build-windows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: linux-desktop
+          pattern: windows-desktop-*
+          merge-multiple: true
           path: dist
 
-      - name: Create / Update GitHub Release
+      - name: List artifacts
+        run: ls -la dist/
+
+      - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version_tag }}

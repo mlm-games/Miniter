@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Miniter
+Comment=Miniter video editor
+MimeType=video/;
+Exec=miniter %U
+Icon=io.github.mlm_games.miniter
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;
+Keywords=video;editor;multimedia;
+StartupNotify=true
+StartupWMClass=Miniter

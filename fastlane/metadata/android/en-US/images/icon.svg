@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="512"
+   height="512"
+   viewBox="0 0 512 512"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   sodipodi:docname="icon.svg"
+   inkscape:export-filename="icon.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     inkscape:zoom="0.89631307"
+     inkscape:cx="254.3754"
+     inkscape:cy="7.2519304"
+     inkscape:window-width="1536"
+     inkscape:window-height="902"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1">
+    <filter
+       inkscape:collect="always"
+       style="color-interpolation-filters:sRGB"
+       id="filter3"
+       x="-0.037261855"
+       y="-0.051415583"
+       width="1.0745237"
+       height="1.1028312">
+      <feGaussianBlur
+         inkscape:collect="always"
+         stdDeviation="0.096877664"
+         id="feGaussianBlur3" />
+    </filter>
+    <symbol
+       id="g4">
+      <circle
+         style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+         id="path3"
+         cx="247.71649"
+         cy="256"
+         r="37.867489"
+         inkscape:label="EyesOuter" />
+      <circle
+         style="fill:#000000;fill-opacity:1;stroke:none;stroke-width:8.52884;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+         id="path4"
+         cx="252.44994"
+         cy="256"
+         r="14.802605"
+         inkscape:label="eyes" />
+      <circle
+         style="fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:2.16521;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+         id="circle4"
+         cx="256.44995"
+         cy="258"
+         r="3.7579198"
+         inkscape:label="White" />
+    </symbol>
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       style="opacity:0.351;fill:#4d4d4d;fill-opacity:1;stroke:#4d4d4d;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:stroke markers fill"
+       id="rect2"
+       width="140.42528"
+       height="101.76888"
+       x="137.26964"
+       y="-272.28043"
+       ry="9.8613234"
+       inkscape:label="IconsUiShadowTemplateDropShadowPickOne" />
+    <rect
+       style="opacity:0.15;fill:#4d4d4d;fill-opacity:1;stroke:#4d4d4d;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:stroke markers fill;filter:url(#filter3)"
+       id="rect3"
+       width="140.42528"
+       height="101.76888"
+       x="130.16948"
+       y="-279.38058"
+       ry="9.8613234"
+       inkscape:label="IconsUiShadowTemplateSoftShadowPickOne" />
+    <rect
+       style="fill:#fce8b1;fill-opacity:1;stroke:#4d4d4d;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:stroke markers fill"
+       id="rect1"
+       width="140.425"
+       height="101.76888"
+       x="134.11401"
+       y="-275.80276"
+       ry="10"
+       inkscape:label="IconsUiShadowTemplateObject" />
+    <rect
+       style="opacity:0.4;fill:#fcffff;fill-opacity:1;stroke:none;stroke-width:5.03876;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:stroke markers fill"
+       id="rect4"
+       width="70.75679"
+       height="51.278896"
+       x="134.29173"
+       y="-274.9584"
+       ry="5.0387602"
+       inkscape:label="Highlight" />
+    <rect
+       style="fill:#f2c744;stroke-width:6.77749;stroke-linecap:round;stroke-linejoin:round;paint-order:stroke fill markers;stroke:#1a1a2e"
+       id="rect5"
+       width="206.40109"
+       height="234.29314"
+       x="152.79945"
+       y="138.85344"
+       ry="49.915585" />
+    <rect
+       style="fill:#4a8c3f;stroke:#1a1a2e;stroke-width:22.2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:stroke fill markers"
+       id="rect11"
+       width="566.76624"
+       height="571.229"
+       x="-21.19795"
+       y="-16.735224"
+       ry="28.523191" />
+    <rect
+       style="fill:#f2c744;stroke-width:5.1233;stroke-linecap:round;stroke-linejoin:round;paint-order:stroke fill markers;stroke:#1a1a2e"
+       id="rect6"
+       width="141.69156"
+       height="317.96927"
+       x="305.15424"
+       y="97.015366"
+       ry="28.523191" />
+    <rect
+       style="fill:#f2c744;stroke-width:5.1233;stroke-linecap:round;stroke-linejoin:round;paint-order:stroke fill markers;stroke:#1a1a2e"
+       id="rect7"
+       width="141.69156"
+       height="317.96927"
+       x="65.154221"
+       y="97.015366"
+       ry="28.523191" />
+    <path
+       id="rect9"
+       style="fill:#2db88a;stroke-width:22.22537879;stroke-linecap:round;stroke-linejoin:round;paint-order:stroke fill markers;stroke:#1a1a2e"
+       d="M 93.677734 97.015625 C 77.875886 97.015625 65.154297 109.73721 65.154297 125.53906 L 65.154297 386.46094 C 65.154297 402.26279 77.875886 414.98438 93.677734 414.98438 L 178.32227 414.98438 C 194.12411 414.98438 206.8457 402.26279 206.8457 386.46094 L 206.8457 373.14648 L 305.1543 373.14648 L 305.1543 386.46094 C 305.1543 402.26279 317.87589 414.98438 333.67773 414.98438 L 418.32227 414.98438 C 434.12411 414.98438 446.8457 402.26279 446.8457 386.46094 L 446.8457 125.53906 C 446.8457 109.73721 434.12411 97.015625 418.32227 97.015625 L 333.67773 97.015625 C 317.87589 97.015625 305.1543 109.73721 305.1543 125.53906 L 305.1543 138.85352 L 206.8457 138.85352 L 206.8457 125.53906 C 206.8457 109.73721 194.12411 97.015625 178.32227 97.015625 L 93.677734 97.015625 z " />
+    <path
+       id="rect8"
+       style="fill:#e8dcc8;stroke-width:22.2;stroke-linecap:round;stroke-linejoin:round;paint-order:stroke fill markers;stroke:#1a1a2e;stroke-dasharray:none"
+       d="m 207.10297,321.68359 c 23.80111,23.80111 51.03812,19.55379 70.59191,0 l 30.38763,-30.38763 c 19.5538,-19.55379 19.5538,-51.03812 10e-6,-70.59191 l -30.38764,-30.38764 c -19.55379,-19.55378 -46.79081,-23.80111 -70.59191,0 -23.8011,23.8011 -23.8011,107.56608 0,131.36718 z"
+       sodipodi:nodetypes="zsssszz" />
+  </g>
+</svg>

@@ -1,0 +1,128 @@
+name: Publish to AUR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version tag (e.g., 0.1.0)'
+        required: true
+        type: string
+
+jobs:
+  update-aur:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download AppImages from release
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version_tag }}"
+          mkdir -p downloads
+          
+          # Try both with and without 'v' prefix for release tag
+          DOWNLOADED=false
+          for TAG in "$VERSION" "v$VERSION"; do
+            URL_X64="https://github.com/${{ github.repository }}/releases/download/${TAG}/miniter-${VERSION}-x86_64.AppImage"
+            if curl --output /dev/null --silent --head --fail "$URL_X64"; then
+              wget -O "downloads/miniter-${VERSION}-x86_64.AppImage" "$URL_X64"
+              wget -O "downloads/miniter-${VERSION}-aarch64.AppImage" \
+                "https://github.com/${{ github.repository }}/releases/download/${TAG}/miniter-${VERSION}-aarch64.AppImage"
+              DOWNLOADED=true
+              break
+            fi
+          done
+          
+          if [[ "$DOWNLOADED" != "true" ]]; then
+            echo "Failed to download AppImages"
+            exit 1
+          fi
+
+      - name: Calculate SHA256 checksums
+        id: checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version_tag }}"
+          X64_HASH=$(sha256sum "downloads/miniter-${VERSION}-x86_64.AppImage" | cut -d ' ' -f 1)
+          ARM64_HASH=$(sha256sum "downloads/miniter-${VERSION}-aarch64.AppImage" | cut -d ' ' -f 1)
+          echo "x64_hash=$X64_HASH" >> "$GITHUB_OUTPUT"
+          echo "arm64_hash=$ARM64_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Create PKGBUILD
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version_tag }}"
+          X64_HASH="${{ steps.checksums.outputs.x64_hash }}"
+          ARM64_HASH="${{ steps.checksums.outputs.arm64_hash }}"
+          
+          mkdir -p aur-package
+          cat > aur-package/PKGBUILD << 'EOF'
+          # Maintainer: MLM-stuff <gfxoxinzh@mozmail.com>
+          pkgname=miniter-bin
+          _pkgname=miniter
+          pkgver={{VER}}
+          pkgrel=1
+          pkgdesc="Basic video editor (for simple tasks)"
+          arch=('x86_64' 'aarch64')
+          url="https://github.com/mlm-games/miniter"
+          license=('GPL3')
+          depends=('fuse2' 'zlib')
+          provides=('miniter')
+          conflicts=('miniter')
+          options=('!strip')
+          source_x86_64=("${_pkgname}-${pkgver}-x86_64.AppImage::https://github.com/mlm-games/miniter/releases/download/${pkgver}/miniter-${pkgver}-x86_64.AppImage")
+          source_aarch64=("${_pkgname}-${pkgver}-aarch64.AppImage::https://github.com/mlm-games/miniter/releases/download/${pkgver}/miniter-${pkgver}-aarch64.AppImage")
+          sha256sums_x86_64=('{{X64_HASH}}')
+          sha256sums_aarch64=('{{ARM64_HASH}}')
+          prepare() {
+            chmod +x "${_pkgname}-${pkgver}-${CARCH}.AppImage"
+            "./${_pkgname}-${pkgver}-${CARCH}.AppImage" --appimage-extract
+          }
+          package() {
+            install -Dm755 "${srcdir}/${_pkgname}-${pkgver}-${CARCH}.AppImage" \
+              "${pkgdir}/opt/${_pkgname}/${_pkgname}.AppImage"
+            
+            install -dm755 "${pkgdir}/usr/bin"
+            cat > "${pkgdir}/usr/bin/${_pkgname}" << 'WRAPPER'
+          #!/bin/sh
+          exec /opt/miniter/miniter.AppImage "$@"
+          WRAPPER
+            chmod 755 "${pkgdir}/usr/bin/${_pkgname}"
+            install -Dm644 /dev/stdin "${pkgdir}/usr/share/applications/${_pkgname}.desktop" << DESKTOP_EOF
+          [Desktop Entry]
+          Name=Miniter
+          Comment=Miniter video editor (desktop)
+          MimeType=video/;
+          Exec=miniter %U
+          Icon=miniter
+          Terminal=false
+          Type=Application
+          Categories=AudioVideo;Video;
+          StartupNotify=true
+          DESKTOP_EOF
+            install -Dm644 "squashfs-root/miniter.png" \
+              "${pkgdir}/usr/share/icons/hicolor/512x512/apps/${_pkgname}.png"
+          }
+          EOF
+          
+          sed -i "s/{{VER}}/${VERSION}/g" aur-package/PKGBUILD
+          sed -i "s/{{X64_HASH}}/${X64_HASH}/g" aur-package/PKGBUILD
+          sed -i "s/{{ARM64_HASH}}/${ARM64_HASH}/g" aur-package/PKGBUILD
+          
+          echo "Generated PKGBUILD:"
+          cat aur-package/PKGBUILD
+
+      - name: Publish to AUR
+        uses: mlm-games/aur-deploy-action@master
+        with:
+          pkgname: miniter-bin
+          pkgbuild: aur-package/PKGBUILD
+          auto_pkgrel: 'true'
+          commit_username: MLM-stuff
+          commit_email: gfxoxinzh@mozmail.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to v${{ inputs.version_tag }}"
