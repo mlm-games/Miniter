@@ -2,6 +2,8 @@ package org.mlm.miniter.engine
 
 import org.mlm.miniter.project.Clip
 import org.mlm.miniter.project.FilterType
+import org.mlm.miniter.project.Transition
+import org.mlm.miniter.project.TransitionType
 import org.mlm.miniter.project.VideoFilter
 
 object FilterGraphBuilder {
@@ -224,5 +226,148 @@ object FilterGraphBuilder {
         val w = evenUp(width)
         val h = evenUp(height)
         return "color=c=black:s=${w}x${h}:d=$durationSec:r=30"
+    }
+
+    fun transitionToXfade(type: TransitionType): String = when (type) {
+        TransitionType.CrossFade -> "fade"
+        TransitionType.Dissolve -> "dissolve"
+        TransitionType.SlideLeft -> "slideleft"
+        TransitionType.SlideRight -> "slideright"
+    }
+
+    fun buildSegmentedVideoChain(
+        videoClips: List<Clip.VideoClip>,
+        clipHasAudio: List<Boolean>,
+        outWidth: Int,
+        outHeight: Int,
+        textClips: List<Clip.TextClip>,
+        fontPath: String?,
+        sb: StringBuilder,
+    ): Pair<String, String?> {
+        val w = evenUp(outWidth)
+        val h = evenUp(outHeight)
+        val anyAudio = clipHasAudio.any { it }
+
+        data class Segment(
+            val videoLabel: String,
+            val audioLabel: String?,
+            val durationSec: Double,
+            val transitionIn: Transition?,
+        )
+
+        val segments = mutableListOf<Segment>()
+        var gapIndex = 0
+        var prevEndMs = 0L
+
+        for ((i, clip) in videoClips.withIndex()) {
+            val gapMs = clip.startMs - prevEndMs
+            if (gapMs > 0) {
+                val gapSec = gapMs / 1000.0
+                val gLabel = "gap$gapIndex"
+                sb.append("color=c=black:s=${w}x${h}:d=$gapSec:r=30,format=yuv420p[$gLabel];")
+                if (anyAudio) {
+                    sb.append("anullsrc=r=44100:cl=stereo,atrim=0:$gapSec,asetpts=PTS-STARTPTS[${gLabel}a];")
+                }
+                segments.add(Segment(gLabel, if (anyAudio) "${gLabel}a" else null, gapSec, null))
+                gapIndex++
+            }
+
+            val vf = buildVideoFilterString(
+                filters = clip.filters,
+                speed = clip.speed,
+                outWidth = outWidth,
+                outHeight = outHeight,
+            )
+            val trimFilter = "trim=start=${clip.sourceStartMs / 1000.0}:" +
+                    "end=${clip.sourceEndMs / 1000.0},setpts=PTS-STARTPTS"
+            sb.append("[$i:v]$trimFilter,$vf[v$i];")
+
+            if (clipHasAudio[i]) {
+                val af = buildAudioFilterString(speed = clip.speed, volume = clip.volume)
+                val atrimFilter = "atrim=start=${clip.sourceStartMs / 1000.0}:" +
+                        "end=${clip.sourceEndMs / 1000.0},asetpts=PTS-STARTPTS"
+                val audioFilters = if (af.isNotEmpty()) "$atrimFilter,$af" else atrimFilter
+                sb.append("[$i:a]$audioFilters[va$i];")
+            } else if (anyAudio) {
+                val silenceDur = clip.durationMs / 1000.0
+                sb.append("anullsrc=r=44100:cl=stereo,atrim=0:$silenceDur,asetpts=PTS-STARTPTS[va$i];")
+            }
+
+            val transition = if (segments.isNotEmpty()) clip.transition else null
+            segments.add(
+                Segment(
+                    "v$i",
+                    if (anyAudio) "va$i" else null,
+                    clip.durationMs / 1000.0,
+                    transition,
+                )
+            )
+
+            prevEndMs = clip.startMs + clip.durationMs
+        }
+
+        if (segments.isEmpty()) return Pair("outv", null)
+
+        var currentV = "[${segments[0].videoLabel}]"
+        var accumulatedDuration = segments[0].durationSec
+        var chainIdx = 0
+
+        for (i in 1 until segments.size) {
+            val seg = segments[i]
+            val nextV = "[${seg.videoLabel}]"
+            val outLabel = if (i == segments.lastIndex) "outv_raw" else "xf$chainIdx"
+
+            if (seg.transitionIn != null) {
+                val tDur = seg.transitionIn.durationMs / 1000.0
+                val offset = (accumulatedDuration - tDur).coerceAtLeast(0.0)
+                val xfName = transitionToXfade(seg.transitionIn.type)
+                sb.append("${currentV}${nextV}xfade=transition=$xfName:duration=$tDur:offset=$offset[$outLabel];")
+                accumulatedDuration += seg.durationSec - tDur
+            } else {
+                sb.append("${currentV}${nextV}concat=n=2:v=1:a=0[$outLabel];")
+                accumulatedDuration += seg.durationSec
+            }
+
+            currentV = "[$outLabel]"
+            chainIdx++
+        }
+
+        if (segments.size == 1) {
+            sb.append("[${segments[0].videoLabel}]null[outv_raw];")
+        }
+
+        val textFilters = buildPostConcatTextFilters(
+            videoClips = videoClips,
+            textClips = textClips,
+            fontPath = fontPath,
+        )
+        if (textFilters.isNotEmpty()) {
+            sb.append("[outv_raw]${textFilters}[outv];")
+        } else {
+            sb.append("[outv_raw]null[outv];")
+        }
+
+        var audioOutLabel: String? = null
+        if (anyAudio) {
+            var currentA = "[${segments[0].audioLabel}]"
+            var aChainIdx = 0
+
+            for (i in 1 until segments.size) {
+                val seg = segments[i]
+                val nextA = "[${seg.audioLabel}]"
+                val outLabel = if (i == segments.lastIndex) "video_audio" else "ac$aChainIdx"
+                sb.append("${currentA}${nextA}concat=n=2:v=0:a=1[$outLabel];")
+                currentA = "[$outLabel]"
+                aChainIdx++
+            }
+
+            if (segments.size == 1) {
+                sb.append("[${segments[0].audioLabel}]acopy[video_audio];")
+            }
+
+            audioOutLabel = "video_audio"
+        }
+
+        return Pair("outv", audioOutLabel)
     }
 }

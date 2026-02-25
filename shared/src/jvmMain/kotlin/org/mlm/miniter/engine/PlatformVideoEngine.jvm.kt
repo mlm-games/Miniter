@@ -17,6 +17,9 @@ import org.bytedeco.javacv.FFmpegLogCallback
 import org.bytedeco.javacv.Frame
 import org.bytedeco.javacv.Java2DFrameConverter
 import org.mlm.miniter.project.*
+import java.awt.AlphaComposite
+import java.awt.Color
+import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
@@ -92,32 +95,34 @@ actual class PlatformVideoEngine actual constructor() {
         try {
             _exportProgress.value = ExportProgress(phase = "Preparing…", progress = 0f)
 
-            val videoTrack = project.timeline.tracks
-                .firstOrNull { it.type == TrackType.Video }
-                ?: run {
-                    _exportProgress.value = ExportProgress(error = "No video track found")
-                    return@withContext
-                }
+            val videoClips = project.timeline.tracks
+                .filter { it.type == TrackType.Video && !it.isMuted }
+                .flatMap { it.clips.filterIsInstance<Clip.VideoClip>() }
+                .sortedBy { it.startMs }
 
-            val videoClips = videoTrack.clips.filterIsInstance<Clip.VideoClip>()
             if (videoClips.isEmpty()) {
                 _exportProgress.value = ExportProgress(error = "No video clips on timeline")
                 return@withContext
             }
 
-            // Collect text clips from all non-muted text tracks
             val textClips = project.timeline.tracks
                 .filter { it.type == TrackType.Text && !it.isMuted }
                 .flatMap { it.clips.filterIsInstance<Clip.TextClip>() }
 
-            // Collect audio clips from all non-muted audio tracks
             val audioClips = project.timeline.tracks
                 .filter { it.type == TrackType.Audio && !it.isMuted }
                 .flatMap { it.clips.filterIsInstance<Clip.AudioClip>() }
                 .sortedBy { it.startMs }
 
-            val firstInfo = probeVideo(videoClips.first().sourcePath)
+            val clipInfos = videoClips.map { clip ->
+                try { probeVideo(clip.sourcePath) } catch (_: Exception) { null }
+            }
+            val clipHasAudio = clipInfos.map { it?.hasAudio == true }
+            val anyEmbeddedAudio = clipHasAudio.any { it }
+            val hasExtraAudio = audioClips.isNotEmpty()
+            val hasAnyAudio = anyEmbeddedAudio || hasExtraAudio
 
+            val firstInfo = clipInfos.firstNotNullOf { it }
             val outWidth = evenUp(
                 if (project.exportSettings.width > 0) project.exportSettings.width
                 else firstInfo.width
@@ -127,28 +132,22 @@ actual class PlatformVideoEngine actual constructor() {
                 else firstInfo.height
             )
             val outFrameRate = firstInfo.frameRate
-            val format = project.exportSettings.format
-
-            val hasEmbeddedAudio = firstInfo.hasAudio
-            val hasExtraAudio = audioClips.isNotEmpty()
-            val hasAnyAudio = hasEmbeddedAudio || hasExtraAudio
 
             val audioChannels = if (hasAnyAudio) {
-                if (hasEmbeddedAudio) firstInfo.audioChannels.coerceAtLeast(1) else 2
+                if (anyEmbeddedAudio) firstInfo.audioChannels.coerceAtLeast(1) else 2
             } else 0
-
-            val sampleRate = if (hasEmbeddedAudio) firstInfo.audioSampleRate else 44100
+            val sampleRate = if (anyEmbeddedAudio) firstInfo.audioSampleRate else 44100
 
             val recorder = FFmpegFrameRecorder(
                 outputPath, outWidth, outHeight,
                 if (hasAnyAudio) audioChannels else 0
             )
-            recorder.format = format.extension
+            recorder.format = project.exportSettings.format.extension
             recorder.frameRate = outFrameRate
-            recorder.videoBitrate = (firstInfo.videoBitrate * (project.exportSettings.quality / 100.0))
-                .toInt()
-                .coerceAtLeast(500_000)
-            recorder.videoCodec = when (format) {
+            recorder.videoBitrate = (firstInfo.videoBitrate *
+                    (project.exportSettings.quality / 100.0))
+                .toInt().coerceAtLeast(500_000)
+            recorder.videoCodec = when (project.exportSettings.format) {
                 ExportFormat.MP4 -> avcodec.AV_CODEC_ID_H264
                 ExportFormat.WebM -> avcodec.AV_CODEC_ID_VP9
                 ExportFormat.MOV -> avcodec.AV_CODEC_ID_H264
@@ -158,7 +157,7 @@ actual class PlatformVideoEngine actual constructor() {
             if (hasAnyAudio) {
                 recorder.audioChannels = audioChannels
                 recorder.sampleRate = sampleRate
-                recorder.audioCodec = when (format) {
+                recorder.audioCodec = when (project.exportSettings.format) {
                     ExportFormat.MP4, ExportFormat.MOV -> avcodec.AV_CODEC_ID_AAC
                     ExportFormat.WebM -> avcodec.AV_CODEC_ID_OPUS
                 }
@@ -168,13 +167,12 @@ actual class PlatformVideoEngine actual constructor() {
 
             val fontPath = findSystemFont()
             val totalClips = videoClips.size
-            var outputOffsetMs = 0L
-
-            // Build timeline-to-output mapping for audio clips
-            val videoClipsSorted = videoClips.sortedBy { it.startMs }
 
             try {
-                for ((clipIndex, clip) in videoClipsSorted.withIndex()) {
+                var lastFrame: BufferedImage? = null
+                var prevClipEndMs = 0L
+
+                for ((clipIndex, clip) in videoClips.withIndex()) {
                     ensureActive()
 
                     _exportProgress.value = ExportProgress(
@@ -182,84 +180,113 @@ actual class PlatformVideoEngine actual constructor() {
                         progress = clipIndex.toFloat() / totalClips,
                     )
 
-                    exportSingleClip(
+                    val gapMs = clip.startMs - prevClipEndMs
+                    if (gapMs > 0) {
+                        writeGapFrames(recorder, gapMs, outWidth, outHeight, outFrameRate)
+                        lastFrame = null
+                    }
+
+                    val transitionIn = if (lastFrame != null) clip.transition else null
+
+                    lastFrame = exportSingleClipWithTransition(
                         clip = clip,
                         recorder = recorder,
                         outWidth = outWidth,
                         outHeight = outHeight,
                         textClips = textClips,
                         fontPath = fontPath,
-                        outputOffsetMs = outputOffsetMs,
+                        transitionIn = transitionIn,
+                        previousLastFrame = lastFrame,
+                        hasAudio = clipHasAudio[clipIndex],
+                        frameRate = outFrameRate,
                         progressBase = clipIndex.toFloat() / totalClips,
                         progressScale = 1f / totalClips,
                     )
 
-                    outputOffsetMs += clip.durationMs
+                    prevClipEndMs = clip.startMs + clip.durationMs
                 }
 
-                // Export separate audio tracks
                 if (hasExtraAudio) {
                     _exportProgress.value = ExportProgress(
-                        phase = "Mixing audio tracks…",
-                        progress = 0.9f,
+                        phase = "Mixing audio tracks…", progress = 0.9f,
                     )
-                    exportAudioClips(
-                        audioClips = audioClips,
-                        videoClips = videoClipsSorted,
-                        recorder = recorder,
-                    )
+                    exportAudioClips(audioClips, videoClips, recorder)
                 }
 
                 recorder.stop()
                 recorder.release()
 
                 _exportProgress.value = ExportProgress(
-                    phase = "Complete",
-                    progress = 1f,
-                    isComplete = true,
+                    phase = "Complete", progress = 1f, isComplete = true,
                 )
-            } catch (e: kotlinx.coroutines.CancellationException) {
+
+            } catch (e: CancellationException) {
                 recorder.stop()
                 recorder.release()
                 try { File(outputPath).delete() } catch (_: Exception) {}
                 _exportProgress.value = ExportProgress(
-                    phase = "Cancelled",
-                    isCancelled = true,
+                    phase = "Cancelled", isCancelled = true,
                 )
                 throw e
             }
+
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _exportProgress.value = ExportProgress(
-                error = "Export failed: ${e.message}"
-            )
+            _exportProgress.value = ExportProgress(error = "Export failed: ${e.message}")
             e.printStackTrace()
         }
     }
 
-    private suspend fun exportSingleClip(
+    private fun writeGapFrames(
+        recorder: FFmpegFrameRecorder,
+        durationMs: Long,
+        width: Int,
+        height: Int,
+        frameRate: Double,
+    ) {
+        val converter = Java2DFrameConverter()
+        val blackImage = BufferedImage(width, height, BufferedImage.TYPE_3BYTE_BGR).also {
+            val g = it.createGraphics()
+            g.color = Color.BLACK
+            g.fillRect(0, 0, width, height)
+            g.dispose()
+        }
+        val totalFrames = ((durationMs / 1000.0) * frameRate).toInt().coerceAtLeast(1)
+
+        for (i in 0 until totalFrames) {
+            val frame = converter.convert(blackImage)
+            recorder.record(frame)
+        }
+    }
+
+    private suspend fun exportSingleClipWithTransition(
         clip: Clip.VideoClip,
         recorder: FFmpegFrameRecorder,
         outWidth: Int,
         outHeight: Int,
         textClips: List<Clip.TextClip>,
         fontPath: String?,
-        outputOffsetMs: Long,
+        transitionIn: Transition?,
+        previousLastFrame: BufferedImage?,
+        hasAudio: Boolean,
+        frameRate: Double,
         progressBase: Float,
         progressScale: Float,
-    ) {
+    ): BufferedImage? {
         val grabber = FFmpegFrameGrabber(clip.sourcePath)
+        val converter = Java2DFrameConverter()
         var filter: FFmpegFrameFilter? = null
+        var lastImage: BufferedImage? = null
 
         try {
+            grabber.pixelFormat = avutil.AV_PIX_FMT_BGR24
             grabber.start()
             grabber.setTimestamp(clip.sourceStartMs * 1000)
 
-            val clipDuration = clip.sourceEndMs - clip.sourceStartMs
+            val clipSourceDuration = clip.sourceEndMs - clip.sourceStartMs
             val endUs = clip.sourceEndMs * 1000
 
-            // Build the video filter string (scale, pad, effects, speed)
             var filterStr = FilterGraphBuilder.buildVideoFilterString(
                 filters = clip.filters,
                 speed = clip.speed,
@@ -267,7 +294,7 @@ actual class PlatformVideoEngine actual constructor() {
                 outHeight = outHeight,
             )
 
-            val textFilters = FilterGraphBuilder.buildTextOverlayFilters(
+            val textOverlay = FilterGraphBuilder.buildTextOverlayFilters(
                 textClips = textClips,
                 timelineStartMs = clip.startMs,
                 timelineEndMs = clip.startMs + clip.durationMs,
@@ -275,19 +302,23 @@ actual class PlatformVideoEngine actual constructor() {
                 perClip = true,
                 fontPath = fontPath,
             )
-            if (textFilters.isNotEmpty()) {
-                filterStr = "$filterStr,$textFilters"
+            if (textOverlay.isNotEmpty()) {
+                filterStr = "$filterStr,$textOverlay"
             }
 
             if (filterStr.isNotEmpty()) {
+                filterStr = "$filterStr,format=bgr24"
                 val inputW = grabber.imageWidth
                 val inputH = grabber.imageHeight
-
                 filter = FFmpegFrameFilter(filterStr, inputW, inputH)
-                val grabberFmt = grabber.pixelFormat
-                filter.pixelFormat = if (grabberFmt >= 0) grabberFmt else avutil.AV_PIX_FMT_YUV420P
+                filter.pixelFormat = avutil.AV_PIX_FMT_BGR24
                 filter.start()
             }
+
+            val transitionFrames = if (transitionIn != null) {
+                ((transitionIn.durationMs / 1000.0) * frameRate).toInt().coerceAtLeast(1)
+            } else 0
+            var outputFrameCount = 0
 
             var frame: Frame?
             while (true) {
@@ -297,32 +328,113 @@ actual class PlatformVideoEngine actual constructor() {
                 if (grabber.timestamp > endUs) break
 
                 if (frame.image != null) {
-                    if (filter != null) {
+                    val processedFrame = if (filter != null) {
                         filter.push(frame)
-                        val filtered = filter.pull()
-                        if (filtered != null) recorder.record(filtered)
-                    } else {
-                        recorder.record(frame)
-                    }
+                        filter.pull()
+                    } else frame
 
-                    if (clipDuration > 0) {
-                        val clipProgress = ((grabber.timestamp / 1000) - clip.sourceStartMs)
-                            .toFloat() / clipDuration
-                        _exportProgress.value = ExportProgress(
-                            phase = _exportProgress.value.phase,
-                            progress = progressBase + (clipProgress.coerceIn(0f, 1f) * progressScale),
-                        )
+                    if (processedFrame != null) {
+                        val inTransitionZone = transitionIn != null
+                                && previousLastFrame != null
+                                && outputFrameCount < transitionFrames
+
+                        if (inTransitionZone) {
+                            val currentImage = converter.convert(processedFrame)
+                            if (currentImage != null) {
+                                val progress = outputFrameCount.toFloat() / transitionFrames
+                                val blended = blendFrames(
+                                    from = previousLastFrame!!,
+                                    to = currentImage,
+                                    progress = progress,
+                                    type = transitionIn!!.type,
+                                    width = outWidth,
+                                    height = outHeight,
+                                )
+                                lastImage = currentImage
+                                val blendedFrame = converter.convert(blended)
+                                recorder.record(blendedFrame)
+                            }
+                        } else {
+                            recorder.record(processedFrame)
+                            val img = converter.convert(processedFrame)
+                            if (img != null) lastImage = img
+                        }
+
+                        outputFrameCount++
+
+                        if (clipSourceDuration > 0) {
+                            val clipProgress =
+                                ((grabber.timestamp / 1000) - clip.sourceStartMs)
+                                    .toFloat() / clipSourceDuration
+                            _exportProgress.value = ExportProgress(
+                                phase = _exportProgress.value.phase,
+                                progress = progressBase +
+                                        (clipProgress.coerceIn(0f, 1f) * progressScale),
+                            )
+                        }
                     }
-                } else if (frame.samples != null) {
+                } else if (frame.samples != null && hasAudio) {
                     recorder.record(frame)
                 }
             }
+
+            return lastImage
+
         } finally {
             try { filter?.stop() } catch (_: Exception) {}
             try { filter?.release() } catch (_: Exception) {}
             try { grabber.stop() } catch (_: Exception) {}
             try { grabber.release() } catch (_: Exception) {}
         }
+    }
+
+    private fun createBlackFrame(width: Int, height: Int): BufferedImage {
+        return BufferedImage(width, height, BufferedImage.TYPE_3BYTE_BGR).also {
+            val g = it.createGraphics()
+            g.color = Color.BLACK
+            g.fillRect(0, 0, width, height)
+            g.dispose()
+        }
+    }
+
+    private fun blendFrames(
+        from: BufferedImage,
+        to: BufferedImage,
+        progress: Float,
+        type: TransitionType,
+        width: Int,
+        height: Int,
+    ): BufferedImage {
+        val result = BufferedImage(width, height, BufferedImage.TYPE_3BYTE_BGR)
+        val g = result.createGraphics()
+        g.setRenderingHint(
+            RenderingHints.KEY_INTERPOLATION,
+            RenderingHints.VALUE_INTERPOLATION_BILINEAR
+        )
+
+        when (type) {
+            TransitionType.CrossFade, TransitionType.Dissolve -> {
+                g.drawImage(from, 0, 0, width, height, null)
+                g.composite =
+                    AlphaComposite.getInstance(AlphaComposite.SRC_OVER, progress.coerceIn(0f, 1f))
+                g.drawImage(to, 0, 0, width, height, null)
+            }
+
+            TransitionType.SlideLeft -> {
+                val shift = (width * progress).toInt()
+                g.drawImage(from, -shift, 0, width, height, null)
+                g.drawImage(to, width - shift, 0, width, height, null)
+            }
+
+            TransitionType.SlideRight -> {
+                val shift = (width * progress).toInt()
+                g.drawImage(from, shift, 0, width, height, null)
+                g.drawImage(to, -(width - shift), 0, width, height, null)
+            }
+        }
+
+        g.dispose()
+        return result
     }
 
     private suspend fun exportAudioClips(
@@ -343,7 +455,6 @@ actual class PlatformVideoEngine actual constructor() {
                 val endUs = audioClip.sourceEndMs * 1000
 
                 val afParts = mutableListOf<String>()
-
                 if (audioClip.volume != 1.0f) {
                     afParts.add("volume=${audioClip.volume}")
                 }
@@ -365,18 +476,17 @@ actual class PlatformVideoEngine actual constructor() {
                     audioFilter.start()
                 }
 
-                // Calculate output offset for this audio clip's timeline position
                 val outputOffsetUs = timelineToOutputUs(audioClip.startMs, videoClips)
 
                 var frame: Frame?
                 while (true) {
                     currentCoroutineContext().ensureActive()
-
                     frame = grabber.grab() ?: break
                     if (grabber.timestamp > endUs) break
 
                     if (frame.samples != null) {
-                        val sourceProgressUs = grabber.timestamp - (audioClip.sourceStartMs * 1000)
+                        val sourceProgressUs =
+                            grabber.timestamp - (audioClip.sourceStartMs * 1000)
                         frame.timestamp = outputOffsetUs + sourceProgressUs
 
                         if (audioFilter != null) {
@@ -410,9 +520,14 @@ actual class PlatformVideoEngine actual constructor() {
                 return (outputMs + (timelineMs - clip.startMs)) * 1000L
             }
             if (timelineMs < clip.startMs) {
-                return outputMs * 1000L
+                return (outputMs + (timelineMs - (if (outputMs > 0) clip.startMs else 0))) * 1000L
             }
             outputMs += clip.durationMs
+            val nextClip = videoClips.getOrNull(videoClips.indexOf(clip) + 1)
+            if (nextClip != null) {
+                val gapMs = nextClip.startMs - clipEnd
+                if (gapMs > 0) outputMs += gapMs
+            }
         }
         return outputMs * 1000L
     }

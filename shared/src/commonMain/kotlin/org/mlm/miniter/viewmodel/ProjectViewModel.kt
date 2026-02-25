@@ -241,7 +241,9 @@ class ProjectViewModel(
     fun cancelEdit() = cancelContinuousEdit()
 
     fun initProject(videoPath: String, projectName: String, savePath: String?) {
-        if (savePath != null && savePath.endsWith(".mntr") && projectRepository.exists(savePath)) {
+        if (videoPath.endsWith(".mntr") && projectRepository.exists(videoPath)) {
+            loadProject(videoPath)
+        } else if (savePath != null && savePath.endsWith(".mntr") && projectRepository.exists(savePath)) {
             loadProject(savePath)
         } else {
             newProject(projectName, videoPath, savePath)
