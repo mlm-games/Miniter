@@ -29,6 +29,53 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.5.7" date="2026-02-26" type="stable">
+      <description>
+        <ul>
+          <li>build parts</li>
+          <li>s3</li>
+          <li>cont.</li>
+          <li>fix build</li>
+          <li>transitions work on desktop only, even text</li>
+          <li>multi layer overlay test (jvm works, android partial)</li>
+          <li>Fix android saving once again!</li>
+          <li>add all the boilerplate rel. stuff</li>
+          <li>icon</li>
+          <li>Transitions, fill blank space with black bg, and fix project load</li>
+          <li>Multi track clipping fix for android</li>
+          <li>Fix filters for android</li>
+          <li>add error track printing</li>
+          <li>File saving logic fix</li>
+          <li>android URI handling 1</li>
+          <li>fix android crash</li>
+          <li>Text rendering, and audio export on jvm</li>
+          <li>It exports tracks with filters!</li>
+          <li>Add import button back</li>
+          <li>Much better timeline sync (although it needs to be paused in between)</li>
+          <li>add some logging</li>
+          <li>add supported format, auto save wiring, android fixes, and others</li>
+          <li>Some more UI changes to wire later</li>
+          <li>Export screen wiring (UI only)</li>
+          <li>It works when video is paused and changes are made (trial 3 for video preview sync)</li>
+          <li>trial 2 for video preview sync</li>
+          <li>trial 1 for video preview sync</li>
+          <li>refactor for mobile first UI</li>
+          <li>add panel before refactor</li>
+          <li>Add partial project dialog</li>
+          <li>Add import button for more files, for a project, and basic audio wiring</li>
+          <li>moving b/w tracks works</li>
+          <li>Make preview speed actually go in the right direction</li>
+          <li>fix clip snaps, and other minor issues</li>
+          <li>Undo redo, opacity, and recent projects wiring</li>
+          <li>Add icon</li>
+          <li>Better timelines</li>
+          <li>Text displays somewhat, mediaplayer doesn't react to few changes inbetween</li>
+          <li>android impl + setup extends (like )Uuid</li>
+          <li>jvm plays, rest -&gt; placeholders</li>
+          <li>save copy</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.5.6" date="2026-02-26" type="stable">
       <description>
         <ul>
