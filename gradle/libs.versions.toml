@@ -30,6 +30,7 @@ javacv = "1.5.13"
 okio = "3.16.4"
 ffmpegkit = "6.1.4"
 composeMediaPlayer = "0.8.7"
+apkDist = "0.5.2"
 
 
 [libraries]
@@ -85,3 +86,4 @@ kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+apk-dist = { id = "io.github.mlm-games.apk-dist", version.ref = "apkDist" }
