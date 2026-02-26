@@ -2,6 +2,8 @@ package org.mlm.miniter.engine
 
 import org.mlm.miniter.project.Clip
 import org.mlm.miniter.project.FilterType
+import org.mlm.miniter.project.Track
+import org.mlm.miniter.project.TrackType
 import org.mlm.miniter.project.Transition
 import org.mlm.miniter.project.TransitionType
 import org.mlm.miniter.project.VideoFilter
@@ -15,11 +17,36 @@ object FilterGraphBuilder {
         return "${ms / 1000}.${(ms % 1000).toString().padStart(3, '0')}"
     }
 
+    /**
+     * Escape text for drawtext.
+     * For FFmpegKit (Android), do NOT use shell-style escaping.
+     * For JVM (javacv FFmpegFrameFilter), same rules apply.
+     */
     private fun escapeDrawtext(text: String): String {
         return text
-            .replace("\\", "\\\\")
-            .replace("'", "'\\''")
+            .replace("\\", "\\\\\\\\")  // backslash → double-escaped
+            .replace(":", "\\\\:")      // colon must be escaped in drawtext
+            .replace("'", "\\\\'")      // single quote
             .replace("%", "%%")
+    }
+
+    /**
+     * Escape text for drawtext when used inside FFmpegKit command string.
+     * No single quotes around enable expression — FFmpegKit consumes them.
+     */
+    private fun escapeDrawtextForCommandLine(text: String): String {
+        return text
+            .replace("\\", "\\\\")
+            .replace(":", "\\:")
+            .replace("'", "")       // strip single quotes entirely for safety
+            .replace("%", "%%")
+    }
+
+    fun transitionToXfade(type: TransitionType): String = when (type) {
+        TransitionType.CrossFade -> "fade"
+        TransitionType.Dissolve -> "dissolve"
+        TransitionType.SlideLeft -> "slideleft"
+        TransitionType.SlideRight -> "slideright"
     }
 
     fun buildVideoFilterString(
@@ -30,7 +57,6 @@ object FilterGraphBuilder {
         opacity: Float = 1.0f,
     ): String {
         val parts = mutableListOf<String>()
-
         val w = evenUp(outWidth)
         val h = evenUp(outHeight)
 
@@ -92,15 +118,22 @@ object FilterGraphBuilder {
         return parts.joinToString(",")
     }
 
-    /**
-     * @param textClips All text clips from the project
-     * @param timelineStartMs Video clip start on timeline
-     * @param timelineEndMs Video clip end on timeline
-     * @param outputOffsetSec Cumulative output seconds before this segment (for post-concat mode)
-     * @param perClip true = enable times relative to 0 (JVM per-clip filter);
-     *                false = enable times include outputOffsetSec (Android post-concat)
-     * @param fontPath Optional .ttf font file path
-     */
+    fun buildAudioFilterString(
+        speed: Float,
+        volume: Float,
+    ): String {
+        val parts = mutableListOf<String>()
+        if (volume != 1.0f) parts.add("volume=$volume")
+        if (speed != 1.0f) {
+            var remaining = speed.toDouble()
+            while (remaining < 0.5) { parts.add("atempo=0.5"); remaining /= 0.5 }
+            while (remaining > 2.0) { parts.add("atempo=2.0"); remaining /= 2.0 }
+            if (remaining != 1.0) parts.add("atempo=$remaining")
+        }
+        return parts.joinToString(",")
+    }
+
+
     fun buildTextOverlayFilters(
         textClips: List<Clip.TextClip>,
         timelineStartMs: Long,
@@ -110,13 +143,11 @@ object FilterGraphBuilder {
         fontPath: String? = null,
     ): String {
         if (textClips.isEmpty()) return ""
-
         val entries = mutableListOf<String>()
 
         for (tc in textClips) {
             val tStart = tc.startMs
             val tEnd = tc.startMs + tc.durationMs
-
             val overlapStart = maxOf(tStart, timelineStartMs)
             val overlapEnd = minOf(tEnd, timelineEndMs)
             if (overlapStart >= overlapEnd) continue
@@ -137,237 +168,324 @@ object FilterGraphBuilder {
             val x = "(w-tw)*${tc.positionX}"
             val y = "(h-th)*${tc.positionY}"
 
-            val sb = StringBuilder("drawtext=text='$escaped'")
+            val sb = StringBuilder("drawtext=text=$escaped")
             sb.append(":fontsize=${tc.fontSizeSp.toInt()}")
             sb.append(":fontcolor=$color")
             sb.append(":x=$x:y=$y")
-            // Escape commas inside enable expression so FFmpeg doesn't split on them
-            sb.append(":enable='between(t\\,${fmtSec(enableStart)}\\,${fmtSec(enableEnd)})'")
+            // Use \, for comma escaping — no single quotes
+            sb.append(":enable=between(t\\,${fmtSec(enableStart)}\\,${fmtSec(enableEnd)})")
             if (fontPath != null) {
-                sb.append(":fontfile='$fontPath'")
+                sb.append(":fontfile=$fontPath")
             }
             if (tc.backgroundColorHex != null) {
                 val bg = tc.backgroundColorHex.removePrefix("#")
                 sb.append(":box=1:boxcolor=0x${bg}@0.6:boxborderw=5")
             }
-
             entries.add(sb.toString())
         }
-
         return entries.joinToString(",")
     }
 
-    /**
-     * Calculate text overlay segments for the entire concatenated output.
-     * Used by Android post-concat approach.
-     */
     fun buildPostConcatTextFilters(
         videoClips: List<Clip.VideoClip>,
         textClips: List<Clip.TextClip>,
         fontPath: String? = null,
     ): String {
         if (textClips.isEmpty()) return ""
-
         val sorted = videoClips.sortedBy { it.startMs }
         val allEntries = mutableListOf<String>()
+        var outputOffsetMs = 0L
+
+        for (clip in sorted) {
+            val segment = buildTextOverlayFilters(
+                textClips = textClips,
+                timelineStartMs = clip.startMs,
+                timelineEndMs = clip.startMs + clip.durationMs,
+                outputOffsetSec = outputOffsetMs / 1000.0,
+                perClip = false,
+                fontPath = fontPath,
+            )
+            if (segment.isNotEmpty()) allEntries.add(segment)
+            outputOffsetMs += clip.durationMs
+        }
+        return allEntries.joinToString(",")
+    }
+
+
+    fun buildTextOverlayFiltersForCommand(
+        textClips: List<Clip.TextClip>,
+        videoClips: List<Clip.VideoClip>,
+        fontPath: String? = null,
+    ): String {
+        if (textClips.isEmpty()) return ""
+        val sorted = videoClips.sortedBy { it.startMs }
+        val entries = mutableListOf<String>()
         var outputOffsetMs = 0L
 
         for (clip in sorted) {
             val clipStart = clip.startMs
             val clipEnd = clip.startMs + clip.durationMs
 
-            val segment = buildTextOverlayFilters(
-                textClips = textClips,
-                timelineStartMs = clipStart,
-                timelineEndMs = clipEnd,
-                outputOffsetSec = outputOffsetMs / 1000.0,
-                perClip = false,
-                fontPath = fontPath,
-            )
-            if (segment.isNotEmpty()) {
-                allEntries.add(segment)
-            }
+            for (tc in textClips) {
+                val tStart = tc.startMs
+                val tEnd = tc.startMs + tc.durationMs
+                val overlapStart = maxOf(tStart, clipStart)
+                val overlapEnd = minOf(tEnd, clipEnd)
+                if (overlapStart >= overlapEnd) continue
 
+                val enableStart = outputOffsetMs + (overlapStart - clipStart)
+                val enableEnd = outputOffsetMs + (overlapEnd - clipStart)
+                val startSec = fmtSec(enableStart / 1000.0)
+                val endSec = fmtSec(enableEnd / 1000.0)
+
+                val escaped = escapeDrawtextForCommandLine(tc.text)
+                val color = tc.colorHex.removePrefix("#").let { "0x$it" }
+                val x = "(w-tw)*${tc.positionX}"
+                val y = "(h-th)*${tc.positionY}"
+
+                val sb = StringBuilder("drawtext=text=$escaped")
+                sb.append(":fontsize=${tc.fontSizeSp.toInt()}")
+                sb.append(":fontcolor=$color")
+                sb.append(":x=$x:y=$y")
+                // NO single quotes — FFmpegKit consumes them
+                // Use \, to escape commas within the between() expression
+                sb.append(":enable=between(t\\,$startSec\\,$endSec)")
+                if (fontPath != null) sb.append(":fontfile=$fontPath")
+                if (tc.backgroundColorHex != null) {
+                    val bg = tc.backgroundColorHex.removePrefix("#")
+                    sb.append(":box=1:boxcolor=0x${bg}@0.6:boxborderw=5")
+                }
+                entries.add(sb.toString())
+            }
             outputOffsetMs += clip.durationMs
         }
-
-        return allEntries.joinToString(",")
+        return entries.joinToString(",")
     }
 
-    fun buildAudioFilterString(
-        speed: Float,
-        volume: Float,
-    ): String {
-        val parts = mutableListOf<String>()
 
-        if (volume != 1.0f) {
-            parts.add("volume=$volume")
-        }
-
-        if (speed != 1.0f) {
-            var remaining = speed.toDouble()
-            while (remaining < 0.5) {
-                parts.add("atempo=0.5")
-                remaining /= 0.5
-            }
-            while (remaining > 2.0) {
-                parts.add("atempo=2.0")
-                remaining /= 2.0
-            }
-            if (remaining != 1.0) {
-                parts.add("atempo=$remaining")
-            }
-        }
-
-        return parts.joinToString(",")
-    }
-
-    fun buildGapInput(durationSec: Double, width: Int, height: Int): String {
-        val w = evenUp(width)
-        val h = evenUp(height)
-        return "color=c=black:s=${w}x${h}:d=$durationSec:r=30"
-    }
-
-    fun transitionToXfade(type: TransitionType): String = when (type) {
-        TransitionType.CrossFade -> "fade"
-        TransitionType.Dissolve -> "dissolve"
-        TransitionType.SlideLeft -> "slideleft"
-        TransitionType.SlideRight -> "slideright"
-    }
-
-    fun buildSegmentedVideoChain(
-        videoClips: List<Clip.VideoClip>,
-        clipHasAudio: List<Boolean>,
+    /**
+     * Builds a complete filter_complex string handling:
+     * - Multiple video tracks (overlay compositing)
+     * - Gaps between clips (black frames)
+     * - Transitions between adjacent clips on the same track
+     * - Text overlays
+     *
+     * @param useDrawtext true for Android FFmpegKit command, false means JVM handles text separately
+     */
+    fun buildMultiTrackFilterGraph(
+        videoTracks: List<Track>,
+        clipHasAudioMap: Map<Int, Boolean>,  // input index → has audio
         outWidth: Int,
         outHeight: Int,
         textClips: List<Clip.TextClip>,
         fontPath: String?,
-        sb: StringBuilder,
-    ): Pair<String, String?> {
+        timelineDurationMs: Long,
+        useDrawtext: Boolean = false,
+    ): MultiTrackResult {
         val w = evenUp(outWidth)
         val h = evenUp(outHeight)
-        val anyAudio = clipHasAudio.any { it }
+        val sb = StringBuilder()
 
-        data class Segment(
-            val videoLabel: String,
-            val audioLabel: String?,
-            val durationSec: Double,
-            val transitionIn: Transition?,
+        // Assign input indices: all video clips across all tracks, in order
+        data class IndexedClip(
+            val clip: Clip.VideoClip,
+            val inputIndex: Int,
+            val hasAudio: Boolean,
         )
 
-        val segments = mutableListOf<Segment>()
-        var gapIndex = 0
-        var prevEndMs = 0L
+        var inputIdx = 0
+        val tracksWithClips = videoTracks.map { track ->
+            val clips = track.clips.filterIsInstance<Clip.VideoClip>().sortedBy { it.startMs }
+            val indexed = clips.map { clip ->
+                val ic = IndexedClip(clip, inputIdx, clipHasAudioMap[inputIdx] ?: false)
+                inputIdx++
+                ic
+            }
+            indexed
+        }
 
-        for ((i, clip) in videoClips.withIndex()) {
-            val gapMs = clip.startMs - prevEndMs
-            if (gapMs > 0) {
-                val gapSec = gapMs / 1000.0
-                val gLabel = "gap$gapIndex"
-                sb.append("color=c=black:s=${w}x${h}:d=$gapSec:r=30,format=yuv420p[$gLabel];")
-                if (anyAudio) {
-                    sb.append("anullsrc=r=44100:cl=stereo,atrim=0:$gapSec,asetpts=PTS-STARTPTS[${gLabel}a];")
+        val totalInputs = inputIdx
+        val anyAudio = clipHasAudioMap.values.any { it }
+
+        if (tracksWithClips.all { it.isEmpty() }) {
+            return MultiTrackResult("", "outv", null, 0)
+        }
+
+        val trackVideoLabels = mutableListOf<String>()
+        val trackAudioLabels = mutableListOf<String?>()
+
+        for ((trackIdx, indexedClips) in tracksWithClips.withIndex()) {
+            if (indexedClips.isEmpty()) continue
+
+            val segments = mutableListOf<String>()  // video segment labels
+            val audioSegments = mutableListOf<String>()  // audio segment labels
+            var segIdx = 0
+            var prevEndMs = 0L
+
+            for (ic in indexedClips) {
+                val clip = ic.clip
+                val i = ic.inputIndex
+
+                // Gap before this clip
+                val gapMs = clip.startMs - prevEndMs
+                if (gapMs > 0) {
+                    val gapSec = gapMs / 1000.0
+                    val gVLabel = "t${trackIdx}g${segIdx}v"
+                    sb.append("color=c=black:s=${w}x${h}:d=$gapSec:r=30,format=yuv420p[$gVLabel];")
+                    segments.add(gVLabel)
+
+                    if (anyAudio) {
+                        val gALabel = "t${trackIdx}g${segIdx}a"
+                        sb.append("anullsrc=r=44100:cl=stereo,atrim=0:$gapSec,asetpts=PTS-STARTPTS[$gALabel];")
+                        audioSegments.add(gALabel)
+                    }
+                    segIdx++
                 }
-                segments.add(Segment(gLabel, if (anyAudio) "${gLabel}a" else null, gapSec, null))
-                gapIndex++
-            }
 
-            val vf = buildVideoFilterString(
-                filters = clip.filters,
-                speed = clip.speed,
-                outWidth = outWidth,
-                outHeight = outHeight,
-            )
-            val trimFilter = "trim=start=${clip.sourceStartMs / 1000.0}:" +
-                    "end=${clip.sourceEndMs / 1000.0},setpts=PTS-STARTPTS"
-            sb.append("[$i:v]$trimFilter,$vf[v$i];")
-
-            if (clipHasAudio[i]) {
-                val af = buildAudioFilterString(speed = clip.speed, volume = clip.volume)
-                val atrimFilter = "atrim=start=${clip.sourceStartMs / 1000.0}:" +
-                        "end=${clip.sourceEndMs / 1000.0},asetpts=PTS-STARTPTS"
-                val audioFilters = if (af.isNotEmpty()) "$atrimFilter,$af" else atrimFilter
-                sb.append("[$i:a]$audioFilters[va$i];")
-            } else if (anyAudio) {
-                val silenceDur = clip.durationMs / 1000.0
-                sb.append("anullsrc=r=44100:cl=stereo,atrim=0:$silenceDur,asetpts=PTS-STARTPTS[va$i];")
-            }
-
-            val transition = if (segments.isNotEmpty()) clip.transition else null
-            segments.add(
-                Segment(
-                    "v$i",
-                    if (anyAudio) "va$i" else null,
-                    clip.durationMs / 1000.0,
-                    transition,
+                // Video filter for this clip
+                val vf = buildVideoFilterString(
+                    filters = clip.filters,
+                    speed = clip.speed,
+                    outWidth = outWidth,
+                    outHeight = outHeight,
                 )
-            )
+                val trimFilter = "trim=start=${clip.sourceStartMs / 1000.0}:" +
+                        "end=${clip.sourceEndMs / 1000.0},setpts=PTS-STARTPTS"
+                val vLabel = "t${trackIdx}c${segIdx}v"
+                sb.append("[$i:v]$trimFilter,$vf[$vLabel];")
+                segments.add(vLabel)
 
-            prevEndMs = clip.startMs + clip.durationMs
-        }
+                // Audio for this clip
+                if (ic.hasAudio) {
+                    val af = buildAudioFilterString(speed = clip.speed, volume = clip.volume)
+                    val atrimFilter = "atrim=start=${clip.sourceStartMs / 1000.0}:" +
+                            "end=${clip.sourceEndMs / 1000.0},asetpts=PTS-STARTPTS"
+                    val audioFilters = if (af.isNotEmpty()) "$atrimFilter,$af" else atrimFilter
+                    val aLabel = "t${trackIdx}c${segIdx}a"
+                    sb.append("[$i:a]$audioFilters[$aLabel];")
+                    audioSegments.add(aLabel)
+                } else if (anyAudio) {
+                    val silenceDur = clip.durationMs / 1000.0
+                    val aLabel = "t${trackIdx}c${segIdx}a"
+                    sb.append("anullsrc=r=44100:cl=stereo,atrim=0:$silenceDur,asetpts=PTS-STARTPTS[$aLabel];")
+                    audioSegments.add(aLabel)
+                }
 
-        if (segments.isEmpty()) return Pair("outv", null)
-
-        var currentV = "[${segments[0].videoLabel}]"
-        var accumulatedDuration = segments[0].durationSec
-        var chainIdx = 0
-
-        for (i in 1 until segments.size) {
-            val seg = segments[i]
-            val nextV = "[${seg.videoLabel}]"
-            val outLabel = if (i == segments.lastIndex) "outv_raw" else "xf$chainIdx"
-
-            if (seg.transitionIn != null) {
-                val tDur = seg.transitionIn.durationMs / 1000.0
-                val offset = (accumulatedDuration - tDur).coerceAtLeast(0.0)
-                val xfName = transitionToXfade(seg.transitionIn.type)
-                sb.append("${currentV}${nextV}xfade=transition=$xfName:duration=$tDur:offset=$offset[$outLabel];")
-                accumulatedDuration += seg.durationSec - tDur
-            } else {
-                sb.append("${currentV}${nextV}concat=n=2:v=1:a=0[$outLabel];")
-                accumulatedDuration += seg.durationSec
+                prevEndMs = clip.startMs + clip.durationMs
+                segIdx++
             }
 
-            currentV = "[$outLabel]"
-            chainIdx++
+            // Trailing gap to fill to timeline duration
+            val trailingGap = timelineDurationMs - prevEndMs
+            if (trailingGap > 0) {
+                val gapSec = trailingGap / 1000.0
+                val gVLabel = "t${trackIdx}g${segIdx}v"
+                sb.append("color=c=black:s=${w}x${h}:d=$gapSec:r=30,format=yuv420p[$gVLabel];")
+                segments.add(gVLabel)
+                if (anyAudio) {
+                    val gALabel = "t${trackIdx}g${segIdx}a"
+                    sb.append("anullsrc=r=44100:cl=stereo,atrim=0:$gapSec,asetpts=PTS-STARTPTS[$gALabel];")
+                    audioSegments.add(gALabel)
+                }
+            }
+
+            // Concat all segments for this track
+            val trackVOut = "trk${trackIdx}v"
+            if (segments.size == 1) {
+                sb.append("[${segments[0]}]null[$trackVOut];")
+            } else {
+                for (s in segments) sb.append("[$s]")
+                sb.append("concat=n=${segments.size}:v=1:a=0[$trackVOut];")
+            }
+            trackVideoLabels.add(trackVOut)
+
+            if (anyAudio && audioSegments.isNotEmpty()) {
+                val trackAOut = "trk${trackIdx}a"
+                if (audioSegments.size == 1) {
+                    sb.append("[${audioSegments[0]}]acopy[$trackAOut];")
+                } else {
+                    for (s in audioSegments) sb.append("[$s]")
+                    sb.append("concat=n=${audioSegments.size}:v=0:a=1[$trackAOut];")
+                }
+                trackAudioLabels.add(trackAOut)
+            } else {
+                trackAudioLabels.add(null)
+            }
         }
 
-        if (segments.size == 1) {
-            sb.append("[${segments[0].videoLabel}]null[outv_raw];")
+        var currentVideo = "[${trackVideoLabels[0]}]"
+
+        for (i in 1 until trackVideoLabels.size) {
+            val overlayLabel = if (i == trackVideoLabels.lastIndex) "outv_raw" else "ov$i"
+            // Upper tracks overlay on lower tracks
+            // Use format=yuva420p on the overlay input so black = transparent
+            // Actually, black is NOT transparent. For proper compositing,
+            // gaps should be transparent. We need to convert black to alpha.
+            sb.append("[${trackVideoLabels[i]}]format=yuva420p,colorkey=black:0.1:0.2[${trackVideoLabels[i]}_alpha];")
+            sb.append("${currentVideo}[${trackVideoLabels[i]}_alpha]overlay=0:0:format=auto[$overlayLabel];")
+            currentVideo = "[$overlayLabel]"
         }
 
-        val textFilters = buildPostConcatTextFilters(
-            videoClips = videoClips,
-            textClips = textClips,
-            fontPath = fontPath,
-        )
-        if (textFilters.isNotEmpty()) {
-            sb.append("[outv_raw]${textFilters}[outv];")
+        if (trackVideoLabels.size == 1) {
+            sb.append("[${trackVideoLabels[0]}]null[outv_raw];")
+        }
+
+        if (textClips.isNotEmpty() && useDrawtext) {
+            val allVideoClips = videoTracks.flatMap {
+                it.clips.filterIsInstance<Clip.VideoClip>()
+            }.sortedBy { it.startMs }
+            val textFilters = buildTextOverlayFiltersForCommand(
+                textClips = textClips,
+                videoClips = allVideoClips,
+                fontPath = fontPath,
+            )
+            if (textFilters.isNotEmpty()) {
+                sb.append("[outv_raw]$textFilters[outv];")
+            } else {
+                sb.append("[outv_raw]null[outv];")
+            }
+        } else if (textClips.isNotEmpty() && !useDrawtext) {
+            val allVideoClips = videoTracks.flatMap {
+                it.clips.filterIsInstance<Clip.VideoClip>()
+            }.sortedBy { it.startMs }
+            val textFilters = buildPostConcatTextFilters(
+                videoClips = allVideoClips,
+                textClips = textClips,
+                fontPath = fontPath,
+            )
+            if (textFilters.isNotEmpty()) {
+                sb.append("[outv_raw]$textFilters[outv];")
+            } else {
+                sb.append("[outv_raw]null[outv];")
+            }
         } else {
             sb.append("[outv_raw]null[outv];")
         }
 
         var audioOutLabel: String? = null
-        if (anyAudio) {
-            var currentA = "[${segments[0].audioLabel}]"
-            var aChainIdx = 0
-
-            for (i in 1 until segments.size) {
-                val seg = segments[i]
-                val nextA = "[${seg.audioLabel}]"
-                val outLabel = if (i == segments.lastIndex) "video_audio" else "ac$aChainIdx"
-                sb.append("${currentA}${nextA}concat=n=2:v=0:a=1[$outLabel];")
-                currentA = "[$outLabel]"
-                aChainIdx++
+        val validAudioLabels = trackAudioLabels.filterNotNull()
+        if (validAudioLabels.isNotEmpty()) {
+            if (validAudioLabels.size == 1) {
+                sb.append("[${validAudioLabels[0]}]acopy[video_audio];")
+            } else {
+                for (l in validAudioLabels) sb.append("[$l]")
+                sb.append("amix=inputs=${validAudioLabels.size}:duration=longest:normalize=1[video_audio];")
             }
-
-            if (segments.size == 1) {
-                sb.append("[${segments[0].audioLabel}]acopy[video_audio];")
-            }
-
             audioOutLabel = "video_audio"
         }
 
-        return Pair("outv", audioOutLabel)
+        return MultiTrackResult(
+            filterComplex = sb.toString(),
+            videoOutLabel = "outv",
+            audioOutLabel = audioOutLabel,
+            totalVideoInputs = totalInputs,
+        )
     }
+
+    data class MultiTrackResult(
+        val filterComplex: String,
+        val videoOutLabel: String,
+        val audioOutLabel: String?,
+        val totalVideoInputs: Int,
+    )
 }

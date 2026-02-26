@@ -95,12 +95,14 @@ actual class PlatformVideoEngine actual constructor() {
         try {
             _exportProgress.value = ExportProgress(phase = "Preparing…", progress = 0f)
 
-            val videoClips = project.timeline.tracks
+            val videoTracks = project.timeline.tracks
                 .filter { it.type == TrackType.Video && !it.isMuted }
-                .flatMap { it.clips.filterIsInstance<Clip.VideoClip>() }
-                .sortedBy { it.startMs }
 
-            if (videoClips.isEmpty()) {
+            val allVideoClips = videoTracks.flatMap {
+                it.clips.filterIsInstance<Clip.VideoClip>()
+            }
+
+            if (allVideoClips.isEmpty()) {
                 _exportProgress.value = ExportProgress(error = "No video clips on timeline")
                 return@withContext
             }
@@ -114,11 +116,10 @@ actual class PlatformVideoEngine actual constructor() {
                 .flatMap { it.clips.filterIsInstance<Clip.AudioClip>() }
                 .sortedBy { it.startMs }
 
-            val clipInfos = videoClips.map { clip ->
+            val clipInfos = allVideoClips.map { clip ->
                 try { probeVideo(clip.sourcePath) } catch (_: Exception) { null }
             }
-            val clipHasAudio = clipInfos.map { it?.hasAudio == true }
-            val anyEmbeddedAudio = clipHasAudio.any { it }
+            val anyEmbeddedAudio = clipInfos.any { it?.hasAudio == true }
             val hasExtraAudio = audioClips.isNotEmpty()
             val hasAnyAudio = anyEmbeddedAudio || hasExtraAudio
 
@@ -132,10 +133,7 @@ actual class PlatformVideoEngine actual constructor() {
                 else firstInfo.height
             )
             val outFrameRate = firstInfo.frameRate
-
-            val audioChannels = if (hasAnyAudio) {
-                if (anyEmbeddedAudio) firstInfo.audioChannels.coerceAtLeast(1) else 2
-            } else 0
+            val audioChannels = if (hasAnyAudio) firstInfo.audioChannels.coerceAtLeast(2) else 0
             val sampleRate = if (anyEmbeddedAudio) firstInfo.audioSampleRate else 44100
 
             val recorder = FFmpegFrameRecorder(
@@ -145,15 +143,13 @@ actual class PlatformVideoEngine actual constructor() {
             recorder.format = project.exportSettings.format.extension
             recorder.frameRate = outFrameRate
             recorder.videoBitrate = (firstInfo.videoBitrate *
-                    (project.exportSettings.quality / 100.0))
-                .toInt().coerceAtLeast(500_000)
+                    (project.exportSettings.quality / 100.0)).toInt().coerceAtLeast(500_000)
             recorder.videoCodec = when (project.exportSettings.format) {
                 ExportFormat.MP4 -> avcodec.AV_CODEC_ID_H264
                 ExportFormat.WebM -> avcodec.AV_CODEC_ID_VP9
                 ExportFormat.MOV -> avcodec.AV_CODEC_ID_H264
             }
             recorder.pixelFormat = avutil.AV_PIX_FMT_YUV420P
-
             if (hasAnyAudio) {
                 recorder.audioChannels = audioChannels
                 recorder.sampleRate = sampleRate
@@ -162,55 +158,183 @@ actual class PlatformVideoEngine actual constructor() {
                     ExportFormat.WebM -> avcodec.AV_CODEC_ID_OPUS
                 }
             }
-
             recorder.start()
 
             val fontPath = findSystemFont()
-            val totalClips = videoClips.size
+            val timelineDurationMs = project.timeline.durationMs
+            val frameDurationMs = (1000.0 / outFrameRate).toLong().coerceAtLeast(1)
 
             try {
-                var lastFrame: BufferedImage? = null
-                var prevClipEndMs = 0L
+                // ── Frame-by-frame compositing approach ──
+                // For each output frame time, grab from each track and composite
 
-                for ((clipIndex, clip) in videoClips.withIndex()) {
-                    ensureActive()
+                data class TrackGrabber(
+                    val track: Track,
+                    val clips: List<Clip.VideoClip>,
+                    val grabbers: MutableMap<String, FFmpegFrameGrabber>,
+                    val filters: MutableMap<String, FFmpegFrameFilter>,
+                    val converters: MutableMap<String, Java2DFrameConverter>,
+                    val clipInfos: MutableMap<String, VideoInfo>,
+                )
 
-                    _exportProgress.value = ExportProgress(
-                        phase = "Exporting clip ${clipIndex + 1}/$totalClips",
-                        progress = clipIndex.toFloat() / totalClips,
-                    )
-
-                    val gapMs = clip.startMs - prevClipEndMs
-                    if (gapMs > 0) {
-                        writeGapFrames(recorder, gapMs, outWidth, outHeight, outFrameRate)
-                        lastFrame = null
-                    }
-
-                    val transitionIn = if (lastFrame != null) clip.transition else null
-
-                    lastFrame = exportSingleClipWithTransition(
-                        clip = clip,
-                        recorder = recorder,
-                        outWidth = outWidth,
-                        outHeight = outHeight,
-                        textClips = textClips,
-                        fontPath = fontPath,
-                        transitionIn = transitionIn,
-                        previousLastFrame = lastFrame,
-                        hasAudio = clipHasAudio[clipIndex],
-                        frameRate = outFrameRate,
-                        progressBase = clipIndex.toFloat() / totalClips,
-                        progressScale = 1f / totalClips,
-                    )
-
-                    prevClipEndMs = clip.startMs + clip.durationMs
+                val trackGrabbers = videoTracks.map { track ->
+                    val clips = track.clips.filterIsInstance<Clip.VideoClip>().sortedBy { it.startMs }
+                    TrackGrabber(track, clips, mutableMapOf(), mutableMapOf(), mutableMapOf(), mutableMapOf())
                 }
 
+                // Pre-open grabbers for all clips
+                for (tg in trackGrabbers) {
+                    for (clip in tg.clips) {
+                        if (tg.grabbers.containsKey(clip.id)) continue
+                        val grabber = FFmpegFrameGrabber(clip.sourcePath)
+                        grabber.pixelFormat = avutil.AV_PIX_FMT_BGR24
+                        grabber.start()
+                        tg.grabbers[clip.id] = grabber
+                        tg.converters[clip.id] = Java2DFrameConverter()
+
+                        val info = try { probeVideo(clip.sourcePath) } catch (_: Exception) { null }
+                        if (info != null) tg.clipInfos[clip.id] = info
+
+                        // Build filter for this clip
+                        var filterStr = FilterGraphBuilder.buildVideoFilterString(
+                            filters = clip.filters,
+                            speed = clip.speed,
+                            outWidth = outWidth,
+                            outHeight = outHeight,
+                        )
+                        val textOverlay = FilterGraphBuilder.buildTextOverlayFilters(
+                            textClips = textClips,
+                            timelineStartMs = clip.startMs,
+                            timelineEndMs = clip.startMs + clip.durationMs,
+                            perClip = true,
+                            fontPath = fontPath,
+                        )
+                        if (textOverlay.isNotEmpty()) filterStr = "$filterStr,$textOverlay"
+                        filterStr = "$filterStr,format=bgr24"
+
+                        val filter = FFmpegFrameFilter(filterStr, grabber.imageWidth, grabber.imageHeight)
+                        filter.pixelFormat = avutil.AV_PIX_FMT_BGR24
+                        filter.start()
+                        tg.filters[clip.id] = filter
+
+                        // Seek to clip start
+                        grabber.setTimestamp(clip.sourceStartMs * 1000)
+                    }
+                }
+
+                // Also handle embedded audio: export audio from first track's clips
+                // (simplified — full multi-track audio mixing would need more work)
+                val audioTrackGrabbers = mutableListOf<Pair<Clip.VideoClip, FFmpegFrameGrabber>>()
+                if (anyEmbeddedAudio) {
+                    for (tg in trackGrabbers) {
+                        for (clip in tg.clips) {
+                            val info = tg.clipInfos[clip.id] ?: continue
+                            if (info.hasAudio) {
+                                val audioGrabber = FFmpegFrameGrabber(clip.sourcePath)
+                                audioGrabber.start()
+                                audioGrabber.setTimestamp(clip.sourceStartMs * 1000)
+                                audioTrackGrabbers.add(clip to audioGrabber)
+                            }
+                        }
+                    }
+                }
+
+                val converter = Java2DFrameConverter()
+                var currentTimeMs = 0L
+                val totalFrames = (timelineDurationMs / frameDurationMs).toInt()
+                var frameCount = 0
+
+                while (currentTimeMs < timelineDurationMs) {
+                    ensureActive()
+
+                    // Composite frame: start with black, overlay each track bottom-to-top
+                    var composited: BufferedImage? = null
+
+                    for (tg in trackGrabbers) {
+                        // Find active clip on this track at currentTimeMs
+                        val activeClip = tg.clips.firstOrNull { clip ->
+                            currentTimeMs >= clip.startMs &&
+                                    currentTimeMs < clip.startMs + clip.durationMs
+                        } ?: continue
+
+                        val grabber = tg.grabbers[activeClip.id] ?: continue
+                        val filter = tg.filters[activeClip.id] ?: continue
+                        val conv = tg.converters[activeClip.id] ?: continue
+
+                        val offsetInClip = currentTimeMs - activeClip.startMs
+                        val sourceTimeMs = activeClip.sourceStartMs + (offsetInClip * activeClip.speed).toLong()
+
+                        if (sourceTimeMs > activeClip.sourceEndMs) continue
+
+                        grabber.setTimestamp(sourceTimeMs * 1000)
+                        val frame = grabber.grabImage() ?: continue
+
+                        filter.push(frame)
+                        val filtered = filter.pull() ?: continue
+                        val image = conv.convert(filtered) ?: continue
+
+                        if (composited == null) {
+                            composited = image
+                        } else {
+                            // Overlay this track's image on top
+                            val g = composited.createGraphics()
+                            g.drawImage(image, 0, 0, outWidth, outHeight, null)
+                            g.dispose()
+                        }
+                    }
+
+                    // If no clip active, write black frame
+                    if (composited == null) {
+                        composited = createBlackFrame(outWidth, outHeight)
+                    }
+
+                    val outFrame = converter.convert(composited)
+                    recorder.record(outFrame)
+
+                    frameCount++
+                    if (totalFrames > 0) {
+                        val progress = frameCount.toFloat() / totalFrames
+                        _exportProgress.value = ExportProgress(
+                            phase = "Exporting… ${(progress * 100).toInt()}%",
+                            progress = progress.coerceIn(0f, 1f),
+                        )
+                    }
+
+                    currentTimeMs += frameDurationMs
+                }
+
+                // Export embedded audio
+                for ((clip, audioGrabber) in audioTrackGrabbers) {
+                    val endUs = clip.sourceEndMs * 1000
+                    var aFrame: Frame?
+                    while (true) {
+                        ensureActive()
+                        aFrame = audioGrabber.grab() ?: break
+                        if (audioGrabber.timestamp > endUs) break
+                        if (aFrame.samples != null) {
+                            recorder.record(aFrame)
+                        }
+                    }
+                    try { audioGrabber.stop() } catch (_: Exception) {}
+                    try { audioGrabber.release() } catch (_: Exception) {}
+                }
+
+                // Export separate audio clips
                 if (hasExtraAudio) {
-                    _exportProgress.value = ExportProgress(
-                        phase = "Mixing audio tracks…", progress = 0.9f,
-                    )
-                    exportAudioClips(audioClips, videoClips, recorder)
+                    _exportProgress.value = ExportProgress(phase = "Mixing audio…", progress = 0.95f)
+                    exportAudioClips(audioClips, allVideoClips.sortedBy { it.startMs }, recorder)
+                }
+
+                // Cleanup grabbers
+                for (tg in trackGrabbers) {
+                    for ((_, g) in tg.grabbers) {
+                        try { g.stop() } catch (_: Exception) {}
+                        try { g.release() } catch (_: Exception) {}
+                    }
+                    for ((_, f) in tg.filters) {
+                        try { f.stop() } catch (_: Exception) {}
+                        try { f.release() } catch (_: Exception) {}
+                    }
                 }
 
                 recorder.stop()
@@ -220,21 +344,18 @@ actual class PlatformVideoEngine actual constructor() {
                     phase = "Complete", progress = 1f, isComplete = true,
                 )
 
-            } catch (e: CancellationException) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
                 recorder.stop()
                 recorder.release()
                 try { File(outputPath).delete() } catch (_: Exception) {}
-                _exportProgress.value = ExportProgress(
-                    phase = "Cancelled", isCancelled = true,
-                )
+                _exportProgress.value = ExportProgress(phase = "Cancelled", isCancelled = true)
                 throw e
             }
 
-        } catch (e: CancellationException) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             _exportProgress.value = ExportProgress(error = "Export failed: ${e.message}")
-            e.printStackTrace()
         }
     }
 
