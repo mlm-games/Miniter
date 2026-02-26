@@ -211,6 +211,99 @@ object FilterGraphBuilder {
         return allEntries.joinToString(",")
     }
 
+    fun generateAssSubtitleContent(
+        textClips: List<Clip.TextClip>,
+        videoClips: List<Clip.VideoClip>,
+        playResX: Int,
+        playResY: Int,
+    ): String {
+        if (textClips.isEmpty()) return ""
+
+        val sb = StringBuilder()
+
+        sb.appendLine("[Script Info]")
+        sb.appendLine("ScriptType: v4.00+")
+        sb.appendLine("PlayResX: $playResX")
+        sb.appendLine("PlayResY: $playResY")
+        sb.appendLine()
+
+        sb.appendLine("[V4+ Styles]")
+        sb.appendLine("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding")
+
+        for (tc in textClips) {
+            val styleName = "S${tc.id.hashCode().toUInt()}"
+            val primary = hexToAssColor(tc.colorHex)
+            val bg = tc.backgroundColorHex?.let { hexToAssColor(it) } ?: "&H00000000"
+            val fontSize = tc.fontSizeSp.toInt()
+            val alignment = assAlignment(tc.positionX, tc.positionY)
+            val border = if (tc.backgroundColorHex != null) 3 else 1
+            sb.appendLine(
+                "Style: $styleName,Roboto,$fontSize,$primary,&H000000FF,&H00000000,$bg," +
+                        "0,0,0,0,100,100,0,0,$border,2,0,$alignment,10,10,10,1"
+            )
+        }
+
+        sb.appendLine()
+        sb.appendLine("[Events]")
+        sb.appendLine("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text")
+
+        for (tc in textClips) {
+            val styleName = "S${tc.id.hashCode().toUInt()}"
+            val startMs = tc.startMs
+            val endMs = tc.startMs + tc.durationMs
+            sb.appendLine(
+                "Dialogue: 0,${msToAss(startMs)},${msToAss(endMs)}," +
+                        "$styleName,,0,0,0,,${escapeAss(tc.text)}"
+            )
+        }
+
+        return sb.toString()
+    }
+
+    private fun hexToAssColor(hex: String): String {
+        val rgb = hex.removePrefix("#").take(6)
+        if (rgb.length != 6) return "&H000000FF"
+        val r = rgb.substring(0, 2).toInt(16)
+        val g = rgb.substring(2, 4).toInt(16)
+        val b = rgb.substring(4, 6).toInt(16)
+        return "&H${b.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${r.toString(16).padStart(2, '0')}FF"
+    }
+
+    private fun msToAss(ms: Long): String {
+        val totalSec = ms / 1000
+        val hours = totalSec / 3600
+        val minutes = (totalSec % 3600) / 60
+        val seconds = totalSec % 60
+        val centis = (ms % 1000) / 10
+        return "${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centis.toString().padStart(2, '0')}"
+    }
+
+    private fun assAlignment(posX: Float, posY: Float): Int {
+        val h = when {
+            posX < 0.33f -> 1
+            posX > 0.66f -> 3
+            else -> 2
+        }
+        val v = when {
+            posY < 0.33f -> 7
+            posY > 0.66f -> 1
+            else -> 4
+        }
+        return when {
+            v == 7 -> when (h) { 1 -> 7; 2 -> 8; 3 -> 9; else -> 7 }
+            v == 4 -> when (h) { 1 -> 4; 2 -> 5; 3 -> 6; else -> 4 }
+            else -> when (h) { 1 -> 1; 2 -> 2; 3 -> 3; else -> 1 }
+        }
+    }
+
+    private fun escapeAss(text: String): String {
+        return text
+            .replace("\\", "\\\\")
+            .replace("{", "\\{")
+            .replace("}", "\\}")
+            .replace("\n", "\\N")
+    }
+
 
     fun buildTextOverlayFiltersForCommand(
         textClips: List<Clip.TextClip>,
@@ -274,13 +367,14 @@ object FilterGraphBuilder {
      */
     fun buildMultiTrackFilterGraph(
         videoTracks: List<Track>,
-        clipHasAudioMap: Map<Int, Boolean>,  // input index → has audio
+        clipHasAudioMap: Map<Int, Boolean>,
         outWidth: Int,
         outHeight: Int,
         textClips: List<Clip.TextClip>,
         fontPath: String?,
         timelineDurationMs: Long,
         useDrawtext: Boolean = false,
+        subtitleFilePath: String? = null,
     ): MultiTrackResult {
         val w = evenUp(outWidth)
         val h = evenUp(outHeight)
@@ -430,21 +524,10 @@ object FilterGraphBuilder {
             sb.append("[${trackVideoLabels[0]}]null[outv_raw];")
         }
 
-        if (textClips.isNotEmpty() && useDrawtext) {
-            val allVideoClips = videoTracks.flatMap {
-                it.clips.filterIsInstance<Clip.VideoClip>()
-            }.sortedBy { it.startMs }
-            val textFilters = buildTextOverlayFiltersForCommand(
-                textClips = textClips,
-                videoClips = allVideoClips,
-                fontPath = fontPath,
-            )
-            if (textFilters.isNotEmpty()) {
-                sb.append("[outv_raw]$textFilters[outv];")
-            } else {
-                sb.append("[outv_raw]null[outv];")
-            }
-        } else if (textClips.isNotEmpty() && !useDrawtext) {
+        // ─── Text overlays ───
+        if (subtitleFilePath != null && textClips.isNotEmpty()) {
+            sb.append("[outv_raw]ass=$subtitleFilePath[outv];")
+        } else if (textClips.isNotEmpty() && useDrawtext) {
             val allVideoClips = videoTracks.flatMap {
                 it.clips.filterIsInstance<Clip.VideoClip>()
             }.sortedBy { it.startMs }

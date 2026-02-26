@@ -18,6 +18,7 @@ import java.io.FileInputStream
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import androidx.core.net.toUri
+import kotlin.coroutines.cancellation.CancellationException
 
 actual class PlatformVideoEngine actual constructor() {
 
@@ -51,10 +52,6 @@ actual class PlatformVideoEngine actual constructor() {
 
     private fun evenUp(value: Int): Int = if (value % 2 == 0) value else value + 1
 
-    /**
-     * Create a temp file in cache dir for FFmpeg output, then copy to final destination.
-     * This avoids SAF URI issues with FFmpegKit's output path handling.
-     */
     private fun createTempOutputFile(extension: String): File {
         val cacheDir = File(AndroidContext.get().cacheDir, "export")
         cacheDir.mkdirs()
@@ -139,12 +136,13 @@ actual class PlatformVideoEngine actual constructor() {
         try {
             _exportProgress.value = ExportProgress(phase = "Preparing…", progress = 0f)
 
-            val videoClips = project.timeline.tracks
+            val videoTracks = project.timeline.tracks
                 .filter { it.type == TrackType.Video && !it.isMuted }
-                .flatMap { it.clips.filterIsInstance<Clip.VideoClip>() }
-                .sortedBy { it.startMs }
 
-            if (videoClips.isEmpty()) {
+            val allVideoClips = videoTracks
+                .flatMap { it.clips.filterIsInstance<Clip.VideoClip>() }
+
+            if (allVideoClips.isEmpty()) {
                 _exportProgress.value = ExportProgress(error = "No video clips on timeline")
                 return@withContext
             }
@@ -157,7 +155,7 @@ actual class PlatformVideoEngine actual constructor() {
                 .filter { it.type == TrackType.Audio && !it.isMuted }
                 .flatMap { it.clips.filterIsInstance<Clip.AudioClip>() }
 
-            val firstInfo = probeVideo(videoClips.first().sourcePath)
+            val firstInfo = probeVideo(allVideoClips.first().sourcePath)
             val outWidth = evenUp(
                 if (project.exportSettings.width > 0) project.exportSettings.width
                 else firstInfo.width
@@ -167,17 +165,24 @@ actual class PlatformVideoEngine actual constructor() {
                 else firstInfo.height
             )
 
-            val clipHasAudio = videoClips.map { clip ->
-                try { probeVideo(clip.sourcePath).hasAudio } catch (_: Exception) { false }
+            // Probe each clip for audio — build map by input index
+            val clipHasAudioMap = mutableMapOf<Int, Boolean>()
+            var inputIdx = 0
+            for (track in videoTracks) {
+                for (clip in track.clips.filterIsInstance<Clip.VideoClip>().sortedBy { it.startMs }) {
+                    clipHasAudioMap[inputIdx] = try {
+                        probeVideo(clip.sourcePath).hasAudio
+                    } catch (_: Exception) { false }
+                    inputIdx++
+                }
             }
 
-            val totalDurationMs = videoClips.sumOf { it.durationMs }.toFloat()
-
+            val totalDurationMs = project.timeline.durationMs
             tempFile = createTempOutputFile(project.exportSettings.format.extension)
 
             val command = buildFFmpegCommand(
-                videoClips = videoClips,
-                clipHasAudio = clipHasAudio,
+                videoTracks = videoTracks,
+                clipHasAudioMap = clipHasAudioMap,
                 audioClips = audioClips,
                 textClips = textClips,
                 format = project.exportSettings.format,
@@ -185,11 +190,15 @@ actual class PlatformVideoEngine actual constructor() {
                 outWidth = outWidth,
                 outHeight = outHeight,
                 outputPath = tempFile.absolutePath,
+                timelineDurationMs = totalDurationMs,
             )
 
             _exportProgress.value = ExportProgress(phase = "Exporting…", progress = 0f)
+            executeFFmpegCommand(command, totalDurationMs.toFloat(), tempFile.absolutePath)
 
-            executeFFmpegCommand(command, totalDurationMs, tempFile.absolutePath)
+            try {
+                File(AndroidContext.get().cacheDir, "subtitles").listFiles()?.forEach { it.delete() }
+            } catch (_: Exception) {}
 
             if (_exportProgress.value.isComplete) {
                 _exportProgress.value = ExportProgress(phase = "Saving…", progress = 0.99f)
@@ -198,7 +207,7 @@ actual class PlatformVideoEngine actual constructor() {
                     phase = "Complete", progress = 1f, isComplete = true,
                 )
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             tempFile?.delete()
             throw e
         } catch (e: Exception) {
@@ -209,8 +218,8 @@ actual class PlatformVideoEngine actual constructor() {
     }
 
     private fun buildFFmpegCommand(
-        videoClips: List<Clip.VideoClip>,
-        clipHasAudio: List<Boolean>,
+        videoTracks: List<Track>,
+        clipHasAudioMap: Map<Int, Boolean>,
         audioClips: List<Clip.AudioClip>,
         textClips: List<Clip.TextClip>,
         format: ExportFormat,
@@ -218,45 +227,67 @@ actual class PlatformVideoEngine actual constructor() {
         outWidth: Int,
         outHeight: Int,
         outputPath: String,
+        timelineDurationMs: Long,
     ): String {
         val sb = StringBuilder()
-        val videoInputCount = videoClips.size
-        val hasExtraAudio = audioClips.isNotEmpty()
-        val anyEmbeddedAudio = clipHasAudio.any { it }
-        val hasAnyAudio = anyEmbeddedAudio || hasExtraAudio
-
         sb.append("-y ")
 
-        for (clip in videoClips) {
-            sb.append("-i ${normalizePathForFFmpeg(clip.sourcePath)} ")
+        val allVideoClips = mutableListOf<Clip.VideoClip>()
+        for (track in videoTracks) {
+            val clips = track.clips.filterIsInstance<Clip.VideoClip>().sortedBy { it.startMs }
+            allVideoClips.addAll(clips)
+            for (clip in clips) {
+                sb.append("-i ${normalizePathForFFmpeg(clip.sourcePath)} ")
+            }
         }
+        val videoInputCount = allVideoClips.size
+
         for (clip in audioClips) {
             sb.append("-i ${normalizePathForFFmpeg(clip.sourcePath)} ")
         }
 
-        val filterComplex = StringBuilder()
-        val (videoOutLabel, embeddedAudioOutLabel) = FilterGraphBuilder.buildSegmentedVideoChain(
-            videoClips = videoClips,
-            clipHasAudio = clipHasAudio,
+        var assFilePath: String? = null
+        if (textClips.isNotEmpty()) {
+            val assContent = FilterGraphBuilder.generateAssSubtitleContent(
+                textClips = textClips,
+                videoClips = allVideoClips,
+                playResX = outWidth,
+                playResY = outHeight,
+            )
+            if (assContent.isNotEmpty()) {
+                val assDir = File(AndroidContext.get().cacheDir, "subtitles")
+                assDir.mkdirs()
+                val assFile = File(assDir, "export_${System.currentTimeMillis()}.ass")
+                assFile.writeText(assContent, Charsets.UTF_8)
+                assFilePath = assFile.absolutePath
+            }
+        }
+
+        val result = FilterGraphBuilder.buildMultiTrackFilterGraph(
+            videoTracks = videoTracks,
+            clipHasAudioMap = clipHasAudioMap,
             outWidth = outWidth,
             outHeight = outHeight,
             textClips = textClips,
             fontPath = ANDROID_FONT,
-            sb = filterComplex,
+            timelineDurationMs = timelineDurationMs,
+            useDrawtext = false,
+            subtitleFilePath = assFilePath,
         )
 
+        val filterComplex = StringBuilder(result.filterComplex)
+
+        // Separate audio clips
         val audioInputs = mutableListOf<String>()
-        if (embeddedAudioOutLabel != null) {
-            audioInputs.add("[$embeddedAudioOutLabel]")
+        if (result.audioOutLabel != null) {
+            audioInputs.add("[${result.audioOutLabel}]")
         }
 
         for ((i, clip) in audioClips.withIndex()) {
-            val inputIdx = videoInputCount + i
+            val idx = videoInputCount + i
             val af = mutableListOf<String>()
-
             af.add("atrim=start=${clip.sourceStartMs / 1000.0}:end=${clip.sourceEndMs / 1000.0}")
             af.add("asetpts=PTS-STARTPTS")
-
             if (clip.volume != 1.0f) af.add("volume=${clip.volume}")
             if (clip.fadeInMs > 0) af.add("afade=t=in:st=0:d=${clip.fadeInMs / 1000.0}")
             if (clip.fadeOutMs > 0) {
@@ -264,10 +295,11 @@ actual class PlatformVideoEngine actual constructor() {
                 af.add("afade=t=out:st=$fadeStart:d=${clip.fadeOutMs / 1000.0}")
             }
             if (clip.startMs > 0) af.add("adelay=${clip.startMs}|${clip.startMs}")
-
-            filterComplex.append("[$inputIdx:a]${af.joinToString(",")}[audio$i];")
+            filterComplex.append("[$idx:a]${af.joinToString(",")}[audio$i];")
             audioInputs.add("[audio$i]")
         }
+
+        val hasAnyAudio = audioInputs.isNotEmpty()
 
         if (audioInputs.size > 1) {
             filterComplex.append(
@@ -279,7 +311,7 @@ actual class PlatformVideoEngine actual constructor() {
 
         val finalFilter = filterComplex.toString().trimEnd(';')
         sb.append("-filter_complex $finalFilter ")
-        sb.append("-map [$videoOutLabel] ")
+        sb.append("-map [${result.videoOutLabel}] ")
         if (hasAnyAudio) sb.append("-map [outa] ")
 
         appendCodecSettings(sb, format, quality, hasAnyAudio)
@@ -302,7 +334,6 @@ actual class PlatformVideoEngine actual constructor() {
     ) {
         when (format) {
             ExportFormat.MP4, ExportFormat.MOV -> {
-                // Use bitrate-based quality since mpeg4 doesn't support CRF.
                 sb.append("-c:v mpeg4 ")
                 val bitrate = (quality / 100f * 8000f + 500f).toInt().coerceIn(500, 8500)
                 sb.append("-b:v ${bitrate}k ")
@@ -331,7 +362,6 @@ actual class PlatformVideoEngine actual constructor() {
                 val returnCode = session.returnCode
                 when {
                     ReturnCode.isSuccess(returnCode) -> {
-                        // Mark as complete — caller will copy to final destination
                         _exportProgress.value = ExportProgress(
                             phase = "Complete",
                             progress = 1f,
