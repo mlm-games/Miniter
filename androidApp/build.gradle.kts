@@ -25,8 +25,8 @@ android {
         applicationId = "org.mlm.miniter"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 45
-        versionName = "0.5.5"
+        versionCode = 55
+        versionName = "0.5.6"
     }
 
     signingConfigs {
