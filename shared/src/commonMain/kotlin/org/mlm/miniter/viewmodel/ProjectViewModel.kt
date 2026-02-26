@@ -942,6 +942,14 @@ class ProjectViewModel(
         }
     }
 
+    fun setTextTransition(clipId: String, transition: Transition?) {
+        recordAndMutate { project ->
+            project.withClipTransform(clipId) { clip ->
+                if (clip is Clip.TextClip) clip.copy(transition = transition) else clip
+            }
+        }
+    }
+
     fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {
         recordAndMutate { project ->
             project.withClipTransform(clipId) { clip ->

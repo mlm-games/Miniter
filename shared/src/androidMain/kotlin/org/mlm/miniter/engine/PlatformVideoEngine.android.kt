@@ -198,6 +198,7 @@ actual class PlatformVideoEngine actual constructor() {
 
             try {
                 File(AndroidContext.get().cacheDir, "subtitles").listFiles()?.forEach { it.delete() }
+                File(AndroidContext.get().cacheDir, "filters").listFiles()?.forEach { it.delete() }
             } catch (_: Exception) {}
 
             if (_exportProgress.value.isComplete) {
@@ -310,7 +311,12 @@ actual class PlatformVideoEngine actual constructor() {
         }
 
         val finalFilter = filterComplex.toString().trimEnd(';')
-        sb.append("-filter_complex $finalFilter ")
+        val filterDir = File(AndroidContext.get().cacheDir, "filters")
+        filterDir.mkdirs()
+        val filterFile = File(filterDir, "filter_complex_${System.currentTimeMillis()}.txt")
+        filterFile.writeText(finalFilter, Charsets.UTF_8)
+
+        sb.append("-filter_complex_script ${filterFile.absolutePath} ")
         sb.append("-map [${result.videoOutLabel}] ")
         if (hasAnyAudio) sb.append("-map [outa] ")
 

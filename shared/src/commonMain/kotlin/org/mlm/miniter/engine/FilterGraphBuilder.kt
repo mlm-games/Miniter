@@ -169,6 +169,15 @@ object FilterGraphBuilder {
             sb.append(":x=$x:y=$y")
             sb.append(":enable=between(t\\,${fmtSec(enableStart)}\\,${fmtSec(enableEnd)})")
             if (fontPath != null) sb.append(":fontfile=$fontPath")
+
+            val transition = tc.transition
+            if (transition != null) {
+                val fadeDur = transition.durationMs / 1000.0
+                val fadeInEnd = enableStart + fadeDur
+                val fadeOutStart = enableEnd - fadeDur
+                sb.append(":alpha=if(lt(t\\,${fmtSec(fadeInEnd)})\\,(t-${fmtSec(enableStart)})/$fadeDur\\,if(gt(t\\,${fmtSec(fadeOutStart)})\\,(${fmtSec(enableEnd)}-t)/$fadeDur\\,1))")
+            }
+
             if (tc.isBold) {
                 sb.append(":borderw=1:bordercolor=$color")
             }
@@ -253,10 +262,18 @@ object FilterGraphBuilder {
             val startMs = tc.startMs.coerceAtLeast(0)
             val endMs = tc.startMs + tc.durationMs
 
-            val overrides = StringBuilder()
             val posX = (tc.positionX * playResX).toInt()
             val posY = (tc.positionY * playResY).toInt()
-            overrides.append("{\\pos($posX,$posY)}")
+
+            val overrides = StringBuilder("{\\pos($posX,$posY)")
+
+            val transition = tc.transition
+            if (transition != null) {
+                val fadeMs = transition.durationMs
+                overrides.append("\\fad($fadeMs,$fadeMs)")
+            }
+
+            overrides.append("}")
 
             sb.appendLine(
                 "Dialogue: 0,${msToAss(startMs)},${msToAss(endMs)},$styleName,,0,0,0,,$overrides${escapeAss(tc.text)}"

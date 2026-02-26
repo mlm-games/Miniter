@@ -6,7 +6,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -19,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.mlm.miniter.project.*
@@ -37,6 +37,7 @@ fun PropertiesPanel(
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
+    onSetTextTransition: (String, Transition?) -> Unit = { _, _ -> },
 ) {
     val clip = project?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -75,7 +76,7 @@ fun PropertiesPanel(
                 clip, onAddFilter, onRemoveFilter, onUpdateFilterParams, onSetSpeed, onSetVolume, onSetTransition, onSetOpacity
             )
             is Clip.AudioClip -> AudioClipProperties(clip, onSetVolume)
-            is Clip.TextClip -> TextClipProperties(clip, onUpdateText, onUpdateTextStyle, onSetTextDuration)
+            is Clip.TextClip -> TextClipProperties(clip, onUpdateText, onUpdateTextStyle, onSetTextDuration, onSetTextTransition)
         }
     }
 }
@@ -432,6 +433,7 @@ private fun TextClipProperties(
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
+    onSetTextTransition: (String, Transition?) -> Unit = { _, _ -> },
 ) {
     Text("Text Overlay", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(12.dp))
@@ -535,12 +537,12 @@ private fun TextClipProperties(
         FilterChip(
             selected = clip.isItalic,
             onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, null, !clip.isItalic) },
-            label = { Text("I", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) },
+            label = { Text("I", fontStyle = FontStyle.Italic) },
         )
         FilterChip(
             selected = clip.backgroundColorHex != null,
             onClick = {
-                val newBg = if (clip.backgroundColorHex != null) null else "#000000"
+                val newBg = if (clip.backgroundColorHex != null) "NONE" else "#000000"
                 onUpdateTextStyle(clip.id, null, null, newBg, null, null, null, null)
             },
             label = { Text("BG") },
@@ -592,4 +594,43 @@ private fun TextClipProperties(
         steps = 58,
     )
     Text("${String.format("%.1f", durationSec)}s", style = MaterialTheme.typography.labelSmall)
+
+    Spacer(Modifier.height(12.dp))
+    HorizontalDivider()
+    Spacer(Modifier.height(12.dp))
+
+    Text("Text Fade", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    Text("Fade in/out for this text overlay", style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.height(8.dp))
+
+    var transExpanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { transExpanded = true }) {
+            Text(if (clip.transition == null) "None" else "Fade In/Out")
+        }
+        DropdownMenu(expanded = transExpanded, onDismissRequest = { transExpanded = false }) {
+            DropdownMenuItem(
+                text = { Text("None") },
+                onClick = { onSetTextTransition(clip.id, null); transExpanded = false },
+            )
+            DropdownMenuItem(
+                text = { Text("Fade In/Out") },
+                onClick = { onSetTextTransition(clip.id, Transition(TransitionType.CrossFade)); transExpanded = false },
+            )
+        }
+    }
+
+    if (clip.transition != null) {
+        Spacer(Modifier.height(8.dp))
+        var dur by remember(clip.transition.durationMs) {
+            mutableFloatStateOf(clip.transition.durationMs / 1000f)
+        }
+        Text("Duration: ${String.format("%.1f", dur)}s", style = MaterialTheme.typography.labelSmall)
+        Slider(
+            value = dur, onValueChange = { dur = it },
+            onValueChangeFinished = { onSetTextTransition(clip.id, Transition(TransitionType.CrossFade, (dur * 1000).toLong())) },
+            valueRange = 0.1f..3f, steps = 28,
+        )
+    }
 }

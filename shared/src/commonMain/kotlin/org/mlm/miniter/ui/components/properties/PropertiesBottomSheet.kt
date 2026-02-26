@@ -24,6 +24,7 @@ fun PropertiesBottomSheet(
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetOpacity: (String, Float) -> Unit,
     onSetTextDuration: (String, Long) -> Unit,
+    onSetTextTransition: (String, Transition?) -> Unit,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -49,6 +50,7 @@ fun PropertiesBottomSheet(
                 onUpdateTextStyle = onUpdateTextStyle,
                 onSetOpacity = onSetOpacity,
                 onSetTextDuration = onSetTextDuration,
+                onSetTextTransition = onSetTextTransition,
             )
         }
     }

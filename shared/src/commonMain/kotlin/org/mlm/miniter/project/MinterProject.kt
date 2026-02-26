@@ -83,6 +83,7 @@ sealed interface Clip {
         val backgroundColorHex: String? = null,
         val isBold: Boolean = false,
         val isItalic: Boolean = false,
+        val transition: Transition? = null,
     ) : Clip
 }
 

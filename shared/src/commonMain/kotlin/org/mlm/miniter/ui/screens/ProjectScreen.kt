@@ -190,6 +190,7 @@ fun ProjectScreen(
             },
             onSetOpacity = vm::setClipOpacity,
             onSetTextDuration = vm::setTextClipDuration,
+            onSetTextTransition = vm::setTextTransition,
         )
     }
 
