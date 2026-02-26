@@ -17,36 +17,12 @@ object FilterGraphBuilder {
         return "${ms / 1000}.${(ms % 1000).toString().padStart(3, '0')}"
     }
 
-    /**
-     * Escape text for drawtext.
-     * For FFmpegKit (Android), do NOT use shell-style escaping.
-     * For JVM (javacv FFmpegFrameFilter), same rules apply.
-     */
     private fun escapeDrawtext(text: String): String {
         return text
-            .replace("\\", "\\\\\\\\")  // backslash → double-escaped
-            .replace(":", "\\\\:")      // colon must be escaped in drawtext
-            .replace("'", "\\\\'")      // single quote
+            .replace("\\", "\\\\\\\\")
+            .replace(":", "\\\\:")
+            .replace("'", "\\\\'")
             .replace("%", "%%")
-    }
-
-    /**
-     * Escape text for drawtext when used inside FFmpegKit command string.
-     * No single quotes around enable expression — FFmpegKit consumes them.
-     */
-    private fun escapeDrawtextForCommandLine(text: String): String {
-        return text
-            .replace("\\", "\\\\")
-            .replace(":", "\\:")
-            .replace("'", "")       // strip single quotes entirely for safety
-            .replace("%", "%%")
-    }
-
-    fun transitionToXfade(type: TransitionType): String = when (type) {
-        TransitionType.CrossFade -> "fade"
-        TransitionType.Dissolve -> "dissolve"
-        TransitionType.SlideLeft -> "slideleft"
-        TransitionType.SlideRight -> "slideright"
     }
 
     fun buildVideoFilterString(
@@ -55,6 +31,9 @@ object FilterGraphBuilder {
         outWidth: Int,
         outHeight: Int,
         opacity: Float = 1.0f,
+        fadeInSec: Double = 0.0,
+        fadeOutStartSec: Double = 0.0,
+        fadeOutDurationSec: Double = 0.0,
     ): String {
         val parts = mutableListOf<String>()
         val w = evenUp(outWidth)
@@ -111,6 +90,14 @@ object FilterGraphBuilder {
             parts.add("format=rgba,colorchannelmixer=aa=$opacity")
         }
 
+        // ── Fade transitions (applied BEFORE speed change) ──
+        if (fadeInSec > 0.0) {
+            parts.add("fade=t=in:st=0:d=$fadeInSec")
+        }
+        if (fadeOutDurationSec > 0.0 && fadeOutStartSec >= 0.0) {
+            parts.add("fade=t=out:st=$fadeOutStartSec:d=$fadeOutDurationSec")
+        }
+
         if (speed != 1.0f) {
             parts.add("setpts=${1.0 / speed}*PTS")
         }
@@ -121,9 +108,20 @@ object FilterGraphBuilder {
     fun buildAudioFilterString(
         speed: Float,
         volume: Float,
+        fadeInSec: Double = 0.0,
+        fadeOutStartSec: Double = 0.0,
+        fadeOutDurationSec: Double = 0.0,
     ): String {
         val parts = mutableListOf<String>()
         if (volume != 1.0f) parts.add("volume=$volume")
+
+        if (fadeInSec > 0.0) {
+            parts.add("afade=t=in:st=0:d=$fadeInSec")
+        }
+        if (fadeOutDurationSec > 0.0) {
+            parts.add("afade=t=out:st=$fadeOutStartSec:d=$fadeOutDurationSec")
+        }
+
         if (speed != 1.0f) {
             var remaining = speed.toDouble()
             while (remaining < 0.5) { parts.add("atempo=0.5"); remaining /= 0.5 }
@@ -132,7 +130,6 @@ object FilterGraphBuilder {
         }
         return parts.joinToString(",")
     }
-
 
     fun buildTextOverlayFilters(
         textClips: List<Clip.TextClip>,
@@ -146,10 +143,8 @@ object FilterGraphBuilder {
         val entries = mutableListOf<String>()
 
         for (tc in textClips) {
-            val tStart = tc.startMs
-            val tEnd = tc.startMs + tc.durationMs
-            val overlapStart = maxOf(tStart, timelineStartMs)
-            val overlapEnd = minOf(tEnd, timelineEndMs)
+            val overlapStart = maxOf(tc.startMs, timelineStartMs)
+            val overlapEnd = minOf(tc.startMs + tc.durationMs, timelineEndMs)
             if (overlapStart >= overlapEnd) continue
 
             val enableStart = if (perClip) {
@@ -172,11 +167,8 @@ object FilterGraphBuilder {
             sb.append(":fontsize=${tc.fontSizeSp.toInt()}")
             sb.append(":fontcolor=$color")
             sb.append(":x=$x:y=$y")
-            // Use \, for comma escaping — no single quotes
             sb.append(":enable=between(t\\,${fmtSec(enableStart)}\\,${fmtSec(enableEnd)})")
-            if (fontPath != null) {
-                sb.append(":fontfile=$fontPath")
-            }
+            if (fontPath != null) sb.append(":fontfile=$fontPath")
             if (tc.backgroundColorHex != null) {
                 val bg = tc.backgroundColorHex.removePrefix("#")
                 sb.append(":box=1:boxcolor=0x${bg}@0.6:boxborderw=5")
@@ -220,21 +212,23 @@ object FilterGraphBuilder {
         if (textClips.isEmpty()) return ""
 
         val sb = StringBuilder()
-
         sb.appendLine("[Script Info]")
         sb.appendLine("ScriptType: v4.00+")
         sb.appendLine("PlayResX: $playResX")
         sb.appendLine("PlayResY: $playResY")
+        sb.appendLine("WrapStyle: 0")
+        sb.appendLine("ScaledBorderAndShadow: yes")
         sb.appendLine()
 
         sb.appendLine("[V4+ Styles]")
         sb.appendLine("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding")
+        sb.appendLine("Style: Default,Roboto,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1")
 
         for (tc in textClips) {
             val styleName = "S${tc.id.hashCode().toUInt()}"
             val primary = hexToAssColor(tc.colorHex)
             val bg = tc.backgroundColorHex?.let { hexToAssColor(it) } ?: "&H00000000"
-            val fontSize = tc.fontSizeSp.toInt()
+            val fontSize = tc.fontSizeSp.toInt().coerceAtLeast(8)
             val alignment = assAlignment(tc.positionX, tc.positionY)
             val border = if (tc.backgroundColorHex != null) 3 else 1
             sb.appendLine(
@@ -247,12 +241,11 @@ object FilterGraphBuilder {
         sb.appendLine("[Events]")
         sb.appendLine("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text")
 
+        // Multi-track: output preserves timeline positions (fade transitions don't change duration)
         for (tc in textClips) {
             val styleName = "S${tc.id.hashCode().toUInt()}"
-            val startMs = tc.startMs
-            val endMs = tc.startMs + tc.durationMs
             sb.appendLine(
-                "Dialogue: 0,${msToAss(startMs)},${msToAss(endMs)}," +
+                "Dialogue: 0,${msToAss(tc.startMs.coerceAtLeast(0))},${msToAss(tc.startMs + tc.durationMs)}," +
                         "$styleName,,0,0,0,,${escapeAss(tc.text)}"
             )
         }
@@ -261,109 +254,52 @@ object FilterGraphBuilder {
     }
 
     private fun hexToAssColor(hex: String): String {
-        val rgb = hex.removePrefix("#").take(6)
-        if (rgb.length != 6) return "&H000000FF"
-        val r = rgb.substring(0, 2).toInt(16)
-        val g = rgb.substring(2, 4).toInt(16)
-        val b = rgb.substring(4, 6).toInt(16)
-        return "&H${b.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${r.toString(16).padStart(2, '0')}FF"
+        val c = hex.removePrefix("#")
+        if (c.length < 6) return "&H00FFFFFF"
+        val r = c.substring(0, 2)
+        val g = c.substring(2, 4)
+        val b = c.substring(4, 6)
+        return "&H00${b}${g}${r}"
+    }
+
+    private fun assAlignment(x: Float, y: Float): Int {
+        val col = when { x < 0.33f -> 0; x > 0.66f -> 2; else -> 1 }
+        val row = when { y < 0.33f -> 2; y > 0.66f -> 0; else -> 1 }
+        return when (row * 3 + col) {
+            0 -> 1; 1 -> 2; 2 -> 3; 3 -> 4; 4 -> 5; 5 -> 6; 6 -> 7; 7 -> 8; 8 -> 9; else -> 2
+        }
     }
 
     private fun msToAss(ms: Long): String {
-        val totalSec = ms / 1000
-        val hours = totalSec / 3600
-        val minutes = (totalSec % 3600) / 60
-        val seconds = totalSec % 60
-        val centis = (ms % 1000) / 10
-        return "${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centis.toString().padStart(2, '0')}"
+        val h = ms / 3600000
+        val m = (ms % 3600000) / 60000
+        val s = (ms % 60000) / 1000
+        val cs = (ms % 1000) / 10
+        return "%d:%02d:%02d.%02d".format(h, m, s, cs)
     }
 
-    private fun assAlignment(posX: Float, posY: Float): Int {
-        val h = when {
-            posX < 0.33f -> 1
-            posX > 0.66f -> 3
-            else -> 2
-        }
-        val v = when {
-            posY < 0.33f -> 7
-            posY > 0.66f -> 1
-            else -> 4
-        }
-        return when {
-            v == 7 -> when (h) { 1 -> 7; 2 -> 8; 3 -> 9; else -> 7 }
-            v == 4 -> when (h) { 1 -> 4; 2 -> 5; 3 -> 6; else -> 4 }
-            else -> when (h) { 1 -> 1; 2 -> 2; 3 -> 3; else -> 1 }
-        }
-    }
+    private fun escapeAss(text: String): String =
+        text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
 
-    private fun escapeAss(text: String): String {
-        return text
-            .replace("\\", "\\\\")
-            .replace("{", "\\{")
-            .replace("}", "\\}")
-            .replace("\n", "\\N")
-    }
-
-
-    fun buildTextOverlayFiltersForCommand(
-        textClips: List<Clip.TextClip>,
-        videoClips: List<Clip.VideoClip>,
-        fontPath: String? = null,
-    ): String {
-        if (textClips.isEmpty()) return ""
-        val sorted = videoClips.sortedBy { it.startMs }
-        val entries = mutableListOf<String>()
-        var outputOffsetMs = 0L
-
-        for (clip in sorted) {
-            val clipStart = clip.startMs
-            val clipEnd = clip.startMs + clip.durationMs
-
-            for (tc in textClips) {
-                val tStart = tc.startMs
-                val tEnd = tc.startMs + tc.durationMs
-                val overlapStart = maxOf(tStart, clipStart)
-                val overlapEnd = minOf(tEnd, clipEnd)
-                if (overlapStart >= overlapEnd) continue
-
-                val enableStart = outputOffsetMs + (overlapStart - clipStart)
-                val enableEnd = outputOffsetMs + (overlapEnd - clipStart)
-                val startSec = fmtSec(enableStart / 1000.0)
-                val endSec = fmtSec(enableEnd / 1000.0)
-
-                val escaped = escapeDrawtextForCommandLine(tc.text)
-                val color = tc.colorHex.removePrefix("#").let { "0x$it" }
-                val x = "(w-tw)*${tc.positionX}"
-                val y = "(h-th)*${tc.positionY}"
-
-                val sb = StringBuilder("drawtext=text=$escaped")
-                sb.append(":fontsize=${tc.fontSizeSp.toInt()}")
-                sb.append(":fontcolor=$color")
-                sb.append(":x=$x:y=$y")
-                // NO single quotes — FFmpegKit consumes them
-                // Use \, to escape commas within the between() expression
-                sb.append(":enable=between(t\\,$startSec\\,$endSec)")
-                if (fontPath != null) sb.append(":fontfile=$fontPath")
-                if (tc.backgroundColorHex != null) {
-                    val bg = tc.backgroundColorHex.removePrefix("#")
-                    sb.append(":box=1:boxcolor=0x${bg}@0.6:boxborderw=5")
-                }
-                entries.add(sb.toString())
-            }
-            outputOffsetMs += clip.durationMs
-        }
-        return entries.joinToString(",")
-    }
-
+    data class MultiTrackResult(
+        val filterComplex: String,
+        val videoOutLabel: String,
+        val audioOutLabel: String?,
+        val totalVideoInputs: Int,
+    )
 
     /**
-     * Builds a complete filter_complex string handling:
-     * - Multiple video tracks (overlay compositing)
-     * - Gaps between clips (black frames)
-     * - Transitions between adjacent clips on the same track
-     * - Text overlays
+     * Builds complete filter_complex with:
+     * - Per-track clip chains with gaps
+     * - Fade transitions between adjacent clips (preserves duration!)
+     * - Multi-track overlay compositing
+     * - Text via ASS subtitles (Android) or drawtext (JVM)
      *
-     * @param useDrawtext true for Android FFmpegKit command, false means JVM handles text separately
+     * Transition model:
+     * - `clip.transition` = "how this clip ENTERS" (transition in)
+     * - First clip on track: transition = fade in from black
+     * - Non-first clip: transition = dip-to-black crossfade with predecessor
+     *   (predecessor gets matching fade-out, this clip gets fade-in)
      */
     fun buildMultiTrackFilterGraph(
         videoTracks: List<Track>,
@@ -380,22 +316,21 @@ object FilterGraphBuilder {
         val h = evenUp(outHeight)
         val sb = StringBuilder()
 
-        // Assign input indices: all video clips across all tracks, in order
         data class IndexedClip(
             val clip: Clip.VideoClip,
             val inputIndex: Int,
             val hasAudio: Boolean,
         )
 
+        // Assign input indices
         var inputIdx = 0
         val tracksWithClips = videoTracks.map { track ->
             val clips = track.clips.filterIsInstance<Clip.VideoClip>().sortedBy { it.startMs }
-            val indexed = clips.map { clip ->
+            clips.map { clip ->
                 val ic = IndexedClip(clip, inputIdx, clipHasAudioMap[inputIdx] ?: false)
                 inputIdx++
                 ic
             }
-            indexed
         }
 
         val totalInputs = inputIdx
@@ -411,23 +346,22 @@ object FilterGraphBuilder {
         for ((trackIdx, indexedClips) in tracksWithClips.withIndex()) {
             if (indexedClips.isEmpty()) continue
 
-            val segments = mutableListOf<String>()  // video segment labels
-            val audioSegments = mutableListOf<String>()  // audio segment labels
+            val segments = mutableListOf<String>()
+            val audioSegments = mutableListOf<String>()
             var segIdx = 0
             var prevEndMs = 0L
 
-            for (ic in indexedClips) {
+            for ((clipPos, ic) in indexedClips.withIndex()) {
                 val clip = ic.clip
                 val i = ic.inputIndex
 
-                // Gap before this clip
+                // ── Gap before this clip ──
                 val gapMs = clip.startMs - prevEndMs
                 if (gapMs > 0) {
                     val gapSec = gapMs / 1000.0
                     val gVLabel = "t${trackIdx}g${segIdx}v"
                     sb.append("color=c=black:s=${w}x${h}:d=$gapSec:r=30,format=yuv420p[$gVLabel];")
                     segments.add(gVLabel)
-
                     if (anyAudio) {
                         val gALabel = "t${trackIdx}g${segIdx}a"
                         sb.append("anullsrc=r=44100:cl=stereo,atrim=0:$gapSec,asetpts=PTS-STARTPTS[$gALabel];")
@@ -436,12 +370,45 @@ object FilterGraphBuilder {
                     segIdx++
                 }
 
-                // Video filter for this clip
+                // ── Determine fade in/out for this clip ──
+                val clipSourceDurationSec = (clip.sourceEndMs - clip.sourceStartMs) / 1000.0
+                val clipOutputDurationSec = clip.durationMs / 1000.0
+
+                var fadeInSec = 0.0
+                var fadeOutStartSec = 0.0
+                var fadeOutDurationSec = 0.0
+                var audioFadeInSec = 0.0
+                var audioFadeOutStartSec = 0.0
+                var audioFadeOutDurationSec = 0.0
+
+                // This clip's transition = how it ENTERS
+                val transitionIn = clip.transition
+                if (transitionIn != null) {
+                    val tDur = transitionIn.durationMs / 1000.0
+                    fadeInSec = tDur.coerceAtMost(clipSourceDurationSec * 0.5)
+                    audioFadeInSec = tDur.coerceAtMost(clipOutputDurationSec * 0.5)
+                }
+
+                // Next clip's transition = this clip needs to fade OUT
+                val nextClip = indexedClips.getOrNull(clipPos + 1)?.clip
+                val transitionOut = nextClip?.transition
+                if (transitionOut != null) {
+                    val tDur = transitionOut.durationMs / 1000.0
+                    fadeOutDurationSec = tDur.coerceAtMost(clipSourceDurationSec * 0.5)
+                    fadeOutStartSec = clipSourceDurationSec - fadeOutDurationSec
+                    audioFadeOutDurationSec = tDur.coerceAtMost(clipOutputDurationSec * 0.5)
+                    audioFadeOutStartSec = clipOutputDurationSec - audioFadeOutDurationSec
+                }
+
+                // ── Video filter chain ──
                 val vf = buildVideoFilterString(
                     filters = clip.filters,
                     speed = clip.speed,
                     outWidth = outWidth,
                     outHeight = outHeight,
+                    fadeInSec = fadeInSec,
+                    fadeOutStartSec = fadeOutStartSec,
+                    fadeOutDurationSec = fadeOutDurationSec,
                 )
                 val trimFilter = "trim=start=${clip.sourceStartMs / 1000.0}:" +
                         "end=${clip.sourceEndMs / 1000.0},setpts=PTS-STARTPTS"
@@ -449,9 +416,15 @@ object FilterGraphBuilder {
                 sb.append("[$i:v]$trimFilter,$vf[$vLabel];")
                 segments.add(vLabel)
 
-                // Audio for this clip
+                // ── Audio ──
                 if (ic.hasAudio) {
-                    val af = buildAudioFilterString(speed = clip.speed, volume = clip.volume)
+                    val af = buildAudioFilterString(
+                        speed = clip.speed,
+                        volume = clip.volume,
+                        fadeInSec = audioFadeInSec,
+                        fadeOutStartSec = audioFadeOutStartSec,
+                        fadeOutDurationSec = audioFadeOutDurationSec,
+                    )
                     val atrimFilter = "atrim=start=${clip.sourceStartMs / 1000.0}:" +
                             "end=${clip.sourceEndMs / 1000.0},asetpts=PTS-STARTPTS"
                     val audioFilters = if (af.isNotEmpty()) "$atrimFilter,$af" else atrimFilter
@@ -469,7 +442,7 @@ object FilterGraphBuilder {
                 segIdx++
             }
 
-            // Trailing gap to fill to timeline duration
+            // Trailing gap
             val trailingGap = timelineDurationMs - prevEndMs
             if (trailingGap > 0) {
                 val gapSec = trailingGap / 1000.0
@@ -483,7 +456,7 @@ object FilterGraphBuilder {
                 }
             }
 
-            // Concat all segments for this track
+            // Concat segments for this track
             val trackVOut = "trk${trackIdx}v"
             if (segments.size == 1) {
                 sb.append("[${segments[0]}]null[$trackVOut];")
@@ -507,15 +480,12 @@ object FilterGraphBuilder {
             }
         }
 
+        // ── Overlay tracks (bottom = base, upper tracks keyed on top) ──
         var currentVideo = "[${trackVideoLabels[0]}]"
 
         for (i in 1 until trackVideoLabels.size) {
             val overlayLabel = if (i == trackVideoLabels.lastIndex) "outv_raw" else "ov$i"
-            // Upper tracks overlay on lower tracks
-            // Use format=yuva420p on the overlay input so black = transparent
-            // Actually, black is NOT transparent. For proper compositing,
-            // gaps should be transparent. We need to convert black to alpha.
-            sb.append("[${trackVideoLabels[i]}]format=yuva420p,colorkey=black:0.1:0.2[${trackVideoLabels[i]}_alpha];")
+            sb.append("[${trackVideoLabels[i]}]format=yuva420p,colorkey=black:0.01:0.0[${trackVideoLabels[i]}_alpha];")
             sb.append("${currentVideo}[${trackVideoLabels[i]}_alpha]overlay=0:0:format=auto[$overlayLabel];")
             currentVideo = "[$overlayLabel]"
         }
@@ -524,9 +494,12 @@ object FilterGraphBuilder {
             sb.append("[${trackVideoLabels[0]}]null[outv_raw];")
         }
 
-        // ─── Text overlays ───
         if (subtitleFilePath != null && textClips.isNotEmpty()) {
-            sb.append("[outv_raw]ass=$subtitleFilePath[outv];")
+            val escapedPath = subtitleFilePath
+                .replace("\\", "\\\\\\\\")
+                .replace(":", "\\\\:")
+                .replace("'", "\\\\'")
+            sb.append("[outv_raw]subtitles=$escapedPath[outv];")
         } else if (textClips.isNotEmpty() && useDrawtext) {
             val allVideoClips = videoTracks.flatMap {
                 it.clips.filterIsInstance<Clip.VideoClip>()
@@ -545,6 +518,7 @@ object FilterGraphBuilder {
             sb.append("[outv_raw]null[outv];")
         }
 
+        // ── Mix audio from all tracks ──
         var audioOutLabel: String? = null
         val validAudioLabels = trackAudioLabels.filterNotNull()
         if (validAudioLabels.isNotEmpty()) {
@@ -564,11 +538,4 @@ object FilterGraphBuilder {
             totalVideoInputs = totalInputs,
         )
     }
-
-    data class MultiTrackResult(
-        val filterComplex: String,
-        val videoOutLabel: String,
-        val audioOutLabel: String?,
-        val totalVideoInputs: Int,
-    )
 }

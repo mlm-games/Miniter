@@ -1,9 +1,15 @@
 package org.mlm.miniter.ui.components.properties
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -183,10 +189,8 @@ private fun VideoClipProperties(
                 }
                 var paramVal by remember(filter) { mutableFloatStateOf(currentVal) }
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    "${filter.type.name}: ${String.format("%.1f", paramVal)}",
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                Text("${filter.type.name}: ${String.format("%.1f", paramVal)}",
+                    style = MaterialTheme.typography.labelSmall)
                 Slider(
                     value = paramVal,
                     onValueChange = { paramVal = it },
@@ -216,28 +220,177 @@ private fun VideoClipProperties(
     }
 
     Spacer(Modifier.height(16.dp))
+    HorizontalDivider()
+    Spacer(Modifier.height(16.dp))
 
-    Text("Transition", style = MaterialTheme.typography.labelMedium)
+    Text("Transition In", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(4.dp))
+    Text(
+        "Controls how this clip enters. Adds a fade effect to the start of this clip and the end of the previous clip.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(8.dp))
 
     var transExpanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { transExpanded = true }) {
-            Text(clip.transition?.type?.name ?: "None")
-        }
-        DropdownMenu(expanded = transExpanded, onDismissRequest = { transExpanded = false }) {
-            DropdownMenuItem(
-                text = { Text("None") },
-                onClick = { onSetTransition(clip.id, null); transExpanded = false },
-            )
-            TransitionType.entries.forEach { t ->
+    val currentTransition = clip.transition
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box {
+            OutlinedButton(onClick = { transExpanded = true }) {
+                Icon(
+                    when (currentTransition?.type) {
+                        TransitionType.CrossFade -> Icons.Default.Animation
+                        TransitionType.Dissolve -> Icons.Default.BlurOn
+                        TransitionType.SlideLeft -> Icons.AutoMirrored.Filled.ArrowBack
+                        TransitionType.SlideRight -> Icons.AutoMirrored.Filled.ArrowForward
+                        null -> Icons.Default.Block
+                    },
+                    null,
+                    Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(currentTransition?.type?.name ?: "None")
+            }
+            DropdownMenu(expanded = transExpanded, onDismissRequest = { transExpanded = false }) {
                 DropdownMenuItem(
-                    text = { Text(t.name) },
+                    text = { Text("None") },
+                    leadingIcon = { Icon(Icons.Default.Block, null, Modifier.size(18.dp)) },
+                    onClick = { onSetTransition(clip.id, null); transExpanded = false },
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Cross Fade")
+                            Text("Fades to/from black between clips",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.Default.Animation, null, Modifier.size(18.dp)) },
                     onClick = {
-                        onSetTransition(clip.id, Transition(t))
+                        onSetTransition(clip.id, Transition(TransitionType.CrossFade))
                         transExpanded = false
                     },
                 )
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Dissolve")
+                            Text("Smooth dissolve between clips",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.Default.BlurOn, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        onSetTransition(clip.id, Transition(TransitionType.Dissolve))
+                        transExpanded = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Slide Left")
+                            Text("Previous slides out left, this enters from right",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        onSetTransition(clip.id, Transition(TransitionType.SlideLeft))
+                        transExpanded = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Slide Right")
+                            Text("Previous slides out right, this enters from left",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        onSetTransition(clip.id, Transition(TransitionType.SlideRight))
+                        transExpanded = false
+                    },
+                )
+            }
+        }
+    }
+
+    if (currentTransition != null) {
+        Spacer(Modifier.height(8.dp))
+        Text("Duration", style = MaterialTheme.typography.labelSmall)
+        var transDuration by remember(currentTransition.durationMs) {
+            mutableFloatStateOf(currentTransition.durationMs / 1000f)
+        }
+        Slider(
+            value = transDuration,
+            onValueChange = { transDuration = it },
+            onValueChangeFinished = {
+                onSetTransition(
+                    clip.id,
+                    currentTransition.copy(durationMs = (transDuration * 1000).toLong())
+                )
+            },
+            valueRange = 0.1f..2f,
+            steps = 18,
+        )
+        Text("${String.format("%.1f", transDuration)}s", style = MaterialTheme.typography.labelSmall)
+
+        Spacer(Modifier.height(4.dp))
+
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = MaterialTheme.shapes.small,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                Modifier.padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // Previous clip indicator
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = MaterialTheme.shapes.extraSmall,
+                    modifier = Modifier.weight(1f).height(24.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("← Previous", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
+                    shape = MaterialTheme.shapes.extraSmall,
+                    modifier = Modifier.width(40.dp).height(24.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("↔", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.extraSmall,
+                    modifier = Modifier.weight(1f).height(24.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("This →", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
             }
         }
     }

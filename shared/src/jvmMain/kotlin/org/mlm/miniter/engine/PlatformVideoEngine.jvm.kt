@@ -183,8 +183,9 @@ actual class PlatformVideoEngine actual constructor() {
                 }
 
                 // Pre-open grabbers for all clips
-                for (tg in trackGrabbers) {
-                    for (clip in tg.clips) {
+                for ((trackIdx, tg) in trackGrabbers.withIndex()) {
+                    val sortedClips = tg.clips
+                    for ((clipPos, clip) in sortedClips.withIndex()) {
                         if (tg.grabbers.containsKey(clip.id)) continue
                         val grabber = FFmpegFrameGrabber(clip.sourcePath)
                         grabber.pixelFormat = avutil.AV_PIX_FMT_BGR24
@@ -195,12 +196,39 @@ actual class PlatformVideoEngine actual constructor() {
                         val info = try { probeVideo(clip.sourcePath) } catch (_: Exception) { null }
                         if (info != null) tg.clipInfos[clip.id] = info
 
+                        // Determine fade in/out for this clip based on transitions
+                        val clipSourceDurationSec = (clip.sourceEndMs - clip.sourceStartMs) / 1000.0
+                        val clipOutputDurationSec = clip.durationMs / 1000.0
+
+                        var fadeInSec = 0.0
+                        var fadeOutStartSec = 0.0
+                        var fadeOutDurationSec = 0.0
+
+                        // This clip's transition = how it ENTERS
+                        val transitionIn = clip.transition
+                        if (transitionIn != null) {
+                            val tDur = transitionIn.durationMs / 1000.0
+                            fadeInSec = tDur.coerceAtMost(clipSourceDurationSec * 0.5)
+                        }
+
+                        // Next clip's transition = this clip needs to fade OUT
+                        val nextClip = sortedClips.getOrNull(clipPos + 1)
+                        val transitionOut = nextClip?.transition
+                        if (transitionOut != null) {
+                            val tDur = transitionOut.durationMs / 1000.0
+                            fadeOutDurationSec = tDur.coerceAtMost(clipSourceDurationSec * 0.5)
+                            fadeOutStartSec = clipSourceDurationSec - fadeOutDurationSec
+                        }
+
                         // Build filter for this clip
                         var filterStr = FilterGraphBuilder.buildVideoFilterString(
                             filters = clip.filters,
                             speed = clip.speed,
                             outWidth = outWidth,
                             outHeight = outHeight,
+                            fadeInSec = fadeInSec,
+                            fadeOutStartSec = fadeOutStartSec,
+                            fadeOutDurationSec = fadeOutDurationSec,
                         )
                         val textOverlay = FilterGraphBuilder.buildTextOverlayFilters(
                             textClips = textClips,
@@ -413,6 +441,9 @@ actual class PlatformVideoEngine actual constructor() {
                 speed = clip.speed,
                 outWidth = outWidth,
                 outHeight = outHeight,
+                fadeInSec = if (transitionIn != null) transitionIn.durationMs / 1000.0 else 0.0,
+                fadeOutStartSec = 0.0,
+                fadeOutDurationSec = 0.0,
             )
 
             val textOverlay = FilterGraphBuilder.buildTextOverlayFilters(
