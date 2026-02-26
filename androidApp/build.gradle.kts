@@ -27,6 +27,22 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 55
         versionName = "0.5.6"
+
+        val enableApkSplits = (providers.gradleProperty("enableApkSplits").orNull ?: "true").toBoolean()
+        val includeUniversalApk = (providers.gradleProperty("includeUniversalApk").orNull ?: "true").toBoolean()
+        val targetAbi = providers.gradleProperty("targetAbi").orNull
+
+        splits {
+            abi {
+                isEnable = enableApkSplits
+                reset()
+                if (enableApkSplits) {
+                    if (targetAbi != null) include(targetAbi)
+                    else include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+                }
+                isUniversalApk = includeUniversalApk && enableApkSplits
+            }
+        }
     }
 
     signingConfigs {
