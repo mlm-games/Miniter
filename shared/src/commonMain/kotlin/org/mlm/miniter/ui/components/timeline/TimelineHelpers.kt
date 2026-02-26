@@ -13,6 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import io.github.mlmgames.settings.core.annotations.SettingPlatform
+import io.github.mlmgames.settings.core.platform.currentPlatform
 import org.mlm.miniter.project.*
 
 @Composable
@@ -141,11 +143,19 @@ fun AddTrackRow(onAddTrack: (TrackType) -> Unit) {
                         leadingIcon = { Icon(Icons.Default.MusicNote, null, Modifier.size(18.dp)) },
                         onClick = { onAddTrack(TrackType.Audio); expanded = false },
                     )
-                    DropdownMenuItem(
-                        text = { Text("Text Track") },
-                        leadingIcon = { Icon(Icons.Default.TextFields, null, Modifier.size(18.dp)) },
-                        onClick = { onAddTrack(TrackType.Text); expanded = false },
-                    )
+                    if (currentPlatform != SettingPlatform.ANDROID) {
+                        DropdownMenuItem(
+                            text = { Text("Text Track") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.TextFields,
+                                    null,
+                                    Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = { onAddTrack(TrackType.Text); expanded = false },
+                        )
+                    }
                 }
             }
         }
