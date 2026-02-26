@@ -921,8 +921,7 @@ class ProjectViewModel(
                     clip.copy(
                         fontSizeSp = fontSizeSp ?: clip.fontSizeSp,
                         colorHex = colorHex ?: clip.colorHex,
-                        backgroundColorHex = if (backgroundColorHex == "") null
-                            else backgroundColorHex ?: clip.backgroundColorHex,
+                        backgroundColorHex = backgroundColorHex,
                         positionX = positionX ?: clip.positionX,
                         positionY = positionY ?: clip.positionY,
                         isBold = isBold ?: clip.isBold,

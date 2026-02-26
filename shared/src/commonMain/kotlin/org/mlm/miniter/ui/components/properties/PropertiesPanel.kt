@@ -542,7 +542,7 @@ private fun TextClipProperties(
         FilterChip(
             selected = clip.backgroundColorHex != null,
             onClick = {
-                val newBg = if (clip.backgroundColorHex != null) "NONE" else "#000000"
+                val newBg = if (clip.backgroundColorHex != null) null else "#000000"
                 onUpdateTextStyle(clip.id, null, null, newBg, null, null, null, null)
             },
             label = { Text("BG") },
