@@ -21,7 +21,7 @@ fun PropertiesBottomSheet(
     onSetVolume: (String, Float) -> Unit,
     onSetTransition: (String, Transition?) -> Unit,
     onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?) -> Unit,
+    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetOpacity: (String, Float) -> Unit,
     onSetTextDuration: (String, Long) -> Unit,
 ) {

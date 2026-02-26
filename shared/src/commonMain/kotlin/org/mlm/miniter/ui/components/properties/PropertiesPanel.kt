@@ -1,7 +1,11 @@
 package org.mlm.miniter.ui.components.properties
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,7 +34,7 @@ fun PropertiesPanel(
     onSetVolume: (String, Float) -> Unit,
     onSetTransition: (String, Transition?) -> Unit,
     onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?) -> Unit,
+    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
 ) {
@@ -426,11 +430,11 @@ private fun AudioClipProperties(
 private fun TextClipProperties(
     clip: Clip.TextClip,
     onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?) -> Unit,
+    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
 ) {
     Text("Text Overlay", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
 
     var textValue by remember(clip.text) { mutableStateOf(clip.text) }
     OutlinedTextField(
@@ -443,67 +447,149 @@ private fun TextClipProperties(
     )
     LaunchedEffect(textValue) {
         kotlinx.coroutines.delay(500)
-        if (textValue != clip.text) {
-            onUpdateText(clip.id, textValue)
+        if (textValue != clip.text) onUpdateText(clip.id, textValue)
+    }
+
+    Spacer(Modifier.height(16.dp))
+
+    Text("Position", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+
+    val presets = listOf(
+        "↖" to (0.1f to 0.1f),
+        "↑" to (0.5f to 0.05f),
+        "↗" to (0.9f to 0.1f),
+        "←" to (0.1f to 0.5f),
+        "•" to (0.5f to 0.5f),
+        "→" to (0.9f to 0.5f),
+        "↙" to (0.1f to 0.9f),
+        "↓" to (0.5f to 0.9f),
+        "↘" to (0.9f to 0.9f),
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (row in 0..2) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                for (col in 0..2) {
+                    val (label, pos) = presets[row * 3 + col]
+                    val isSelected = kotlin.math.abs(clip.positionX - pos.first) < 0.15f &&
+                            kotlin.math.abs(clip.positionY - pos.second) < 0.15f
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            onUpdateTextStyle(clip.id, null, null, null, pos.first, pos.second, null, null)
+                        },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.size(40.dp),
+                    )
+                }
+            }
         }
     }
 
+    Spacer(Modifier.height(8.dp))
+
+    Text("X: ${String.format("%.0f", clip.positionX * 100)}%", style = MaterialTheme.typography.labelSmall)
+    var posX by remember(clip.positionX) { mutableFloatStateOf(clip.positionX) }
+    Slider(
+        value = posX,
+        onValueChange = { posX = it },
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, null, null, null, posX, null, null, null) },
+        valueRange = 0f..1f,
+        modifier = Modifier.height(28.dp),
+    )
+
+    Text("Y: ${String.format("%.0f", clip.positionY * 100)}%", style = MaterialTheme.typography.labelSmall)
+    var posY by remember(clip.positionY) { mutableFloatStateOf(clip.positionY) }
+    Slider(
+        value = posY,
+        onValueChange = { posY = it },
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, null, null, null, null, posY, null, null) },
+        valueRange = 0f..1f,
+        modifier = Modifier.height(28.dp),
+    )
+
     Spacer(Modifier.height(12.dp))
 
-    Text("Font Size", style = MaterialTheme.typography.labelMedium)
+    Text("Size", style = MaterialTheme.typography.labelMedium)
     var fontSize by remember(clip.fontSizeSp) { mutableFloatStateOf(clip.fontSizeSp) }
     Slider(
         value = fontSize,
         onValueChange = { fontSize = it },
-        onValueChangeFinished = { onUpdateTextStyle(clip.id, fontSize, null) },
-        valueRange = 12f..72f,
-        steps = 14,
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, fontSize, null, null, null, null, null, null) },
+        valueRange = 12f..120f,
+        steps = 26,
     )
     Text("${fontSize.toInt()}sp", style = MaterialTheme.typography.labelSmall)
 
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
+
+    Text("Style", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = clip.isBold,
+            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, !clip.isBold, null) },
+            label = { Text("B", fontWeight = FontWeight.ExtraBold) },
+        )
+        FilterChip(
+            selected = clip.isItalic,
+            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, null, !clip.isItalic) },
+            label = { Text("I", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) },
+        )
+        FilterChip(
+            selected = clip.backgroundColorHex != null,
+            onClick = {
+                val newBg = if (clip.backgroundColorHex != null) null else "#000000"
+                onUpdateTextStyle(clip.id, null, null, newBg, null, null, null, null)
+            },
+            label = { Text("BG") },
+        )
+    }
+
+    Spacer(Modifier.height(12.dp))
 
     Text("Color", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(4.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        val colorPresets = listOf(
-            "#FFFFFF" to "White",
-            "#000000" to "Black",
-            "#FF0000" to "Red",
-            "#FFFF00" to "Yellow",
-            "#00FF00" to "Green",
-            "#00BFFF" to "Blue",
-        )
-        colorPresets.forEach { (hex, name) ->
-            FilterChip(
-                selected = clip.colorHex.equals(hex, ignoreCase = true),
-                onClick = { onUpdateTextStyle(clip.id, null, hex) },
-                label = { Text(name, style = MaterialTheme.typography.labelSmall) },
-            )
+
+    val colors = listOf(
+        "#FFFFFF", "#000000", "#FF0000", "#FFFF00",
+        "#00FF00", "#00BFFF", "#FF69B4", "#FFA500",
+    )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+    ) {
+        colors.forEach { hex ->
+            val c = try {
+                val v = hex.removePrefix("#").toLong(16) or 0xFF000000
+                androidx.compose.ui.graphics.Color(v.toInt())
+            } catch (_: Exception) {
+                androidx.compose.ui.graphics.Color.White
+            }
+            Surface(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clickable { onUpdateTextStyle(clip.id, null, hex, null, null, null, null, null) },
+                shape = CircleShape,
+                color = c,
+                border = if (clip.colorHex.equals(hex, ignoreCase = true))
+                    BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {}
         }
     }
 
     Spacer(Modifier.height(12.dp))
 
     Text("Duration", style = MaterialTheme.typography.labelMedium)
-    var durationSec by remember(clip.durationMs) {
-        mutableFloatStateOf(clip.durationMs / 1000f)
-    }
+    var durationSec by remember(clip.durationMs) { mutableFloatStateOf(clip.durationMs / 1000f) }
     Slider(
         value = durationSec,
         onValueChange = { durationSec = it },
-        onValueChangeFinished = {
-            onSetTextDuration(clip.id, (durationSec * 1000).toLong())
-        },
+        onValueChangeFinished = { onSetTextDuration(clip.id, (durationSec * 1000).toLong()) },
         valueRange = 0.5f..30f,
         steps = 58,
     )
     Text("${String.format("%.1f", durationSec)}s", style = MaterialTheme.typography.labelSmall)
-
-    Spacer(Modifier.height(8.dp))
-    Text(
-        "Position: (${String.format("%.1f", clip.positionX)}, ${String.format("%.1f", clip.positionY)})",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }

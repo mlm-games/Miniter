@@ -912,6 +912,8 @@ class ProjectViewModel(
         backgroundColorHex: String? = null,
         positionX: Float? = null,
         positionY: Float? = null,
+        isBold: Boolean? = null,
+        isItalic: Boolean? = null,
     ) {
         recordAndMutate { project ->
             project.withClipTransform(clipId) { clip ->
@@ -919,9 +921,12 @@ class ProjectViewModel(
                     clip.copy(
                         fontSizeSp = fontSizeSp ?: clip.fontSizeSp,
                         colorHex = colorHex ?: clip.colorHex,
-                        backgroundColorHex = backgroundColorHex ?: clip.backgroundColorHex,
+                        backgroundColorHex = if (backgroundColorHex == "") null
+                            else backgroundColorHex ?: clip.backgroundColorHex,
                         positionX = positionX ?: clip.positionX,
                         positionY = positionY ?: clip.positionY,
+                        isBold = isBold ?: clip.isBold,
+                        isItalic = isItalic ?: clip.isItalic,
                     )
                 } else clip
             }

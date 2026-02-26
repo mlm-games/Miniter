@@ -169,6 +169,9 @@ object FilterGraphBuilder {
             sb.append(":x=$x:y=$y")
             sb.append(":enable=between(t\\,${fmtSec(enableStart)}\\,${fmtSec(enableEnd)})")
             if (fontPath != null) sb.append(":fontfile=$fontPath")
+            if (tc.isBold) {
+                sb.append(":borderw=1:bordercolor=$color")
+            }
             if (tc.backgroundColorHex != null) {
                 val bg = tc.backgroundColorHex.removePrefix("#")
                 sb.append(":box=1:boxcolor=0x${bg}@0.6:boxborderw=5")
@@ -211,6 +214,8 @@ object FilterGraphBuilder {
     ): String {
         if (textClips.isEmpty()) return ""
 
+        val fontName = "Roboto-Regular"
+
         val sb = StringBuilder()
         sb.appendLine("[Script Info]")
         sb.appendLine("ScriptType: v4.00+")
@@ -222,7 +227,7 @@ object FilterGraphBuilder {
 
         sb.appendLine("[V4+ Styles]")
         sb.appendLine("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding")
-        sb.appendLine("Style: Default,Roboto,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1")
+        sb.appendLine("Style: Default,$fontName,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1")
 
         for (tc in textClips) {
             val styleName = "S${tc.id.hashCode().toUInt()}"
@@ -231,9 +236,11 @@ object FilterGraphBuilder {
             val fontSize = tc.fontSizeSp.toInt().coerceAtLeast(8)
             val alignment = assAlignment(tc.positionX, tc.positionY)
             val border = if (tc.backgroundColorHex != null) 3 else 1
+            val bold = if (tc.isBold) -1 else 0
+            val italic = if (tc.isItalic) -1 else 0
             sb.appendLine(
-                "Style: $styleName,Roboto,$fontSize,$primary,&H000000FF,&H00000000,$bg," +
-                        "0,0,0,0,100,100,0,0,$border,2,0,$alignment,10,10,10,1"
+                "Style: $styleName,$fontName,$fontSize,$primary,&H000000FF,&H00000000,$bg," +
+                        "$bold,$italic,0,0,100,100,0,0,$border,2,0,$alignment,10,10,10,1"
             )
         }
 
@@ -241,12 +248,18 @@ object FilterGraphBuilder {
         sb.appendLine("[Events]")
         sb.appendLine("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text")
 
-        // Multi-track: output preserves timeline positions (fade transitions don't change duration)
         for (tc in textClips) {
             val styleName = "S${tc.id.hashCode().toUInt()}"
+            val startMs = tc.startMs.coerceAtLeast(0)
+            val endMs = tc.startMs + tc.durationMs
+
+            val overrides = StringBuilder()
+            val posX = (tc.positionX * playResX).toInt()
+            val posY = (tc.positionY * playResY).toInt()
+            overrides.append("{\\pos($posX,$posY)}")
+
             sb.appendLine(
-                "Dialogue: 0,${msToAss(tc.startMs.coerceAtLeast(0))},${msToAss(tc.startMs + tc.durationMs)}," +
-                        "$styleName,,0,0,0,,${escapeAss(tc.text)}"
+                "Dialogue: 0,${msToAss(startMs)},${msToAss(endMs)},$styleName,,0,0,0,,$overrides${escapeAss(tc.text)}"
             )
         }
 
@@ -495,11 +508,7 @@ object FilterGraphBuilder {
         }
 
         if (subtitleFilePath != null && textClips.isNotEmpty()) {
-            val escapedPath = subtitleFilePath
-                .replace("\\", "\\\\\\\\")
-                .replace(":", "\\\\:")
-                .replace("'", "\\\\'")
-            sb.append("[outv_raw]subtitles=$escapedPath[outv];")
+            sb.append("[outv_raw]subtitles=$subtitleFilePath:fontsdir=/system/fonts[outv];")
         } else if (textClips.isNotEmpty() && useDrawtext) {
             val allVideoClips = videoTracks.flatMap {
                 it.clips.filterIsInstance<Clip.VideoClip>()

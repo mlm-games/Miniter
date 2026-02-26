@@ -78,9 +78,11 @@ sealed interface Clip {
         val text: String,
         val fontSizeSp: Float = 24f,
         val colorHex: String = "#FFFFFF",
-        val positionX: Float = 0.5f,    // 0..1 normalized
+        val positionX: Float = 0.5f,
         val positionY: Float = 0.9f,
         val backgroundColorHex: String? = null,
+        val isBold: Boolean = false,
+        val isItalic: Boolean = false,
     ) : Clip
 }
 

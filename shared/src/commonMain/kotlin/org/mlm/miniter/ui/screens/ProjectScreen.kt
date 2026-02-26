@@ -185,8 +185,8 @@ fun ProjectScreen(
             onSetVolume = vm::setClipVolume,
             onSetTransition = vm::setTransition,
             onUpdateText = vm::updateTextClip,
-            onUpdateTextStyle = { clipId, fontSize, color ->
-                vm.updateTextClipStyle(clipId, fontSize, color)
+            onUpdateTextStyle = { clipId, fontSize, color, bgColor, posX, posY, bold, italic ->
+                vm.updateTextClipStyle(clipId, fontSize, color, bgColor, posX, posY, bold, italic)
             },
             onSetOpacity = vm::setClipOpacity,
             onSetTextDuration = vm::setTextClipDuration,
