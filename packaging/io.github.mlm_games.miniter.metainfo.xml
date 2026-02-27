@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>io.github.mlm_games.miniter</id>
   <name>Miniter</name>
@@ -21,8 +21,21 @@
     <color type="primary" scheme_preference="light">#6750A4</color>
     <color type="primary" scheme_preference="dark">#D0BCFF</color>
   </branding>
-  <content_rating type="oars-1.1" />
+  <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.5.8" date="2026-02-27" type="stable">
+      <description>
+        <ul>
+          <li>fix clipping with speed filters, and other misc fixes</li>
+          <li>icons</li>
+          <li>hide text on android (font issues)</li>
+          <li>fix text bg not being removable</li>
+          <li>text transition testing</li>
+          <li>Text refactoring 1</li>
+          <li>Better desktop transition UX</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-02-25" type="stable">
       <description>
         <ul>

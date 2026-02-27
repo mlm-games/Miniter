@@ -1,3 +1,14 @@
+## v0.5.8
+
+- fix clipping with speed filters, and other misc fixes
+- icons
+- hide text on android (font issues)
+- fix text bg not being removable
+- text transition testing
+- Text refactoring 1
+- Better desktop transition UX
+
+
 ## v0.5.7
 
 - build parts
