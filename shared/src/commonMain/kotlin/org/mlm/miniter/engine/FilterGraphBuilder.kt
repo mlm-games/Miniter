@@ -515,7 +515,7 @@ object FilterGraphBuilder {
 
         for (i in 1 until trackVideoLabels.size) {
             val overlayLabel = if (i == trackVideoLabels.lastIndex) "outv_raw" else "ov$i"
-            sb.append("[${trackVideoLabels[i]}]format=yuva420p,colorkey=black:0.01:0.0[${trackVideoLabels[i]}_alpha];")
+            sb.append("[${trackVideoLabels[i]}]format=yuva420p,colorkey=black:0.001:0.0[${trackVideoLabels[i]}_alpha];")
             sb.append("${currentVideo}[${trackVideoLabels[i]}_alpha]overlay=0:0:format=auto[$overlayLabel];")
             currentVideo = "[$overlayLabel]"
         }

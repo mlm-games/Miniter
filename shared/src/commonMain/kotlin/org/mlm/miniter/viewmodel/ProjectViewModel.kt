@@ -91,6 +91,7 @@ class ProjectViewModel(
                     durationMs = info.durationMs,
                     sourcePath = initialVideoPath,
                     sourceEndMs = info.durationMs,
+                    sourceFileDurationMs = info.durationMs,
                 )
                 val track = Track(id = "video-0", type = TrackType.Video, clips = listOf(clip))
                 val project = MinterProject(
@@ -224,9 +225,12 @@ class ProjectViewModel(
         if (current != null && current !== snapshot) {
             undoManager.push(snapshot)
             _state.update {
-                it.copy(canUndo = undoManager.canUndo, canRedo = undoManager.canRedo)
+                it.copy(
+                    project = current.withRecalculatedDuration(),
+                    canUndo = undoManager.canUndo,
+                    canRedo = undoManager.canRedo,
+                )
             }
-            autoRecalcDuration()
         }
     }
 
@@ -359,6 +363,7 @@ class ProjectViewModel(
                         id = randomUuid(), startMs = insertAt,
                         durationMs = info.durationMs, sourcePath = sourcePath,
                         sourceEndMs = info.durationMs,
+                        sourceFileDurationMs = info.durationMs,
                     )
                     p.withClipAddedToTrack(trackId, clip)
                         .withRecalculatedDuration()
@@ -397,6 +402,7 @@ class ProjectViewModel(
                         id = randomUuid(), startMs = insertAt,
                         durationMs = info.durationMs, sourcePath = sourcePath,
                         sourceEndMs = info.durationMs,
+                        sourceFileDurationMs = info.durationMs,
                     )
                     p.withClipAddedToTrack(audioTrackId!!, clip)
                         .withRecalculatedDuration()
@@ -467,6 +473,7 @@ class ProjectViewModel(
                                 sourcePath = item.file.path,
                                 sourceStartMs = 0,
                                 sourceEndMs = i.durationMs,
+                                sourceFileDurationMs = i.durationMs,
                             )
                             cursorVideo += i.durationMs
                             acc.withClipAddedToTrack(videoTrackId, clip)
@@ -478,6 +485,7 @@ class ProjectViewModel(
                                 sourcePath = item.file.path,
                                 sourceStartMs = 0,
                                 sourceEndMs = i.durationMs,
+                                sourceFileDurationMs = i.durationMs,
                             )
                             cursorAudio += i.durationMs
                             acc.withClipAddedToTrack(finalAudioTrackId, clip)
@@ -541,7 +549,8 @@ class ProjectViewModel(
         recordAndMutate { project ->
             val count = project.timeline.tracks.count { it.type == type }
             val newTrack = Track(
-                id = "${type.name.lowercase()}-$count", type = type,
+                id = "${type.name.lowercase()}-${randomUuid().take(8)}",
+                type = type,
                 label = label ?: "${type.name} ${count + 1}",
             )
             project.copy(timeline = project.timeline.copy(tracks = project.timeline.tracks + newTrack))
@@ -737,15 +746,17 @@ class ProjectViewModel(
                             when {
                                 clip.id == clipId && clip is Clip.VideoClip -> {
                                     val newSourceDuration = (newTimelineDuration * clip.speed).toLong()
+                                    val maxSourceEnd = clip.sourceStartMs + clip.sourceFileDurationMs
                                     clip.copy(
                                         durationMs = newTimelineDuration,
-                                        sourceEndMs = clip.sourceStartMs + newSourceDuration,
+                                        sourceEndMs = (clip.sourceStartMs + newSourceDuration).coerceAtMost(maxSourceEnd),
                                     )
                                 }
                                 clip.id == clipId && clip is Clip.AudioClip -> {
+                                    val maxSourceEnd = clip.sourceStartMs + clip.sourceFileDurationMs
                                     clip.copy(
                                         durationMs = newTimelineDuration,
-                                        sourceEndMs = clip.sourceStartMs + newTimelineDuration,
+                                        sourceEndMs = (clip.sourceStartMs + newTimelineDuration).coerceAtMost(maxSourceEnd),
                                     )
                                 }
                                 else -> clip
@@ -818,15 +829,16 @@ class ProjectViewModel(
                                 playhead > clip.startMs &&
                                 playhead < clip.startMs + clip.durationMs -> {
                                 val splitPoint = playhead - clip.startMs
+                                val sourceSplitPoint = (splitPoint * clip.speed).toLong()
                                 val firstHalf = clip.copy(
                                     durationMs = splitPoint,
-                                    sourceEndMs = clip.sourceStartMs + splitPoint,
+                                    sourceEndMs = clip.sourceStartMs + sourceSplitPoint,
                                 )
                                 val secondHalf = clip.copy(
                                     id = randomUuid(),
                                     startMs = playhead,
                                     durationMs = clip.durationMs - splitPoint,
-                                    sourceStartMs = clip.sourceStartMs + splitPoint,
+                                    sourceStartMs = clip.sourceStartMs + sourceSplitPoint,
                                 )
                                 track.copy(clips = track.clips.flatMap {
                                     if (it.id == clipId) listOf(firstHalf, secondHalf) else listOf(it)

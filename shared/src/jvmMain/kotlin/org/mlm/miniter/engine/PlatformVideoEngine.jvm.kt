@@ -272,6 +272,12 @@ actual class PlatformVideoEngine actual constructor() {
                 val totalFrames = (timelineDurationMs / frameDurationMs).toInt()
                 var frameCount = 0
 
+                data class ClipPlaybackState(
+                    var lastGrabbedSourceMs: Long = -1,
+                    var needsSeek: Boolean = true,
+                )
+                val clipStates = mutableMapOf<String, ClipPlaybackState>()
+
                 while (currentTimeMs < timelineDurationMs) {
                     ensureActive()
 
@@ -294,8 +300,16 @@ actual class PlatformVideoEngine actual constructor() {
 
                         if (sourceTimeMs > activeClip.sourceEndMs) continue
 
-                        grabber.setTimestamp(sourceTimeMs * 1000)
+                        val clipState = clipStates.getOrPut(activeClip.id) { ClipPlaybackState() }
+
+                        if (clipState.needsSeek || 
+                            kotlin.math.abs(sourceTimeMs - clipState.lastGrabbedSourceMs) > frameDurationMs * 2) {
+                            grabber.setTimestamp(sourceTimeMs * 1000)
+                            clipState.needsSeek = false
+                        }
+
                         val frame = grabber.grabImage() ?: continue
+                        clipState.lastGrabbedSourceMs = sourceTimeMs
 
                         filter.push(frame)
                         val filtered = filter.pull() ?: continue
@@ -337,11 +351,9 @@ actual class PlatformVideoEngine actual constructor() {
                     var aFrame: Frame?
                     while (true) {
                         ensureActive()
-                        aFrame = audioGrabber.grab() ?: break
+                        aFrame = audioGrabber.grabSamples() ?: break
                         if (audioGrabber.timestamp > endUs) break
-                        if (aFrame.samples != null) {
-                            recorder.record(aFrame)
-                        }
+                        recorder.record(aFrame)
                     }
                     try { audioGrabber.stop() } catch (_: Exception) {}
                     try { audioGrabber.release() } catch (_: Exception) {}
