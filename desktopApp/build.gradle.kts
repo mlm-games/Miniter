@@ -28,13 +28,14 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "Miniter"
-            packageVersion = System.getenv("APP_VERSION") ?: "1.0.0"
+            packageVersion = System.getenv("APP_VERSION") ?: "1.0.1"
             description = "Miniter Video Editor"
             vendor = "MLM Games"
 
             modules("java.instrument", "jdk.security.auth", "jdk.unsupported", "jdk.httpserver")
 
             windows {
+                iconFile.set(project.file("../packaging/icon.ico"))
                 menuGroup = "Miniter"
                 shortcut = true
                 dirChooser = true
@@ -42,10 +43,12 @@ compose.desktop {
             }
 
             macOS {
+                iconFile.set(project.file("../packaging/icon.icns"))
                 bundleID = "org.mlm.miniter"
             }
 
             linux {
+                iconFile.set(project.file("../fastlane/metadata/android/en-US/images/icon.png"))
                 packageName = "miniter"
                 menuGroup = "AudioVideo;Video"
                 appCategory = "AudioVideo"
