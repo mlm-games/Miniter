@@ -1,3 +1,8 @@
+## v0.5.9
+
+
+
+
 ## v0.5.8
 
 - fix clipping with speed filters, and other misc fixes
