@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>io.github.mlm_games.miniter</id>
   <name>Miniter</name>
@@ -21,8 +21,15 @@
     <color type="primary" scheme_preference="light">#6750A4</color>
     <color type="primary" scheme_preference="dark">#D0BCFF</color>
   </branding>
-  <content_rating type="oars-1.1" />
+  <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.5.10" date="2026-03-01" type="stable">
+      <description>
+        <ul>
+          <li>add screenshots and a note in readme</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.5.9" date="2026-02-27" type="stable">
       <description>
         <ul/>

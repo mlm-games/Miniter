@@ -1,3 +1,8 @@
+## v0.5.10
+
+- add screenshots and a note in readme
+
+
 ## v0.5.9
 
 
