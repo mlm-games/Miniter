@@ -25,8 +25,8 @@ android {
         applicationId = "org.mlm.miniter"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 85
-        versionName = "0.5.9"
+        versionCode = 95
+        versionName = "0.5.10"
 
         val enableApkSplits = (providers.gradleProperty("enableApkSplits").orNull ?: "true").toBoolean()
         val includeUniversalApk = (providers.gradleProperty("includeUniversalApk").orNull ?: "true").toBoolean()
