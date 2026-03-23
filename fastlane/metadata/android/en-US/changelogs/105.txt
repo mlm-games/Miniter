@@ -1,0 +1,2 @@
+- remove internet perm
+- add screenshots and a note in readme

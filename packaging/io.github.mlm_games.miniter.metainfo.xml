@@ -23,6 +23,14 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.5.11" date="2026-03-23" type="stable">
+      <description>
+        <ul>
+          <li>remove internet perm</li>
+          <li>add screenshots and a note in readme</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.5.10" date="2026-03-01" type="stable">
       <description>
         <ul>
