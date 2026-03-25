@@ -9,7 +9,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.vinceglb.filekit.PlatformFile
-import io.github.vinceglb.filekit.dialogs.FileKitDialogSettings
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.vinceglb.filekit.path
 
@@ -50,7 +49,7 @@ fun NewProjectDialog(
     var saveFile by remember { mutableStateOf<PlatformFile?>(null) }
 
     // Native "Save As" dialog — returns a writable PlatformFile
-    val fileSaverLauncher = rememberFileSaverLauncher(dialogSettings = FileKitDialogSettings("Save as")) { file: PlatformFile? ->
+    val fileSaverLauncher = rememberFileSaverLauncher { file: PlatformFile? ->
         saveFile = file
         // Update project name to match chosen file name (without extension)
         if (file != null) {
@@ -136,7 +135,7 @@ fun SaveProjectDialog(
     var projectName by remember { mutableStateOf(defaultName) }
     var saveFile by remember { mutableStateOf<PlatformFile?>(null) }
 
-    val fileSaverLauncher = rememberFileSaverLauncher(FileKitDialogSettings("Save")) { file: PlatformFile? ->
+    val fileSaverLauncher = rememberFileSaverLauncher { file: PlatformFile? ->
         saveFile = file
         if (file != null) {
             val nameWithoutExt = file.path

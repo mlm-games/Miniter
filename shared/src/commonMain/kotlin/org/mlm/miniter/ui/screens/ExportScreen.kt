@@ -14,7 +14,6 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import io.github.vinceglb.filekit.PlatformFile
-import io.github.vinceglb.filekit.dialogs.FileKitDialogSettings
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.vinceglb.filekit.path
 import org.koin.compose.koinInject
@@ -51,7 +50,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         onDispose { vm.resetExport() }
     }
 
-    val fileSaverLauncher = rememberFileSaverLauncher(FileKitDialogSettings("Export")) { file: PlatformFile? ->
+    val fileSaverLauncher = rememberFileSaverLauncher { file: PlatformFile? ->
         outputFile = file
     }
 
