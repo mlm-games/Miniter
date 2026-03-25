@@ -20,6 +20,7 @@ import org.koin.compose.koinInject
 import org.mlm.miniter.engine.ExportProgress
 import org.mlm.miniter.project.ExportFormat
 import org.mlm.miniter.project.ExportSettings
+import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.util.popBack
 import org.mlm.miniter.viewmodel.ProjectViewModel
 
@@ -38,6 +39,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     var customHeight by remember(settings.height) { mutableStateOf(settings.height.takeIf { it > 0 }?.toString() ?: "") }
 
     var outputFile by remember { mutableStateOf<PlatformFile?>(null) }
+    var showCancelConfirm by remember { mutableStateOf(false) }
 
     val isExporting = progress.progress > 0f &&
             !progress.isComplete &&
@@ -59,8 +61,8 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 navigationIcon = {
                     IconButton(
                         onClick = {
-                            if (isExporting) vm.cancelExport()
-                            backStack.popBack()
+                            if (isExporting) showCancelConfirm = true
+                            else backStack.popBack()
                         },
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -365,5 +367,20 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 }
             }
         }
+    }
+
+    if (showCancelConfirm) {
+        ConfirmDialog(
+            title = "Cancel Export?",
+            message = "Export is in progress. Are you sure you want to cancel?",
+            confirmText = "Cancel Export",
+            dismissText = "Continue",
+            onConfirm = {
+                vm.cancelExport()
+                showCancelConfirm = false
+                backStack.popBack()
+            },
+            onDismiss = { showCancelConfirm = false },
+        )
     }
 }

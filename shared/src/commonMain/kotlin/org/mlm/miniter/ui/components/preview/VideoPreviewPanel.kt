@@ -104,42 +104,37 @@ fun EditorVideoPreview(
         playerState.volume = clipVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(playheadMs, isPlaying, grabberReady, clipFilters, clipOpacity) {
-        if (isPlaying || !grabberReady) return@LaunchedEffect
+    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, clipFilters, clipOpacity) {
+        if (isPlaying) return@LaunchedEffect
         if (currentClip == null || clipSourcePath == null) return@LaunchedEffect
 
         val offsetInClip = playheadMs - currentClip.startMs
         val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
         if (sourceTimeMs < 0) return@LaunchedEffect
 
-        delay(50)
+        delay(80)
 
-        try {
-            scrubbedFrame = frameGrabber.grabFrame(
-                timestampMs = sourceTimeMs,
-                filters = clipFilters,
-                opacity = clipOpacity,
-            )
-        } catch (_: Exception) {}
-    }
+        if (grabberReady && (clipFilters.isNotEmpty() || clipOpacity < 1f)) {
+            try {
+                scrubbedFrame = frameGrabber.grabFrame(
+                    timestampMs = sourceTimeMs,
+                    filters = clipFilters,
+                    opacity = clipOpacity,
+                )
+            } catch (_: Exception) {}
+        }
 
-    LaunchedEffect(playheadMs, isPlaying, playerReady, fullFileDurationMs) {
-        if (isPlaying || !playerReady) return@LaunchedEffect
-        if (currentClip == null || fullFileDurationMs <= 0L) return@LaunchedEffect
-
-        val offsetInClip = playheadMs - currentClip.startMs
-        val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
-        if (sourceTimeMs !in 0..fullFileDurationMs) return@LaunchedEffect
-
-        val sliderTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
-            .coerceIn(0f, 1000f)
-        if (sliderTarget.isNaN() || sliderTarget.isInfinite()) return@LaunchedEffect
-
-        playerState.sliderPos = sliderTarget
-        playerState.userDragging = true
-        delay(50)
-        playerState.userDragging = false
-        playerState.seekTo(playerState.sliderPos)
+        if (playerReady && fullFileDurationMs > 0L && sourceTimeMs in 0..fullFileDurationMs) {
+            val sliderTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
+                .coerceIn(0f, 1000f)
+            if (!sliderTarget.isNaN() && !sliderTarget.isInfinite()) {
+                playerState.sliderPos = sliderTarget
+                playerState.userDragging = true
+                delay(50)
+                playerState.userDragging = false
+                playerState.seekTo(playerState.sliderPos)
+            }
+        }
     }
 
     LaunchedEffect(isPlaying, currentClip?.id, playerReady, fullFileDurationMs) {

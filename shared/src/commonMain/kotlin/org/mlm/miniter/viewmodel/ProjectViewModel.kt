@@ -17,6 +17,7 @@ import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.UndoManager
 import org.mlm.miniter.engine.VideoInfo
+import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.*
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
@@ -107,7 +108,9 @@ class ProjectViewModel(
                     )
                 }
                 loadThumbnails(initialVideoPath)
-                recentProjectsRepository.addRecent(initialVideoPath, name)
+                if (savePath != null) {
+                    recentProjectsRepository.addRecent(savePath, name)
+                }
             } catch (e: Exception) {
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.showError("Failed to open video: ${e.message}")
@@ -121,6 +124,25 @@ class ProjectViewModel(
             _state.update { it.copy(isLoading = true) }
             try {
                 val project = projectRepository.load(path)
+                
+                val missingFiles = project.timeline.tracks
+                    .flatMap { it.clips }
+                    .mapNotNull { clip ->
+                        when (clip) {
+                            is Clip.VideoClip -> clip.sourcePath
+                            is Clip.AudioClip -> clip.sourcePath
+                            else -> null
+                        }
+                    }
+                    .distinct()
+                    .filter { !PlatformFileSystem.exists(it) }
+                
+                if (missingFiles.isNotEmpty()) {
+                    snackbarManager.showError(
+                        "Missing ${missingFiles.size} source file(s). Some clips may not preview or export."
+                    )
+                }
+                
                 undoManager.clear()
                 _state.update {
                     it.copy(
@@ -182,7 +204,13 @@ class ProjectViewModel(
             while (true) {
                 delay((intervalSeconds * 1000).toLong())
                 val s = _state.value
-                if (s.isDirty && s.projectPath != null && !s.isSaving) saveProject()
+                if (s.isDirty && !s.isSaving) {
+                    if (s.projectPath != null) {
+                        saveProject()
+                    } else {
+                        snackbarManager.show("Auto-save unavailable — save project manually first")
+                    }
+                }
             }
         }
     }
@@ -301,119 +329,6 @@ class ProjectViewModel(
 
     fun setPlayhead(ms: Long) {
         _state.update { it.copy(playheadMs = ms.coerceAtLeast(0)) }
-    }
-
-    fun onPlayerPositionChanged(sliderPos: Float) {
-        if (!_state.value.isPlaying) return
-        val totalMs = _state.value.project?.timeline?.durationMs ?: sourceDurationMs
-        if (totalMs <= 0) return
-        _state.update { it.copy(playheadMs = ((sliderPos / 1000f) * totalMs).toLong().coerceIn(0, totalMs)) }
-    }
-
-    fun onPlayerCompleted() {
-        _state.update { it.copy(isPlaying = false) }
-    }
-
-    fun playheadToSliderPos(): Float {
-        val totalMs = _state.value.project?.timeline?.durationMs ?: sourceDurationMs
-        if (totalMs <= 0) return 0f
-        return (_state.value.playheadMs.toFloat() / totalMs * 1000f).coerceIn(0f, 1000f)
-    }
-
-    fun getCurrentClipSpeed(): Float {
-        val project = _state.value.project ?: return 1f
-        val ph = _state.value.playheadMs
-        return project.timeline.tracks.flatMap { it.clips }
-            .filterIsInstance<Clip.VideoClip>()
-            .firstOrNull { ph >= it.startMs && ph < it.startMs + it.durationMs }
-            ?.speed ?: 1f
-    }
-
-    fun getCurrentClipVolume(): Float {
-        val project = _state.value.project ?: return 1f
-        val ph = _state.value.playheadMs
-        return project.timeline.tracks.filter { !it.isMuted }.flatMap { it.clips }
-            .filterIsInstance<Clip.VideoClip>()
-            .firstOrNull { ph >= it.startMs && ph < it.startMs + it.durationMs }
-            ?.volume ?: 1f
-    }
-
-    fun getVisibleTextClips(): List<Clip.TextClip> {
-        val project = _state.value.project ?: return emptyList()
-        val ph = _state.value.playheadMs
-        return project.timeline.tracks.flatMap { it.clips }
-            .filterIsInstance<Clip.TextClip>()
-            .filter { ph >= it.startMs && ph < it.startMs + it.durationMs }
-    }
-
-    fun importVideoClip(sourcePath: String, targetTrackId: String? = null) {
-        viewModelScope.launch {
-            try {
-                _state.update { it.copy(isLoading = true) }
-                val info = engine.probeVideo(sourcePath)
-                val project = _state.value.project ?: return@launch
-                val trackId = targetTrackId
-                    ?: project.timeline.tracks.firstOrNull { it.type == TrackType.Video }?.id
-                    ?: return@launch
-                val track = project.timeline.tracks.find { it.id == trackId } ?: return@launch
-                val insertAt = track.clips.maxOfOrNull { it.startMs + it.durationMs } ?: 0L
-
-                recordAndMutate { p ->
-                    val clip = Clip.VideoClip(
-                        id = randomUuid(), startMs = insertAt,
-                        durationMs = info.durationMs, sourcePath = sourcePath,
-                        sourceEndMs = info.durationMs,
-                        sourceFileDurationMs = info.durationMs,
-                    )
-                    p.withClipAddedToTrack(trackId, clip)
-                        .withRecalculatedDuration()
-                }
-                _state.update { it.copy(isLoading = false) }
-                snackbarManager.show("Video clip added")
-            } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false) }
-                snackbarManager.showError("Failed to import: ${e.message}")
-            }
-        }
-    }
-
-    fun importAudioClip(sourcePath: String, targetTrackId: String? = null) {
-        viewModelScope.launch {
-            try {
-                _state.update { it.copy(isLoading = true) }
-                val info = engine.probeVideo(sourcePath)
-                val project = _state.value.project ?: return@launch
-
-                var audioTrackId = targetTrackId
-                    ?: project.timeline.tracks.firstOrNull { it.type == TrackType.Audio }?.id
-
-                if (audioTrackId == null) {
-                    addTrack(TrackType.Audio)
-                    audioTrackId = _state.value.project?.timeline?.tracks
-                        ?.lastOrNull { it.type == TrackType.Audio }?.id ?: return@launch
-                }
-
-                val track = _state.value.project?.timeline?.tracks
-                    ?.find { it.id == audioTrackId } ?: return@launch
-                val insertAt = track.clips.maxOfOrNull { it.startMs + it.durationMs } ?: 0L
-
-                recordAndMutate { p ->
-                    val clip = Clip.AudioClip(
-                        id = randomUuid(), startMs = insertAt,
-                        durationMs = info.durationMs, sourcePath = sourcePath,
-                        sourceEndMs = info.durationMs,
-                        sourceFileDurationMs = info.durationMs,
-                    )
-                    p.withClipAddedToTrack(audioTrackId!!, clip)
-                        .withRecalculatedDuration()
-                }
-                _state.update { it.copy(isLoading = false) }
-                snackbarManager.show("Audio clip added")
-            } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false) }
-                snackbarManager.showError("Failed to import audio: ${e.message}")
-            }
-        }
     }
 
     fun importMediaFiles(files: List<PlatformFile>) {

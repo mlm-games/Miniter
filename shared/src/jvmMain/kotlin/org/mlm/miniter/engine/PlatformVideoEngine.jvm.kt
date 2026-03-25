@@ -312,16 +312,18 @@ actual class PlatformVideoEngine actual constructor() {
                         clipState.lastGrabbedSourceMs = sourceTimeMs
 
                         filter.push(frame)
-                        val filtered = filter.pull() ?: continue
-                        val image = conv.convert(filtered) ?: continue
+                        var filtered = filter.pull()
+                        while (filtered != null) {
+                            val image = conv.convert(filtered) ?: break
 
-                        if (composited == null) {
-                            composited = image
-                        } else {
-                            // Overlay this track's image on top
-                            val g = composited.createGraphics()
-                            g.drawImage(image, 0, 0, outWidth, outHeight, null)
-                            g.dispose()
+                            if (composited == null) {
+                                composited = image
+                            } else {
+                                val g = composited.createGraphics()
+                                g.drawImage(image, 0, 0, outWidth, outHeight, null)
+                                g.dispose()
+                            }
+                            filtered = filter.pull()
                         }
                     }
 
@@ -396,159 +398,6 @@ actual class PlatformVideoEngine actual constructor() {
             throw e
         } catch (e: Exception) {
             _exportProgress.value = ExportProgress(error = "Export failed: ${e.message}")
-        }
-    }
-
-    private fun writeGapFrames(
-        recorder: FFmpegFrameRecorder,
-        durationMs: Long,
-        width: Int,
-        height: Int,
-        frameRate: Double,
-    ) {
-        val converter = Java2DFrameConverter()
-        val blackImage = BufferedImage(width, height, BufferedImage.TYPE_3BYTE_BGR).also {
-            val g = it.createGraphics()
-            g.color = Color.BLACK
-            g.fillRect(0, 0, width, height)
-            g.dispose()
-        }
-        val totalFrames = ((durationMs / 1000.0) * frameRate).toInt().coerceAtLeast(1)
-
-        for (i in 0 until totalFrames) {
-            val frame = converter.convert(blackImage)
-            recorder.record(frame)
-        }
-    }
-
-    private suspend fun exportSingleClipWithTransition(
-        clip: Clip.VideoClip,
-        recorder: FFmpegFrameRecorder,
-        outWidth: Int,
-        outHeight: Int,
-        textClips: List<Clip.TextClip>,
-        fontPath: String?,
-        transitionIn: Transition?,
-        previousLastFrame: BufferedImage?,
-        hasAudio: Boolean,
-        frameRate: Double,
-        progressBase: Float,
-        progressScale: Float,
-    ): BufferedImage? {
-        val grabber = FFmpegFrameGrabber(clip.sourcePath)
-        val converter = Java2DFrameConverter()
-        var filter: FFmpegFrameFilter? = null
-        var lastImage: BufferedImage? = null
-
-        try {
-            grabber.pixelFormat = avutil.AV_PIX_FMT_BGR24
-            grabber.start()
-            grabber.setTimestamp(clip.sourceStartMs * 1000)
-
-            val clipSourceDuration = clip.sourceEndMs - clip.sourceStartMs
-            val endUs = clip.sourceEndMs * 1000
-
-            var filterStr = FilterGraphBuilder.buildVideoFilterString(
-                filters = clip.filters,
-                speed = clip.speed,
-                outWidth = outWidth,
-                outHeight = outHeight,
-                fadeInSec = if (transitionIn != null) transitionIn.durationMs / 1000.0 else 0.0,
-                fadeOutStartSec = 0.0,
-                fadeOutDurationSec = 0.0,
-            )
-
-            val textOverlay = FilterGraphBuilder.buildTextOverlayFilters(
-                textClips = textClips,
-                timelineStartMs = clip.startMs,
-                timelineEndMs = clip.startMs + clip.durationMs,
-                outputOffsetSec = 0.0,
-                perClip = true,
-                fontPath = fontPath,
-            )
-            if (textOverlay.isNotEmpty()) {
-                filterStr = "$filterStr,$textOverlay"
-            }
-
-            if (filterStr.isNotEmpty()) {
-                filterStr = "$filterStr,format=bgr24"
-                val inputW = grabber.imageWidth
-                val inputH = grabber.imageHeight
-                filter = FFmpegFrameFilter(filterStr, inputW, inputH)
-                filter.pixelFormat = avutil.AV_PIX_FMT_BGR24
-                filter.start()
-            }
-
-            val transitionFrames = if (transitionIn != null) {
-                ((transitionIn.durationMs / 1000.0) * frameRate).toInt().coerceAtLeast(1)
-            } else 0
-            var outputFrameCount = 0
-
-            var frame: Frame?
-            while (true) {
-                currentCoroutineContext().ensureActive()
-
-                frame = grabber.grab() ?: break
-                if (grabber.timestamp > endUs) break
-
-                if (frame.image != null) {
-                    val processedFrame = if (filter != null) {
-                        filter.push(frame)
-                        filter.pull()
-                    } else frame
-
-                    if (processedFrame != null) {
-                        val inTransitionZone = transitionIn != null
-                                && previousLastFrame != null
-                                && outputFrameCount < transitionFrames
-
-                        if (inTransitionZone) {
-                            val currentImage = converter.convert(processedFrame)
-                            if (currentImage != null) {
-                                val progress = outputFrameCount.toFloat() / transitionFrames
-                                val blended = blendFrames(
-                                    from = previousLastFrame!!,
-                                    to = currentImage,
-                                    progress = progress,
-                                    type = transitionIn!!.type,
-                                    width = outWidth,
-                                    height = outHeight,
-                                )
-                                lastImage = currentImage
-                                val blendedFrame = converter.convert(blended)
-                                recorder.record(blendedFrame)
-                            }
-                        } else {
-                            recorder.record(processedFrame)
-                            val img = converter.convert(processedFrame)
-                            if (img != null) lastImage = img
-                        }
-
-                        outputFrameCount++
-
-                        if (clipSourceDuration > 0) {
-                            val clipProgress =
-                                ((grabber.timestamp / 1000) - clip.sourceStartMs)
-                                    .toFloat() / clipSourceDuration
-                            _exportProgress.value = ExportProgress(
-                                phase = _exportProgress.value.phase,
-                                progress = progressBase +
-                                        (clipProgress.coerceIn(0f, 1f) * progressScale),
-                            )
-                        }
-                    }
-                } else if (frame.samples != null && hasAudio) {
-                    recorder.record(frame)
-                }
-            }
-
-            return lastImage
-
-        } finally {
-            try { filter?.stop() } catch (_: Exception) {}
-            try { filter?.release() } catch (_: Exception) {}
-            try { grabber.stop() } catch (_: Exception) {}
-            try { grabber.release() } catch (_: Exception) {}
         }
     }
 

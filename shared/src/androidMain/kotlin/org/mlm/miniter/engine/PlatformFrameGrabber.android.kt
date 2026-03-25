@@ -3,8 +3,9 @@ package org.mlm.miniter.engine
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -73,7 +74,7 @@ actual class PlatformFrameGrabber {
     }
 
     actual fun release() {
-        runBlocking {
+        CoroutineScope(Dispatchers.IO).launch {
             mutex.withLock {
                 retriever?.release()
                 retriever = null
