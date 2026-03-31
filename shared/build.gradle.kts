@@ -5,6 +5,11 @@ plugins {
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.rustUniffi)
+}
+
+rustUniffi {
+    libraryName.set("miniter_ffi")
 }
 
 kotlin {
@@ -18,7 +23,7 @@ kotlin {
         ))
     }
 
-    androidLibrary {
+    android {
         namespace = "org.mlm.miniter.shared"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
@@ -69,12 +74,15 @@ kotlin {
             implementation(libs.koin.android)
             implementation(libs.ffmpegkit.full)
             implementation(libs.okio)
+            //noinspection UseTomlInstead
+            implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
         }
 
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutines.swing)
             implementation(libs.javacv.platform)
+            implementation(libs.net.jna)
         }
     }
 }

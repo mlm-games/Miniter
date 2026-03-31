@@ -1,5 +1,7 @@
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
+includeBuild("../rs-uniffi-plugin")
+
 pluginManagement {
     repositories {
         google {

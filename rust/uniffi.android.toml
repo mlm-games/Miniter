@@ -1,0 +1,4 @@
+[bindings.kotlin]
+package_name = "org.mlm.miniter.ffi"
+cdylib_name = "miniter_ffi"
+jni = true
