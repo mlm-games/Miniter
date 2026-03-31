@@ -1,13 +1,23 @@
-[package]
-name = "miniter_ffi"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [workspace]
-members = ["."]
+resolver = "2"
+members = [
+    "crates/miniter-domain",
+    "crates/miniter-usecases",
+    "crates/miniter-render-plan",
+    "crates/miniter-audio",
+    "crates/miniter-media-native",
+    "crates/miniter-ffi",
+]
 
-[dependencies]
-uniffi = { version = "0.31.0" }
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "2"
+log = "0.4"
+uniffi = "0.31"

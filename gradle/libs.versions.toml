@@ -31,7 +31,7 @@ okio = "3.17.0"
 ffmpegkit = "6.1.4"
 composeMediaPlayer = "0.8.7"
 apkDist = "0.5.2"
-rustUniffi = "0.1.0"
+rustUniffi = "0.1.1"
 jna = "5.18.1"
 
 
@@ -90,4 +90,4 @@ kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref =
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 apk-dist = { id = "io.github.mlm-games.apk-dist", version.ref = "apkDist" }
-rustUniffi = { id = "io.github.mlm-games.rust-uniffi" }
+rustUniffi = { id = "io.github.mlm-games.rust-uniffi", version.ref = "rustUniffi" }

@@ -1,0 +1,72 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportFormat {
+    Mp4,
+    WebM,
+    Mov,
+}
+
+impl ExportFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Mp4 => "mp4",
+            Self::WebM => "webm",
+            Self::Mov => "mov",
+        }
+    }
+
+    pub fn mime(self) -> &'static str {
+        match self {
+            Self::Mp4 => "video/mp4",
+            Self::WebM => "video/webm",
+            Self::Mov => "video/quicktime",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportResolution {
+    Sd480,
+    Hd720,
+    Hd1080,
+    Uhd4k,
+    Custom { width: u32, height: u32 },
+}
+
+impl ExportResolution {
+    pub fn dimensions(self) -> (u32, u32) {
+        match self {
+            Self::Sd480 => (854, 480),
+            Self::Hd720 => (1280, 720),
+            Self::Hd1080 => (1920, 1080),
+            Self::Uhd4k => (3840, 2160),
+            Self::Custom { width, height } => (width, height),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportProfile {
+    pub format: ExportFormat,
+    pub resolution: ExportResolution,
+    pub fps: f64,
+    pub video_bitrate_kbps: u32,
+    pub audio_bitrate_kbps: u32,
+    pub audio_sample_rate: u32,
+    pub output_path: String,
+}
+
+impl Default for ExportProfile {
+    fn default() -> Self {
+        Self {
+            format: ExportFormat::Mp4,
+            resolution: ExportResolution::Hd1080,
+            fps: 30.0,
+            video_bitrate_kbps: 8_000,
+            audio_bitrate_kbps: 192,
+            audio_sample_rate: 48_000,
+            output_path: String::new(),
+        }
+    }
+}

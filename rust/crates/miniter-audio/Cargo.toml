@@ -1,0 +1,13 @@
+[package]
+name = "miniter-audio"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+miniter-domain = { path = "../miniter-domain" }
+symphonia = { version = "0.5.5", features = [
+    "aac", "alac", "flac", "mp3", "vorbis",
+    "isomp4", "mkv", "ogg", "wav",
+] }
+thiserror.workspace = true
+log.workspace = true

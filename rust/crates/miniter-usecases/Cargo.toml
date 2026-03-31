@@ -1,0 +1,11 @@
+[package]
+name = "miniter-usecases"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+miniter-domain = { path = "../miniter-domain" }
+serde.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+log.workspace = true

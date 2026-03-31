@@ -22,16 +22,16 @@ data class AppSettings(
     )
     val themeMode: Int = ThemeMode.Dark.ordinal,
 
-    // @Setting(
-    //     title = "Font size",
-    //     description = "UI font size",
-    //     category = Appearance::class,
-    //     type = Slider::class,
-    //     min = 12f,
-    //     max = 24f,
-    //     step = 1f
-    // )
-    // val fontSize: Float = 16f,
+    @Setting(
+        title = "Font size",
+        description = "UI font size",
+        category = Appearance::class,
+        type = Slider::class,
+        min = 12f,
+        max = 24f,
+        step = 1f
+    )
+    val fontSize: Float = 16f,
 
     @Setting(
         title = "Default export format",
