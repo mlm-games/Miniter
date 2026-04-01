@@ -679,6 +679,7 @@ mod tests {
     use miniter_domain::project::Project;
     use miniter_domain::time::{MediaDuration, Timestamp};
     use miniter_domain::track::{Track, TrackKind};
+    use miniter_domain::{AudioFilter, VideoFilter};
     use uuid::Uuid;
 
     fn video_clip(start_us: i64, duration_us: i64) -> Clip {

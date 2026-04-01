@@ -1,7 +1,23 @@
 package org.mlm.miniter.editor.model
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 
 @Serializable
 data class RustProjectSnapshot(
@@ -274,7 +290,7 @@ enum class RustExportFormat {
     Mov,
 }
 
-@Serializable
+@Serializable(with = RustExportResolutionSerializer::class)
 sealed interface RustExportResolution {
     @Serializable
     @SerialName("Sd480")
@@ -298,4 +314,76 @@ sealed interface RustExportResolution {
         val width: Int,
         val height: Int,
     ) : RustExportResolution
+}
+
+object RustExportResolutionSerializer : KSerializer<RustExportResolution> {
+    override val descriptor: SerialDescriptor =
+        buildClassSerialDescriptor("RustExportResolution")
+
+    override fun serialize(encoder: Encoder, value: RustExportResolution) {
+        val jsonEncoder = encoder as? JsonEncoder
+            ?: throw SerializationException("RustExportResolutionSerializer only supports JSON")
+
+        val element = when (value) {
+            RustExportResolution.Sd480 -> JsonPrimitive("Sd480")
+            RustExportResolution.Hd720 -> JsonPrimitive("Hd720")
+            RustExportResolution.Hd1080 -> JsonPrimitive("Hd1080")
+            RustExportResolution.Uhd4k -> JsonPrimitive("Uhd4k")
+            is RustExportResolution.Custom -> buildJsonObject {
+                putJsonObject("Custom") {
+                    put("width", value.width)
+                    put("height", value.height)
+                }
+            }
+        }
+
+        jsonEncoder.encodeJsonElement(element)
+    }
+
+    override fun deserialize(decoder: Decoder): RustExportResolution {
+        val jsonDecoder = decoder as? JsonDecoder
+            ?: throw SerializationException("RustExportResolutionSerializer only supports JSON")
+
+        return when (val element = jsonDecoder.decodeJsonElement()) {
+            is JsonPrimitive -> when (element.content) {
+                "Sd480" -> RustExportResolution.Sd480
+                "Hd720" -> RustExportResolution.Hd720
+                "Hd1080" -> RustExportResolution.Hd1080
+                "Uhd4k" -> RustExportResolution.Uhd4k
+                else -> throw SerializationException(
+                    "Unknown export resolution: ${element.content}"
+                )
+            }
+
+            is JsonObject -> {
+                element["Custom"]?.jsonObject?.let { custom ->
+                    RustExportResolution.Custom(
+                        width = custom["width"]?.jsonPrimitive?.int
+                            ?: throw SerializationException("Missing Custom.width"),
+                        height = custom["height"]?.jsonPrimitive?.int
+                            ?: throw SerializationException("Missing Custom.height"),
+                    )
+                }
+                ?: when (element["type"]?.jsonPrimitive?.content) {
+                    "Sd480" -> RustExportResolution.Sd480
+                    "Hd720" -> RustExportResolution.Hd720
+                    "Hd1080" -> RustExportResolution.Hd1080
+                    "Uhd4k" -> RustExportResolution.Uhd4k
+                    "Custom" -> RustExportResolution.Custom(
+                        width = element["width"]?.jsonPrimitive?.int
+                            ?: throw SerializationException("Missing width"),
+                        height = element["height"]?.jsonPrimitive?.int
+                            ?: throw SerializationException("Missing height"),
+                    )
+                    else -> throw SerializationException(
+                        "Unsupported export resolution JSON: $element"
+                    )
+                }
+            }
+
+            else -> throw SerializationException(
+                "Unsupported export resolution JSON: $element"
+            )
+        }
+    }
 }
