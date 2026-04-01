@@ -46,11 +46,20 @@ impl Project {
                 name: name.into(),
                 created_at: now,
                 modified_at: now,
-                schema_version: 1,
+                schema_version: 2,
             },
             timeline: Timeline::with_defaults(),
             export_profile: ExportProfile::default(),
         }
+    }
+
+    pub fn normalize(mut self) -> Self {
+        for track in &mut self.timeline.tracks {
+            for clip in &mut track.clips {
+                clip.normalize_source_bounds_in_place();
+            }
+        }
+        self
     }
 
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -58,6 +67,7 @@ impl Project {
     }
 
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
+        let project: Self = serde_json::from_str(json)?;
+        Ok(project.normalize())
     }
 }

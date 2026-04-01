@@ -18,6 +18,8 @@ pub struct TextStyle {
     pub outline_color: Option<String>,
     pub outline_width: f32,
     pub shadow: bool,
+    pub bold: bool,
+    pub italic: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +42,8 @@ impl Default for TextStyle {
             outline_color: None,
             outline_width: 0.0,
             shadow: false,
+            bold: false,
+            italic: false,
         }
     }
 }

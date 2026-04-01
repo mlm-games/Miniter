@@ -63,15 +63,30 @@ impl Track {
         self.clips.iter().position(|c| c.id == id)
     }
 
-    pub fn insert_clip(&mut self, clip: Clip) -> Result<(), TrackOverlapError> {
+    pub fn can_insert_clip(
+        &self,
+        clip: &Clip,
+        ignore_clip_id: Option<ClipId>,
+    ) -> Result<(), TrackOverlapError> {
         let range = clip.time_range();
-        let overlaps = self.clips.iter().any(|c| c.time_range().overlaps(range));
+        let overlaps = self
+            .clips
+            .iter()
+            .filter(|existing| Some(existing.id) != ignore_clip_id)
+            .any(|existing| existing.time_range().overlaps(range));
+
         if overlaps {
-            return Err(TrackOverlapError {
+            Err(TrackOverlapError {
                 clip_id: clip.id,
                 track_id: self.id,
-            });
+            })
+        } else {
+            Ok(())
         }
+    }
+
+    pub fn insert_clip(&mut self, clip: Clip) -> Result<(), TrackOverlapError> {
+        self.can_insert_clip(&clip, None)?;
         self.clips.push(clip);
         self.sort_clips();
         Ok(())

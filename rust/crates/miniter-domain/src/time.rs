@@ -79,6 +79,18 @@ impl MediaDuration {
     pub fn is_zero(self) -> bool {
         self.0 == 0
     }
+
+    pub fn is_positive(self) -> bool {
+        self.0 > 0
+    }
+
+    pub fn is_negative(self) -> bool {
+        self.0 < 0
+    }
+
+    pub fn clamp_non_negative(self) -> Self {
+        Self(self.0.max(0))
+    }
 }
 
 impl Add for MediaDuration {
@@ -112,11 +124,11 @@ impl TimeRange {
     }
 
     pub fn contains(self, t: Timestamp) -> bool {
-        t >= self.start && t <= self.end
+        t >= self.start && t < self.end
     }
 
     pub fn overlaps(self, other: Self) -> bool {
-        self.start <= other.end && other.start <= self.end
+        self.start < other.end && other.start < self.end
     }
 
     pub fn intersection(self, other: Self) -> Option<Self> {

@@ -1,6 +1,7 @@
 use miniter_domain::clip::{Clip, ClipId};
 use miniter_domain::export::ExportProfile;
 use miniter_domain::filter::{AudioFilter, VideoFilter};
+use miniter_domain::text_overlay::TextStyle;
 use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::track::{TrackId, TrackKind};
 use miniter_domain::transition::Transition;
@@ -15,7 +16,6 @@ pub enum EditCommand {
     RemoveTrack {
         track_id: TrackId,
     },
-    /// Internal command for undo: restores a removed track with its original ID.
     RestoreTrack {
         track: miniter_domain::track::Track,
     },
@@ -52,7 +52,7 @@ pub enum EditCommand {
     TrimClipStart {
         clip_id: ClipId,
         new_start: Timestamp,
-        new_source_offset: MediaDuration,
+        new_source_start: MediaDuration,
     },
     TrimClipEnd {
         clip_id: ClipId,
@@ -71,12 +71,21 @@ pub enum EditCommand {
         clip_id: ClipId,
         volume: f32,
     },
+    SetClipOpacity {
+        clip_id: ClipId,
+        opacity: f32,
+    },
     SetClipMuted {
         clip_id: ClipId,
         muted: bool,
     },
     AddVideoFilter {
         clip_id: ClipId,
+        filter: VideoFilter,
+    },
+    UpdateVideoFilter {
+        clip_id: ClipId,
+        index: usize,
         filter: VideoFilter,
     },
     RemoveVideoFilter {
@@ -94,6 +103,14 @@ pub enum EditCommand {
     SetTransitionIn {
         clip_id: ClipId,
         transition: Option<Transition>,
+    },
+    UpdateTextContent {
+        clip_id: ClipId,
+        text: String,
+    },
+    UpdateTextStyle {
+        clip_id: ClipId,
+        style: TextStyle,
     },
     SetExportProfile {
         profile: ExportProfile,

@@ -70,7 +70,7 @@ fn node_for_clip(
 
     let local_offset = t - clip.timeline_start;
     let source_pts = Timestamp::from_micros(
-        clip.source_offset.as_micros() + (local_offset.as_micros() as f64 * clip.speed) as i64,
+        clip.source_start.as_micros() + (local_offset.as_micros() as f64 * clip.speed) as i64,
     );
 
     match &clip.kind {
@@ -79,14 +79,14 @@ fn node_for_clip(
                 source_path: v.source_path.clone(),
                 source_pts,
                 filters: v.filters.clone(),
-                opacity: find_opacity(&v.filters),
+                opacity: clip.opacity,
             };
 
             if let Some(ref trans) = clip.transition_in {
                 if let Some(prev) = find_previous_clip(track, clip) {
                     let progress = transition_progress(clip, trans, t);
                     let prev_pts = Timestamp::from_micros(
-                        prev.source_offset.as_micros()
+                        prev.source_start.as_micros()
                             + ((t - prev.timeline_start).as_micros() as f64 * prev.speed) as i64,
                     );
                     if let ClipKind::Video(pv) = &prev.kind {
@@ -94,7 +94,7 @@ fn node_for_clip(
                             source_path: pv.source_path.clone(),
                             source_pts: prev_pts,
                             filters: pv.filters.clone(),
-                            opacity: 1.0,
+                            opacity: prev.opacity,
                         };
                         return Some(RenderNode::TransitionBlend {
                             bottom: Box::new(prev_node),
@@ -132,13 +132,4 @@ fn transition_progress(clip: &Clip, trans: &Transition, t: Timestamp) -> f32 {
     } else {
         (elapsed / total).clamp(0.0, 1.0) as f32
     }
-}
-
-fn find_opacity(filters: &[VideoFilter]) -> f32 {
-    for f in filters {
-        if let VideoFilter::Opacity { value } = f {
-            return *value;
-        }
-    }
-    1.0
 }

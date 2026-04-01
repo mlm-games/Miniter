@@ -12,14 +12,17 @@ pub enum VideoFilter {
     Saturation {
         value: f32,
     },
-    Hue {
-        degrees: f32,
-    },
+    Grayscale,
     Blur {
         radius: f32,
     },
     Sharpen {
         amount: f32,
+    },
+    Sepia,
+
+    Hue {
+        degrees: f32,
     },
     Crop {
         left: f32,
