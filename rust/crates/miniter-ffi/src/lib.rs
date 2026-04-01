@@ -136,6 +136,96 @@ pub fn extract_waveform(path: String, buckets: u32) -> Result<String, MiniterErr
     })
 }
 
+#[derive(uniffi::Record)]
+pub struct VideoProbeResult {
+    pub duration_us: i64,
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: f64,
+    pub video_codec: String,
+    pub has_audio: bool,
+    pub audio_sample_rate: u32,
+    pub audio_channels: u32,
+    pub video_bitrate: u32,
+}
+
+#[uniffi::export]
+pub fn probe_video(path: String) -> Result<VideoProbeResult, MiniterError> {
+    let info =
+        miniter_media_native::probe::probe_media(std::path::Path::new(&path)).map_err(|e| {
+            MiniterError::Media {
+                detail: e.to_string(),
+            }
+        })?;
+
+    let vs = info.video_streams.first();
+    let aus = info.audio_streams.first();
+
+    Ok(VideoProbeResult {
+        duration_us: info.duration_us.unwrap_or(0),
+        width: vs.map(|v| v.width).unwrap_or(0),
+        height: vs.map(|v| v.height).unwrap_or(0),
+        frame_rate: vs.map(|v| v.frame_rate).unwrap_or(30.0),
+        video_codec: vs.map(|v| v.codec.clone()).unwrap_or_default(),
+        has_audio: !info.audio_streams.is_empty(),
+        audio_sample_rate: aus.map(|a| a.sample_rate).unwrap_or(0),
+        audio_channels: aus.map(|a| a.channels).unwrap_or(0),
+        video_bitrate: vs.map(|v| v.bitrate).unwrap_or(0),
+    })
+}
+
+#[derive(uniffi::Record)]
+pub struct FrameData {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+    pub pts_us: i64,
+}
+
+#[uniffi::export]
+pub fn extract_thumbnail(path: String, target_us: i64) -> Result<FrameData, MiniterError> {
+    let frame = miniter_media_native::thumbnailer::extract_thumbnail(
+        std::path::Path::new(&path),
+        target_us,
+    )
+    .map_err(|e| MiniterError::Media {
+        detail: e.to_string(),
+    })?;
+
+    Ok(FrameData {
+        width: frame.width,
+        height: frame.height,
+        rgba: frame.data,
+        pts_us: frame.pts_us,
+    })
+}
+
+#[uniffi::export]
+pub fn extract_thumbnails(
+    path: String,
+    count: u32,
+    duration_us: i64,
+) -> Result<Vec<FrameData>, MiniterError> {
+    let frames = miniter_media_native::thumbnailer::extract_thumbnails(
+        std::path::Path::new(&path),
+        count as usize,
+        duration_us,
+    )
+    .map_err(|e| MiniterError::Media {
+        detail: e.to_string(),
+    })?;
+
+    Ok(frames
+        .into_iter()
+        .map(|f| FrameData {
+            width: f.width,
+            height: f.height,
+            rgba: f.data,
+            pts_us: f.pts_us,
+        })
+        .collect())
+}
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MiniterError {
     #[error("Parse error: {detail}")]

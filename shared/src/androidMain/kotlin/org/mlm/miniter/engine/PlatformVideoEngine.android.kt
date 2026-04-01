@@ -1,435 +1,45 @@
 package org.mlm.miniter.engine
 
-import android.media.MediaMetadataRetriever
-import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.FFmpegKitConfig
-import com.arthenica.ffmpegkit.ReturnCode
-import com.arthenica.ffmpegkit.Statistics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import org.mlm.miniter.platform.AndroidContext
 import org.mlm.miniter.project.*
-import java.io.File
-import java.io.FileInputStream
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import androidx.core.net.toUri
-import kotlin.coroutines.cancellation.CancellationException
+import org.mlm.miniter.ffi.probeVideo as nativeProbeVideo
+import org.mlm.miniter.ffi.extractThumbnail as nativeExtractThumbnail
+import org.mlm.miniter.ffi.extractThumbnails as nativeExtractThumbnails
 
 actual class PlatformVideoEngine actual constructor() {
 
     private val _exportProgress = MutableStateFlow(ExportProgress())
     actual val exportProgress: StateFlow<ExportProgress> = _exportProgress
 
-    @Volatile
-    private var currentSessionId: Long = -1L
-
-    companion object {
-        private const val ANDROID_FONT = "/system/fonts/Roboto-Regular.ttf"
-    }
-
-    private fun MediaMetadataRetriever.setDataSourceCompat(path: String) {
-        if (path.startsWith("content://")) {
-            setDataSource(AndroidContext.get(), path.toUri())
-        } else {
-            setDataSource(path)
-        }
-    }
-
-    private fun normalizePathForFFmpeg(path: String): String {
-        return if (path.startsWith("content://")) {
-            val context = AndroidContext.get()
-            val uri = path.toUri()
-            FFmpegKitConfig.getSafParameterForRead(context, uri)
-        } else {
-            "\"$path\""
-        }
-    }
-
-    private fun evenUp(value: Int): Int = if (value % 2 == 0) value else value + 1
-
-    private fun createTempOutputFile(extension: String): File {
-        val cacheDir = File(AndroidContext.get().cacheDir, "export")
-        cacheDir.mkdirs()
-        return File(cacheDir, "export_${System.currentTimeMillis()}.$extension")
-    }
-
-    private fun copyToFinalDestination(tempFile: File, outputPath: String) {
-        if (outputPath.startsWith("content://")) {
-            val context = AndroidContext.get()
-            val uri = outputPath.toUri()
-            context.contentResolver.openOutputStream(uri)?.use { out ->
-                FileInputStream(tempFile).use { input ->
-                    input.copyTo(out)
-                }
-            }
-        } else {
-            tempFile.copyTo(File(outputPath), overwrite = true)
-        }
-        tempFile.delete()
-    }
-
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
-        val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSourceCompat(path)
-
-            val duration = retriever.extractMetadata(
-                MediaMetadataRetriever.METADATA_KEY_DURATION
-            )?.toLongOrNull() ?: 0L
-
-            val width = retriever.extractMetadata(
-                MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH
-            )?.toIntOrNull() ?: 0
-
-            val height = retriever.extractMetadata(
-                MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
-            )?.toIntOrNull() ?: 0
-
-            val frameRate = retriever.extractMetadata(
-                MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE
-            )?.toDoubleOrNull() ?: 30.0
-
-            val bitrate = retriever.extractMetadata(
-                MediaMetadataRetriever.METADATA_KEY_BITRATE
-            )?.toIntOrNull() ?: 0
-
-            val hasAudio = retriever.extractMetadata(
-                MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO
-            ) == "yes"
-
-            val hasVideo = retriever.extractMetadata(
-                MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO
-            ) == "yes"
-
-            val mimeType = retriever.extractMetadata(
-                MediaMetadataRetriever.METADATA_KEY_MIMETYPE
-            )
-
-            VideoInfo(
-                durationMs = duration,
-                width = width,
-                height = height,
-                frameRate = frameRate,
-                videoBitrate = bitrate,
-                audioChannels = 2,
-                audioSampleRate = 44100,
-                audioCodecName = null,
-                videoCodecName = mimeType,
-                hasAudio = hasAudio,
-                hasVideo = hasVideo,
-            )
-        } finally {
-            retriever.release()
-        }
+        val result = nativeProbeVideo(path)
+        VideoInfo(
+            durationMs = result.durationUs / 1000L,
+            width = result.width.toInt(),
+            height = result.height.toInt(),
+            frameRate = result.frameRate,
+            videoBitrate = result.videoBitrate.toInt(),
+            audioChannels = result.audioChannels.toInt(),
+            audioSampleRate = result.audioSampleRate.toInt(),
+            audioCodecName = null,
+            videoCodecName = result.videoCodec,
+            hasAudio = result.hasAudio,
+            hasVideo = result.width > 0u && result.height > 0u,
+        )
     }
 
     actual suspend fun exportVideo(
         project: MinterProject,
         outputPath: String,
     ) = withContext(Dispatchers.IO) {
-        var tempFile: File? = null
-        try {
-            _exportProgress.value = ExportProgress(phase = "Preparing…", progress = 0f)
-
-            val videoTracks = project.timeline.tracks
-                .filter { it.type == TrackType.Video && !it.isMuted }
-
-            val allVideoClips = videoTracks
-                .flatMap { it.clips.filterIsInstance<Clip.VideoClip>() }
-
-            if (allVideoClips.isEmpty()) {
-                _exportProgress.value = ExportProgress(error = "No video clips on timeline")
-                return@withContext
-            }
-
-            val textClips = project.timeline.tracks
-                .filter { it.type == TrackType.Text && !it.isMuted }
-                .flatMap { it.clips.filterIsInstance<Clip.TextClip>() }
-
-            val audioClips = project.timeline.tracks
-                .filter { it.type == TrackType.Audio && !it.isMuted }
-                .flatMap { it.clips.filterIsInstance<Clip.AudioClip>() }
-
-            val firstInfo = probeVideo(allVideoClips.first().sourcePath)
-            val outWidth = evenUp(
-                if (project.exportSettings.width > 0) project.exportSettings.width
-                else firstInfo.width
-            )
-            val outHeight = evenUp(
-                if (project.exportSettings.height > 0) project.exportSettings.height
-                else firstInfo.height
-            )
-
-            // Probe each clip for audio — build map by input index
-            val clipHasAudioMap = mutableMapOf<Int, Boolean>()
-            var inputIdx = 0
-            for (track in videoTracks) {
-                for (clip in track.clips.filterIsInstance<Clip.VideoClip>().sortedBy { it.startMs }) {
-                    clipHasAudioMap[inputIdx] = try {
-                        probeVideo(clip.sourcePath).hasAudio
-                    } catch (_: Exception) { false }
-                    inputIdx++
-                }
-            }
-
-            val totalDurationMs = project.timeline.durationMs
-            tempFile = createTempOutputFile(project.exportSettings.format.extension)
-
-            val command = buildFFmpegCommand(
-                videoTracks = videoTracks,
-                clipHasAudioMap = clipHasAudioMap,
-                audioClips = audioClips,
-                textClips = textClips,
-                format = project.exportSettings.format,
-                quality = project.exportSettings.quality,
-                outWidth = outWidth,
-                outHeight = outHeight,
-                outputPath = tempFile.absolutePath,
-                timelineDurationMs = totalDurationMs,
-            )
-
-            _exportProgress.value = ExportProgress(phase = "Exporting…", progress = 0f)
-            executeFFmpegCommand(command, totalDurationMs.toFloat(), tempFile.absolutePath)
-
-            try {
-                File(AndroidContext.get().cacheDir, "subtitles").listFiles()?.forEach { it.delete() }
-                File(AndroidContext.get().cacheDir, "filters").listFiles()?.forEach { it.delete() }
-            } catch (_: Exception) {}
-
-            if (_exportProgress.value.isComplete) {
-                _exportProgress.value = ExportProgress(phase = "Saving…", progress = 0.99f)
-                copyToFinalDestination(tempFile, outputPath)
-                _exportProgress.value = ExportProgress(
-                    phase = "Complete", progress = 1f, isComplete = true,
-                )
-            }
-        } catch (e: CancellationException) {
-            tempFile?.delete()
-            throw e
-        } catch (e: Exception) {
-            tempFile?.delete()
-            _exportProgress.value = ExportProgress(error = "Export failed: ${e.message}")
-            e.printStackTrace()
-        }
-    }
-
-    private fun buildFFmpegCommand(
-        videoTracks: List<Track>,
-        clipHasAudioMap: Map<Int, Boolean>,
-        audioClips: List<Clip.AudioClip>,
-        textClips: List<Clip.TextClip>,
-        format: ExportFormat,
-        quality: Float,
-        outWidth: Int,
-        outHeight: Int,
-        outputPath: String,
-        timelineDurationMs: Long,
-    ): String {
-        val sb = StringBuilder()
-        sb.append("-y ")
-
-        val allVideoClips = mutableListOf<Clip.VideoClip>()
-        for (track in videoTracks) {
-            val clips = track.clips.filterIsInstance<Clip.VideoClip>().sortedBy { it.startMs }
-            allVideoClips.addAll(clips)
-            for (clip in clips) {
-                sb.append("-i ${normalizePathForFFmpeg(clip.sourcePath)} ")
-            }
-        }
-        val videoInputCount = allVideoClips.size
-
-        for (clip in audioClips) {
-            sb.append("-i ${normalizePathForFFmpeg(clip.sourcePath)} ")
-        }
-
-        var assFilePath: String? = null
-        if (textClips.isNotEmpty()) {
-            val assContent = FilterGraphBuilder.generateAssSubtitleContent(
-                textClips = textClips,
-                videoClips = allVideoClips,
-                playResX = outWidth,
-                playResY = outHeight,
-            )
-            if (assContent.isNotEmpty()) {
-                val assDir = File(AndroidContext.get().cacheDir, "subtitles")
-                assDir.mkdirs()
-                val assFile = File(assDir, "export_${System.currentTimeMillis()}.ass")
-                assFile.writeText(assContent, Charsets.UTF_8)
-                assFilePath = assFile.absolutePath
-            }
-        }
-
-        val result = FilterGraphBuilder.buildMultiTrackFilterGraph(
-            videoTracks = videoTracks,
-            clipHasAudioMap = clipHasAudioMap,
-            outWidth = outWidth,
-            outHeight = outHeight,
-            textClips = textClips,
-            fontPath = ANDROID_FONT,
-            timelineDurationMs = timelineDurationMs,
-            useDrawtext = false,
-            subtitleFilePath = assFilePath,
+        _exportProgress.value = ExportProgress(
+            error = "Export not yet implemented in pure-Rust pipeline. " +
+                    "Use the Rust render plan + OpenH264 encoder."
         )
-
-        val filterComplex = StringBuilder(result.filterComplex)
-
-        // Separate audio clips
-        val audioInputs = mutableListOf<String>()
-        if (result.audioOutLabel != null) {
-            audioInputs.add("[${result.audioOutLabel}]")
-        }
-
-        for ((i, clip) in audioClips.withIndex()) {
-            val idx = videoInputCount + i
-            val af = mutableListOf<String>()
-            af.add("atrim=start=${clip.sourceStartMs / 1000.0}:end=${clip.sourceEndMs / 1000.0}")
-            af.add("asetpts=PTS-STARTPTS")
-            if (clip.volume != 1.0f) af.add("volume=${clip.volume}")
-            if (clip.fadeInMs > 0) af.add("afade=t=in:st=0:d=${clip.fadeInMs / 1000.0}")
-            if (clip.fadeOutMs > 0) {
-                val fadeStart = (clip.durationMs - clip.fadeOutMs) / 1000.0
-                af.add("afade=t=out:st=$fadeStart:d=${clip.fadeOutMs / 1000.0}")
-            }
-            if (clip.startMs > 0) af.add("adelay=${clip.startMs}|${clip.startMs}")
-            filterComplex.append("[$idx:a]${af.joinToString(",")}[audio$i];")
-            audioInputs.add("[audio$i]")
-        }
-
-        val hasAnyAudio = audioInputs.isNotEmpty()
-
-        if (audioInputs.size > 1) {
-            filterComplex.append(
-                "${audioInputs.joinToString("")}amix=inputs=${audioInputs.size}:duration=longest:normalize=1[outa]"
-            )
-        } else if (audioInputs.size == 1) {
-            filterComplex.append("${audioInputs[0]}acopy[outa]")
-        }
-
-        val finalFilter = filterComplex.toString().trimEnd(';')
-        val filterDir = File(AndroidContext.get().cacheDir, "filters")
-        filterDir.mkdirs()
-        val filterFile = File(filterDir, "filter_complex_${System.currentTimeMillis()}.txt")
-        filterFile.writeText(finalFilter, Charsets.UTF_8)
-
-        sb.append("-filter_complex_script ${filterFile.absolutePath} ")
-        sb.append("-map [${result.videoOutLabel}] ")
-        if (hasAnyAudio) sb.append("-map [outa] ")
-
-        appendCodecSettings(sb, format, quality, hasAnyAudio)
-        sb.append(outputPath)
-
-        return sb.toString()
-    }
-
-    /**
-     * Codec settings for LGPL FFmpegKit build.
-     * libx264 is NOT available (requires GPL build).
-     * mpeg4 is always available.
-     * libvpx-vp9 is included in LGPL builds for WebM.
-     */
-    private fun appendCodecSettings(
-        sb: StringBuilder,
-        format: ExportFormat,
-        quality: Float,
-        hasAudio: Boolean,
-    ) {
-        when (format) {
-            ExportFormat.MP4, ExportFormat.MOV -> {
-                sb.append("-c:v mpeg4 ")
-                val bitrate = (quality / 100f * 8000f + 500f).toInt().coerceIn(500, 8500)
-                sb.append("-b:v ${bitrate}k ")
-                sb.append("-pix_fmt yuv420p ")
-                if (hasAudio) sb.append("-c:a aac -b:a 192k ")
-            }
-            ExportFormat.WebM -> {
-                sb.append("-c:v libvpx-vp9 ")
-                val crf = ((100 - quality) / 100f * 56f + 7f).toInt().coerceIn(0, 63)
-                sb.append("-crf $crf -b:v 0 ")
-                if (hasAudio) sb.append("-c:a libopus -b:a 128k ")
-            }
-        }
-        sb.append("-f ${format.extension} ")
-    }
-
-    private suspend fun executeFFmpegCommand(
-        command: String,
-        totalDurationMs: Float,
-        tempOutputPath: String,
-    ) = suspendCancellableCoroutine { continuation ->
-
-        val session = FFmpegKit.executeAsync(
-            command,
-            { session ->
-                val returnCode = session.returnCode
-                when {
-                    ReturnCode.isSuccess(returnCode) -> {
-                        _exportProgress.value = ExportProgress(
-                            phase = "Complete",
-                            progress = 1f,
-                            isComplete = true,
-                        )
-                        if (continuation.isActive) {
-                            continuation.resume(Unit)
-                        }
-                    }
-                    ReturnCode.isCancel(returnCode) -> {
-                        _exportProgress.value = ExportProgress(
-                            phase = "Cancelled",
-                            isCancelled = true,
-                        )
-                        try { File(tempOutputPath).delete() } catch (_: Exception) {}
-                        if (continuation.isActive) {
-                            continuation.resume(Unit)
-                        }
-                    }
-                    else -> {
-                        val logs = session.allLogsAsString ?: ""
-                        val errorDetail = when {
-                            "Unknown encoder" in logs -> {
-                                val encoder = Regex("Unknown encoder '(\\w+)'")
-                                    .find(logs)?.groupValues?.get(1) ?: "unknown"
-                                "Encoder '$encoder' not available."
-                            }
-                            "Error opening output" in logs ->
-                                "Cannot write to output location. Check storage permissions."
-                            else -> session.failStackTrace ?: "Unknown error (code ${returnCode.value})"
-                        }
-                        _exportProgress.value = ExportProgress(
-                            error = "Export failed: $errorDetail"
-                        )
-                        try { File(tempOutputPath).delete() } catch (_: Exception) {}
-                        if (continuation.isActive) {
-                            continuation.resumeWithException(
-                                RuntimeException("FFmpeg failed: $errorDetail")
-                            )
-                        }
-                    }
-                }
-            },
-            null,
-            { statistics: Statistics ->
-                if (totalDurationMs > 0) {
-                    val timeMs = statistics.time.toFloat()
-                    val progress = (timeMs / totalDurationMs).coerceIn(0f, 1f)
-                    _exportProgress.value = ExportProgress(
-                        phase = "Exporting… ${(progress * 100).toInt()}%",
-                        progress = progress,
-                    )
-                }
-            }
-        )
-
-        currentSessionId = session.sessionId
-
-        continuation.invokeOnCancellation {
-            FFmpegKit.cancel(session.sessionId)
-            try { File(tempOutputPath).delete() } catch (_: Exception) {}
-        }
     }
 
     actual suspend fun extractThumbnails(
@@ -438,35 +48,29 @@ actual class PlatformVideoEngine actual constructor() {
         width: Int,
         height: Int,
     ): List<ImageData> = withContext(Dispatchers.IO) {
-        val retriever = MediaMetadataRetriever()
-        val thumbnails = mutableListOf<ImageData>()
-
         try {
-            retriever.setDataSourceCompat(path)
-            val durationMs = retriever.extractMetadata(
-                MediaMetadataRetriever.METADATA_KEY_DURATION
-            )?.toLongOrNull() ?: return@withContext emptyList()
+            val info = nativeProbeVideo(path)
+            val durationUs = info.durationUs
 
-            if (durationMs <= 0) return@withContext emptyList()
+            if (durationUs <= 0L) return@withContext emptyList()
 
-            val interval = durationMs / count
+            val frames = nativeExtractThumbnails(path, count.toUInt(), durationUs)
 
-            for (i in 0 until count) {
+            frames.map { frame ->
                 ensureActive()
+                val rgba = frame.rgba.toList().map { it.toByte() }.toByteArray()
+                val fw = frame.width.toInt()
+                val fh = frame.height.toInt()
 
-                val timeUs = i * interval * 1000
-                val bitmap = retriever.getFrameAtTime(
-                    timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-                ) ?: continue
-
-                thumbnails.add(bitmap.toImageData(width, height))
-                bitmap.recycle()
+                if (width > 0 && height > 0 && (fw != width || fh != height)) {
+                    scaleRgba(rgba, fw, fh, width, height)
+                } else {
+                    ImageData(fw, fh, rgba)
+                }
             }
-        } finally {
-            retriever.release()
+        } catch (e: Exception) {
+            emptyList()
         }
-
-        thumbnails
     }
 
     actual suspend fun extractSingleThumbnail(
@@ -475,30 +79,49 @@ actual class PlatformVideoEngine actual constructor() {
         width: Int,
         height: Int,
     ): ImageData? = withContext(Dispatchers.IO) {
-        val retriever = MediaMetadataRetriever()
         try {
-            retriever.setDataSourceCompat(path)
-            val bitmap = retriever.getFrameAtTime(
-                timestampMs * 1000,
-                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-            ) ?: return@withContext null
+            val frame = nativeExtractThumbnail(path, timestampMs * 1000L)
+            val rgba = frame.rgba.toList().map { it.toByte() }.toByteArray()
+            val fw = frame.width.toInt()
+            val fh = frame.height.toInt()
 
-            val result = bitmap.toImageData(width, height)
-            bitmap.recycle()
-            result
-        } finally {
-            retriever.release()
+            if (width > 0 && height > 0 && (fw != width || fh != height)) {
+                scaleRgba(rgba, fw, fh, width, height)
+            } else {
+                ImageData(fw, fh, rgba)
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
     actual fun cancelExport() {
-        if (currentSessionId >= 0) {
-            FFmpegKit.cancel(currentSessionId)
-        }
     }
 
     actual fun reset() {
         _exportProgress.value = ExportProgress()
-        currentSessionId = -1
     }
+}
+
+private fun scaleRgba(
+    src: ByteArray,
+    srcW: Int,
+    srcH: Int,
+    dstW: Int,
+    dstH: Int,
+): ImageData {
+    val dst = ByteArray(dstW * dstH * 4)
+    for (y in 0 until dstH) {
+        val srcY = y * srcH / dstH
+        for (x in 0 until dstW) {
+            val srcX = x * srcW / dstW
+            val si = (srcY * srcW + srcX) * 4
+            val di = (y * dstW + x) * 4
+            dst[di] = src[si]
+            dst[di + 1] = src[si + 1]
+            dst[di + 2] = src[si + 2]
+            dst[di + 3] = src[si + 3]
+        }
+    }
+    return ImageData(dstW, dstH, dst)
 }

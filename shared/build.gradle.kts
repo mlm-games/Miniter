@@ -77,7 +77,6 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.ktx)
             implementation(libs.koin.android)
-            implementation(libs.ffmpegkit.full)
             implementation(libs.okio)
             //noinspection UseTomlInstead
             implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")

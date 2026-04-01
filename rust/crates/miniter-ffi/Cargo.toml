@@ -11,6 +11,7 @@ miniter-domain = { path = "../miniter-domain" }
 miniter-usecases = { path = "../miniter-usecases" }
 miniter-audio = { path = "../miniter-audio" }
 miniter-render-plan = { path = "../miniter-render-plan" }
+miniter-media-native = { path = "../miniter-media-native" }
 uniffi.workspace = true
 serde_json.workspace = true
 log.workspace = true
