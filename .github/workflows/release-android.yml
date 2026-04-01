@@ -86,11 +86,11 @@ jobs:
         name: Commit and push version bump
         shell: bash
         run: |
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name  "github-actions[bot]"
-          git add $BUILD_GRADLE_PATH
-          git commit -m "chore: bump Android to ${{ steps.ver.outputs.version_name }} [skip ci]" || true
-          git push
+          # git config user.email "github-actions[bot]@users.noreply.github.com"
+          # git config user.name  "github-actions[bot]"
+          # git add $BUILD_GRADLE_PATH
+          # git commit -m "chore: bump Android to ${{ steps.ver.outputs.version_name }} [skip ci]" || true
+          # git push
           echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
   build:
