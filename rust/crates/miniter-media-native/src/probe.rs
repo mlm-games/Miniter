@@ -27,8 +27,6 @@ pub struct AudioStreamInfo {
 pub enum MediaProbeError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("FFmpeg error: {0}")]
-    Ffmpeg(#[from] ac_ffmpeg::Error),
 }
 
 pub fn probe_media(_path: &Path) -> Result<MediaInfo, MediaProbeError> {
