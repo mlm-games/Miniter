@@ -21,7 +21,42 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.mlm.miniter.editor.model.RustProjectSnapshot
+import org.mlm.miniter.editor.model.toLegacyProject
 import org.mlm.miniter.project.*
+
+@Composable
+fun PropertiesPanel(
+    snapshot: RustProjectSnapshot?,
+    selectedClipId: String?,
+    onAddFilter: (String, VideoFilter) -> Unit,
+    onRemoveFilter: (String, Int) -> Unit,
+    onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
+    onSetSpeed: (String, Float) -> Unit,
+    onSetVolume: (String, Float) -> Unit,
+    onSetTransition: (String, Transition?) -> Unit,
+    onUpdateText: (String, String) -> Unit,
+    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
+    onSetOpacity: (String, Float) -> Unit = { _, _ -> },
+    onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
+    onSetTextTransition: (String, Transition?) -> Unit = { _, _ -> },
+) {
+    PropertiesPanel(
+        project = snapshot?.toLegacyProject(),
+        selectedClipId = selectedClipId,
+        onAddFilter = onAddFilter,
+        onRemoveFilter = onRemoveFilter,
+        onUpdateFilterParams = onUpdateFilterParams,
+        onSetSpeed = onSetSpeed,
+        onSetVolume = onSetVolume,
+        onSetTransition = onSetTransition,
+        onUpdateText = onUpdateText,
+        onUpdateTextStyle = onUpdateTextStyle,
+        onSetOpacity = onSetOpacity,
+        onSetTextDuration = onSetTextDuration,
+        onSetTextTransition = onSetTextTransition,
+    )
+}
 
 @Composable
 fun PropertiesPanel(

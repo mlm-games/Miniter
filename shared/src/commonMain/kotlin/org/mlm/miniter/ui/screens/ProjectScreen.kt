@@ -36,7 +36,7 @@ fun ProjectScreen(
 ) {
     val vm: ProjectViewModel = koinInject()
     val uiState by vm.state.collectAsState()
-    val project = uiState.project
+    val snapshot = uiState.snapshot
     val playheadMs = uiState.playheadMs
     val isPlaying = uiState.isPlaying
     val selectedClipId = uiState.selectedClipId
@@ -63,7 +63,7 @@ fun ProjectScreen(
     }
 
     LaunchedEffect(videoPath) {
-        if (project == null) {
+        if (snapshot == null) {
             vm.initProject(videoPath, videoName, savePath)
         }
     }
@@ -81,7 +81,7 @@ fun ProjectScreen(
     Column(modifier = Modifier.fillMaxSize()) {
 
         CompactTopBar(
-            projectName = project?.name ?: videoName,
+            projectName = snapshot?.meta?.name ?: videoName,
             isDirty = isDirty,
             canUndo = canUndo,
             canRedo = canRedo,
@@ -97,7 +97,7 @@ fun ProjectScreen(
         )
 
         EditorVideoPreview(
-            project = project,
+            snapshot = snapshot,
             playheadMs = playheadMs,
             isPlaying = isPlaying,
             onPlayingChange = { vm.setPlaying(it) },
@@ -110,7 +110,7 @@ fun ProjectScreen(
 
         PlaybackControls(
             playheadMs = playheadMs,
-            durationMs = project?.timeline?.durationMs ?: 0,
+            durationMs = snapshotTimelineDurationMs(snapshot),
             isPlaying = isPlaying,
             onTogglePlay = { vm.togglePlayPause() },
             onSeek = { vm.seekTo(it) },
@@ -141,7 +141,7 @@ fun ProjectScreen(
             color = MaterialTheme.colorScheme.surfaceContainer,
         ) {
             TimelinePanel(
-                project = project,
+                snapshot = snapshot,
                 playheadMs = playheadMs,
                 zoomLevel = zoomLevel,
                 isPlaying = isPlaying,
@@ -172,7 +172,7 @@ fun ProjectScreen(
     if (showPropertiesSheet && selectedClipId != null) {
         PropertiesBottomSheet(
             sheetState = sheetState,
-            project = project,
+            snapshot = snapshot,
             selectedClipId = selectedClipId,
             onDismiss = {
                 scope.launch { sheetState.hide() }
@@ -211,4 +211,13 @@ fun ProjectScreen(
             },
         )
     }
+}
+
+private fun snapshotTimelineDurationMs(snapshot: org.mlm.miniter.editor.model.RustProjectSnapshot?): Long {
+    if (snapshot == null) return 0L
+    val maxEndUs = snapshot.timeline.tracks
+        .flatMap { it.clips }
+        .maxOfOrNull { it.timelineStartUs + it.timelineDurationUs }
+        ?: 0L
+    return maxEndUs / 1000L
 }

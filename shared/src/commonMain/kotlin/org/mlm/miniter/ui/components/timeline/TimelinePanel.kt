@@ -29,6 +29,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.mlm.miniter.editor.model.RustProjectSnapshot
+import org.mlm.miniter.editor.model.toLegacyProject
 import org.mlm.miniter.project.*
 
 private val TRACK_HEIGHT = 52.dp
@@ -39,6 +41,61 @@ private val PLAYHEAD_HEAD_SIZE = 10.dp
 private val ADD_TRACK_ROW_HEIGHT = 36.dp
 private const val MIN_CLIP_WIDTH_DP = 12f
 private const val MIN_TIMELINE_DURATION_MS = 30_000L
+
+@Composable
+fun TimelinePanel(
+    snapshot: RustProjectSnapshot?,
+    playheadMs: Long,
+    zoomLevel: Float,
+    isPlaying: Boolean = false,
+    selectedClipId: String?,
+    snapIndicatorMs: Long?,
+    onPlayheadChange: (Long) -> Unit,
+    onClipSelected: (String?) -> Unit,
+    onBeginEdit: () -> Unit,
+    onClipMoveAbsolute: (clipId: String, absoluteStartMs: Long) -> Unit,
+    onClipMoveToTrack: (clipId: String, fromTrackId: String, toTrackId: String) -> Unit,
+    onCommitEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
+    onClipTrimStartAbsolute: (clipId: String, newStartMs: Long) -> Unit,
+    onClipTrimEndAbsolute: (clipId: String, newEndMs: Long) -> Unit,
+    onToggleMute: (String) -> Unit,
+    onToggleLock: (String) -> Unit,
+    onAddTrack: (TrackType) -> Unit,
+    onRemoveTrack: (String) -> Unit,
+    onSnapPosition: (Long, String?) -> Long,
+    onClearSnap: () -> Unit = {},
+    onSplitClip: (String) -> Unit = {},
+    onDuplicateClip: (String) -> Unit = {},
+    onDeleteClip: (String) -> Unit = {},
+) {
+    TimelinePanel(
+        project = snapshot?.toLegacyProject(),
+        playheadMs = playheadMs,
+        zoomLevel = zoomLevel,
+        isPlaying = isPlaying,
+        selectedClipId = selectedClipId,
+        snapIndicatorMs = snapIndicatorMs,
+        onPlayheadChange = onPlayheadChange,
+        onClipSelected = onClipSelected,
+        onBeginEdit = onBeginEdit,
+        onClipMoveAbsolute = onClipMoveAbsolute,
+        onClipMoveToTrack = onClipMoveToTrack,
+        onCommitEdit = onCommitEdit,
+        onCancelEdit = onCancelEdit,
+        onClipTrimStartAbsolute = onClipTrimStartAbsolute,
+        onClipTrimEndAbsolute = onClipTrimEndAbsolute,
+        onToggleMute = onToggleMute,
+        onToggleLock = onToggleLock,
+        onAddTrack = onAddTrack,
+        onRemoveTrack = onRemoveTrack,
+        onSnapPosition = onSnapPosition,
+        onClearSnap = onClearSnap,
+        onSplitClip = onSplitClip,
+        onDuplicateClip = onDuplicateClip,
+        onDeleteClip = onDeleteClip,
+    )
+}
 
 @Composable
 fun TimelinePanel(

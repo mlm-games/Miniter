@@ -17,6 +17,8 @@ import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.vinceglb.filekit.path
 import org.koin.compose.koinInject
+import org.mlm.miniter.editor.model.RustExportFormat
+import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.engine.ExportProgress
 import org.mlm.miniter.project.ExportFormat
 import org.mlm.miniter.project.ExportSettings
@@ -29,10 +31,35 @@ import org.mlm.miniter.viewmodel.ProjectViewModel
 fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val vm: ProjectViewModel = koinInject()
     val uiState by vm.state.collectAsState()
-    val project = uiState.project
+    val snapshot = uiState.snapshot
     val progress by vm.exportProgress.collectAsState()
 
-    val settings = project?.exportSettings ?: ExportSettings()
+    val profile = snapshot?.exportProfile
+    val profileFormat = when (profile?.format) {
+        RustExportFormat.Mp4 -> ExportFormat.MP4
+        RustExportFormat.WebM -> ExportFormat.WebM
+        RustExportFormat.Mov -> ExportFormat.MOV
+        null -> ExportFormat.MP4
+    }
+    val (profileWidth, profileHeight) = when (val resolution = profile?.resolution) {
+        RustExportResolution.Sd480 -> 854 to 480
+        RustExportResolution.Hd720 -> 1280 to 720
+        RustExportResolution.Hd1080 -> 1920 to 1080
+        RustExportResolution.Uhd4k -> 3840 to 2160
+        is RustExportResolution.Custom -> resolution.width to resolution.height
+        null -> 0 to 0
+    }
+    val profileQuality = profile
+        ?.videoBitrateKbps
+        ?.let { bitrate -> ((bitrate.toFloat() - 500f) / 80f).coerceIn(1f, 100f) }
+        ?: 80f
+
+    val settings = ExportSettings(
+        format = profileFormat,
+        quality = profileQuality,
+        width = profileWidth,
+        height = profileHeight,
+    )
     var format by remember(settings.format) { mutableStateOf(settings.format) }
     var quality by remember(settings.quality) { mutableFloatStateOf(settings.quality) }
     var customWidth by remember(settings.width) { mutableStateOf(settings.width.takeIf { it > 0 }?.toString() ?: "") }
@@ -166,7 +193,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 FilledTonalButton(
                     onClick = {
                         fileSaverLauncher.launch(
-                            suggestedName = project?.name ?: "export",
+                            suggestedName = snapshot?.meta?.name ?: "export",
                             extension = format.extension,
                         )
                     },
@@ -213,7 +240,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                         Text(
-                                            outputFile?.path ?: "${project?.name}.${format.extension}",
+                                            outputFile?.path ?: "${snapshot?.meta?.name}.${format.extension}",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                         )
@@ -317,7 +344,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 // the temp-file + contentResolver.openOutputStream approach
                                 vm.startExport(file.path)
                             },
-                            enabled = outputFile != null && project != null,
+                            enabled = outputFile != null && snapshot != null,
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                         ) {
                             Icon(Icons.Default.FileDownload, null)
@@ -330,7 +357,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
 
             Spacer(Modifier.weight(1f))
 
-            if (project != null) {
+            if (snapshot != null) {
                 Card(
                     Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -345,9 +372,11 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         )
                         Spacer(Modifier.height(4.dp))
 
-                        val totalClips = project.timeline.tracks.sumOf { it.clips.size }
-                        val totalTracks = project.timeline.tracks.size
-                        val durationSec = project.timeline.durationMs / 1000
+                        val totalClips = snapshot.timeline.tracks.sumOf { it.clips.size }
+                        val totalTracks = snapshot.timeline.tracks.size
+                        val durationSec = (snapshot.timeline.tracks
+                            .flatMap { it.clips }
+                            .maxOfOrNull { it.timelineStartUs + it.timelineDurationUs } ?: 0L) / 1_000_000L
 
                         Text(
                             "$totalTracks tracks · $totalClips clips · ${durationSec}s",
@@ -355,8 +384,8 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
 
-                        val w = project.exportSettings.width
-                        val h = project.exportSettings.height
+                        val w = profileWidth
+                        val h = profileHeight
                         if (w > 0 && h > 0) {
                             Text(
                                 "Source: ${w}×${h}",

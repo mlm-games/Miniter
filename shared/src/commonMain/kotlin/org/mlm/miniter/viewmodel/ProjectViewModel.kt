@@ -36,7 +36,6 @@ import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
-import org.mlm.miniter.editor.model.toLegacyProject
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.VideoInfo
@@ -45,7 +44,6 @@ import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.ExportFormat
 import org.mlm.miniter.project.ExportSettings
 import org.mlm.miniter.project.FilterType
-import org.mlm.miniter.project.MinterProject
 import org.mlm.miniter.project.ProjectRepository
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.project.TrackType
@@ -56,7 +54,7 @@ import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import kotlin.time.Clock
 
 data class ProjectUiState(
-    val project: MinterProject? = null,
+    val snapshot: RustProjectSnapshot? = null,
     val projectPath: String? = null,
     val selectedTrackId: String? = null,
     val selectedClipId: String? = null,
@@ -86,8 +84,6 @@ class ProjectViewModel(
 
     val exportProgress = engine.exportProgress
 
-    val project: StateFlow<MinterProject?> = _state.map { it.project }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val playheadMs: StateFlow<Long> = _state.map { it.playheadMs }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
     val isPlaying: StateFlow<Boolean> = _state.map { it.isPlaying }
@@ -916,10 +912,10 @@ class ProjectViewModel(
         playheadMs: Long = _state.value.playheadMs,
         isDirty: Boolean = _state.value.isDirty,
     ) {
-        val legacy = rustStore.snapshot.value?.toLegacyProject()
+        val snapshot = rustStore.snapshot.value
         _state.update {
             it.copy(
-                project = legacy,
+                snapshot = snapshot,
                 projectPath = projectPath,
                 selectedTrackId = selectedTrackId,
                 selectedClipId = selectedClipId,

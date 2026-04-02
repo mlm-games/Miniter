@@ -5,13 +5,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.project.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PropertiesBottomSheet(
     sheetState: SheetState,
-    project: MinterProject?,
+    snapshot: RustProjectSnapshot?,
     selectedClipId: String?,
     onDismiss: () -> Unit,
     onAddFilter: (String, VideoFilter) -> Unit,
@@ -38,7 +39,7 @@ fun PropertiesBottomSheet(
                 .heightIn(min = 200.dp, max = 400.dp),
         ) {
             PropertiesPanel(
-                project = project,
+                snapshot = snapshot,
                 selectedClipId = selectedClipId,
                 onAddFilter = onAddFilter,
                 onRemoveFilter = onRemoveFilter,

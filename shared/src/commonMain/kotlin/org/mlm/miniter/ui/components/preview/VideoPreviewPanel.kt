@@ -16,6 +16,16 @@ import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import org.mlm.miniter.editor.model.RustTrackKind
+import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.RustProjectSnapshot
+import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
+import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
+import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
+import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
+import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
+import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
+import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
@@ -24,7 +34,7 @@ import kotlin.time.TimeSource
 
 @Composable
 fun EditorVideoPreview(
-    project: MinterProject?,
+    snapshot: RustProjectSnapshot?,
     playheadMs: Long,
     isPlaying: Boolean,
     onPlayingChange: (Boolean) -> Unit,
@@ -39,11 +49,27 @@ fun EditorVideoPreview(
         onDispose { frameGrabber.release() }
     }
 
-    val currentClip = remember(project, playheadMs) {
-        project?.timeline?.tracks
-            ?.filter { it.type == TrackType.Video && !it.isMuted }
-            ?.flatMap { it.clips.filterIsInstance<Clip.VideoClip>() }
-            ?.find { clip -> playheadMs >= clip.startMs && playheadMs < clip.startMs + clip.durationMs }
+    val currentClip = remember(snapshot, playheadMs) {
+        val playheadUs = playheadMs * 1000L
+        snapshot?.timeline?.tracks
+            ?.filter { it.kind == RustTrackKind.Video && !it.muted }
+            ?.flatMap { it.clips }
+            ?.mapNotNull { clip ->
+                val video = clip.kind as? RustVideoClipKind ?: return@mapNotNull null
+                ClipPreview(
+                    id = clip.id,
+                    startMs = clip.timelineStartUs / 1000L,
+                    durationMs = clip.timelineDurationUs / 1000L,
+                    sourcePath = video.sourcePath,
+                    sourceStartMs = clip.sourceStartUs / 1000L,
+                    sourceEndMs = clip.sourceEndUs / 1000L,
+                    speed = clip.speed.toFloat(),
+                    volume = clip.volume,
+                    opacity = clip.opacity,
+                    filters = video.filters.mapNotNull { it.toVideoFilter() },
+                )
+            }
+            ?.find { clip -> playheadUs >= clip.startMs * 1000L && playheadUs < (clip.startMs + clip.durationMs) * 1000L }
     }
 
     val clipSourcePath = currentClip?.sourcePath
@@ -274,5 +300,31 @@ fun EditorVideoPreview(
                 }
             }
         }
+    }
+}
+
+private data class ClipPreview(
+    val id: String,
+    val startMs: Long,
+    val durationMs: Long,
+    val sourcePath: String,
+    val sourceStartMs: Long,
+    val sourceEndMs: Long,
+    val speed: Float,
+    val volume: Float,
+    val opacity: Float,
+    val filters: List<VideoFilter>,
+)
+
+private fun org.mlm.miniter.editor.model.RustVideoFilterSnapshot.toVideoFilter(): VideoFilter? {
+    return when (this) {
+        is RustBrightnessFilterSnapshot -> VideoFilter(FilterType.Brightness, mapOf("value" to value))
+        is RustContrastFilterSnapshot -> VideoFilter(FilterType.Contrast, mapOf("value" to value))
+        is RustSaturationFilterSnapshot -> VideoFilter(FilterType.Saturation, mapOf("value" to value))
+        RustGrayscaleFilterSnapshot -> VideoFilter(FilterType.Grayscale)
+        is RustBlurFilterSnapshot -> VideoFilter(FilterType.Blur, mapOf("radius" to radius))
+        is RustSharpenFilterSnapshot -> VideoFilter(FilterType.Sharpen, mapOf("amount" to amount))
+        RustSepiaFilterSnapshot -> VideoFilter(FilterType.Sepia)
+        else -> null
     }
 }
