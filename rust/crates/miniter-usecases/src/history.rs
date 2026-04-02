@@ -17,11 +17,21 @@ impl History {
     }
 
     pub fn push(&mut self, inverse: EditCommand) {
+        self.push_internal(inverse, true);
+    }
+
+    pub fn push_after_redo(&mut self, inverse: EditCommand) {
+        self.push_internal(inverse, false);
+    }
+
+    fn push_internal(&mut self, inverse: EditCommand, clear_redo: bool) {
         if self.undo_stack.len() >= self.capacity {
             self.undo_stack.remove(0);
         }
         self.undo_stack.push(inverse);
-        self.redo_stack.clear();
+        if clear_redo {
+            self.redo_stack.clear();
+        }
     }
 
     pub fn push_redo(&mut self, cmd: EditCommand) {

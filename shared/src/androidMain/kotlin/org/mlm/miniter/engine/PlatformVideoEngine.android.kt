@@ -9,11 +9,17 @@ import org.mlm.miniter.project.*
 import org.mlm.miniter.ffi.probeVideo as nativeProbeVideo
 import org.mlm.miniter.ffi.extractThumbnail as nativeExtractThumbnail
 import org.mlm.miniter.ffi.extractThumbnails as nativeExtractThumbnails
+import org.mlm.miniter.ffi.exportProjectJson as nativeExportProjectJson
+import org.mlm.miniter.ffi.cancelExport as nativeCancelExport
+import org.mlm.miniter.platform.AndroidContext
 
 actual class PlatformVideoEngine actual constructor() {
 
     private val _exportProgress = MutableStateFlow(ExportProgress())
     actual val exportProgress: StateFlow<ExportProgress> = _exportProgress
+
+    @Volatile
+    private var exportCancelled = false
 
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
         val result = nativeProbeVideo(path)
@@ -40,6 +46,56 @@ actual class PlatformVideoEngine actual constructor() {
             error = "Export not yet implemented in pure-Rust pipeline. " +
                     "Use the Rust render plan + OpenH264 encoder."
         )
+    }
+
+    actual suspend fun exportProjectJson(
+        projectJson: String,
+        outputPath: String,
+    ) = withContext(Dispatchers.IO) {
+        exportCancelled = false
+        _exportProgress.value = ExportProgress(
+            phase = "Preparing export…",
+            progress = 0.08f,
+        )
+
+        try {
+            ensureActive()
+
+            _exportProgress.value = ExportProgress(
+                phase = "Encoding video…",
+                progress = 0.2f,
+            )
+
+            val ok = nativeExportProjectJson(projectJson, outputPath)
+            ensureActive()
+
+            _exportProgress.value = if (ok && !exportCancelled) {
+                ExportProgress(
+                    phase = "Export complete",
+                    progress = 1f,
+                    isComplete = true,
+                )
+            } else {
+                ExportProgress(
+                    phase = "Export cancelled",
+                    isCancelled = true,
+                )
+            }
+        } catch (e: Exception) {
+            val cancelled = exportCancelled ||
+                (e.message?.contains("cancel", ignoreCase = true) == true)
+
+            _exportProgress.value = if (cancelled) {
+                ExportProgress(
+                    phase = "Export cancelled",
+                    isCancelled = true,
+                )
+            } else {
+                ExportProgress(
+                    error = e.message ?: "Export failed"
+                )
+            }
+        }
     }
 
     actual suspend fun extractThumbnails(
@@ -96,9 +152,17 @@ actual class PlatformVideoEngine actual constructor() {
     }
 
     actual fun cancelExport() {
+        exportCancelled = true
+        nativeCancelExport()
+
+        val current = _exportProgress.value
+        _exportProgress.value = current.copy(
+            phase = "Cancelling…",
+        )
     }
 
     actual fun reset() {
+        exportCancelled = false
         _exportProgress.value = ExportProgress()
     }
 }

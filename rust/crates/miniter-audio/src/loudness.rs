@@ -57,14 +57,23 @@ pub fn scan_loudness(
 
     let track_id = track.id;
     let sample_rate = track.codec_params.sample_rate.unwrap_or(44_100);
-    let samples_per_chunk = (sample_rate as f64 * chunk_duration_us as f64 / 1_000_000.0) as u64;
+    let channels = track
+        .codec_params
+        .channels
+        .map(|c| c.count())
+        .unwrap_or(1)
+        .max(1) as usize;
+
+    let samples_per_chunk = (sample_rate as f64 * chunk_duration_us as f64 / 1_000_000.0)
+        .round()
+        .max(1.0) as u64;
 
     let mut decoder =
         symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
 
     let mut rms_values: Vec<f32> = Vec::new();
     let mut sum_sq: f64 = 0.0;
-    let mut count: u64 = 0;
+    let mut count_frames: u64 = 0;
 
     loop {
         let packet = match reader.next_packet() {
@@ -88,12 +97,22 @@ pub fn scan_loudness(
         let mut sample_buf = SampleBuffer::<f32>::new(num_frames as u64, spec);
         sample_buf.copy_interleaved_ref(decoded);
 
-        for &s in sample_buf.samples() {
-            sum_sq += (s as f64) * (s as f64);
-            count += 1;
+        for frame in sample_buf.samples().chunks(channels) {
+            let mut frame_sq = 0.0f64;
+            let mut n = 0usize;
+            for &s in frame {
+                frame_sq += (s as f64) * (s as f64);
+                n += 1;
+            }
+            if n == 0 {
+                continue;
+            }
 
-            if count >= samples_per_chunk {
-                let rms = (sum_sq / count as f64).sqrt();
+            sum_sq += frame_sq / n as f64;
+            count_frames += 1;
+
+            if count_frames >= samples_per_chunk {
+                let rms = (sum_sq / count_frames as f64).sqrt();
                 let db = if rms > 0.0 {
                     20.0 * (rms as f32).log10()
                 } else {
@@ -101,13 +120,13 @@ pub fn scan_loudness(
                 };
                 rms_values.push(db);
                 sum_sq = 0.0;
-                count = 0;
+                count_frames = 0;
             }
         }
     }
 
-    if count > 0 {
-        let rms = (sum_sq / count as f64).sqrt();
+    if count_frames > 0 {
+        let rms = (sum_sq / count_frames as f64).sqrt();
         let db = if rms > 0.0 {
             20.0 * (rms as f32).log10()
         } else {

@@ -1,4 +1,4 @@
-use crate::render_graph::{RenderPlan, plan_frame};
+use crate::render_graph::{plan_frame, RenderPlan};
 use miniter_domain::export::ExportProfile;
 use miniter_domain::time::Timestamp;
 use miniter_domain::timeline::Timeline;
@@ -16,8 +16,14 @@ impl<'a> FramePlanIterator<'a> {
     pub fn new(timeline: &'a Timeline, profile: &ExportProfile) -> Self {
         let (w, h) = profile.resolution.dimensions();
         let frame_dur = (1_000_000.0 / profile.fps) as i64;
-        let end = timeline.duration_end();
-        let total = (end.as_micros() / frame_dur).max(0) as u64;
+        let end = timeline.duration_end().as_micros();
+
+        let total = if end <= 0 || frame_dur <= 0 {
+            0
+        } else {
+            ((end + frame_dur - 1) / frame_dur) as u64
+        };
+
         Self {
             timeline,
             width: w,

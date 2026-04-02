@@ -1,9 +1,12 @@
 use miniter_domain::project::Project;
 use miniter_usecases::commands::EditCommand;
 use miniter_usecases::reducer::{self, EditorState};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 uniffi::setup_scaffolding!();
+
+static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
 
 #[derive(uniffi::Object)]
 pub struct EditorHandle {
@@ -226,6 +229,36 @@ pub fn extract_thumbnails(
         .collect())
 }
 
+#[uniffi::export]
+pub fn export_project_json(
+    project_json: String,
+    output_path: String,
+) -> Result<bool, MiniterError> {
+    EXPORT_CANCELLED.store(false, Ordering::SeqCst);
+
+    let mut project = Project::from_json(&project_json).map_err(|e| MiniterError::Parse {
+        detail: e.to_string(),
+    })?;
+    project.export_profile.output_path = output_path.clone();
+
+    match miniter_media_native::export::export_project(
+        &project,
+        std::path::Path::new(&output_path),
+        || EXPORT_CANCELLED.load(Ordering::Relaxed),
+    ) {
+        Ok(()) => Ok(true),
+        Err(miniter_media_native::export::ExportError::Cancelled) => Err(MiniterError::Cancelled),
+        Err(e) => Err(MiniterError::Media {
+            detail: e.to_string(),
+        }),
+    }
+}
+
+#[uniffi::export]
+pub fn cancel_export() {
+    EXPORT_CANCELLED.store(true, Ordering::SeqCst);
+}
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MiniterError {
     #[error("Parse error: {detail}")]
@@ -239,6 +272,9 @@ pub enum MiniterError {
 
     #[error("Media error: {detail}")]
     Media { detail: String },
+
+    #[error("Export cancelled")]
+    Cancelled,
 
     #[error("Lock poisoned")]
     LockPoisoned,

@@ -40,9 +40,11 @@ impl VideoEncodeSession {
     }
 
     pub fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<Vec<u8>, EncodeError> {
+        let rgb = rgba_to_rgb(&frame.data);
+
         let mut yuv_buf = YUVBuffer::new(self.width as usize, self.height as usize);
-        yuv_buf.read_rgb8(RgbaSlice {
-            data: frame.data.clone(),
+        yuv_buf.read_rgb8(RgbSlice {
+            data: rgb,
             width: self.width as usize,
             height: self.height as usize,
         });
@@ -72,19 +74,19 @@ impl VideoEncodeSession {
     }
 }
 
-struct RgbaSlice {
+struct RgbSlice {
     data: Vec<u8>,
     width: usize,
     height: usize,
 }
 
-impl openh264::formats::RGBSource for RgbaSlice {
+impl openh264::formats::RGBSource for RgbSlice {
     fn dimensions(&self) -> (usize, usize) {
         (self.width, self.height)
     }
 
     fn pixel_f32(&self, x: usize, y: usize) -> (f32, f32, f32) {
-        let idx = (y * self.width + x) * 4;
+        let idx = (y * self.width + x) * 3;
         (
             self.data[idx] as f32,
             self.data[idx + 1] as f32,
@@ -93,7 +95,7 @@ impl openh264::formats::RGBSource for RgbaSlice {
     }
 }
 
-impl openh264::formats::RGB8Source for RgbaSlice {
+impl openh264::formats::RGB8Source for RgbSlice {
     fn dimensions_padded(&self) -> (usize, usize) {
         (self.width, self.height)
     }
@@ -101,4 +103,14 @@ impl openh264::formats::RGB8Source for RgbaSlice {
     fn rgb8_data(&self) -> &[u8] {
         &self.data
     }
+}
+
+fn rgba_to_rgb(rgba: &[u8]) -> Vec<u8> {
+    let mut rgb = Vec::with_capacity((rgba.len() / 4) * 3);
+    for px in rgba.chunks_exact(4) {
+        rgb.push(px[0]);
+        rgb.push(px[1]);
+        rgb.push(px[2]);
+    }
+    rgb
 }

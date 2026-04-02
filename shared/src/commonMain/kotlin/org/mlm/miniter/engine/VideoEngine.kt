@@ -14,6 +14,11 @@ expect class PlatformVideoEngine() {
         outputPath: String,
     )
 
+    suspend fun exportProjectJson(
+        projectJson: String,
+        outputPath: String,
+    )
+
     suspend fun extractThumbnails(
         path: String,
         count: Int,

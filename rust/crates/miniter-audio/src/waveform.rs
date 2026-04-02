@@ -62,6 +62,7 @@ pub fn extract_waveform(path: &Path, target_buckets: usize) -> Result<WaveformDa
         .map(|c| c.count() as u16)
         .unwrap_or(1);
 
+    let channels_usize = channels.max(1) as usize;
     let total_samples = track
         .codec_params
         .n_frames
@@ -74,6 +75,7 @@ pub fn extract_waveform(path: &Path, target_buckets: usize) -> Result<WaveformDa
     let mut peaks: Vec<(f32, f32)> = Vec::with_capacity(target_buckets);
     let mut bucket_min: f32 = 0.0;
     let mut bucket_max: f32 = 0.0;
+    let mut bucket_has_value = false;
     let mut bucket_count: u64 = 0;
 
     loop {
@@ -98,21 +100,38 @@ pub fn extract_waveform(path: &Path, target_buckets: usize) -> Result<WaveformDa
         let mut sample_buf = SampleBuffer::<f32>::new(num_frames as u64, spec);
         sample_buf.copy_interleaved_ref(decoded);
 
-        for &sample in sample_buf.samples() {
-            bucket_min = bucket_min.min(sample);
-            bucket_max = bucket_max.max(sample);
+        for frame in sample_buf.samples().chunks(channels_usize) {
+            let mut mono = 0.0f32;
+            let mut n = 0usize;
+            for &sample in frame {
+                mono += sample;
+                n += 1;
+            }
+            if n == 0 {
+                continue;
+            }
+            mono /= n as f32;
+
+            if !bucket_has_value {
+                bucket_min = mono;
+                bucket_max = mono;
+                bucket_has_value = true;
+            } else {
+                bucket_min = bucket_min.min(mono);
+                bucket_max = bucket_max.max(mono);
+            }
+
             bucket_count += 1;
 
             if bucket_count >= samples_per_bucket {
                 peaks.push((bucket_min, bucket_max));
-                bucket_min = 0.0;
-                bucket_max = 0.0;
+                bucket_has_value = false;
                 bucket_count = 0;
             }
         }
     }
 
-    if bucket_count > 0 {
+    if bucket_has_value {
         peaks.push((bucket_min, bucket_max));
     }
 

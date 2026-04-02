@@ -17,3 +17,6 @@ openh264 = { version = "0.6", features = ["source"] }
 
 # Audio demuxing (pure Rust)
 symphonia = { version = "0.5.5", features = ["isomp4", "mkv"] }
+
+# Text rendering for export
+font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }

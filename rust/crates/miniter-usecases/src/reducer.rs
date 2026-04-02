@@ -4,7 +4,7 @@ use crate::selection::Selection;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
 use miniter_domain::project::Project;
 use miniter_domain::time::{MediaDuration, Timestamp};
-use miniter_domain::track::{Track, TrackId};
+use miniter_domain::track::{Track, TrackId, TrackKind};
 
 #[derive(Debug, Clone)]
 pub struct EditorState {
@@ -612,11 +612,18 @@ fn timeline_duration_from_source_bounds(
 }
 
 fn find_clip_mut(state: &mut EditorState, clip_id: ClipId) -> Result<&mut Clip, ApplyError> {
-    state
+    let track = state
         .project
         .timeline
         .track_of_clip_mut(clip_id)
-        .and_then(|t| t.clip_by_id_mut(clip_id))
+        .ok_or(ApplyError::ClipNotFound(clip_id))?;
+
+    if track.locked {
+        return Err(ApplyError::TrackLocked(track.id));
+    }
+
+    track
+        .clip_by_id_mut(clip_id)
         .ok_or(ApplyError::ClipNotFound(clip_id))
 }
 
@@ -627,6 +634,12 @@ pub enum ApplyError {
 
     #[error("Clip not found: {0:?}")]
     ClipNotFound(ClipId),
+
+    #[error("Track is locked: {0:?}")]
+    TrackLocked(miniter_domain::track::TrackId),
+
+    #[error("Clip {clip_id:?} is incompatible with track {track_id:?}")]
+    IncompatibleTrackKind { track_id: TrackId, clip_id: ClipId },
 
     #[error("Wrong clip kind for operation: {0:?}")]
     WrongClipKind(ClipId),
