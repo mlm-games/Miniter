@@ -1,18 +1,12 @@
 package org.mlm.miniter.engine
 
 import kotlinx.coroutines.flow.StateFlow
-import org.mlm.miniter.project.MinterProject
 
 expect class PlatformVideoEngine() {
 
     val exportProgress: StateFlow<ExportProgress>
 
     suspend fun probeVideo(path: String): VideoInfo
-
-    suspend fun exportVideo(
-        project: MinterProject,
-        outputPath: String,
-    )
 
     suspend fun exportProjectJson(
         projectJson: String,

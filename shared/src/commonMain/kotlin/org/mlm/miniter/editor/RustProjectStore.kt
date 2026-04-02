@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.mlm.miniter.editor.model.RustProjectSnapshot
-import org.mlm.miniter.editor.model.toLegacyProject
 import org.mlm.miniter.editor.model.toRustSnapshot
 import org.mlm.miniter.project.MinterProject
 import org.mlm.miniter.rust.RustCoreRepository
@@ -26,9 +25,6 @@ class RustProjectStore(
 
     private val _snapshot = MutableStateFlow<RustProjectSnapshot?>(null)
     val snapshot: StateFlow<RustProjectSnapshot?> = _snapshot.asStateFlow()
-
-    private val _legacyProject = MutableStateFlow<MinterProject?>(null)
-    val legacyProject: StateFlow<MinterProject?> = _legacyProject.asStateFlow()
 
     fun currentSessionOrNull(): RustCoreSession? = repository.currentOrNull()
 
@@ -97,14 +93,12 @@ class RustProjectStore(
     fun clear() {
         repository.clear()
         _snapshot.value = null
-        _legacyProject.value = null
     }
 
     private fun refresh(): RustProjectSnapshot {
         val session = repository.currentOrNull() ?: error("No active Rust session")
         val snapshot = wireJson.decodeFromString(RustProjectSnapshot.serializer(), session.toJson())
         _snapshot.value = snapshot
-        _legacyProject.value = snapshot.toLegacyProject()
         return snapshot
     }
 }

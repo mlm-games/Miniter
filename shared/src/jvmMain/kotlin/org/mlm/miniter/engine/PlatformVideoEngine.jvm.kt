@@ -6,7 +6,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
-import org.mlm.miniter.project.MinterProject
 import org.mlm.miniter.rust.RustCoreSession
 
 actual class PlatformVideoEngine actual constructor() {
@@ -19,15 +18,6 @@ actual class PlatformVideoEngine actual constructor() {
 
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
         RustCoreSession.probeVideo(path)
-    }
-
-    actual suspend fun exportVideo(
-        project: MinterProject,
-        outputPath: String,
-    ) = withContext(Dispatchers.IO) {
-        _exportProgress.value = ExportProgress(
-            error = "Use exportProjectJson() with the live Rust project state."
-        )
     }
 
     actual suspend fun exportProjectJson(

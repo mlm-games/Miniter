@@ -36,12 +36,12 @@ import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.editor.model.toLegacyProject
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.randomUuid
-import org.mlm.miniter.project.Clip
 import org.mlm.miniter.project.ExportFormat
 import org.mlm.miniter.project.ExportSettings
 import org.mlm.miniter.project.FilterType
@@ -166,15 +166,21 @@ class ProjectViewModel(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             try {
-                val project = projectRepository.load(path)
+                val snapshot = try {
+                    val projectJson = PlatformFileSystem.readText(path)
+                    rustStore.openProjectJson(projectJson)
+                } catch (_: Exception) {
+                    val legacyProject = projectRepository.load(path)
+                    rustStore.importLegacyProject(legacyProject)
+                }
 
-                val missingFiles = project.timeline.tracks
+                val missingFiles = snapshot.timeline.tracks
                     .flatMap { it.clips }
                     .mapNotNull { clip ->
-                        when (clip) {
-                            is Clip.VideoClip -> clip.sourcePath
-                            is Clip.AudioClip -> clip.sourcePath
-                            else -> null
+                        when (val kind = clip.kind) {
+                            is RustVideoClipKind -> kind.sourcePath
+                            is RustAudioClipKind -> kind.sourcePath
+                            is RustTextClipKind -> null
                         }
                     }
                     .distinct()
@@ -186,28 +192,29 @@ class ProjectViewModel(
                     )
                 }
 
-                rustStore.importLegacyProject(project)
                 syncFromRust(
                     projectPath = path,
                     playheadMs = 0L,
                     isDirty = false,
                 )
 
-                val firstClip = project.timeline.tracks
+                val firstClip = snapshot.timeline.tracks
                     .flatMap { it.clips }
-                    .filterIsInstance<Clip.VideoClip>()
+                    .mapNotNull { clip -> (clip.kind as? RustVideoClipKind)?.let { kind -> clip to kind } }
                     .firstOrNull()
 
                 if (firstClip != null) {
+                    val clip = firstClip.first
+                    val sourcePath = firstClip.second.sourcePath
                     sourceDurationMs = try {
-                        engine.probeVideo(firstClip.sourcePath).durationMs
+                        engine.probeVideo(sourcePath).durationMs
                     } catch (_: Exception) {
-                        firstClip.durationMs
+                        clip.timelineDurationUs / 1000L
                     }
-                    loadThumbnails(firstClip.sourcePath)
+                    loadThumbnails(sourcePath)
                 }
 
-                recentProjectsRepository.addRecent(path, project.name)
+                recentProjectsRepository.addRecent(path, snapshot.meta.name)
             } catch (e: Exception) {
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.showError("Failed to load project: ${e.message}")
@@ -217,13 +224,14 @@ class ProjectViewModel(
 
     fun saveProject(path: String? = null) {
         viewModelScope.launch {
-            val project = _state.value.project ?: return@launch
+            val snapshot = rustStore.snapshot.value ?: return@launch
             val savePath = path ?: _state.value.projectPath ?: return@launch
             _state.update { it.copy(isSaving = true) }
             try {
-                projectRepository.save(project, savePath)
+                val projectJson = rustStore.exportProjectJson()
+                PlatformFileSystem.writeText(savePath, projectJson)
                 _state.update { it.copy(projectPath = savePath, isSaving = false, isDirty = false) }
-                recentProjectsRepository.addRecent(savePath, project.name)
+                recentProjectsRepository.addRecent(savePath, snapshot.meta.name)
             } catch (e: Exception) {
                 _state.update { it.copy(isSaving = false) }
                 snackbarManager.showError("Failed to save: ${e.message}")
@@ -312,14 +320,15 @@ class ProjectViewModel(
 
     fun seekRelative(deltaMs: Long) {
         val current = _state.value.playheadMs
-        val max = _state.value.project?.timeline?.durationMs ?: Long.MAX_VALUE
+        val max = if (rustStore.snapshot.value != null) rustStore.durationUs() / 1000L else Long.MAX_VALUE
         setPlayhead((current + deltaMs).coerceIn(0, max))
     }
 
     fun seekToStart() = setPlayhead(0)
 
     fun seekToEnd() {
-        setPlayhead(_state.value.project?.timeline?.durationMs ?: 0L)
+        val endMs = if (rustStore.snapshot.value != null) rustStore.durationUs() / 1000L else 0L
+        setPlayhead(endMs)
     }
 
     fun zoomIn() {
@@ -384,14 +393,13 @@ class ProjectViewModel(
             _state.update { it.copy(isLoading = true) }
 
             try {
-                val selected = _state.value.project?.timeline?.tracks
-                    ?.flatMap { t -> t.clips.map { t.id to it } }
-                    ?.firstOrNull { (_, c) -> c.id == _state.value.selectedClipId }
+                val selected = snapshot.timeline.tracks
+                    .flatMap { track -> track.clips.map { track.id to it } }
+                    .firstOrNull { (_, clip) -> clip.id == _state.value.selectedClipId }
 
-                val initialCursorMs = when (val clip = selected?.second) {
-                    null -> _state.value.playheadMs
-                    else -> clip.startMs + clip.durationMs
-                }
+                val initialCursorMs = selected?.second
+                    ?.let { (it.timelineStartUs + it.timelineDurationUs) / 1000L }
+                    ?: _state.value.playheadMs
 
                 data class ImportItem(
                     val file: PlatformFile,
@@ -497,7 +505,7 @@ class ProjectViewModel(
     }
 
     fun exportProject(outputPath: String) {
-        if (_state.value.project == null) return
+        if (rustStore.snapshot.value == null) return
         viewModelScope.launch {
             val projectJson = rustStore.exportProjectJson()
             engine.exportProjectJson(projectJson, outputPath)
@@ -540,9 +548,9 @@ class ProjectViewModel(
     }
 
     fun removeTrack(trackId: String) {
-        val project = _state.value.project ?: return
-        val track = project.timeline.tracks.find { it.id == trackId } ?: return
-        if (track.type == TrackType.Video && project.timeline.tracks.count { it.type == TrackType.Video } <= 1) {
+        val snapshot = rustStore.snapshot.value ?: return
+        val track = snapshot.timeline.tracks.find { it.id == trackId } ?: return
+        if (track.kind == RustTrackKind.Video && snapshot.timeline.tracks.count { it.kind == RustTrackKind.Video } <= 1) {
             snackbarManager.showError("Cannot remove the only video track")
             return
         }
@@ -794,7 +802,7 @@ class ProjectViewModel(
     }
 
     fun toggleTrackMute(trackId: String) {
-        val muted = _state.value.project?.timeline?.tracks?.firstOrNull { it.id == trackId }?.isMuted ?: return
+        val muted = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { it.id == trackId }?.muted ?: return
         dispatchAndSync(
             rustStore.commands.setTrackMuted(trackId, !muted),
             isDirty = true,
@@ -802,7 +810,7 @@ class ProjectViewModel(
     }
 
     fun toggleTrackLock(trackId: String) {
-        val locked = _state.value.project?.timeline?.tracks?.firstOrNull { it.id == trackId }?.isLocked ?: return
+        val locked = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { it.id == trackId }?.locked ?: return
         dispatchAndSync(
             rustStore.commands.setTrackLocked(trackId, !locked),
             isDirty = true,
@@ -819,7 +827,7 @@ class ProjectViewModel(
 
     fun snapPosition(ms: Long, excludeClipId: String? = null): Long {
         val snapThresholdMs = (200 / _state.value.zoomLevel).toLong().coerceAtLeast(50)
-        val project = _state.value.project ?: return ms
+        val snapshot = rustStore.snapshot.value ?: return ms
         val playhead = _state.value.playheadMs
 
         var nearest = ms
@@ -831,16 +839,19 @@ class ProjectViewModel(
             minDist = dph
         }
 
-        for (clip in project.timeline.tracks.flatMap { it.clips }) {
+        for (clip in snapshot.timeline.tracks.flatMap { it.clips }) {
             if (clip.id == excludeClipId) continue
-            val ds = kotlin.math.abs(ms - clip.startMs)
+            val startMs = clip.timelineStartUs / 1000L
+            val endMs = (clip.timelineStartUs + clip.timelineDurationUs) / 1000L
+
+            val ds = kotlin.math.abs(ms - startMs)
             if (ds < minDist) {
-                nearest = clip.startMs
+                nearest = startMs
                 minDist = ds
             }
-            val de = kotlin.math.abs(ms - (clip.startMs + clip.durationMs))
+            val de = kotlin.math.abs(ms - endMs)
             if (de < minDist) {
-                nearest = clip.startMs + clip.durationMs
+                nearest = endMs
                 minDist = de
             }
         }
@@ -905,7 +916,7 @@ class ProjectViewModel(
         playheadMs: Long = _state.value.playheadMs,
         isDirty: Boolean = _state.value.isDirty,
     ) {
-        val legacy = rustStore.legacyProject.value
+        val legacy = rustStore.snapshot.value?.toLegacyProject()
         _state.update {
             it.copy(
                 project = legacy,
