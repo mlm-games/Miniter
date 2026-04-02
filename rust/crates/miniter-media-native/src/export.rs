@@ -1,23 +1,19 @@
 use crate::decoder::DecodeError;
 use crate::encoder::{EncodeError, VideoEncodeSession};
 use crate::frame::RgbaFrame;
-use crate::mux::{extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError};
+use crate::mux::{ContainerFormat, Mp4Muxer, MuxError, extract_sps_pps};
 use crate::thumbnailer;
-#[cfg(target_os = "linux")]
-use crate::vpx_encoder::{Vp9EncodeError, Vp9EncodeSession};
-#[cfg(target_os = "linux")]
-use crate::webm_mux::{WebmMuxError, WebmMuxer};
-use font8x8::{UnicodeFonts, BASIC_FONTS};
+use font8x8::{BASIC_FONTS, UnicodeFonts};
+use miniter_domain::Project;
 use miniter_domain::clip::ClipKind;
 use miniter_domain::export::ExportFormat;
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use miniter_domain::time::Timestamp;
-use miniter_domain::Project;
 use miniter_render_plan::compositor::FramePlanIterator;
-use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
+use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::BufWriter;
 use std::path::Path;
 
@@ -29,21 +25,14 @@ pub enum ExportError {
     Decode(#[from] DecodeError),
     #[error("H.264 encode: {0}")]
     H264Encode(#[from] EncodeError),
-    #[cfg(target_os = "linux")]
-    #[error("VP9 encode: {0}")]
-    Vp9Encode(#[from] Vp9EncodeError),
     #[error("MP4 mux: {0}")]
     Mp4Mux(#[from] MuxError),
-    #[cfg(target_os = "linux")]
-    #[error("WebM mux: {0}")]
-    WebmMux(#[from] WebmMuxError),
     #[error("Could not extract SPS/PPS from H.264 stream")]
     MissingAvcConfig,
     #[error("Export cancelled")]
     Cancelled,
-    #[cfg(not(target_os = "linux"))]
-    #[error("WebM export is only supported on Linux")]
-    WebMUnsupportedOnThisPlatform,
+    #[error("WebM export not supported (requires libvpx for all platforms, which isn't worth rn)")]
+    WebMNotSupported,
 }
 
 pub fn export_project<F>(
@@ -89,33 +78,7 @@ where
             ContainerFormat::Mov,
             &is_cancelled,
         ),
-        ExportFormat::WebM => {
-            #[cfg(target_os = "linux")]
-            {
-                export_vp9(
-                    project,
-                    output_path,
-                    width,
-                    height,
-                    fps,
-                    bitrate_kbps,
-                    &is_cancelled,
-                )
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                let _ = (
-                    project,
-                    output_path,
-                    width,
-                    height,
-                    fps,
-                    bitrate_kbps,
-                    is_cancelled,
-                );
-                Err(ExportError::WebMUnsupportedOnThisPlatform)
-            }
-        }
+        ExportFormat::WebM => Err(ExportError::WebMNotSupported),
     }
 }
 
@@ -172,57 +135,6 @@ where
         };
         let bitstream = encoder.encode_frame(&frame)?;
         muxer.write_sample(&bitstream, contains_idr(&bitstream))?;
-    }
-
-    muxer.finish()?;
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn export_vp9<F>(
-    project: &Project,
-    output_path: &Path,
-    width: u32,
-    height: u32,
-    fps: f64,
-    bitrate_kbps: u32,
-    is_cancelled: &F,
-) -> Result<(), ExportError>
-where
-    F: Fn() -> bool,
-{
-    let frame_duration_ns = (1_000_000_000.0 / fps) as i64;
-
-    let mut encoder = Vp9EncodeSession::new(width, height, bitrate_kbps, fps)?;
-
-    let file = File::create(output_path)?;
-    let writer = BufWriter::new(file);
-    let mut muxer = WebmMuxer::new(writer, width, height, fps, webm::mux::VideoCodecId::VP9)?;
-
-    let iter = FramePlanIterator::new(&project.timeline, &project.export_profile);
-
-    for plan in iter {
-        if is_cancelled() {
-            return Err(ExportError::Cancelled);
-        }
-
-        let rgba = render_plan_to_rgba(&plan)?;
-        let frame = RgbaFrame {
-            width,
-            height,
-            data: rgba,
-            pts_us: plan.timestamp.as_micros(),
-        };
-        let packets = encoder.encode_frame(&frame, frame_duration_ns)?;
-
-        for (data, is_key) in packets {
-            muxer.write_frame(&data, is_key)?;
-        }
-    }
-
-    let remaining = encoder.flush()?;
-    for (data, is_key) in remaining {
-        muxer.write_frame(&data, is_key)?;
     }
 
     muxer.finish()?;

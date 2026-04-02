@@ -81,13 +81,14 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             Text("Format", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 ExportFormat.entries.forEachIndexed { index, fmt ->
+                    val enabled = !isExporting && fmt != ExportFormat.WebM
                     SegmentedButton(
                         selected = format == fmt,
                         onClick = { format = fmt },
                         shape = SegmentedButtonDefaults.itemShape(index, ExportFormat.entries.size),
-                        enabled = !isExporting,
+                        enabled = enabled,
                     ) {
-                        Text(fmt.name)
+                        Text(fmt.name + if (fmt == ExportFormat.WebM) " (unsupported)" else "")
                     }
                 }
             }

@@ -20,9 +20,3 @@ symphonia = { version = "0.5.5", features = ["isomp4", "mkv"] }
 
 # Text rendering for export
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
-
-# [target.'cfg(target_os = "linux")'.dependencies]
-# # VP9 codec (requires system libvpx)
-# vpx-encode = { version = "0.6", features = ["vp9"] }
-# # WebM container muxer (wraps libwebm)
-# webm = "2"
