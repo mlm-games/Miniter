@@ -497,8 +497,11 @@ class ProjectViewModel(
     }
 
     fun exportProject(outputPath: String) {
-        val project = _state.value.project ?: return
-        viewModelScope.launch { engine.exportVideo(project, outputPath) }
+        if (_state.value.project == null) return
+        viewModelScope.launch {
+            val projectJson = rustStore.exportProjectJson()
+            engine.exportProjectJson(projectJson, outputPath)
+        }
     }
 
     fun cancelExport() = engine.cancelExport()
@@ -513,8 +516,7 @@ class ProjectViewModel(
     }
 
     fun startExport(outputPath: String) {
-        val project = _state.value.project ?: return
-        viewModelScope.launch { engine.exportVideo(project, outputPath) }
+        exportProject(outputPath)
     }
 
     fun reset() {

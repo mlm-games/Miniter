@@ -6,7 +6,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.mlm.miniter.project.FilterType
 import org.mlm.miniter.project.VideoFilter
-import org.mlm.miniter.ffi.extractThumbnail as nativeExtractThumbnail
+import org.mlm.miniter.rust.RustCoreSession
 
 actual class PlatformFrameGrabber {
 
@@ -29,10 +29,10 @@ actual class PlatformFrameGrabber {
         val path = mutex.withLock { currentPath } ?: return@withContext null
 
         try {
-            val frame = nativeExtractThumbnail(path, timestampMs * 1000L)
-            var rgba = frame.rgba.toList().map { it.toByte() }.toByteArray()
-            var fw = frame.width.toInt()
-            var fh = frame.height.toInt()
+            val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L)
+            var rgba = frame.pixels
+            var fw = frame.width
+            var fh = frame.height
 
             if (filters.isNotEmpty() || opacity < 1f) {
                 rgba = applyFiltersToRgba(rgba, fw, fh, filters, opacity)

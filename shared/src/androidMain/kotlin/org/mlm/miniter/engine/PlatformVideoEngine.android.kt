@@ -6,12 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import org.mlm.miniter.project.*
-import org.mlm.miniter.ffi.probeVideo as nativeProbeVideo
-import org.mlm.miniter.ffi.extractThumbnail as nativeExtractThumbnail
-import org.mlm.miniter.ffi.extractThumbnails as nativeExtractThumbnails
-import org.mlm.miniter.ffi.exportProjectJson as nativeExportProjectJson
-import org.mlm.miniter.ffi.cancelExport as nativeCancelExport
-import org.mlm.miniter.platform.AndroidContext
+import org.mlm.miniter.rust.RustCoreSession
 
 actual class PlatformVideoEngine actual constructor() {
 
@@ -22,20 +17,7 @@ actual class PlatformVideoEngine actual constructor() {
     private var exportCancelled = false
 
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
-        val result = nativeProbeVideo(path)
-        VideoInfo(
-            durationMs = result.durationUs / 1000L,
-            width = result.width.toInt(),
-            height = result.height.toInt(),
-            frameRate = result.frameRate,
-            videoBitrate = result.videoBitrate.toInt(),
-            audioChannels = result.audioChannels.toInt(),
-            audioSampleRate = result.audioSampleRate.toInt(),
-            audioCodecName = null,
-            videoCodecName = result.videoCodec,
-            hasAudio = result.hasAudio,
-            hasVideo = result.width > 0u && result.height > 0u,
-        )
+        RustCoreSession.probeVideo(path)
     }
 
     actual suspend fun exportVideo(
@@ -66,7 +48,7 @@ actual class PlatformVideoEngine actual constructor() {
                 progress = 0.2f,
             )
 
-            val ok = nativeExportProjectJson(projectJson, outputPath)
+            val ok = RustCoreSession.exportProjectJson(projectJson, outputPath)
             ensureActive()
 
             _exportProgress.value = if (ok && !exportCancelled) {
@@ -105,18 +87,18 @@ actual class PlatformVideoEngine actual constructor() {
         height: Int,
     ): List<ImageData> = withContext(Dispatchers.IO) {
         try {
-            val info = nativeProbeVideo(path)
-            val durationUs = info.durationUs
+            val info = RustCoreSession.probeVideo(path)
+            val durationUs = info.durationMs * 1000L
 
             if (durationUs <= 0L) return@withContext emptyList()
 
-            val frames = nativeExtractThumbnails(path, count.toUInt(), durationUs)
+            val frames = RustCoreSession.extractThumbnails(path, count, durationUs)
 
             frames.map { frame ->
                 ensureActive()
-                val rgba = frame.rgba.toList().map { it.toByte() }.toByteArray()
-                val fw = frame.width.toInt()
-                val fh = frame.height.toInt()
+                val rgba = frame.pixels
+                val fw = frame.width
+                val fh = frame.height
 
                 if (width > 0 && height > 0 && (fw != width || fh != height)) {
                     scaleRgba(rgba, fw, fh, width, height)
@@ -136,10 +118,10 @@ actual class PlatformVideoEngine actual constructor() {
         height: Int,
     ): ImageData? = withContext(Dispatchers.IO) {
         try {
-            val frame = nativeExtractThumbnail(path, timestampMs * 1000L)
-            val rgba = frame.rgba.toList().map { it.toByte() }.toByteArray()
-            val fw = frame.width.toInt()
-            val fh = frame.height.toInt()
+            val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L)
+            val rgba = frame.pixels
+            val fw = frame.width
+            val fh = frame.height
 
             if (width > 0 && height > 0 && (fw != width || fh != height)) {
                 scaleRgba(rgba, fw, fh, width, height)
@@ -153,7 +135,7 @@ actual class PlatformVideoEngine actual constructor() {
 
     actual fun cancelExport() {
         exportCancelled = true
-        nativeCancelExport()
+        RustCoreSession.cancelExport()
 
         val current = _exportProgress.value
         _exportProgress.value = current.copy(
