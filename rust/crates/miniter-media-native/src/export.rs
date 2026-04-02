@@ -1,8 +1,12 @@
 use crate::decoder::DecodeError;
 use crate::encoder::{EncodeError, VideoEncodeSession};
 use crate::frame::RgbaFrame;
-use crate::mux::{extract_sps_pps, Mp4Muxer, MuxError};
+use crate::mux::{extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError};
 use crate::thumbnailer;
+#[cfg(target_os = "linux")]
+use crate::vpx_encoder::{Vp9EncodeError, Vp9EncodeSession};
+#[cfg(target_os = "linux")]
+use crate::webm_mux::{WebmMuxError, WebmMuxer};
 use font8x8::{UnicodeFonts, BASIC_FONTS};
 use miniter_domain::clip::ClipKind;
 use miniter_domain::export::ExportFormat;
@@ -23,16 +27,23 @@ pub enum ExportError {
     Io(#[from] std::io::Error),
     #[error("Decode: {0}")]
     Decode(#[from] DecodeError),
-    #[error("Encode: {0}")]
-    Encode(#[from] EncodeError),
-    #[error("Mux: {0}")]
-    Mux(#[from] MuxError),
-    #[error("Unsupported export format")]
-    UnsupportedFormat,
-    #[error("Could not extract SPS/PPS from encoded stream")]
+    #[error("H.264 encode: {0}")]
+    H264Encode(#[from] EncodeError),
+    #[cfg(target_os = "linux")]
+    #[error("VP9 encode: {0}")]
+    Vp9Encode(#[from] Vp9EncodeError),
+    #[error("MP4 mux: {0}")]
+    Mp4Mux(#[from] MuxError),
+    #[cfg(target_os = "linux")]
+    #[error("WebM mux: {0}")]
+    WebmMux(#[from] WebmMuxError),
+    #[error("Could not extract SPS/PPS from H.264 stream")]
     MissingAvcConfig,
     #[error("Export cancelled")]
     Cancelled,
+    #[cfg(not(target_os = "linux"))]
+    #[error("WebM export is only supported on Linux")]
+    WebMUnsupportedOnThisPlatform,
 }
 
 pub fn export_project<F>(
@@ -43,18 +54,13 @@ pub fn export_project<F>(
 where
     F: Fn() -> bool,
 {
-    match project.export_profile.format {
-        ExportFormat::Mp4 | ExportFormat::Mov => {}
-        ExportFormat::WebM => return Err(ExportError::UnsupportedFormat),
-    }
-
     let (width, height) = project.export_profile.resolution.dimensions();
     let fps = if project.export_profile.fps > 0.0 {
         project.export_profile.fps
     } else {
         30.0
     };
-    let bitrate_bps = project.export_profile.video_bitrate_kbps.max(500) * 1000;
+    let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
 
     if let Some(parent) = output_path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -62,7 +68,71 @@ where
         }
     }
 
-    let mut encoder = VideoEncodeSession::new(width, height, bitrate_bps, fps as f32)?;
+    match project.export_profile.format {
+        ExportFormat::Mp4 => export_h264(
+            project,
+            output_path,
+            width,
+            height,
+            fps,
+            bitrate_kbps,
+            ContainerFormat::Mp4,
+            &is_cancelled,
+        ),
+        ExportFormat::Mov => export_h264(
+            project,
+            output_path,
+            width,
+            height,
+            fps,
+            bitrate_kbps,
+            ContainerFormat::Mov,
+            &is_cancelled,
+        ),
+        ExportFormat::WebM => {
+            #[cfg(target_os = "linux")]
+            {
+                export_vp9(
+                    project,
+                    output_path,
+                    width,
+                    height,
+                    fps,
+                    bitrate_kbps,
+                    &is_cancelled,
+                )
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (
+                    project,
+                    output_path,
+                    width,
+                    height,
+                    fps,
+                    bitrate_kbps,
+                    is_cancelled,
+                );
+                Err(ExportError::WebMUnsupportedOnThisPlatform)
+            }
+        }
+    }
+}
+
+fn export_h264<F>(
+    project: &Project,
+    output_path: &Path,
+    width: u32,
+    height: u32,
+    fps: f64,
+    bitrate_kbps: u32,
+    container: ContainerFormat,
+    is_cancelled: &F,
+) -> Result<(), ExportError>
+where
+    F: Fn() -> bool,
+{
+    let mut encoder = VideoEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32)?;
 
     let mut iter = FramePlanIterator::new(&project.timeline, &project.export_profile);
     let first_plan = iter
@@ -85,7 +155,7 @@ where
 
     let file = File::create(output_path)?;
     let writer = BufWriter::new(file);
-    let mut muxer = Mp4Muxer::new(writer, width, height, fps, &sps, &pps)?;
+    let mut muxer = Mp4Muxer::new(writer, width, height, fps, &sps, &pps, container)?;
     muxer.write_sample(&first_bitstream, contains_idr(&first_bitstream))?;
 
     for plan in iter {
@@ -102,6 +172,57 @@ where
         };
         let bitstream = encoder.encode_frame(&frame)?;
         muxer.write_sample(&bitstream, contains_idr(&bitstream))?;
+    }
+
+    muxer.finish()?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn export_vp9<F>(
+    project: &Project,
+    output_path: &Path,
+    width: u32,
+    height: u32,
+    fps: f64,
+    bitrate_kbps: u32,
+    is_cancelled: &F,
+) -> Result<(), ExportError>
+where
+    F: Fn() -> bool,
+{
+    let frame_duration_ns = (1_000_000_000.0 / fps) as i64;
+
+    let mut encoder = Vp9EncodeSession::new(width, height, bitrate_kbps, fps)?;
+
+    let file = File::create(output_path)?;
+    let writer = BufWriter::new(file);
+    let mut muxer = WebmMuxer::new(writer, width, height, fps, webm::mux::VideoCodecId::VP9)?;
+
+    let iter = FramePlanIterator::new(&project.timeline, &project.export_profile);
+
+    for plan in iter {
+        if is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+
+        let rgba = render_plan_to_rgba(&plan)?;
+        let frame = RgbaFrame {
+            width,
+            height,
+            data: rgba,
+            pts_us: plan.timestamp.as_micros(),
+        };
+        let packets = encoder.encode_frame(&frame, frame_duration_ns)?;
+
+        for (data, is_key) in packets {
+            muxer.write_frame(&data, is_key)?;
+        }
+    }
+
+    let remaining = encoder.flush()?;
+    for (data, is_key) in remaining {
+        muxer.write_frame(&data, is_key)?;
     }
 
     muxer.finish()?;

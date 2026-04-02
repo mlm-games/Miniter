@@ -1,4 +1,4 @@
-//! Mux H.264 bitstream into an MP4 container using the `mp4` crate writer.
+//! Mux H.264 bitstream into an MP4/MOV container using the `mp4` crate writer.
 
 use mp4::{AvcConfig, MediaConfig, Mp4Config, Mp4Writer, TrackConfig};
 use std::io::{Seek, Write};
@@ -11,7 +11,13 @@ pub enum MuxError {
     Mp4(#[from] mp4::Error),
 }
 
-/// A simple MP4 muxer that writes H.264 video samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerFormat {
+    Mp4,
+    Mov,
+}
+
+/// A simple MP4/MOV muxer that writes H.264 video samples.
 pub struct Mp4Muxer<W: Write + Seek> {
     writer: Mp4Writer<W>,
     track_id: u32,
@@ -21,12 +27,6 @@ pub struct Mp4Muxer<W: Write + Seek> {
 }
 
 impl<W: Write + Seek> Mp4Muxer<W> {
-    /// Create a new MP4 muxer writing to `output`.
-    ///
-    /// `width`/`height` — video dimensions (must be even).
-    /// `fps` — frames per second.
-    /// `sps`/`pps` — Sequence / Picture Parameter Sets extracted from
-    /// the first keyframe (required for the avcC box).
     pub fn new(
         output: W,
         width: u32,
@@ -34,20 +34,29 @@ impl<W: Write + Seek> Mp4Muxer<W> {
         fps: f64,
         sps: &[u8],
         pps: &[u8],
+        container: ContainerFormat,
     ) -> Result<Self, MuxError> {
         let timescale = 90_000u32;
         let frame_duration = (timescale as f64 / fps) as u64;
 
-        let mp4_config = Mp4Config {
-            major_brand: "isom".parse().unwrap(),
-            minor_version: 512,
-            compatible_brands: vec![
-                "isom".parse().unwrap(),
-                "iso2".parse().unwrap(),
-                "avc1".parse().unwrap(),
-                "mp41".parse().unwrap(),
-            ],
-            timescale,
+        let mp4_config = match container {
+            ContainerFormat::Mp4 => Mp4Config {
+                major_brand: "isom".parse().unwrap(),
+                minor_version: 512,
+                compatible_brands: vec![
+                    "isom".parse().unwrap(),
+                    "iso2".parse().unwrap(),
+                    "avc1".parse().unwrap(),
+                    "mp41".parse().unwrap(),
+                ],
+                timescale,
+            },
+            ContainerFormat::Mov => Mp4Config {
+                major_brand: "qt  ".parse().unwrap(),
+                minor_version: 0,
+                compatible_brands: vec!["qt  ".parse().unwrap()],
+                timescale,
+            },
         };
 
         let mut writer = Mp4Writer::write_start(output, &mp4_config)?;
@@ -76,7 +85,6 @@ impl<W: Write + Seek> Mp4Muxer<W> {
         })
     }
 
-    /// Write one encoded H.264 sample (the bitstream from the encoder).
     pub fn write_sample(&mut self, data: &[u8], is_keyframe: bool) -> Result<(), MuxError> {
         let avcc_data = annex_b_to_avcc(data);
 
@@ -94,7 +102,6 @@ impl<W: Write + Seek> Mp4Muxer<W> {
         Ok(())
     }
 
-    /// Finalize the MP4 file (writes moov atom).
     pub fn finish(&mut self) -> Result<(), MuxError> {
         self.writer.write_end()?;
         Ok(())
@@ -156,7 +163,6 @@ fn annex_b_to_avcc(data: &[u8]) -> Vec<u8> {
 }
 
 /// Extract SPS and PPS from an Annex-B bitstream.
-/// Returns `(sps, pps)` or `None` if not found.
 pub fn extract_sps_pps(annex_b: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     let mut sps = None;
     let mut pps = None;
