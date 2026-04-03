@@ -26,10 +26,10 @@ import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
+import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
-import org.mlm.miniter.project.*
 import kotlin.time.TimeSource
 
 @Composable
@@ -66,7 +66,7 @@ fun EditorVideoPreview(
                     speed = clip.speed.toFloat(),
                     volume = clip.volume,
                     opacity = clip.opacity,
-                    filters = video.filters.mapNotNull { it.toVideoFilter() },
+                    filters = video.filters,
                 )
             }
             ?.find { clip -> playheadUs >= clip.startMs * 1000L && playheadUs < (clip.startMs + clip.durationMs) * 1000L }
@@ -313,18 +313,5 @@ private data class ClipPreview(
     val speed: Float,
     val volume: Float,
     val opacity: Float,
-    val filters: List<VideoFilter>,
+    val filters: List<RustVideoFilterSnapshot>,
 )
-
-private fun org.mlm.miniter.editor.model.RustVideoFilterSnapshot.toVideoFilter(): VideoFilter? {
-    return when (this) {
-        is RustBrightnessFilterSnapshot -> VideoFilter(FilterType.Brightness, mapOf("value" to value))
-        is RustContrastFilterSnapshot -> VideoFilter(FilterType.Contrast, mapOf("value" to value))
-        is RustSaturationFilterSnapshot -> VideoFilter(FilterType.Saturation, mapOf("value" to value))
-        RustGrayscaleFilterSnapshot -> VideoFilter(FilterType.Grayscale)
-        is RustBlurFilterSnapshot -> VideoFilter(FilterType.Blur, mapOf("radius" to radius))
-        is RustSharpenFilterSnapshot -> VideoFilter(FilterType.Sharpen, mapOf("amount" to amount))
-        RustSepiaFilterSnapshot -> VideoFilter(FilterType.Sepia)
-        else -> null
-    }
-}

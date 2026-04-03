@@ -1,6 +1,6 @@
 package org.mlm.miniter.engine
 
-import org.mlm.miniter.project.VideoFilter
+import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 
 expect class PlatformFrameGrabber() {
 
@@ -8,7 +8,7 @@ expect class PlatformFrameGrabber() {
 
     suspend fun grabFrame(
         timestampMs: Long,
-        filters: List<VideoFilter> = emptyList(),
+        filters: List<RustVideoFilterSnapshot> = emptyList(),
         opacity: Float = 1f,
         width: Int = 0,
         height: Int = 0,

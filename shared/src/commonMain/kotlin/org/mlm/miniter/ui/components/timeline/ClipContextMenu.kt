@@ -7,12 +7,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.mlm.miniter.project.Clip
+import org.mlm.miniter.editor.model.RustClipSnapshot
 
 @Composable
 fun ClipContextMenu(
     expanded: Boolean,
-    clip: Clip,
+    clip: RustClipSnapshot,
     canSplit: Boolean,
     isLocked: Boolean,
     onDismiss: () -> Unit,

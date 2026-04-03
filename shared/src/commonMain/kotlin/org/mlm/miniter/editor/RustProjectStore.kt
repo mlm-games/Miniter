@@ -6,8 +6,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.mlm.miniter.editor.model.RustProjectSnapshot
-import org.mlm.miniter.editor.model.toRustSnapshot
-import org.mlm.miniter.project.MinterProject
 import org.mlm.miniter.rust.RustCoreRepository
 import org.mlm.miniter.rust.RustCoreSession
 
@@ -39,13 +37,6 @@ class RustProjectStore(
     }
 
     fun replaceSnapshot(snapshot: RustProjectSnapshot): RustProjectSnapshot {
-        val rawJson = wireJson.encodeToString(RustProjectSnapshot.serializer(), snapshot)
-        repository.open(rawJson)
-        return refresh()
-    }
-
-    fun importLegacyProject(project: MinterProject): RustProjectSnapshot {
-        val snapshot = project.toRustSnapshot()
         val rawJson = wireJson.encodeToString(RustProjectSnapshot.serializer(), snapshot)
         repository.open(rawJson)
         return refresh()

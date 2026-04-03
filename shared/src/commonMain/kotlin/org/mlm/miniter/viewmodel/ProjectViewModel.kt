@@ -41,15 +41,7 @@ import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.randomUuid
-import org.mlm.miniter.project.ExportFormat
-import org.mlm.miniter.project.ExportSettings
-import org.mlm.miniter.project.FilterType
-import org.mlm.miniter.project.ProjectRepository
 import org.mlm.miniter.project.RecentProjectsRepository
-import org.mlm.miniter.project.TrackType
-import org.mlm.miniter.project.Transition
-import org.mlm.miniter.project.TransitionType
-import org.mlm.miniter.project.VideoFilter
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import kotlin.time.Clock
 
@@ -72,7 +64,6 @@ data class ProjectUiState(
 )
 
 class ProjectViewModel(
-    private val projectRepository: ProjectRepository,
     private val recentProjectsRepository: RecentProjectsRepository,
     private val engine: PlatformVideoEngine,
     private val snackbarManager: SnackbarManager,
@@ -162,13 +153,8 @@ class ProjectViewModel(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             try {
-                val snapshot = try {
-                    val projectJson = PlatformFileSystem.readText(path)
-                    rustStore.openProjectJson(projectJson)
-                } catch (_: Exception) {
-                    val legacyProject = projectRepository.load(path)
-                    rustStore.importLegacyProject(legacyProject)
-                }
+                val projectJson = PlatformFileSystem.readText(path)
+                val snapshot = rustStore.openProjectJson(projectJson)
 
                 val missingFiles = snapshot.timeline.tracks
                     .flatMap { it.clips }
@@ -299,9 +285,9 @@ class ProjectViewModel(
     fun cancelEdit() = cancelContinuousEdit()
 
     fun initProject(videoPath: String, projectName: String, savePath: String?) {
-        if (videoPath.endsWith(".mntr") && projectRepository.exists(videoPath)) {
+        if (videoPath.endsWith(".mntr") && PlatformFileSystem.exists(videoPath)) {
             loadProject(videoPath)
-        } else if (savePath != null && savePath.endsWith(".mntr") && projectRepository.exists(savePath)) {
+        } else if (savePath != null && savePath.endsWith(".mntr") && PlatformFileSystem.exists(savePath)) {
             loadProject(savePath)
         } else {
             newProject(projectName, videoPath, savePath)
@@ -512,9 +498,9 @@ class ProjectViewModel(
 
     fun resetExport() = engine.reset()
 
-    fun updateExportSettings(settings: ExportSettings) {
+    fun updateExportProfile(profile: RustExportProfileSnapshot) {
         dispatchAndSync(
-            rustStore.commands.setExportProfile(settings.toRustExportProfile()),
+            rustStore.commands.setExportProfile(profile),
             isDirty = true,
         )
     }
@@ -530,15 +516,10 @@ class ProjectViewModel(
         engine.reset()
     }
 
-    fun addTrack(type: TrackType, label: String? = null) {
-        val kind = when (type) {
-            TrackType.Video -> RustTrackKind.Video
-            TrackType.Audio -> RustTrackKind.Audio
-            TrackType.Text -> RustTrackKind.Text
-        }
+    fun addTrack(kind: RustTrackKind, label: String? = null) {
         val count = rustStore.snapshot.value?.timeline?.tracks?.count { it.kind == kind } ?: 0
         dispatchAndSync(
-            rustStore.commands.addTrack(kind, label ?: "${type.name} ${count + 1}"),
+            rustStore.commands.addTrack(kind, label ?: "${kind.name} ${count + 1}"),
             isDirty = true,
         )
     }
@@ -744,9 +725,9 @@ class ProjectViewModel(
         )
     }
 
-    fun setTextTransition(clipId: String, transition: Transition?) {
+    fun setTextTransition(clipId: String, transition: RustTransitionSnapshot?) {
         dispatchAndSync(
-            rustStore.commands.setTransitionIn(clipId, transition?.toRustTransition()),
+            rustStore.commands.setTransitionIn(clipId, transition),
             isDirty = true,
         )
     }
@@ -773,11 +754,11 @@ class ProjectViewModel(
         )
     }
 
-    fun addFilter(clipId: String, filter: VideoFilter) {
+    fun addFilter(clipId: String, filter: RustVideoFilterSnapshot) {
         dispatchAndSync(
             rustStore.commands.addVideoFilter(
                 clipId = clipId,
-                filter = filter.toRustVideoFilter(),
+                filter = filter,
             ),
             isDirty = true,
         )
@@ -790,9 +771,9 @@ class ProjectViewModel(
         )
     }
 
-    fun setTransition(clipId: String, transition: Transition?) {
+    fun setTransition(clipId: String, transition: RustTransitionSnapshot?) {
         dispatchAndSync(
-            rustStore.commands.setTransitionIn(clipId, transition?.toRustTransition()),
+            rustStore.commands.setTransitionIn(clipId, transition),
             isDirty = true,
         )
     }
@@ -926,52 +907,5 @@ class ProjectViewModel(
                 canRedo = rustStore.canRedo(),
             )
         }
-    }
-}
-
-private fun ExportSettings.toRustExportProfile(): RustExportProfileSnapshot {
-    return RustExportProfileSnapshot(
-        format = when (format) {
-            ExportFormat.MP4 -> RustExportFormat.Mp4
-            ExportFormat.WebM -> RustExportFormat.WebM
-            ExportFormat.MOV -> RustExportFormat.Mov
-        },
-        resolution = when {
-            width == 854 && height == 480 -> RustExportResolution.Sd480
-            width == 1280 && height == 720 -> RustExportResolution.Hd720
-            width == 1920 && height == 1080 -> RustExportResolution.Hd1080
-            width == 3840 && height == 2160 -> RustExportResolution.Uhd4k
-            width > 0 && height > 0 -> RustExportResolution.Custom(width, height)
-            else -> RustExportResolution.Hd1080
-        },
-        fps = 30.0,
-        videoBitrateKbps = (500 + quality * 80).toInt().coerceAtLeast(500),
-        audioBitrateKbps = 192,
-        audioSampleRate = 48_000,
-        outputPath = "",
-    )
-}
-
-private fun Transition.toRustTransition(): RustTransitionSnapshot {
-    return RustTransitionSnapshot(
-        kind = when (type) {
-            TransitionType.CrossFade -> RustTransitionKind.CrossFade
-            TransitionType.SlideLeft -> RustTransitionKind.SlideLeft
-            TransitionType.SlideRight -> RustTransitionKind.SlideRight
-            TransitionType.Dissolve -> RustTransitionKind.Dissolve
-        },
-        duration = durationMs * 1000L,
-    )
-}
-
-private fun VideoFilter.toRustVideoFilter(): RustVideoFilterSnapshot {
-    return when (type) {
-        FilterType.Brightness -> RustBrightnessFilterSnapshot(params["value"] ?: 0f)
-        FilterType.Contrast -> RustContrastFilterSnapshot(params["value"] ?: 1f)
-        FilterType.Saturation -> RustSaturationFilterSnapshot(params["value"] ?: 1f)
-        FilterType.Grayscale -> RustGrayscaleFilterSnapshot
-        FilterType.Blur -> RustBlurFilterSnapshot(params["radius"] ?: 5f)
-        FilterType.Sharpen -> RustSharpenFilterSnapshot(params["amount"] ?: 1f)
-        FilterType.Sepia -> RustSepiaFilterSnapshot
     }
 }

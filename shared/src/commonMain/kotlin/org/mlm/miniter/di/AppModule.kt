@@ -6,7 +6,6 @@ import kotlinx.serialization.json.Json
 import org.koin.dsl.module
 import org.mlm.miniter.editor.RustProjectStore
 import org.mlm.miniter.engine.PlatformVideoEngine
-import org.mlm.miniter.project.ProjectRepository
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.rust.RustCoreRepository
 import org.mlm.miniter.settings.AppSettings
@@ -24,7 +23,6 @@ val coreModule = module {
     }
     single { SnackbarHostState() }
     single { SnackbarManager() }
-    single { ProjectRepository(get()) }
     single { RecentProjectsRepository(get()) }
 
     single { RustCoreRepository() }
@@ -32,7 +30,7 @@ val coreModule = module {
 
     single { PlatformVideoEngine() }
 
-    single { ProjectViewModel(get(), get(), get(), get(), get()) }
+    single { ProjectViewModel(get(), get(), get(), get()) }
     factory { EditorViewModel(get()) }
 }
 

@@ -4,8 +4,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.mlm.miniter.project.FilterType
-import org.mlm.miniter.project.VideoFilter
+import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
+import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
+import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
+import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
+import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
+import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
+import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
+import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.rust.RustCoreSession
 
 actual class PlatformFrameGrabber {
@@ -21,7 +27,7 @@ actual class PlatformFrameGrabber {
 
     actual suspend fun grabFrame(
         timestampMs: Long,
-        filters: List<VideoFilter>,
+        filters: List<RustVideoFilterSnapshot>,
         opacity: Float,
         width: Int,
         height: Int,
@@ -76,16 +82,16 @@ private fun applyFiltersToRgba(
     src: ByteArray,
     width: Int,
     height: Int,
-    filters: List<VideoFilter>,
+    filters: List<RustVideoFilterSnapshot>,
     opacity: Float,
 ): ByteArray {
     val pixels = src.copyOf()
     val total = width * height
 
     for (filter in filters) {
-        when (filter.type) {
-            FilterType.Brightness -> {
-                val offset = ((filter.params["value"] ?: 0f) / 100f * 255f).toInt()
+        when (filter) {
+            is RustBrightnessFilterSnapshot -> {
+                val offset = ((filter.value) / 100f * 255f).toInt()
                 for (i in 0 until total) {
                     val b = i * 4
                     pixels[b] = (pixels[b].toInt().and(0xFF) + offset).coerceIn(0, 255).toByte()
@@ -93,8 +99,8 @@ private fun applyFiltersToRgba(
                     pixels[b + 2] = (pixels[b + 2].toInt().and(0xFF) + offset).coerceIn(0, 255).toByte()
                 }
             }
-            FilterType.Contrast -> {
-                val factor = filter.params["value"] ?: 1f
+            is RustContrastFilterSnapshot -> {
+                val factor = filter.value
                 for (i in 0 until total) {
                     val b = i * 4
                     pixels[b] = (((pixels[b].toInt().and(0xFF) - 128) * factor) + 128).toInt().coerceIn(0, 255).toByte()
@@ -102,8 +108,8 @@ private fun applyFiltersToRgba(
                     pixels[b + 2] = (((pixels[b + 2].toInt().and(0xFF) - 128) * factor) + 128).toInt().coerceIn(0, 255).toByte()
                 }
             }
-            FilterType.Saturation -> {
-                val factor = filter.params["value"] ?: 1f
+            is RustSaturationFilterSnapshot -> {
+                val factor = filter.value
                 for (i in 0 until total) {
                     val b = i * 4
                     val r = pixels[b].toInt().and(0xFF).toFloat()
@@ -115,7 +121,7 @@ private fun applyFiltersToRgba(
                     pixels[b + 2] = (gray + (bl - gray) * factor).toInt().coerceIn(0, 255).toByte()
                 }
             }
-            FilterType.Grayscale -> {
+            RustGrayscaleFilterSnapshot -> {
                 for (i in 0 until total) {
                     val b = i * 4
                     val r = pixels[b].toInt().and(0xFF).toFloat()
@@ -125,7 +131,7 @@ private fun applyFiltersToRgba(
                     pixels[b] = gray; pixels[b + 1] = gray; pixels[b + 2] = gray
                 }
             }
-            FilterType.Sepia -> {
+            RustSepiaFilterSnapshot -> {
                 for (i in 0 until total) {
                     val b = i * 4
                     val r = pixels[b].toInt().and(0xFF).toFloat()
@@ -136,7 +142,8 @@ private fun applyFiltersToRgba(
                     pixels[b + 2] = (0.272f * r + 0.534f * g + 0.131f * bl).toInt().coerceIn(0, 255).toByte()
                 }
             }
-            FilterType.Blur, FilterType.Sharpen -> { }
+            is RustBlurFilterSnapshot, is RustSharpenFilterSnapshot -> { }
+            else -> { }
         }
     }
 

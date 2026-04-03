@@ -21,60 +21,42 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.mlm.miniter.editor.model.RustAudioClipKind
+import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
+import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
+import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
+import org.mlm.miniter.editor.model.RustClipSnapshot
+import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
+import org.mlm.miniter.editor.model.RustFadeInAudioFilterSnapshot
+import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
+import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
-import org.mlm.miniter.editor.model.toLegacyProject
-import org.mlm.miniter.project.*
+import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
+import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
+import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
+import org.mlm.miniter.editor.model.RustTextClipKind
+import org.mlm.miniter.editor.model.RustTransitionKind
+import org.mlm.miniter.editor.model.RustTransitionSnapshot
+import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 
 @Composable
 fun PropertiesPanel(
     snapshot: RustProjectSnapshot?,
     selectedClipId: String?,
-    onAddFilter: (String, VideoFilter) -> Unit,
+    onAddFilter: (String, RustVideoFilterSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
-    onSetTransition: (String, Transition?) -> Unit,
+    onSetTransition: (String, RustTransitionSnapshot?) -> Unit,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
-    onSetTextTransition: (String, Transition?) -> Unit = { _, _ -> },
+    onSetTextTransition: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
 ) {
-    PropertiesPanel(
-        project = snapshot?.toLegacyProject(),
-        selectedClipId = selectedClipId,
-        onAddFilter = onAddFilter,
-        onRemoveFilter = onRemoveFilter,
-        onUpdateFilterParams = onUpdateFilterParams,
-        onSetSpeed = onSetSpeed,
-        onSetVolume = onSetVolume,
-        onSetTransition = onSetTransition,
-        onUpdateText = onUpdateText,
-        onUpdateTextStyle = onUpdateTextStyle,
-        onSetOpacity = onSetOpacity,
-        onSetTextDuration = onSetTextDuration,
-        onSetTextTransition = onSetTextTransition,
-    )
-}
-
-@Composable
-fun PropertiesPanel(
-    project: MinterProject?,
-    selectedClipId: String?,
-    onAddFilter: (String, VideoFilter) -> Unit,
-    onRemoveFilter: (String, Int) -> Unit,
-    onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
-    onSetSpeed: (String, Float) -> Unit,
-    onSetVolume: (String, Float) -> Unit,
-    onSetTransition: (String, Transition?) -> Unit,
-    onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
-    onSetOpacity: (String, Float) -> Unit = { _, _ -> },
-    onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
-    onSetTextTransition: (String, Transition?) -> Unit = { _, _ -> },
-) {
-    val clip = project?.timeline?.tracks
+    val clip = snapshot?.timeline?.tracks
         ?.flatMap { it.clips }
         ?.find { it.id == selectedClipId }
 
@@ -106,33 +88,55 @@ fun PropertiesPanel(
             return@Column
         }
 
-        when (clip) {
-            is Clip.VideoClip -> VideoClipProperties(
-                clip, onAddFilter, onRemoveFilter, onUpdateFilterParams, onSetSpeed, onSetVolume, onSetTransition, onSetOpacity
+        when (val kind = clip.kind) {
+            is RustVideoClipKind -> VideoClipProperties(
+                clip = clip,
+                kind = kind,
+                onAddFilter = onAddFilter,
+                onRemoveFilter = onRemoveFilter,
+                onUpdateFilterParams = onUpdateFilterParams,
+                onSetSpeed = onSetSpeed,
+                onSetVolume = onSetVolume,
+                onSetTransition = onSetTransition,
+                onSetOpacity = onSetOpacity,
             )
-            is Clip.AudioClip -> AudioClipProperties(clip, onSetVolume)
-            is Clip.TextClip -> TextClipProperties(clip, onUpdateText, onUpdateTextStyle, onSetTextDuration, onSetTextTransition)
+            is RustAudioClipKind -> AudioClipProperties(clip, kind, onSetVolume)
+            is RustTextClipKind -> TextClipProperties(
+                clip,
+                kind,
+                onUpdateText,
+                onUpdateTextStyle,
+                onSetTextDuration,
+                onSetTextTransition,
+            )
         }
     }
 }
 
 @Composable
 private fun VideoClipProperties(
-    clip: Clip.VideoClip,
-    onAddFilter: (String, VideoFilter) -> Unit,
+    clip: RustClipSnapshot,
+    kind: RustVideoClipKind,
+    onAddFilter: (String, RustVideoFilterSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
-    onSetTransition: (String, Transition?) -> Unit,
+    onSetTransition: (String, RustTransitionSnapshot?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
 ) {
-    val fileName = clip.sourcePath.substringAfterLast("/").substringAfterLast("\\")
+    val fileName = kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
+    val clipDurationMs = clip.timelineDurationUs / 1000L
+    val clipSpeed = clip.speed.toFloat()
+    val clipVolume = clip.volume
+    val clipOpacity = clip.opacity
+    val clipTransition = clip.transitionIn
+    val clipFilters = kind.filters
 
     Text(fileName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(4.dp))
     Text(
-        "Duration: ${clip.durationMs / 1000}s | Speed: ${clip.speed}x",
+        "Duration: ${clipDurationMs / 1000}s | Speed: ${clipSpeed}x",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -140,7 +144,7 @@ private fun VideoClipProperties(
     Spacer(Modifier.height(16.dp))
 
     Text("Speed", style = MaterialTheme.typography.labelMedium)
-    var speedValue by remember(clip.speed) { mutableFloatStateOf(clip.speed) }
+    var speedValue by remember(clipSpeed) { mutableFloatStateOf(clipSpeed) }
     Slider(
         value = speedValue,
         onValueChange = { speedValue = it },
@@ -153,7 +157,7 @@ private fun VideoClipProperties(
     Spacer(Modifier.height(16.dp))
 
     Text("Volume", style = MaterialTheme.typography.labelMedium)
-    var volumeValue by remember(clip.volume) { mutableFloatStateOf(clip.volume) }
+    var volumeValue by remember(clipVolume) { mutableFloatStateOf(clipVolume) }
     Slider(
         value = volumeValue,
         onValueChange = { volumeValue = it },
@@ -166,7 +170,7 @@ private fun VideoClipProperties(
     Spacer(Modifier.height(16.dp))
 
     Text("Opacity", style = MaterialTheme.typography.labelMedium)
-    var opacityValue by remember(clip.opacity) { mutableFloatStateOf(clip.opacity) }
+    var opacityValue by remember(clipOpacity) { mutableFloatStateOf(clipOpacity) }
     Slider(
         value = opacityValue,
         onValueChange = { opacityValue = it },
@@ -180,11 +184,11 @@ private fun VideoClipProperties(
     Text("Filters", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(4.dp))
 
-    for ((index, filter) in clip.filters.withIndex()) {
+    for ((index, filter) in clipFilters.withIndex()) {
         InputChip(
             selected = true,
             onClick = { onRemoveFilter(clip.id, index) },
-            label = { Text(filter.type.name) },
+            label = { Text(filter.displayName()) },
             trailingIcon = {
                 Icon(Icons.Default.Close, "Remove", modifier = Modifier.size(16.dp))
             },
@@ -199,11 +203,11 @@ private fun VideoClipProperties(
             label = { Text("+ Add Filter") },
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            FilterType.entries.forEach { filterType ->
+            defaultVideoFilters().forEach { filter ->
                 DropdownMenuItem(
-                    text = { Text(filterType.name) },
+                    text = { Text(filter.displayName()) },
                     onClick = {
-                        onAddFilter(clip.id, VideoFilter(filterType))
+                        onAddFilter(clip.id, filter)
                         expanded = false
                     },
                 )
@@ -211,48 +215,73 @@ private fun VideoClipProperties(
         }
     }
 
-    clip.filters.forEachIndexed { index, filter ->
-        when (filter.type) {
-            FilterType.Brightness, FilterType.Contrast, FilterType.Saturation -> {
-                val paramKey = "value"
-                val currentVal = filter.params[paramKey] ?: when (filter.type) {
-                    FilterType.Brightness -> 0f
-                    FilterType.Contrast -> 1f
-                    FilterType.Saturation -> 1f
-                    else -> 0f
+    clipFilters.forEachIndexed { index, filter ->
+        when (filter) {
+            is RustBrightnessFilterSnapshot,
+            is RustContrastFilterSnapshot,
+            is RustSaturationFilterSnapshot,
+            is RustBlurFilterSnapshot,
+            is RustSharpenFilterSnapshot,
+            -> {
+                val label: String
+                val currentVal: Float
+                val paramKey: String
+                val range: ClosedFloatingPointRange<Float>
+                val steps: Int
+                when (filter) {
+                    is RustBrightnessFilterSnapshot -> {
+                        label = "Brightness"
+                        currentVal = filter.value
+                        paramKey = "value"
+                        range = -100f..100f
+                        steps = 39
+                    }
+                    is RustContrastFilterSnapshot -> {
+                        label = "Contrast"
+                        currentVal = filter.value
+                        paramKey = "value"
+                        range = 0f..3f
+                        steps = 29
+                    }
+                    is RustSaturationFilterSnapshot -> {
+                        label = "Saturation"
+                        currentVal = filter.value
+                        paramKey = "value"
+                        range = 0f..3f
+                        steps = 29
+                    }
+                    is RustBlurFilterSnapshot -> {
+                        label = "Blur radius"
+                        currentVal = filter.radius
+                        paramKey = "radius"
+                        range = 1f..20f
+                        steps = 18
+                    }
+                    is RustSharpenFilterSnapshot -> {
+                        label = "Sharpen amount"
+                        currentVal = filter.amount
+                        paramKey = "amount"
+                        range = 0f..3f
+                        steps = 29
+                    }
+                    else -> return@forEachIndexed
                 }
-                val range = when (filter.type) {
-                    FilterType.Brightness -> -100f..100f
-                    FilterType.Contrast -> 0f..3f
-                    FilterType.Saturation -> 0f..3f
-                    else -> 0f..1f
-                }
+
                 var paramVal by remember(filter) { mutableFloatStateOf(currentVal) }
                 Spacer(Modifier.height(8.dp))
-                Text("${filter.type.name}: ${String.format("%.1f", paramVal)}",
-                    style = MaterialTheme.typography.labelSmall)
+                Text("$label: ${String.format("%.1f", paramVal)}", style = MaterialTheme.typography.labelSmall)
                 Slider(
                     value = paramVal,
                     onValueChange = { paramVal = it },
                     onValueChangeFinished = {
-                        onUpdateFilterParams(clip.id, index, mapOf(paramKey to paramVal))
+                        onUpdateFilterParams(
+                            clip.id,
+                            index,
+                            mapOf(paramKey to paramVal),
+                        )
                     },
                     valueRange = range,
-                )
-            }
-            FilterType.Blur -> {
-                val currentRadius = filter.params["radius"] ?: 5f
-                var radiusVal by remember(filter) { mutableFloatStateOf(currentRadius) }
-                Spacer(Modifier.height(8.dp))
-                Text("Blur radius: ${radiusVal.toInt()}", style = MaterialTheme.typography.labelSmall)
-                Slider(
-                    value = radiusVal,
-                    onValueChange = { radiusVal = it },
-                    onValueChangeFinished = {
-                        onUpdateFilterParams(clip.id, index, mapOf("radius" to radiusVal))
-                    },
-                    valueRange = 1f..20f,
-                    steps = 18,
+                    steps = steps,
                 )
             }
             else -> { }
@@ -273,7 +302,7 @@ private fun VideoClipProperties(
     Spacer(Modifier.height(8.dp))
 
     var transExpanded by remember { mutableStateOf(false) }
-    val currentTransition = clip.transition
+    val currentTransition = clipTransition
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -282,18 +311,18 @@ private fun VideoClipProperties(
         Box {
             OutlinedButton(onClick = { transExpanded = true }) {
                 Icon(
-                    when (currentTransition?.type) {
-                        TransitionType.CrossFade -> Icons.Default.Animation
-                        TransitionType.Dissolve -> Icons.Default.BlurOn
-                        TransitionType.SlideLeft -> Icons.AutoMirrored.Filled.ArrowBack
-                        TransitionType.SlideRight -> Icons.AutoMirrored.Filled.ArrowForward
+                    when (currentTransition?.kind) {
+                        RustTransitionKind.CrossFade -> Icons.Default.Animation
+                        RustTransitionKind.Dissolve -> Icons.Default.BlurOn
+                        RustTransitionKind.SlideLeft -> Icons.AutoMirrored.Filled.ArrowBack
+                        RustTransitionKind.SlideRight -> Icons.AutoMirrored.Filled.ArrowForward
                         null -> Icons.Default.Block
                     },
                     null,
                     Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(6.dp))
-                Text(currentTransition?.type?.name ?: "None")
+                Text(currentTransition?.kind?.name ?: "None")
             }
             DropdownMenu(expanded = transExpanded, onDismissRequest = { transExpanded = false }) {
                 DropdownMenuItem(
@@ -313,7 +342,7 @@ private fun VideoClipProperties(
                     },
                     leadingIcon = { Icon(Icons.Default.Animation, null, Modifier.size(18.dp)) },
                     onClick = {
-                        onSetTransition(clip.id, Transition(TransitionType.CrossFade))
+                        onSetTransition(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
                         transExpanded = false
                     },
                 )
@@ -328,7 +357,7 @@ private fun VideoClipProperties(
                     },
                     leadingIcon = { Icon(Icons.Default.BlurOn, null, Modifier.size(18.dp)) },
                     onClick = {
-                        onSetTransition(clip.id, Transition(TransitionType.Dissolve))
+                        onSetTransition(clip.id, RustTransitionSnapshot(RustTransitionKind.Dissolve, 500_000L))
                         transExpanded = false
                     },
                 )
@@ -343,7 +372,7 @@ private fun VideoClipProperties(
                     },
                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(18.dp)) },
                     onClick = {
-                        onSetTransition(clip.id, Transition(TransitionType.SlideLeft))
+                        onSetTransition(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
                         transExpanded = false
                     },
                 )
@@ -358,7 +387,7 @@ private fun VideoClipProperties(
                     },
                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp)) },
                     onClick = {
-                        onSetTransition(clip.id, Transition(TransitionType.SlideRight))
+                        onSetTransition(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
                         transExpanded = false
                     },
                 )
@@ -369,8 +398,8 @@ private fun VideoClipProperties(
     if (currentTransition != null) {
         Spacer(Modifier.height(8.dp))
         Text("Duration", style = MaterialTheme.typography.labelSmall)
-        var transDuration by remember(currentTransition.durationMs) {
-            mutableFloatStateOf(currentTransition.durationMs / 1000f)
+        var transDuration by remember(currentTransition.duration) {
+            mutableFloatStateOf(currentTransition.duration / 1_000_000f)
         }
         Slider(
             value = transDuration,
@@ -378,7 +407,10 @@ private fun VideoClipProperties(
             onValueChangeFinished = {
                 onSetTransition(
                     clip.id,
-                    currentTransition.copy(durationMs = (transDuration * 1000).toLong())
+                    RustTransitionSnapshot(
+                        kind = currentTransition.kind,
+                        duration = (transDuration * 1_000_000L).toLong(),
+                    )
                 )
             },
             valueRange = 0.1f..2f,
@@ -438,14 +470,20 @@ private fun VideoClipProperties(
 
 @Composable
 private fun AudioClipProperties(
-    clip: Clip.AudioClip,
+    clip: RustClipSnapshot,
+    kind: RustAudioClipKind,
     onSetVolume: (String, Float) -> Unit,
 ) {
+    val clipVolume = clip.volume
+    val audioFilters = kind.filters
+    val fadeInMs = audioFilters.filterIsInstance<RustFadeInAudioFilterSnapshot>().maxOfOrNull { it.durationUs / 1000L } ?: 0L
+    val fadeOutMs = audioFilters.filterIsInstance<RustFadeOutAudioFilterSnapshot>().maxOfOrNull { it.durationUs / 1000L } ?: 0L
+
     Text("Audio Clip", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(8.dp))
 
     Text("Volume", style = MaterialTheme.typography.labelMedium)
-    var volumeValue by remember(clip.volume) { mutableFloatStateOf(clip.volume) }
+    var volumeValue by remember(clipVolume) { mutableFloatStateOf(clipVolume) }
     Slider(
         value = volumeValue,
         onValueChange = { volumeValue = it },
@@ -457,23 +495,28 @@ private fun AudioClipProperties(
 
     Spacer(Modifier.height(8.dp))
     Text(
-        "Fade in: ${clip.fadeInMs}ms | Fade out: ${clip.fadeOutMs}ms",
+        "Fade in: ${fadeInMs}ms | Fade out: ${fadeOutMs}ms",
         style = MaterialTheme.typography.labelSmall,
     )
 }
 
 @Composable
 private fun TextClipProperties(
-    clip: Clip.TextClip,
+    clip: RustClipSnapshot,
+    kind: RustTextClipKind,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
-    onSetTextTransition: (String, Transition?) -> Unit = { _, _ -> },
+    onSetTextTransition: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
 ) {
+    val style = kind.style
+    val durationMs = clip.timelineDurationUs / 1000L
+    val transition = clip.transitionIn
+
     Text("Text Overlay", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(12.dp))
 
-    var textValue by remember(clip.text) { mutableStateOf(clip.text) }
+    var textValue by remember(kind.text) { mutableStateOf(kind.text) }
     OutlinedTextField(
         value = textValue,
         onValueChange = { textValue = it },
@@ -484,7 +527,7 @@ private fun TextClipProperties(
     )
     LaunchedEffect(textValue) {
         kotlinx.coroutines.delay(500)
-        if (textValue != clip.text) onUpdateText(clip.id, textValue)
+        if (textValue != kind.text) onUpdateText(clip.id, textValue)
     }
 
     Spacer(Modifier.height(16.dp))
@@ -509,8 +552,8 @@ private fun TextClipProperties(
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 for (col in 0..2) {
                     val (label, pos) = presets[row * 3 + col]
-                    val isSelected = kotlin.math.abs(clip.positionX - pos.first) < 0.15f &&
-                            kotlin.math.abs(clip.positionY - pos.second) < 0.15f
+                    val isSelected = kotlin.math.abs(style.positionX - pos.first) < 0.15f &&
+                            kotlin.math.abs(style.positionY - pos.second) < 0.15f
                     FilterChip(
                         selected = isSelected,
                         onClick = {
@@ -526,8 +569,8 @@ private fun TextClipProperties(
 
     Spacer(Modifier.height(8.dp))
 
-    Text("X: ${String.format("%.0f", clip.positionX * 100)}%", style = MaterialTheme.typography.labelSmall)
-    var posX by remember(clip.positionX) { mutableFloatStateOf(clip.positionX) }
+    Text("X: ${String.format("%.0f", style.positionX * 100)}%", style = MaterialTheme.typography.labelSmall)
+    var posX by remember(style.positionX) { mutableFloatStateOf(style.positionX) }
     Slider(
         value = posX,
         onValueChange = { posX = it },
@@ -536,8 +579,8 @@ private fun TextClipProperties(
         modifier = Modifier.height(28.dp),
     )
 
-    Text("Y: ${String.format("%.0f", clip.positionY * 100)}%", style = MaterialTheme.typography.labelSmall)
-    var posY by remember(clip.positionY) { mutableFloatStateOf(clip.positionY) }
+    Text("Y: ${String.format("%.0f", style.positionY * 100)}%", style = MaterialTheme.typography.labelSmall)
+    var posY by remember(style.positionY) { mutableFloatStateOf(style.positionY) }
     Slider(
         value = posY,
         onValueChange = { posY = it },
@@ -549,7 +592,7 @@ private fun TextClipProperties(
     Spacer(Modifier.height(12.dp))
 
     Text("Size", style = MaterialTheme.typography.labelMedium)
-    var fontSize by remember(clip.fontSizeSp) { mutableFloatStateOf(clip.fontSizeSp) }
+    var fontSize by remember(style.fontSize) { mutableFloatStateOf(style.fontSize) }
     Slider(
         value = fontSize,
         onValueChange = { fontSize = it },
@@ -565,19 +608,19 @@ private fun TextClipProperties(
     Spacer(Modifier.height(4.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(
-            selected = clip.isBold,
-            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, !clip.isBold, null) },
+            selected = style.bold,
+            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, !style.bold, null) },
             label = { Text("B", fontWeight = FontWeight.ExtraBold) },
         )
         FilterChip(
-            selected = clip.isItalic,
-            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, null, !clip.isItalic) },
+            selected = style.italic,
+            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, null, !style.italic) },
             label = { Text("I", fontStyle = FontStyle.Italic) },
         )
         FilterChip(
-            selected = clip.backgroundColorHex != null,
+            selected = style.backgroundColor != null,
             onClick = {
-                val newBg = if (clip.backgroundColorHex != null) null else "#000000"
+                val newBg = if (style.backgroundColor != null) null else "#000000"
                 onUpdateTextStyle(clip.id, null, null, newBg, null, null, null, null)
             },
             label = { Text("BG") },
@@ -610,7 +653,7 @@ private fun TextClipProperties(
                     .clickable { onUpdateTextStyle(clip.id, null, hex, null, null, null, null, null) },
                 shape = CircleShape,
                 color = c,
-                border = if (clip.colorHex.equals(hex, ignoreCase = true))
+                border = if (style.color.removePrefix("FF").let { "#$it" }.equals(hex, ignoreCase = true))
                     BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
                 else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {}
@@ -620,7 +663,7 @@ private fun TextClipProperties(
     Spacer(Modifier.height(12.dp))
 
     Text("Duration", style = MaterialTheme.typography.labelMedium)
-    var durationSec by remember(clip.durationMs) { mutableFloatStateOf(clip.durationMs / 1000f) }
+    var durationSec by remember(durationMs) { mutableFloatStateOf(durationMs / 1000f) }
     Slider(
         value = durationSec,
         onValueChange = { durationSec = it },
@@ -642,7 +685,7 @@ private fun TextClipProperties(
     var transExpanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { transExpanded = true }) {
-            Text(if (clip.transition == null) "None" else "Fade In/Out")
+            Text(if (transition == null) "None" else "Fade In/Out")
         }
         DropdownMenu(expanded = transExpanded, onDismissRequest = { transExpanded = false }) {
             DropdownMenuItem(
@@ -651,21 +694,53 @@ private fun TextClipProperties(
             )
             DropdownMenuItem(
                 text = { Text("Fade In/Out") },
-                onClick = { onSetTextTransition(clip.id, Transition(TransitionType.CrossFade)); transExpanded = false },
+                onClick = {
+                    onSetTextTransition(
+                        clip.id,
+                        RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L)
+                    )
+                    transExpanded = false
+                },
             )
         }
     }
 
-    if (clip.transition != null) {
+    if (transition != null) {
         Spacer(Modifier.height(8.dp))
-        var dur by remember(clip.transition.durationMs) {
-            mutableFloatStateOf(clip.transition.durationMs / 1000f)
+        var dur by remember(transition.duration) {
+            mutableFloatStateOf(transition.duration / 1_000_000f)
         }
         Text("Duration: ${String.format("%.1f", dur)}s", style = MaterialTheme.typography.labelSmall)
         Slider(
             value = dur, onValueChange = { dur = it },
-            onValueChangeFinished = { onSetTextTransition(clip.id, Transition(TransitionType.CrossFade, (dur * 1000).toLong())) },
+            onValueChangeFinished = {
+                onSetTextTransition(
+                    clip.id,
+                    RustTransitionSnapshot(RustTransitionKind.CrossFade, (dur * 1_000_000L).toLong())
+                )
+            },
             valueRange = 0.1f..3f, steps = 28,
         )
     }
+}
+
+private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
+    RustBrightnessFilterSnapshot(0f),
+    RustContrastFilterSnapshot(1f),
+    RustSaturationFilterSnapshot(1f),
+    RustGrayscaleFilterSnapshot,
+    RustBlurFilterSnapshot(5f),
+    RustSharpenFilterSnapshot(1f),
+    RustSepiaFilterSnapshot,
+)
+
+private fun RustVideoFilterSnapshot.displayName(): String = when (this) {
+    is RustBrightnessFilterSnapshot -> "Brightness"
+    is RustContrastFilterSnapshot -> "Contrast"
+    is RustSaturationFilterSnapshot -> "Saturation"
+    RustGrayscaleFilterSnapshot -> "Grayscale"
+    is RustBlurFilterSnapshot -> "Blur"
+    is RustSharpenFilterSnapshot -> "Sharpen"
+    RustSepiaFilterSnapshot -> "Sepia"
+    else -> "Filter"
 }

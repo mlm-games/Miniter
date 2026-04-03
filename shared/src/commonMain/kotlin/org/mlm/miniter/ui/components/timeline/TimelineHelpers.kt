@@ -15,27 +15,28 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import io.github.mlmgames.settings.core.annotations.SettingPlatform
 import io.github.mlmgames.settings.core.platform.currentPlatform
-import org.mlm.miniter.project.*
+import org.mlm.miniter.editor.model.RustTrackKind
+import org.mlm.miniter.editor.model.RustTrackSnapshot
 
 @Composable
 fun TrackHeader(
-    track: Track,
+    track: RustTrackSnapshot,
     canRemove: Boolean,
     onToggleMute: () -> Unit,
     onToggleLock: () -> Unit,
     onRemoveTrack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val icon = when (track.type) {
-        TrackType.Video -> Icons.Default.Videocam
-        TrackType.Audio -> Icons.Default.MusicNote
-        TrackType.Text -> Icons.Default.TextFields
+    val icon = when (track.kind) {
+        RustTrackKind.Video -> Icons.Default.Videocam
+        RustTrackKind.Audio -> Icons.Default.MusicNote
+        RustTrackKind.Text -> Icons.Default.TextFields
     }
 
-    val trackColor = when (track.type) {
-        TrackType.Video -> MaterialTheme.colorScheme.primary
-        TrackType.Audio -> MaterialTheme.colorScheme.secondary
-        TrackType.Text -> MaterialTheme.colorScheme.tertiary
+    val trackColor = when (track.kind) {
+        RustTrackKind.Video -> MaterialTheme.colorScheme.primary
+        RustTrackKind.Audio -> MaterialTheme.colorScheme.secondary
+        RustTrackKind.Text -> MaterialTheme.colorScheme.tertiary
     }
 
     var showMenu by remember { mutableStateOf(false) }
@@ -55,12 +56,12 @@ fun TrackHeader(
             verticalArrangement = Arrangement.Center,
         ) {
             Icon(
-                icon, track.label,
+                icon, track.name,
                 Modifier.size(18.dp),
-                tint = if (track.isMuted) trackColor.copy(alpha = 0.3f) else trackColor,
+                tint = if (track.muted) trackColor.copy(alpha = 0.3f) else trackColor,
             )
 
-            if (track.isLocked) {
+            if (track.locked) {
                 Icon(
                     Icons.Default.Lock, "Locked",
                     Modifier.size(10.dp),
@@ -74,10 +75,10 @@ fun TrackHeader(
             onDismissRequest = { showMenu = false },
         ) {
             DropdownMenuItem(
-                text = { Text(if (track.isMuted) "Unmute" else "Mute") },
+                text = { Text(if (track.muted) "Unmute" else "Mute") },
                 leadingIcon = {
                     Icon(
-                        if (track.isMuted) Icons.AutoMirrored.Filled.VolumeUp
+                        if (track.muted) Icons.AutoMirrored.Filled.VolumeUp
                         else Icons.AutoMirrored.Filled.VolumeOff,
                         null, Modifier.size(18.dp),
                     )
@@ -85,10 +86,10 @@ fun TrackHeader(
                 onClick = { onToggleMute(); showMenu = false },
             )
             DropdownMenuItem(
-                text = { Text(if (track.isLocked) "Unlock" else "Lock") },
+                text = { Text(if (track.locked) "Unlock" else "Lock") },
                 leadingIcon = {
                     Icon(
-                        if (track.isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                        if (track.locked) Icons.Default.LockOpen else Icons.Default.Lock,
                         null, Modifier.size(18.dp),
                     )
                 },
@@ -112,7 +113,7 @@ fun TrackHeader(
 }
 
 @Composable
-fun AddTrackRow(onAddTrack: (TrackType) -> Unit) {
+fun AddTrackRow(onAddTrack: (RustTrackKind) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
 
     Row(
@@ -136,12 +137,12 @@ fun AddTrackRow(onAddTrack: (TrackType) -> Unit) {
                     DropdownMenuItem(
                         text = { Text("Video Track") },
                         leadingIcon = { Icon(Icons.Default.Videocam, null, Modifier.size(18.dp)) },
-                        onClick = { onAddTrack(TrackType.Video); expanded = false },
+                        onClick = { onAddTrack(RustTrackKind.Video); expanded = false },
                     )
                     DropdownMenuItem(
                         text = { Text("Audio Track") },
                         leadingIcon = { Icon(Icons.Default.MusicNote, null, Modifier.size(18.dp)) },
-                        onClick = { onAddTrack(TrackType.Audio); expanded = false },
+                        onClick = { onAddTrack(RustTrackKind.Audio); expanded = false },
                     )
                     if (currentPlatform != SettingPlatform.ANDROID) {
                         DropdownMenuItem(
@@ -153,7 +154,7 @@ fun AddTrackRow(onAddTrack: (TrackType) -> Unit) {
                                     Modifier.size(18.dp)
                                 )
                             },
-                            onClick = { onAddTrack(TrackType.Text); expanded = false },
+                            onClick = { onAddTrack(RustTrackKind.Text); expanded = false },
                         )
                     }
                 }

@@ -18,10 +18,9 @@ import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.vinceglb.filekit.path
 import org.koin.compose.koinInject
 import org.mlm.miniter.editor.model.RustExportFormat
+import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.engine.ExportProgress
-import org.mlm.miniter.project.ExportFormat
-import org.mlm.miniter.project.ExportSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.util.popBack
 import org.mlm.miniter.viewmodel.ProjectViewModel
@@ -35,12 +34,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val progress by vm.exportProgress.collectAsState()
 
     val profile = snapshot?.exportProfile
-    val profileFormat = when (profile?.format) {
-        RustExportFormat.Mp4 -> ExportFormat.MP4
-        RustExportFormat.WebM -> ExportFormat.WebM
-        RustExportFormat.Mov -> ExportFormat.MOV
-        null -> ExportFormat.MP4
-    }
+    val profileFormat = profile?.format ?: RustExportFormat.Mp4
     val (profileWidth, profileHeight) = when (val resolution = profile?.resolution) {
         RustExportResolution.Sd480 -> 854 to 480
         RustExportResolution.Hd720 -> 1280 to 720
@@ -54,16 +48,10 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         ?.let { bitrate -> ((bitrate.toFloat() - 500f) / 80f).coerceIn(1f, 100f) }
         ?: 80f
 
-    val settings = ExportSettings(
-        format = profileFormat,
-        quality = profileQuality,
-        width = profileWidth,
-        height = profileHeight,
-    )
-    var format by remember(settings.format) { mutableStateOf(settings.format) }
-    var quality by remember(settings.quality) { mutableFloatStateOf(settings.quality) }
-    var customWidth by remember(settings.width) { mutableStateOf(settings.width.takeIf { it > 0 }?.toString() ?: "") }
-    var customHeight by remember(settings.height) { mutableStateOf(settings.height.takeIf { it > 0 }?.toString() ?: "") }
+    var format by remember(profileFormat) { mutableStateOf(profileFormat) }
+    var quality by remember(profileQuality) { mutableFloatStateOf(profileQuality) }
+    var customWidth by remember(profileWidth) { mutableStateOf(profileWidth.takeIf { it > 0 }?.toString() ?: "") }
+    var customHeight by remember(profileHeight) { mutableStateOf(profileHeight.takeIf { it > 0 }?.toString() ?: "") }
 
     var outputFile by remember { mutableStateOf<PlatformFile?>(null) }
     var showCancelConfirm by remember { mutableStateOf(false) }
@@ -107,15 +95,15 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         ) {
             Text("Format", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                ExportFormat.entries.forEachIndexed { index, fmt ->
-                    val enabled = !isExporting && fmt != ExportFormat.WebM
+                RustExportFormat.entries.forEachIndexed { index, fmt ->
+                    val enabled = !isExporting && fmt != RustExportFormat.WebM
                     SegmentedButton(
                         selected = format == fmt,
                         onClick = { format = fmt },
-                        shape = SegmentedButtonDefaults.itemShape(index, ExportFormat.entries.size),
+                        shape = SegmentedButtonDefaults.itemShape(index, RustExportFormat.entries.size),
                         enabled = enabled,
                     ) {
-                        Text(fmt.name + if (fmt == ExportFormat.WebM) " (unsupported)" else "")
+                        Text(fmt.name + if (fmt == RustExportFormat.WebM) " (unsupported)" else "")
                     }
                 }
             }
@@ -331,12 +319,29 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         Button(
                             onClick = {
                                 val file = outputFile ?: return@Button
-                                vm.updateExportSettings(
-                                    ExportSettings(
-                                        format = format,
-                                        quality = quality,
-                                        width = customWidth.toIntOrNull() ?: 0,
-                                        height = customHeight.toIntOrNull() ?: 0,
+                                vm.updateExportProfile(
+                                    RustExportProfileSnapshot(
+                                        format = when (format) {
+                                            RustExportFormat.Mp4 -> RustExportFormat.Mp4
+                                            RustExportFormat.WebM -> RustExportFormat.WebM
+                                            RustExportFormat.Mov -> RustExportFormat.Mov
+                                        },
+                                        resolution = when {
+                                            (customWidth.toIntOrNull() ?: 0) == 854 && (customHeight.toIntOrNull() ?: 0) == 480 -> RustExportResolution.Sd480
+                                            (customWidth.toIntOrNull() ?: 0) == 1280 && (customHeight.toIntOrNull() ?: 0) == 720 -> RustExportResolution.Hd720
+                                            (customWidth.toIntOrNull() ?: 0) == 1920 && (customHeight.toIntOrNull() ?: 0) == 1080 -> RustExportResolution.Hd1080
+                                            (customWidth.toIntOrNull() ?: 0) == 3840 && (customHeight.toIntOrNull() ?: 0) == 2160 -> RustExportResolution.Uhd4k
+                                            (customWidth.toIntOrNull() ?: 0) > 0 && (customHeight.toIntOrNull() ?: 0) > 0 -> RustExportResolution.Custom(
+                                                customWidth.toIntOrNull() ?: 0,
+                                                customHeight.toIntOrNull() ?: 0,
+                                            )
+                                            else -> RustExportResolution.Hd1080
+                                        },
+                                        fps = 30.0,
+                                        videoBitrateKbps = (500 + quality * 80).toInt().coerceAtLeast(500),
+                                        audioBitrateKbps = 192,
+                                        audioSampleRate = 48_000,
+                                        outputPath = "",
                                     )
                                 )
                                 // Pass the platform file path — on Android this is a
@@ -414,3 +419,10 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         )
     }
 }
+
+private val RustExportFormat.extension: String
+    get() = when (this) {
+        RustExportFormat.Mp4 -> "mp4"
+        RustExportFormat.WebM -> "webm"
+        RustExportFormat.Mov -> "mov"
+    }

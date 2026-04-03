@@ -29,9 +29,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.mlm.miniter.editor.model.RustAudioClipKind
+import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
-import org.mlm.miniter.editor.model.toLegacyProject
-import org.mlm.miniter.project.*
+import org.mlm.miniter.editor.model.RustTextClipKind
+import org.mlm.miniter.editor.model.RustTrackKind
+import org.mlm.miniter.editor.model.RustTrackSnapshot
+import org.mlm.miniter.editor.model.RustVideoClipKind
 
 private val TRACK_HEIGHT = 52.dp
 private val TRACK_HEADER_WIDTH = 48.dp
@@ -61,7 +65,7 @@ fun TimelinePanel(
     onClipTrimEndAbsolute: (clipId: String, newEndMs: Long) -> Unit,
     onToggleMute: (String) -> Unit,
     onToggleLock: (String) -> Unit,
-    onAddTrack: (TrackType) -> Unit,
+    onAddTrack: (RustTrackKind) -> Unit,
     onRemoveTrack: (String) -> Unit,
     onSnapPosition: (Long, String?) -> Long,
     onClearSnap: () -> Unit = {},
@@ -69,76 +73,21 @@ fun TimelinePanel(
     onDuplicateClip: (String) -> Unit = {},
     onDeleteClip: (String) -> Unit = {},
 ) {
-    TimelinePanel(
-        project = snapshot?.toLegacyProject(),
-        playheadMs = playheadMs,
-        zoomLevel = zoomLevel,
-        isPlaying = isPlaying,
-        selectedClipId = selectedClipId,
-        snapIndicatorMs = snapIndicatorMs,
-        onPlayheadChange = onPlayheadChange,
-        onClipSelected = onClipSelected,
-        onBeginEdit = onBeginEdit,
-        onClipMoveAbsolute = onClipMoveAbsolute,
-        onClipMoveToTrack = onClipMoveToTrack,
-        onCommitEdit = onCommitEdit,
-        onCancelEdit = onCancelEdit,
-        onClipTrimStartAbsolute = onClipTrimStartAbsolute,
-        onClipTrimEndAbsolute = onClipTrimEndAbsolute,
-        onToggleMute = onToggleMute,
-        onToggleLock = onToggleLock,
-        onAddTrack = onAddTrack,
-        onRemoveTrack = onRemoveTrack,
-        onSnapPosition = onSnapPosition,
-        onClearSnap = onClearSnap,
-        onSplitClip = onSplitClip,
-        onDuplicateClip = onDuplicateClip,
-        onDeleteClip = onDeleteClip,
-    )
-}
-
-@Composable
-fun TimelinePanel(
-    project: MinterProject?,
-    playheadMs: Long,
-    zoomLevel: Float,
-    isPlaying: Boolean = false,
-    selectedClipId: String?,
-    snapIndicatorMs: Long?,
-    onPlayheadChange: (Long) -> Unit,
-    onClipSelected: (String?) -> Unit,
-    onBeginEdit: () -> Unit,
-    onClipMoveAbsolute: (clipId: String, absoluteStartMs: Long) -> Unit,
-    onClipMoveToTrack: (clipId: String, fromTrackId: String, toTrackId: String) -> Unit,
-    onCommitEdit: () -> Unit,
-    onCancelEdit: () -> Unit,
-    onClipTrimStartAbsolute: (clipId: String, newStartMs: Long) -> Unit,
-    onClipTrimEndAbsolute: (clipId: String, newEndMs: Long) -> Unit,
-    onToggleMute: (String) -> Unit,
-    onToggleLock: (String) -> Unit,
-    onAddTrack: (TrackType) -> Unit,
-    onRemoveTrack: (String) -> Unit,
-    onSnapPosition: (Long, String?) -> Long,
-    onClearSnap: () -> Unit = {},
-    onSplitClip: (String) -> Unit = {},
-    onDuplicateClip: (String) -> Unit = {},
-    onDeleteClip: (String) -> Unit = {},
-) {
-    if (project == null) {
+    if (snapshot == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No project loaded", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
 
-    val tracks = project.timeline.tracks
+    val tracks = snapshot.timeline.tracks
     val dpPerMs = zoomLevel * 0.1f
     val density = LocalDensity.current
 
     val timelineDurationMs = maxOf(
-        project.timeline.durationMs,
+        snapshotTimelineDurationMs(snapshot),
         MIN_TIMELINE_DURATION_MS,
-        tracks.flatMap { it.clips }.maxOfOrNull { it.startMs + it.durationMs } ?: 0L,
+        tracks.flatMap { it.clips }.maxOfOrNull { clipEndMs(it) } ?: 0L,
     ) + 5000L
     val totalContentWidthDp = (timelineDurationMs * dpPerMs).dp
 
@@ -187,8 +136,8 @@ fun TimelinePanel(
                     selectedClipId = selectedClipId,
                     snapIndicatorMs = snapIndicatorMs,
                     scrollState = horizontalScrollState,
-                    canRemove = !(track.type == TrackType.Video &&
-                            tracks.count { it.type == TrackType.Video } <= 1),
+                    canRemove = !(track.kind == RustTrackKind.Video &&
+                            tracks.count { it.kind == RustTrackKind.Video } <= 1),
                     playheadColor = playheadColor,
                     snapLineColor = snapLineColor,
                     onClipSelected = onClipSelected,
@@ -285,8 +234,8 @@ private fun TimelineRuler(
 
 @Composable
 private fun TrackRow(
-    track: Track,
-    allTracks: List<Track>,
+    track: RustTrackSnapshot,
+    allTracks: List<RustTrackSnapshot>,
     dpPerMs: Float,
     totalContentWidthDp: Dp,
     playheadMs: Long,
@@ -330,22 +279,22 @@ private fun TrackRow(
         ) {
             Box(Modifier.width(totalContentWidthDp).fillMaxHeight()) {
                 val sameTypeUnlocked = allTracks
-                    .filter { it.type == track.type && !it.isLocked }
+                    .filter { it.kind == track.kind && !it.locked }
                     .map { it.id }
                 val sameTypeIndex = sameTypeUnlocked.indexOf(track.id)
 
                 track.clips.forEach { clip ->
-                    val leftDp = (clip.startMs * dpPerMs).dp
-                    val widthDp = (clip.durationMs * dpPerMs).dp.coerceAtLeast(MIN_CLIP_WIDTH_DP.dp)
+                    val leftDp = (clipStartMs(clip) * dpPerMs).dp
+                    val widthDp = (clipDurationMs(clip) * dpPerMs).dp.coerceAtLeast(MIN_CLIP_WIDTH_DP.dp)
                     val isSelected = clip.id == selectedClipId
 
                     ClipBlock(
                         clip = clip,
-                        trackType = track.type,
+                        trackKind = track.kind,
                         widthDp = widthDp,
                         isSelected = isSelected,
-                        isLocked = track.isLocked,
-                        isMuted = track.isMuted,
+                        isLocked = track.locked,
+                        isMuted = track.muted,
                         dpPerMs = dpPerMs,
                         playheadMs = playheadMs,
                         modifier = Modifier.offset(x = leftDp).fillMaxHeight().padding(vertical = 2.dp),
@@ -365,7 +314,7 @@ private fun TrackRow(
                         },
                         onTrimEnd = { onCommitEdit() },
                         onTrimCancel = { onCancelEdit() },
-                        onSetPlayhead = { onPlayheadChange(clip.startMs) },
+                        onSetPlayhead = { onPlayheadChange(clipStartMs(clip)) },
                         onSplit = { onSplitClip(clip.id) },
                         onDuplicate = { onDuplicateClip(clip.id) },
                         onDelete = { onDeleteClip(clip.id) },
@@ -402,8 +351,8 @@ private fun TrackRow(
 
 @Composable
 private fun ClipBlock(
-    clip: Clip,
-    trackType: TrackType,
+    clip: RustClipSnapshot,
+    trackKind: RustTrackKind,
     widthDp: Dp,
     isSelected: Boolean,
     isLocked: Boolean,
@@ -431,38 +380,38 @@ private fun ClipBlock(
 ) {
     val density = LocalDensity.current
 
-    val currentStartMs by rememberUpdatedState(clip.startMs)
-    val currentDurationMs by rememberUpdatedState(clip.durationMs)
+    val currentStartMs by rememberUpdatedState(clipStartMs(clip))
+    val currentDurationMs by rememberUpdatedState(clipDurationMs(clip))
     val currentTrackId by rememberUpdatedState(trackId)
     val currentSameTypeIndex by rememberUpdatedState(sameTypeIndex)
     val currentSameTypeTrackIds by rememberUpdatedState(sameTypeTrackIds)
     val currentOnMoveToTrack by rememberUpdatedState(onMoveToTrack)
 
-    val bgColor = when (trackType) {
-        TrackType.Video -> MaterialTheme.colorScheme.primaryContainer
-        TrackType.Audio -> MaterialTheme.colorScheme.secondaryContainer
-        TrackType.Text -> MaterialTheme.colorScheme.tertiaryContainer
+    val bgColor = when (trackKind) {
+        RustTrackKind.Video -> MaterialTheme.colorScheme.primaryContainer
+        RustTrackKind.Audio -> MaterialTheme.colorScheme.secondaryContainer
+        RustTrackKind.Text -> MaterialTheme.colorScheme.tertiaryContainer
     }.let { if (isMuted) it.copy(alpha = 0.5f) else it }
 
     val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
     val trimHandleColor = if (isSelected) MaterialTheme.colorScheme.primary
     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
 
-    val onContainerColor = when (trackType) {
-        TrackType.Video -> MaterialTheme.colorScheme.onPrimaryContainer
-        TrackType.Audio -> MaterialTheme.colorScheme.onSecondaryContainer
-        TrackType.Text -> MaterialTheme.colorScheme.onTertiaryContainer
+    val onContainerColor = when (trackKind) {
+        RustTrackKind.Video -> MaterialTheme.colorScheme.onPrimaryContainer
+        RustTrackKind.Audio -> MaterialTheme.colorScheme.onSecondaryContainer
+        RustTrackKind.Text -> MaterialTheme.colorScheme.onTertiaryContainer
     }
 
-    val clipLabel = when (clip) {
-        is Clip.VideoClip -> clip.sourcePath.substringAfterLast("/").substringAfterLast("\\")
-        is Clip.AudioClip -> clip.sourcePath.substringAfterLast("/").substringAfterLast("\\")
-        is Clip.TextClip -> "T: ${clip.text}"
+    val clipLabel = when (val kind = clip.kind) {
+        is RustVideoClipKind -> kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
+        is RustAudioClipKind -> kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
+        is RustTextClipKind -> "T: ${kind.text}"
     }
 
-    val canSplit = clip is Clip.VideoClip &&
-            playheadMs > clip.startMs &&
-            playheadMs < clip.startMs + clip.durationMs
+    val canSplit = clip.kind is RustVideoClipKind &&
+            playheadMs > clipStartMs(clip) &&
+            playheadMs < clipEndMs(clip)
 
     var showContextMenu by remember { mutableStateOf(false) }
 
@@ -470,7 +419,7 @@ private fun ClipBlock(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = if (!isLocked && (clip is Clip.VideoClip || clip is Clip.AudioClip)) TRIM_HANDLE_WIDTH else 0.dp)
+                .padding(horizontal = if (!isLocked && isTrimmableClip(clip)) TRIM_HANDLE_WIDTH else 0.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .border(if (isSelected) 2.dp else 0.dp, borderColor, RoundedCornerShape(6.dp))
                 .pointerInput(clip.id) {
@@ -528,7 +477,7 @@ private fun ClipBlock(
                 Modifier.fillMaxSize().padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (clip is Clip.VideoClip && clip.speed != 1f) {
+                if (clip.kind is RustVideoClipKind && clip.speed != 1.0) {
                     Text("${clip.speed}x", style = MaterialTheme.typography.labelSmall,
                         color = onContainerColor.copy(alpha = 0.7f), fontSize = 8.sp)
                     Spacer(Modifier.width(2.dp))
@@ -536,11 +485,12 @@ private fun ClipBlock(
                 Text(clipLabel, style = MaterialTheme.typography.labelSmall, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, color = onContainerColor,
                     modifier = Modifier.weight(1f))
-                if (clip is Clip.VideoClip && clip.filters.isNotEmpty()) {
+                val videoFilters = (clip.kind as? RustVideoClipKind)?.filters.orEmpty()
+                if (videoFilters.isNotEmpty()) {
                     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.size(14.dp)) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("${clip.filters.size}", fontSize = 8.sp,
+                            Text("${videoFilters.size}", fontSize = 8.sp,
                                 color = MaterialTheme.colorScheme.onTertiary)
                         }
                     }
@@ -552,7 +502,7 @@ private fun ClipBlock(
             }
         }
 
-        if (!isLocked && (clip is Clip.VideoClip || clip is Clip.AudioClip)) {
+        if (!isLocked && isTrimmableClip(clip)) {
             Box(
                 Modifier.align(Alignment.CenterStart).width(TRIM_HANDLE_WIDTH).fillMaxHeight()
                     .padding(vertical = 4.dp)
@@ -580,7 +530,7 @@ private fun ClipBlock(
             )
         }
 
-        if (!isLocked && (clip is Clip.VideoClip || clip is Clip.AudioClip)) {
+        if (!isLocked && isTrimmableClip(clip)) {
             Box(
                 Modifier.align(Alignment.CenterEnd).width(TRIM_HANDLE_WIDTH).fillMaxHeight()
                     .padding(vertical = 4.dp)
@@ -621,3 +571,19 @@ private fun ClipBlock(
         )
     }
 }
+
+private fun clipStartMs(clip: RustClipSnapshot): Long = clip.timelineStartUs / 1000L
+
+private fun clipDurationMs(clip: RustClipSnapshot): Long = clip.timelineDurationUs / 1000L
+
+private fun clipEndMs(clip: RustClipSnapshot): Long = (clip.timelineStartUs + clip.timelineDurationUs) / 1000L
+
+private fun snapshotTimelineDurationMs(snapshot: RustProjectSnapshot): Long {
+    return snapshot.timeline.tracks
+        .flatMap { it.clips }
+        .maxOfOrNull { clipEndMs(it) }
+        ?: 0L
+}
+
+private fun isTrimmableClip(clip: RustClipSnapshot): Boolean =
+    clip.kind is RustVideoClipKind || clip.kind is RustAudioClipKind

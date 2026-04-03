@@ -5,8 +5,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.mlm.miniter.editor.model.RustTransitionSnapshot
+import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
-import org.mlm.miniter.project.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -15,17 +16,17 @@ fun PropertiesBottomSheet(
     snapshot: RustProjectSnapshot?,
     selectedClipId: String?,
     onDismiss: () -> Unit,
-    onAddFilter: (String, VideoFilter) -> Unit,
+    onAddFilter: (String, RustVideoFilterSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
-    onSetTransition: (String, Transition?) -> Unit,
+    onSetTransition: (String, RustTransitionSnapshot?) -> Unit,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetOpacity: (String, Float) -> Unit,
     onSetTextDuration: (String, Long) -> Unit,
-    onSetTextTransition: (String, Transition?) -> Unit,
+    onSetTextTransition: (String, RustTransitionSnapshot?) -> Unit,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
