@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
@@ -72,17 +73,60 @@ fun EditorVideoPreview(
             ?.find { clip -> playheadUs >= clip.startMs * 1000L && playheadUs < (clip.startMs + clip.durationMs) * 1000L }
     }
 
+    val currentAudioClip = remember(snapshot, playheadMs) {
+        val playheadUs = playheadMs * 1000L
+        snapshot?.timeline?.tracks
+            ?.filter { it.kind == RustTrackKind.Audio && !it.muted }
+            ?.flatMap { it.clips }
+            ?.mapNotNull { clip ->
+                val audio = clip.kind as? RustAudioClipKind ?: return@mapNotNull null
+                AudioClipPreview(
+                    id = clip.id,
+                    startMs = clip.timelineStartUs / 1000L,
+                    durationMs = clip.timelineDurationUs / 1000L,
+                    sourcePath = audio.sourcePath,
+                    sourceStartMs = clip.sourceStartUs / 1000L,
+                    sourceEndMs = clip.sourceEndUs / 1000L,
+                    speed = clip.speed.toFloat(),
+                    volume = clip.volume,
+                )
+            }
+            ?.find { clip -> playheadUs >= clip.startMs * 1000L && playheadUs < (clip.startMs + clip.durationMs) * 1000L }
+    }
+
     val clipSourcePath = currentClip?.sourcePath
     val clipSpeed = currentClip?.speed ?: 1f
     val clipVolume = currentClip?.volume ?: 1f
     val clipFilters = currentClip?.filters ?: emptyList()
     val clipOpacity = currentClip?.opacity ?: 1f
 
+    val audioClipSourcePath = currentAudioClip?.sourcePath
+    val audioClipVolume = currentAudioClip?.volume ?: 1f
+    val audioClipSpeed = currentAudioClip?.speed ?: 1f
+
     var fullFileDurationMs by remember { mutableLongStateOf(0L) }
     var lastLoadedPath by remember { mutableStateOf<String?>(null) }
     var playerReady by remember { mutableStateOf(false) }
     var scrubbedFrame by remember { mutableStateOf<ImageData?>(null) }
     var grabberReady by remember { mutableStateOf(false) }
+
+    val audioPlayerState = rememberVideoPlayerState()
+
+    LaunchedEffect(audioClipSourcePath) {
+        if (audioClipSourcePath != null) {
+            audioPlayerState.openUri(audioClipSourcePath)
+            delay(200)
+            audioPlayerState.pause()
+        }
+    }
+
+    LaunchedEffect(audioClipVolume) {
+        audioPlayerState.volume = audioClipVolume.coerceIn(0f, 1f)
+    }
+
+    LaunchedEffect(audioClipSpeed) {
+        audioPlayerState.playbackSpeed = audioClipSpeed.coerceIn(0.25f, 4f)
+    }
 
     LaunchedEffect(clipSourcePath) {
         if (clipSourcePath != null && clipSourcePath != lastLoadedPath) {
@@ -197,6 +241,27 @@ fun EditorVideoPreview(
 
         playerState.play()
 
+        val audioStartMs = currentAudioClip?.startMs
+        val audioEndMs = currentAudioClip?.let { it.startMs + it.durationMs }
+        val audioSpeed = currentAudioClip?.speed ?: 1f
+        val audioSourceStartMs = currentAudioClip?.sourceStartMs ?: 0L
+
+        if (audioClipSourcePath != null && audioStartMs != null && audioEndMs != null) {
+            val audioOffset = playheadMs - audioStartMs
+            val audioSourceTimeMs = audioSourceStartMs + (audioOffset * audioSpeed).toLong()
+            val audioSeekTarget = (audioSourceTimeMs.toFloat() / playerState.metadata.duration!! * 1000f)
+                .coerceIn(0f, 999f)
+            if (!audioSeekTarget.isNaN() && !audioSeekTarget.isInfinite()) {
+                audioPlayerState.sliderPos = audioSeekTarget
+                audioPlayerState.userDragging = true
+                delay(50)
+                audioPlayerState.userDragging = false
+                audioPlayerState.seekTo(audioPlayerState.sliderPos)
+                delay(100)
+            }
+            audioPlayerState.play()
+        }
+
         val startMark = TimeSource.Monotonic.markNow()
         val startPlayheadMs = playheadMs
 
@@ -211,10 +276,15 @@ fun EditorVideoPreview(
                 onPlayheadChange(clipEndMs)
                 onPlayingChange(false)
                 playerState.pause()
+                audioPlayerState.pause()
                 break
             }
 
             onPlayheadChange(newPlayhead)
+
+            if (audioEndMs != null && newPlayhead >= audioEndMs) {
+                audioPlayerState.pause()
+            }
         }
     }
 
@@ -314,4 +384,15 @@ private data class ClipPreview(
     val volume: Float,
     val opacity: Float,
     val filters: List<RustVideoFilterSnapshot>,
+)
+
+private data class AudioClipPreview(
+    val id: String,
+    val startMs: Long,
+    val durationMs: Long,
+    val sourcePath: String,
+    val sourceStartMs: Long,
+    val sourceEndMs: Long,
+    val speed: Float,
+    val volume: Float,
 )

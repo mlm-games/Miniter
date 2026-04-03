@@ -249,13 +249,20 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
             let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
 
+            let max_source_end = original.source_total_duration;
+            let max_duration = MediaDuration::from_micros(
+                ((max_source_end.as_micros() as f64 - original.source_start.as_micros() as f64)
+                    / original.speed) as i64,
+            );
+            let clamped_duration = new_duration.min(max_duration);
+
             let new_source_end = MediaDuration::from_micros(
                 original.source_start.as_micros()
-                    + (new_duration.as_micros() as f64 * original.speed) as i64,
+                    + (clamped_duration.as_micros() as f64 * original.speed) as i64,
             );
 
             let mut updated = original.clone();
-            updated.timeline_duration = new_duration;
+            updated.timeline_duration = clamped_duration;
             updated.source_end = new_source_end;
 
             if !matches!(original.kind, ClipKind::Text(_)) {

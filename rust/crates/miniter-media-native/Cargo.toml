@@ -22,7 +22,7 @@ ivf = "0.1"
 av-ivf = "0.5"
 
 # Audio demuxing (pure Rust)
-symphonia = { version = "0.5.5", features = ["isomp4", "mkv"] }
+symphonia = { version = "0.5.5", features = ["isomp4", "mkv", "pcm"] }
 
 # Text rendering for export
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }

@@ -1,3 +1,4 @@
+use crate::audio_export::{write_audio_sidecar_if_present, AudioSidecarExportError};
 use crate::clear_session_cache;
 use crate::decoder::DecodeError;
 use crate::encoder::{EncodeError, VideoEncodeSession};
@@ -31,6 +32,10 @@ pub enum ExportError {
     Av1Encode(#[from] Av1EncodeError),
     #[error("MP4 mux: {0}")]
     Mp4Mux(#[from] MuxError),
+
+    #[error("Audio export: {0}")]
+    AudioExport(#[from] AudioSidecarExportError),
+
     #[error("Could not extract SPS/PPS from H.264 stream")]
     MissingAvcConfig,
     #[error("Export cancelled")]
@@ -165,6 +170,8 @@ where
 
     on_progress(100_000);
     muxer.finish()?;
+    let _ = write_audio_sidecar_if_present(project, output_path)?;
+
     Ok(())
 }
 

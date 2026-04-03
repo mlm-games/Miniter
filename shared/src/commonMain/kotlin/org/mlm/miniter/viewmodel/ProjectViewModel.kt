@@ -119,18 +119,25 @@ class ProjectViewModel(
                 rustStore.create(name)
                 val videoTrackId = ensureTrack(RustTrackKind.Video, "Video 1")
 
-                dispatchAndSync(
+                val hasAudio = info.hasAudio
+                val audioTrackId = if (hasAudio) ensureTrack(RustTrackKind.Audio, "Audio 1") else null
+
+                val durationUs = info.durationMs * 1000L
+
+                val videoClipVolume = if (hasAudio) 0.0f else 1.0f
+
+                val commands = mutableListOf(
                     rustStore.commands.addClip(
                         videoTrackId,
                         RustClipSnapshot(
                             id = randomUuid(),
                             timelineStartUs = 0L,
-                            timelineDurationUs = info.durationMs * 1000L,
+                            timelineDurationUs = durationUs,
                             sourceStartUs = 0L,
-                            sourceEndUs = info.durationMs * 1000L,
-                            sourceTotalDurationUs = info.durationMs * 1000L,
+                            sourceEndUs = durationUs,
+                            sourceTotalDurationUs = durationUs,
                             speed = 1.0,
-                            volume = 1.0f,
+                            volume = videoClipVolume,
                             opacity = 1.0f,
                             muted = false,
                             transitionIn = null,
@@ -144,7 +151,39 @@ class ProjectViewModel(
                                 audioFilters = emptyList(),
                             ),
                         ),
-                    ),
+                    )
+                )
+
+                if (hasAudio && audioTrackId != null) {
+                    commands.add(
+                        rustStore.commands.addClip(
+                            audioTrackId,
+                            RustClipSnapshot(
+                                id = randomUuid(),
+                                timelineStartUs = 0L,
+                                timelineDurationUs = durationUs,
+                                sourceStartUs = 0L,
+                                sourceEndUs = durationUs,
+                                sourceTotalDurationUs = durationUs,
+                                speed = 1.0,
+                                volume = 1.0f,
+                                opacity = 1.0f,
+                                muted = false,
+                                transitionIn = null,
+                                transitionOut = null,
+                                kind = RustAudioClipKind(
+                                    sourcePath = initialVideoPath,
+                                    sampleRate = info.audioSampleRate.coerceAtLeast(44_100),
+                                    channels = info.audioChannels.coerceAtLeast(1),
+                                    filters = emptyList(),
+                                ),
+                            ),
+                        )
+                    )
+                }
+
+                dispatchAndSync(
+                    rustStore.commands.batch("NewProjectInitialClips", commands),
                     projectPath = savePath,
                     selectedTrackId = videoTrackId,
                     isDirty = true,
@@ -383,11 +422,11 @@ class ProjectViewModel(
 
     fun importMediaFiles(files: List<PlatformFile>) {
         viewModelScope.launch {
-            val snapshot = rustStore.snapshot.value ?: return@launch
+            val initialSnapshot = rustStore.snapshot.value ?: return@launch
             _state.update { it.copy(isLoading = true) }
 
             try {
-                val selected = snapshot.timeline.tracks
+                val selected = initialSnapshot.timeline.tracks
                     .flatMap { track -> track.clips.map { track.id to it } }
                     .firstOrNull { (_, clip) -> clip.id == _state.value.selectedClipId }
 
@@ -407,74 +446,172 @@ class ProjectViewModel(
                 var cursorVideoUs = initialCursorMs * 1000L
                 var cursorAudioUs = initialCursorMs * 1000L
 
-                var videoTrackId = snapshot.timeline.tracks.firstOrNull { it.kind == RustTrackKind.Video }?.id
-                if (videoTrackId == null) videoTrackId = ensureTrack(RustTrackKind.Video, "Video 1")
+                var videoTrackId: String? =
+                    initialSnapshot.timeline.tracks.firstOrNull { it.kind == RustTrackKind.Video }?.id
 
-                var audioTrackId = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { it.kind == RustTrackKind.Audio }?.id
-                if (audioTrackId == null) audioTrackId = ensureTrack(RustTrackKind.Audio, "Audio 1")
+                var audioTrackId: String? =
+                    rustStore.snapshot.value?.timeline?.tracks
+                        ?.firstOrNull { it.kind == RustTrackKind.Audio }?.id
 
                 for (item in items) {
                     val info = item.info
-                    when {
-                        info.hasVideo -> {
-                            dispatchNoSync(
-                                rustStore.commands.addClip(
-                                    videoTrackId,
-                                    RustClipSnapshot(
-                                        id = randomUuid(),
-                                        timelineStartUs = cursorVideoUs,
-                                        timelineDurationUs = info.durationMs * 1000L,
-                                        sourceStartUs = 0L,
-                                        sourceEndUs = info.durationMs * 1000L,
-                                        sourceTotalDurationUs = info.durationMs * 1000L,
-                                        speed = 1.0,
-                                        volume = 1.0f,
-                                        opacity = 1.0f,
-                                        muted = false,
-                                        transitionIn = null,
-                                        transitionOut = null,
-                                        kind = RustVideoClipKind(
-                                            sourcePath = item.file.path,
-                                            width = info.width,
-                                            height = info.height,
-                                            fps = if (info.frameRate > 0.0) info.frameRate else 30.0,
-                                            filters = emptyList(),
-                                            audioFilters = emptyList(),
-                                        ),
-                                    ),
-                                )
-                            )
-                            cursorVideoUs += info.durationMs * 1000L
+                    val hasVideo = info.hasVideo
+                    val hasAudio = info.hasAudio
+                    val durationUs = info.durationMs * 1000L
+
+                    val snapshotNow = rustStore.snapshot.value ?: initialSnapshot
+
+                    if (hasVideo) {
+                        val startUs = cursorVideoUs
+                        val endUs = startUs + durationUs
+
+                        if (videoTrackId == null) {
+                            videoTrackId = ensureTrack(RustTrackKind.Video, "Video 1")
                         }
 
-                        info.hasAudio -> {
-                            dispatchNoSync(
-                                rustStore.commands.addClip(
-                                    audioTrackId,
-                                    RustClipSnapshot(
-                                        id = randomUuid(),
-                                        timelineStartUs = cursorAudioUs,
-                                        timelineDurationUs = info.durationMs * 1000L,
-                                        sourceStartUs = 0L,
-                                        sourceEndUs = info.durationMs * 1000L,
-                                        sourceTotalDurationUs = info.durationMs * 1000L,
-                                        speed = 1.0,
-                                        volume = 1.0f,
-                                        opacity = 1.0f,
-                                        muted = false,
-                                        transitionIn = null,
-                                        transitionOut = null,
-                                        kind = RustAudioClipKind(
-                                            sourcePath = item.file.path,
-                                            sampleRate = info.audioSampleRate.coerceAtLeast(44_100),
-                                            channels = info.audioChannels.coerceAtLeast(1),
-                                            filters = emptyList(),
-                                        ),
-                                    ),
-                                )
-                            )
-                            cursorAudioUs += info.durationMs * 1000L
+                        val currentVideoTrackId = videoTrackId!!
+                        val currentVideoTrack = snapshotNow.timeline.tracks
+                            .firstOrNull { it.id == currentVideoTrackId && it.kind == RustTrackKind.Video }
+
+                        val currentConflicts = currentVideoTrack?.clips?.any { clip ->
+                            val cs = clip.timelineStartUs
+                            val ce = clip.timelineStartUs + clip.timelineDurationUs
+                            cs < endUs && ce > startUs
+                        } ?: false
+
+                        val targetVideoTrackId = if (!currentConflicts) {
+                            currentVideoTrackId
+                        } else {
+                            val alternate = snapshotNow.timeline.tracks
+                                .filter { it.kind == RustTrackKind.Video && it.id != currentVideoTrackId }
+                                .firstOrNull { track ->
+                                    track.clips.none { clip ->
+                                        val cs = clip.timelineStartUs
+                                        val ce = clip.timelineStartUs + clip.timelineDurationUs
+                                        cs < endUs && ce > startUs
+                                    }
+                                }
+
+                            if (alternate != null) {
+                                alternate.id
+                            } else {
+                                val videoCount = snapshotNow.timeline.tracks.count { it.kind == RustTrackKind.Video }
+                                val label = "Video ${videoCount + 1}"
+                                rustStore.dispatch(rustStore.commands.addTrack(RustTrackKind.Video, label))
+                                val updated = rustStore.snapshot.value ?: snapshotNow
+                                updated.timeline.tracks.last { it.kind == RustTrackKind.Video }.id
+                            }
                         }
+
+                        videoTrackId = targetVideoTrackId
+
+                        val videoVolume = if (hasAudio) 0.0f else 1.0f
+
+                        dispatchNoSync(
+                            rustStore.commands.addClip(
+                                targetVideoTrackId,
+                                RustClipSnapshot(
+                                    id = randomUuid(),
+                                    timelineStartUs = startUs,
+                                    timelineDurationUs = durationUs,
+                                    sourceStartUs = 0L,
+                                    sourceEndUs = durationUs,
+                                    sourceTotalDurationUs = durationUs,
+                                    speed = 1.0,
+                                    volume = videoVolume,
+                                    opacity = 1.0f,
+                                    muted = false,
+                                    transitionIn = null,
+                                    transitionOut = null,
+                                    kind = RustVideoClipKind(
+                                        sourcePath = item.file.path,
+                                        width = info.width,
+                                        height = info.height,
+                                        fps = if (info.frameRate > 0.0) info.frameRate else 30.0,
+                                        filters = emptyList(),
+                                        audioFilters = emptyList(),
+                                    ),
+                                ),
+                            )
+                        )
+
+                        cursorVideoUs += durationUs
+                    }
+
+                    if (hasAudio) {
+                        val startUs = cursorAudioUs
+                        val endUs = startUs + durationUs
+
+                        var currentAudioTrackId = audioTrackId
+                        if (currentAudioTrackId == null) {
+                            currentAudioTrackId = ensureTrack(RustTrackKind.Audio, "Audio 1")
+                            audioTrackId = currentAudioTrackId
+                        }
+
+                        val snapshotNow2 = rustStore.snapshot.value ?: snapshotNow
+
+                        val currentAudioTrack = snapshotNow2.timeline.tracks
+                            .firstOrNull { it.id == currentAudioTrackId && it.kind == RustTrackKind.Audio }
+
+                        val currentConflicts = currentAudioTrack?.clips?.any { clip ->
+                            val cs = clip.timelineStartUs
+                            val ce = clip.timelineStartUs + clip.timelineDurationUs
+                            cs < endUs && ce > startUs
+                        } ?: false
+
+                        val targetAudioTrackId = if (!currentConflicts) {
+                            currentAudioTrackId!!
+                        } else {
+                            val alternate = snapshotNow2.timeline.tracks
+                                .filter { it.kind == RustTrackKind.Audio && it.id != currentAudioTrackId }
+                                .firstOrNull { track ->
+                                    track.clips.none { clip ->
+                                        val cs = clip.timelineStartUs
+                                        val ce = clip.timelineStartUs + clip.timelineDurationUs
+                                        cs < endUs && ce > startUs
+                                    }
+                                }
+
+                            if (alternate != null) {
+                                alternate.id
+                            } else {
+                                val audioCount = snapshotNow2.timeline.tracks.count { it.kind == RustTrackKind.Audio }
+                                val label = "Audio ${audioCount + 1}"
+                                rustStore.dispatch(rustStore.commands.addTrack(RustTrackKind.Audio, label))
+                                val updated = rustStore.snapshot.value ?: snapshotNow2
+                                updated.timeline.tracks.last { it.kind == RustTrackKind.Audio }.id
+                            }
+                        }
+
+                        audioTrackId = targetAudioTrackId
+
+                        dispatchNoSync(
+                            rustStore.commands.addClip(
+                                targetAudioTrackId,
+                                RustClipSnapshot(
+                                    id = randomUuid(),
+                                    timelineStartUs = startUs,
+                                    timelineDurationUs = durationUs,
+                                    sourceStartUs = 0L,
+                                    sourceEndUs = durationUs,
+                                    sourceTotalDurationUs = durationUs,
+                                    speed = 1.0,
+                                    volume = 1.0f,
+                                    opacity = 1.0f,
+                                    muted = false,
+                                    transitionIn = null,
+                                    transitionOut = null,
+                                    kind = RustAudioClipKind(
+                                        sourcePath = item.file.path,
+                                        sampleRate = info.audioSampleRate.coerceAtLeast(44_100),
+                                        channels = info.audioChannels.coerceAtLeast(1),
+                                        filters = emptyList(),
+                                    ),
+                                ),
+                            )
+                        )
+
+                        cursorAudioUs += durationUs
                     }
                 }
 
