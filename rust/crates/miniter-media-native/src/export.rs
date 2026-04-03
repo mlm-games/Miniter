@@ -131,8 +131,6 @@ where
     muxer.write_sample(&first_bitstream, contains_idr(&first_bitstream))?;
 
     let mut frame_count: u32 = 1;
-    on_progress(1);
-
     for plan in iter {
         if is_cancelled() {
             return Err(ExportError::Cancelled);
@@ -149,12 +147,13 @@ where
         muxer.write_sample(&bitstream, contains_idr(&bitstream))?;
 
         frame_count += 1;
-        if total_frames > 0 && frame_count % (total_frames.max(1) / 100).max(1) == 0 {
-            on_progress(((frame_count as f64 / total_frames as f64) * 100.0) as u32);
+        if total_frames > 0 {
+            let pct = ((frame_count as f64 / total_frames as f64) * 100_000.0) as u32;
+            on_progress(pct);
         }
     }
 
-    on_progress(100);
+    on_progress(100_000);
     muxer.finish()?;
     Ok(())
 }

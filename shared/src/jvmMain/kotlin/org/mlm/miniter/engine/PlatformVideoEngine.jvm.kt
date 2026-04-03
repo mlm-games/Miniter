@@ -29,17 +29,12 @@ actual class PlatformVideoEngine actual constructor() {
     ) = withContext(Dispatchers.IO) {
         exportCancelled = false
         _exportProgress.value = ExportProgress(
-            phase = "Preparing export…",
-            progress = 0.08f,
+            phase = "Encoding video…",
+            progress = 0f,
         )
 
         try {
             ensureActive()
-
-            _exportProgress.value = ExportProgress(
-                phase = "Encoding video…",
-                progress = 0.2f,
-            )
 
             coroutineScope {
                 val progressJob = launch {
@@ -47,9 +42,9 @@ actual class PlatformVideoEngine actual constructor() {
                         val pct = RustCoreSession.exportProgress().toInt()
                         _exportProgress.value = ExportProgress(
                             phase = "Encoding video…",
-                            progress = 0.2f + (pct / 100f) * 0.75f,
+                            progress = pct / 100_000f,
                         )
-                        kotlinx.coroutines.delay(200)
+                        kotlinx.coroutines.delay(100)
                     }
                 }
 
