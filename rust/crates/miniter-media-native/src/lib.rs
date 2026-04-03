@@ -1,5 +1,6 @@
 pub mod decoder;
 pub mod encoder;
+pub mod encoder_av1;
 pub mod export;
 pub mod frame;
 pub mod mux;

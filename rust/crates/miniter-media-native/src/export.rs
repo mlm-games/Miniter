@@ -1,6 +1,7 @@
 use crate::clear_session_cache;
 use crate::decoder::DecodeError;
 use crate::encoder::{EncodeError, VideoEncodeSession};
+use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession};
 use crate::frame::RgbaFrame;
 use crate::mux::{extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError};
 use crate::thumbnailer;
@@ -26,14 +27,14 @@ pub enum ExportError {
     Decode(#[from] DecodeError),
     #[error("H.264 encode: {0}")]
     H264Encode(#[from] EncodeError),
+    #[error("AV1 encode: {0}")]
+    Av1Encode(#[from] Av1EncodeError),
     #[error("MP4 mux: {0}")]
     Mp4Mux(#[from] MuxError),
     #[error("Could not extract SPS/PPS from H.264 stream")]
     MissingAvcConfig,
     #[error("Export cancelled")]
     Cancelled,
-    #[error("WebM export not supported (requires libvpx for all platforms, which isn't worth rn)")]
-    WebMNotSupported,
 }
 
 pub fn export_project<F>(
@@ -83,7 +84,16 @@ where
             &is_cancelled,
             &on_progress,
         ),
-        ExportFormat::WebM => Err(ExportError::WebMNotSupported),
+        ExportFormat::Av1Ivf => export_av1(
+            project,
+            output_path,
+            width,
+            height,
+            fps,
+            bitrate_kbps,
+            &is_cancelled,
+            &on_progress,
+        ),
     };
     clear_session_cache();
     result
@@ -716,4 +726,91 @@ fn contains_idr(annex_b: &[u8]) -> bool {
     }
 
     false
+}
+
+fn export_av1<F>(
+    project: &Project,
+    output_path: &Path,
+    width: u32,
+    height: u32,
+    fps: f64,
+    bitrate_kbps: u32,
+    is_cancelled: &F,
+    on_progress: &dyn Fn(u32),
+) -> Result<(), ExportError>
+where
+    F: Fn() -> bool,
+{
+    let fps_int = fps.round().max(1.0) as u32;
+    let mut encoder = Av1EncodeSession::new(width, height, fps_int, bitrate_kbps)?;
+
+    let mut file = File::create(output_path)?;
+    ivf::write_ivf_header(
+        &mut file,
+        width as usize,
+        height as usize,
+        fps_int as usize,
+        1,
+    );
+
+    let mut iter = FramePlanIterator::new(&project.timeline, &project.export_profile);
+    let total_frames = iter.total_frames() as u32;
+    let first_plan = iter
+        .next()
+        .unwrap_or_else(|| plan_frame(&project.timeline, Timestamp::ZERO, width, height));
+
+    if is_cancelled() {
+        return Err(ExportError::Cancelled);
+    }
+
+    let first_rgba = render_plan_to_rgba(&first_plan)?;
+    let first_frame = RgbaFrame {
+        width,
+        height,
+        data: first_rgba,
+        pts_us: first_plan.timestamp.as_micros(),
+    };
+    let packets = encoder.encode_frame(&first_frame)?;
+    for packet in packets {
+        ivf::write_ivf_frame(&mut file, packet.pts, &packet.data);
+    }
+
+    let mut frame_count: u32 = 1;
+    for plan in iter {
+        if is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+
+        let rgba = render_plan_to_rgba(&plan)?;
+        let frame = RgbaFrame {
+            width,
+            height,
+            data: rgba,
+            pts_us: plan.timestamp.as_micros(),
+        };
+        let packets = encoder.encode_frame(&frame)?;
+        for packet in packets {
+            ivf::write_ivf_frame(&mut file, packet.pts, &packet.data);
+        }
+
+        frame_count += 1;
+        if total_frames > 0 {
+            let pct = ((frame_count as f64 / total_frames as f64) * 100_000.0) as u32;
+            on_progress(pct);
+        }
+    }
+
+    let finish_packets = encoder.finish()?;
+    for packet in finish_packets {
+        ivf::write_ivf_frame(&mut file, packet.pts, &packet.data);
+        frame_count += 1;
+    }
+
+    use std::io::{Seek, SeekFrom, Write};
+    file.seek(SeekFrom::Start(24))?;
+    file.write_all(&frame_count.to_le_bytes())?;
+    file.seek(SeekFrom::End(0))?;
+
+    on_progress(100_000);
+    Ok(())
 }

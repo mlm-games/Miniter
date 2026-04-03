@@ -96,14 +96,20 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             Text("Format", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 RustExportFormat.entries.forEachIndexed { index, fmt ->
-                    val enabled = !isExporting && fmt != RustExportFormat.WebM
+                    val enabled = !isExporting
                     SegmentedButton(
                         selected = format == fmt,
                         onClick = { format = fmt },
                         shape = SegmentedButtonDefaults.itemShape(index, RustExportFormat.entries.size),
                         enabled = enabled,
                     ) {
-                        Text(fmt.name + if (fmt == RustExportFormat.WebM) " (unsupported)" else "")
+                        Text(
+                            when (fmt) {
+                                RustExportFormat.Mp4 -> "H.264 / MP4"
+                                RustExportFormat.Av1Ivf -> "AV1 / IVF"
+                                RustExportFormat.Mov -> "H.264 / MOV"
+                            }
+                        )
                     }
                 }
             }
@@ -323,7 +329,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                     RustExportProfileSnapshot(
                                         format = when (format) {
                                             RustExportFormat.Mp4 -> RustExportFormat.Mp4
-                                            RustExportFormat.WebM -> RustExportFormat.WebM
+                                            RustExportFormat.Av1Ivf -> RustExportFormat.Av1Ivf
                                             RustExportFormat.Mov -> RustExportFormat.Mov
                                         },
                                         resolution = when {
@@ -423,6 +429,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
 private val RustExportFormat.extension: String
     get() = when (this) {
         RustExportFormat.Mp4 -> "mp4"
-        RustExportFormat.WebM -> "webm"
+        RustExportFormat.Av1Ivf -> "ivf"
         RustExportFormat.Mov -> "mov"
     }

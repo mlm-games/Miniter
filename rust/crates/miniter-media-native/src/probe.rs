@@ -35,11 +35,26 @@ pub enum MediaProbeError {
     Io(#[from] std::io::Error),
     #[error("MP4 parse error: {0}")]
     Mp4(#[from] mp4::Error),
+    #[error("IVF parse error: {0}")]
+    Ivf(String),
     #[error("No video track found")]
     NoVideoTrack,
 }
 
 pub fn probe_media(path: &Path) -> Result<MediaInfo, MediaProbeError> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "ivf" => probe_ivf(path),
+        _ => probe_mp4(path),
+    }
+}
+
+fn probe_mp4(path: &Path) -> Result<MediaInfo, MediaProbeError> {
     let file = File::open(path)?;
     let size = file.metadata()?.len();
     let reader = BufReader::new(file);
@@ -88,5 +103,58 @@ pub fn probe_media(path: &Path) -> Result<MediaInfo, MediaProbeError> {
         duration_us,
         video_streams,
         audio_streams,
+    })
+}
+
+fn probe_ivf(path: &Path) -> Result<MediaInfo, MediaProbeError> {
+    let file = File::open(path)?;
+    let file_size = file.metadata()?.len();
+    let mut reader = BufReader::new(file);
+
+    let header = ivf::read_header(&mut reader).map_err(|e| MediaProbeError::Ivf(e.to_string()))?;
+
+    let width = header.w as u32;
+    let height = header.h as u32;
+    let fps = if header.timebase_den > 0 {
+        header.timebase_den as f64 / header.timebase_num as f64
+    } else {
+        30.0
+    };
+
+    let mut frame_count: u64 = 0;
+    loop {
+        match ivf::read_packet(&mut reader) {
+            Ok(_) => frame_count += 1,
+            Err(_) => break,
+        }
+    }
+
+    let duration_us = if fps > 0.0 {
+        Some(((frame_count as f64 / fps) * 1_000_000.0) as i64)
+    } else {
+        None
+    };
+
+    let bitrate = if let Some(dur_us) = duration_us {
+        if dur_us > 0 {
+            ((file_size * 8 * 1_000_000) / dur_us as u64) as u32
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    Ok(MediaInfo {
+        duration_us,
+        video_streams: vec![VideoStreamInfo {
+            track_id: 1,
+            codec: "AV1".to_string(),
+            width,
+            height,
+            frame_rate: fps,
+            bitrate,
+        }],
+        audio_streams: Vec::new(),
     })
 }

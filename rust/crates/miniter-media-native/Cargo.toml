@@ -3,17 +3,22 @@ name = "miniter-media-native"
 version.workspace = true
 edition.workspace = true
 
-[dependencies]
+[dependencies] # Pure rust or class platform options only!
 miniter-domain = { path = "../miniter-domain" }
 miniter-render-plan = { path = "../miniter-render-plan" }
 thiserror.workspace = true
 log.workspace = true
 
-# Container demux/mux (pure Rust)
+# Container demux/mux
 mp4 = "0.14"
 
-# H.264 codec (compiles from source via C++ — cross-platform)
+# H.264 codec (compiles from source via C++ so, is cross-platform)
 openh264 = { version = "0.6", features = ["source"] }
+
+# AV1
+rav1e = { version = "0.8", default-features = false }
+ivf = "0.1"
+av-ivf = "0.5"
 
 # Audio demuxing (pure Rust)
 symphonia = { version = "0.5.5", features = ["isomp4", "mkv"] }

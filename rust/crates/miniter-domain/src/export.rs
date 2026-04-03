@@ -3,15 +3,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExportFormat {
     Mp4,
-    WebM,
     Mov,
+    Av1Ivf,
 }
 
 impl ExportFormat {
     pub fn extension(self) -> &'static str {
         match self {
             Self::Mp4 => "mp4",
-            Self::WebM => "webm",
+            Self::Av1Ivf => "ivf",
             Self::Mov => "mov",
         }
     }
@@ -19,7 +19,7 @@ impl ExportFormat {
     pub fn mime(self) -> &'static str {
         match self {
             Self::Mp4 => "video/mp4",
-            Self::WebM => "video/webm",
+            Self::Av1Ivf => "video/ivf",
             Self::Mov => "video/quicktime",
         }
     }

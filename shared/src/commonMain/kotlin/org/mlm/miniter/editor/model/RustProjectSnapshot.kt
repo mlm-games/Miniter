@@ -286,8 +286,8 @@ data class RustExportProfileSnapshot(
 @Serializable
 enum class RustExportFormat {
     Mp4,
-    WebM,
     Mov,
+    Av1Ivf,
 }
 
 @Serializable(with = RustExportResolutionSerializer::class)
