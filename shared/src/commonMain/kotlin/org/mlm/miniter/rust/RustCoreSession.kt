@@ -29,5 +29,6 @@ expect class RustCoreSession {
         fun extractThumbnails(path: String, count: Int, durationUs: Long): List<ImageData>
         fun exportProjectJson(projectJson: String, outputPath: String): Boolean
         fun cancelExport()
+        fun exportProgress(): UInt
     }
 }

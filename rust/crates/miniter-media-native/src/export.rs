@@ -40,20 +40,12 @@ pub fn export_project<F>(
     project: &Project,
     output_path: &Path,
     is_cancelled: F,
+    on_progress: impl Fn(u32),
 ) -> Result<(), ExportError>
 where
     F: Fn() -> bool,
 {
     clear_session_cache();
-    let result = do_export(project, output_path, &is_cancelled);
-    clear_session_cache();
-    result
-}
-
-fn do_export<F>(project: &Project, output_path: &Path, is_cancelled: &F) -> Result<(), ExportError>
-where
-    F: Fn() -> bool,
-{
     let (width, height) = project.export_profile.resolution.dimensions();
     let fps = if project.export_profile.fps > 0.0 {
         project.export_profile.fps
@@ -68,7 +60,7 @@ where
         }
     }
 
-    match project.export_profile.format {
+    let result = match project.export_profile.format {
         ExportFormat::Mp4 => export_h264(
             project,
             output_path,
@@ -78,6 +70,7 @@ where
             bitrate_kbps,
             ContainerFormat::Mp4,
             &is_cancelled,
+            &on_progress,
         ),
         ExportFormat::Mov => export_h264(
             project,
@@ -88,9 +81,12 @@ where
             bitrate_kbps,
             ContainerFormat::Mov,
             &is_cancelled,
+            &on_progress,
         ),
         ExportFormat::WebM => Err(ExportError::WebMNotSupported),
-    }
+    };
+    clear_session_cache();
+    result
 }
 
 fn export_h264<F>(
@@ -102,6 +98,7 @@ fn export_h264<F>(
     bitrate_kbps: u32,
     container: ContainerFormat,
     is_cancelled: &F,
+    on_progress: &dyn Fn(u32),
 ) -> Result<(), ExportError>
 where
     F: Fn() -> bool,
@@ -109,6 +106,7 @@ where
     let mut encoder = VideoEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32)?;
 
     let mut iter = FramePlanIterator::new(&project.timeline, &project.export_profile);
+    let total_frames = iter.total_frames() as u32;
     let first_plan = iter
         .next()
         .unwrap_or_else(|| plan_frame(&project.timeline, Timestamp::ZERO, width, height));
@@ -132,6 +130,9 @@ where
     let mut muxer = Mp4Muxer::new(writer, width, height, fps, &sps, &pps, container)?;
     muxer.write_sample(&first_bitstream, contains_idr(&first_bitstream))?;
 
+    let mut frame_count: u32 = 1;
+    on_progress(1);
+
     for plan in iter {
         if is_cancelled() {
             return Err(ExportError::Cancelled);
@@ -146,8 +147,14 @@ where
         };
         let bitstream = encoder.encode_frame(&frame)?;
         muxer.write_sample(&bitstream, contains_idr(&bitstream))?;
+
+        frame_count += 1;
+        if total_frames > 0 && frame_count % (total_frames.max(1) / 100).max(1) == 0 {
+            on_progress(((frame_count as f64 / total_frames as f64) * 100.0) as u32);
+        }
     }
 
+    on_progress(100);
     muxer.finish()?;
     Ok(())
 }

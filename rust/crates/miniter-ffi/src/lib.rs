@@ -1,12 +1,13 @@
 use miniter_domain::project::Project;
 use miniter_usecases::commands::EditCommand;
 use miniter_usecases::reducer::{self, EditorState};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 uniffi::setup_scaffolding!();
 
 static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
+static EXPORT_PROGRESS: AtomicU32 = AtomicU32::new(0);
 
 #[derive(uniffi::Object)]
 pub struct EditorHandle {
@@ -235,6 +236,7 @@ pub fn export_project_json(
     output_path: String,
 ) -> Result<bool, MiniterError> {
     EXPORT_CANCELLED.store(false, Ordering::SeqCst);
+    EXPORT_PROGRESS.store(0, Ordering::SeqCst);
 
     let mut project = Project::from_json(&project_json).map_err(|e| MiniterError::Parse {
         detail: e.to_string(),
@@ -245,6 +247,7 @@ pub fn export_project_json(
         &project,
         std::path::Path::new(&output_path),
         || EXPORT_CANCELLED.load(Ordering::Relaxed),
+        |pct| EXPORT_PROGRESS.store(pct, Ordering::SeqCst),
     ) {
         Ok(()) => Ok(true),
         Err(miniter_media_native::export::ExportError::Cancelled) => Err(MiniterError::Cancelled),
@@ -252,6 +255,11 @@ pub fn export_project_json(
             detail: e.to_string(),
         }),
     }
+}
+
+#[uniffi::export]
+pub fn export_progress() -> u32 {
+    EXPORT_PROGRESS.load(Ordering::SeqCst)
 }
 
 #[uniffi::export]

@@ -2,9 +2,12 @@ package org.mlm.miniter.engine
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.mlm.miniter.rust.RustCoreSession
 
@@ -38,20 +41,39 @@ actual class PlatformVideoEngine actual constructor() {
                 progress = 0.2f,
             )
 
-            val ok = RustCoreSession.exportProjectJson(projectJson, outputPath)
-            ensureActive()
+            coroutineScope {
+                val progressJob = launch {
+                    while (isActive && !exportCancelled) {
+                        val pct = RustCoreSession.exportProgress().toInt()
+                        _exportProgress.value = ExportProgress(
+                            phase = "Encoding video…",
+                            progress = 0.2f + (pct / 100f) * 0.75f,
+                        )
+                        kotlinx.coroutines.delay(200)
+                    }
+                }
 
-            _exportProgress.value = if (ok && !exportCancelled) {
-                ExportProgress(
-                    phase = "Export complete",
-                    progress = 1f,
-                    isComplete = true,
-                )
-            } else {
-                ExportProgress(
-                    phase = "Export cancelled",
-                    isCancelled = true,
-                )
+                try {
+                    val ok = RustCoreSession.exportProjectJson(projectJson, outputPath)
+                    progressJob.cancel()
+                    ensureActive()
+
+                    _exportProgress.value = if (ok && !exportCancelled) {
+                        ExportProgress(
+                            phase = "Export complete",
+                            progress = 1f,
+                            isComplete = true,
+                        )
+                    } else {
+                        ExportProgress(
+                            phase = "Export cancelled",
+                            isCancelled = true,
+                        )
+                    }
+                } catch (e: Exception) {
+                    progressJob.cancel()
+                    throw e
+                }
             }
         } catch (e: CancellationException) {
             RustCoreSession.cancelExport()
