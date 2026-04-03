@@ -198,7 +198,11 @@ fn render_node(node: &RenderNode, width: usize, height: usize) -> Result<Vec<u8>
             Ok(fitted)
         }
 
-        RenderNode::Text(overlay) => Ok(render_text_overlay(overlay, width, height)),
+        RenderNode::Text { overlay, opacity } => {
+            let mut img = render_text_overlay(overlay, width, height);
+            apply_global_alpha(&mut img, *opacity);
+            Ok(img)
+        }
 
         RenderNode::Stack(children) => {
             let mut canvas = transparent_rgba(width, height);

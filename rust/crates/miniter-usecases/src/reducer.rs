@@ -257,7 +257,10 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             let mut updated = original.clone();
             updated.timeline_duration = new_duration;
             updated.source_end = new_source_end;
-            ensure_clip_source_bounds(&updated)?;
+
+            if !matches!(original.kind, ClipKind::Text(_)) {
+                ensure_clip_source_bounds(&updated)?;
+            }
 
             let track = &state.project.timeline.tracks[track_idx];
             track

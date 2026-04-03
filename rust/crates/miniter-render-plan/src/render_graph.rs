@@ -1,3 +1,4 @@
+use crate::transition_blend::{ease_in_out, opacity_pair};
 use miniter_domain::clip::{Clip, ClipKind};
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::TextOverlay;
@@ -19,7 +20,10 @@ pub enum RenderNode {
         kind: TransitionKind,
         progress: f32,
     },
-    Text(TextOverlay),
+    Text {
+        overlay: TextOverlay,
+        opacity: f32,
+    },
     Stack(Vec<RenderNode>),
 }
 
@@ -108,7 +112,34 @@ fn node_for_clip(
             Some(base)
         }
         ClipKind::Audio(_) => None,
-        ClipKind::Text(overlay) => Some(RenderNode::Text(overlay.clone())),
+        ClipKind::Text(overlay) => {
+            let base = RenderNode::Text {
+                overlay: overlay.clone(),
+                opacity: clip.opacity,
+            };
+            if let Some(ref trans) = clip.transition_in {
+                let progress = transition_progress(clip, trans, t);
+                let eased = ease_in_out(progress);
+                let (_, text_a) = opacity_pair(trans.kind, eased);
+                let fade_opacity = clip.opacity * text_a;
+                let base = RenderNode::Text {
+                    overlay: overlay.clone(),
+                    opacity: fade_opacity,
+                };
+                if let Some(prev) = find_previous_clip(track, clip) {
+                    if let Some(prev_node) = node_for_clip(prev, t, track) {
+                        return Some(RenderNode::TransitionBlend {
+                            bottom: Box::new(prev_node),
+                            top: Box::new(base),
+                            kind: trans.kind,
+                            progress,
+                        });
+                    }
+                }
+                return Some(base);
+            }
+            Some(base)
+        }
     }
 }
 
