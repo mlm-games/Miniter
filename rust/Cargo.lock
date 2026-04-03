@@ -665,6 +665,7 @@ dependencies = [
  "font8x8",
  "ivf",
  "log",
+ "miniter-audio",
  "miniter-domain",
  "miniter-render-plan",
  "mp4",

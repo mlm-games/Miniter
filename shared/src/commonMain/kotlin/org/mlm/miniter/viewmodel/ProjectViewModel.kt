@@ -463,6 +463,7 @@ class ProjectViewModel(
                                         opacity = 1.0f,
                                         muted = false,
                                         transitionIn = null,
+                                        transitionOut = null,
                                         kind = RustAudioClipKind(
                                             sourcePath = item.file.path,
                                             sampleRate = info.audioSampleRate.coerceAtLeast(44_100),

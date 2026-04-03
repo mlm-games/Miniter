@@ -57,7 +57,7 @@ fun ProjectScreen(
     val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
 
     val importPicker = rememberFilePickerLauncher(
-        type = FileKitType.File(extensions = SupportedFormats.videoExtensions.toSet()),
+        type = FileKitType.File(extensions = (SupportedFormats.videoExtensions + SupportedFormats.audioExtensions).toSet()),
         mode = FileKitMode.Multiple(),
     ) { files ->
         if (files != null) vm.importMediaFiles(files)

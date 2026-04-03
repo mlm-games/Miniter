@@ -1,3 +1,4 @@
+use miniter_audio::probe;
 use mp4::Mp4Reader;
 use std::fs::File;
 use std::io::BufReader;
@@ -37,6 +38,8 @@ pub enum MediaProbeError {
     Mp4(#[from] mp4::Error),
     #[error("IVF parse error: {0}")]
     Ivf(String),
+    #[error("Audio parse error: {0}")]
+    Audio(String),
     #[error("No video track found")]
     NoVideoTrack,
 }
@@ -50,6 +53,8 @@ pub fn probe_media(path: &Path) -> Result<MediaInfo, MediaProbeError> {
 
     match ext.as_str() {
         "ivf" => probe_ivf(path),
+        "wav" => probe_wav(path),
+        "mp3" | "ogg" | "m4a" | "aac" | "flac" => probe_audio_only(path),
         _ => probe_mp4(path),
     }
 }
@@ -58,7 +63,20 @@ fn probe_mp4(path: &Path) -> Result<MediaInfo, MediaProbeError> {
     let file = File::open(path)?;
     let size = file.metadata()?.len();
     let reader = BufReader::new(file);
-    let mp4 = Mp4Reader::read_header(reader, size)?;
+    let mp4 = match Mp4Reader::read_header(reader, size) {
+        Ok(m) => m,
+        Err(e) => {
+            if e.to_string().contains("larger size than") || e.to_string().contains("invalid size")
+            {
+                return Ok(MediaInfo {
+                    duration_us: None,
+                    video_streams: Vec::new(),
+                    audio_streams: Vec::new(),
+                });
+            }
+            return Err(MediaProbeError::Mp4(e));
+        }
+    };
 
     let duration_us = {
         let dur = mp4.duration();
@@ -156,5 +174,37 @@ fn probe_ivf(path: &Path) -> Result<MediaInfo, MediaProbeError> {
             bitrate,
         }],
         audio_streams: Vec::new(),
+    })
+}
+
+fn probe_wav(path: &Path) -> Result<MediaInfo, MediaProbeError> {
+    let meta = probe::probe_audio(path).map_err(|e| MediaProbeError::Audio(e.to_string()))?;
+
+    Ok(MediaInfo {
+        duration_us: meta.duration_us,
+        video_streams: Vec::new(),
+        audio_streams: vec![AudioStreamInfo {
+            track_id: 1,
+            codec: meta.codec,
+            sample_rate: meta.sample_rate,
+            channels: meta.channels as u32,
+            bitrate: 0,
+        }],
+    })
+}
+
+fn probe_audio_only(path: &Path) -> Result<MediaInfo, MediaProbeError> {
+    let meta = probe::probe_audio(path).map_err(|e| MediaProbeError::Audio(e.to_string()))?;
+
+    Ok(MediaInfo {
+        duration_us: meta.duration_us,
+        video_streams: Vec::new(),
+        audio_streams: vec![AudioStreamInfo {
+            track_id: 1,
+            codec: meta.codec,
+            sample_rate: meta.sample_rate,
+            channels: meta.channels as u32,
+            bitrate: 0,
+        }],
     })
 }
