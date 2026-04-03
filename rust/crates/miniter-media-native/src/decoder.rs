@@ -31,6 +31,9 @@ pub struct VideoDecodeSession<R: std::io::Read + Seek> {
     width: u32,
     height: u32,
     timescale: u32,
+    nalu_length_size: u8,
+    sps: Option<Vec<u8>>,
+    pps: Option<Vec<u8>>,
 }
 
 impl VideoDecodeSession<BufReader<File>> {
@@ -63,6 +66,23 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
         let height = video_track.height() as u32;
         let timescale = video_track.timescale();
 
+        let (nalu_length_size, sps, pps) =
+            if let Some(ref avc1) = video_track.trak.mdia.minf.stbl.stsd.avc1 {
+                (
+                    (avc1.avcc.length_size_minus_one & 0x03) + 1,
+                    avc1.avcc
+                        .sequence_parameter_sets
+                        .first()
+                        .map(|nal| nal.bytes.clone()),
+                    avc1.avcc
+                        .picture_parameter_sets
+                        .first()
+                        .map(|nal| nal.bytes.clone()),
+                )
+            } else {
+                (4, None, None)
+            };
+
         let h264_decoder = Decoder::new()?;
 
         Ok(Self {
@@ -74,6 +94,9 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             width,
             height,
             timescale,
+            nalu_length_size,
+            sps,
+            pps,
         })
     }
 
@@ -116,13 +139,17 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
 
             self.current_sample += 1;
 
-            let annex_b = mp4_nalu_to_annex_b(&sample.bytes);
+            let annex_b = mp4_nalu_to_annex_b(
+                &sample.bytes,
+                self.nalu_length_size,
+                self.sps.as_deref(),
+                self.pps.as_deref(),
+            );
 
             let maybe_yuv = self.h264_decoder.decode(&annex_b);
             match maybe_yuv {
                 Ok(Some(yuv)) => {
                     let (yw, yh) = yuv.dimensions();
-                    let strides = yuv.strides();
                     let mut rgba = vec![0u8; yw * yh * 4];
                     yuv.write_rgba8(&mut rgba);
 
@@ -157,31 +184,68 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
     }
 }
 
-fn mp4_nalu_to_annex_b(data: &[u8]) -> Vec<u8> {
+fn mp4_nalu_to_annex_b(
+    data: &[u8],
+    nalu_length_size: u8,
+    sps: Option<&[u8]>,
+    pps: Option<&[u8]>,
+) -> Vec<u8> {
     let start_code: &[u8] = &[0x00, 0x00, 0x00, 0x01];
     let mut output = Vec::with_capacity(data.len() + 128);
+    let mut saw_sps = false;
+    let mut saw_pps = false;
     let mut offset = 0;
+    let len_size = nalu_length_size.clamp(1, 4) as usize;
 
-    while offset + 4 <= data.len() {
-        let nalu_len = u32::from_be_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ]) as usize;
-        offset += 4;
+    while offset + len_size <= data.len() {
+        let mut nalu_len = 0usize;
+        for _ in 0..len_size {
+            nalu_len = (nalu_len << 8) | data[offset] as usize;
+            offset += 1;
+        }
+
+        if nalu_len == 0 {
+            continue;
+        }
 
         if offset + nalu_len > data.len() {
             break;
         }
 
+        let nalu = &data[offset..offset + nalu_len];
+        if let Some(&header) = nalu.first() {
+            match header & 0x1F {
+                7 => saw_sps = true,
+                8 => saw_pps = true,
+                _ => {}
+            }
+        }
+
         output.extend_from_slice(start_code);
-        output.extend_from_slice(&data[offset..offset + nalu_len]);
+        output.extend_from_slice(nalu);
         offset += nalu_len;
     }
 
     if output.is_empty() {
         return data.to_vec();
+    }
+
+    if !saw_sps || !saw_pps {
+        let mut prefixed = Vec::with_capacity(output.len() + 128);
+        if !saw_sps {
+            if let Some(sps_nal) = sps {
+                prefixed.extend_from_slice(start_code);
+                prefixed.extend_from_slice(sps_nal);
+            }
+        }
+        if !saw_pps {
+            if let Some(pps_nal) = pps {
+                prefixed.extend_from_slice(start_code);
+                prefixed.extend_from_slice(pps_nal);
+            }
+        }
+        prefixed.extend_from_slice(&output);
+        return prefixed;
     }
 
     output

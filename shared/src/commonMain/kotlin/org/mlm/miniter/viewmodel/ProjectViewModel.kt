@@ -103,6 +103,17 @@ class ProjectViewModel(
             _state.update { it.copy(isLoading = true) }
             try {
                 val info = engine.probeVideo(initialVideoPath)
+                if (!info.hasVideo) {
+                    _state.update { it.copy(isLoading = false) }
+                    snackbarManager.showError("Selected file has no video stream")
+                    return@launch
+                }
+                val decodable = engine.extractSingleThumbnail(initialVideoPath, 0L, 160, 90) != null
+                if (!decodable) {
+                    _state.update { it.copy(isLoading = false) }
+                    snackbarManager.showError("Selected video cannot be decoded. Try H.264 MP4 or MOV.")
+                    return@launch
+                }
                 sourceDurationMs = info.durationMs
 
                 rustStore.create(name)
@@ -487,8 +498,28 @@ class ProjectViewModel(
     }
 
     fun exportProject(outputPath: String) {
-        if (rustStore.snapshot.value == null) return
+        val snapshot = rustStore.snapshot.value ?: return
         viewModelScope.launch {
+            val invalidVideoPath = snapshot.timeline.tracks
+                .flatMap { it.clips }
+                .mapNotNull { clip -> (clip.kind as? RustVideoClipKind)?.sourcePath }
+                .distinct()
+                .firstOrNull { path ->
+                    try {
+                        val info = engine.probeVideo(path)
+                        if (!info.hasVideo) return@firstOrNull true
+                        engine.extractSingleThumbnail(path, 0L, 160, 90) == null
+                    } catch (_: Exception) {
+                        true
+                    }
+                }
+
+            if (invalidVideoPath != null) {
+                val fileName = invalidVideoPath.substringAfterLast("/").substringAfterLast("\\")
+                snackbarManager.showError("Cannot export: '$fileName' has no readable video stream")
+                return@launch
+            }
+
             val projectJson = rustStore.exportProjectJson()
             engine.exportProjectJson(projectJson, outputPath)
         }

@@ -1,19 +1,20 @@
+use crate::clear_session_cache;
 use crate::decoder::DecodeError;
 use crate::encoder::{EncodeError, VideoEncodeSession};
 use crate::frame::RgbaFrame;
-use crate::mux::{ContainerFormat, Mp4Muxer, MuxError, extract_sps_pps};
+use crate::mux::{extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError};
 use crate::thumbnailer;
-use font8x8::{BASIC_FONTS, UnicodeFonts};
-use miniter_domain::Project;
+use font8x8::{UnicodeFonts, BASIC_FONTS};
 use miniter_domain::clip::ClipKind;
 use miniter_domain::export::ExportFormat;
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use miniter_domain::time::Timestamp;
+use miniter_domain::Project;
 use miniter_render_plan::compositor::FramePlanIterator;
-use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
+use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
-use std::fs::{File, create_dir_all};
+use std::fs::{create_dir_all, File};
 use std::io::BufWriter;
 use std::path::Path;
 
@@ -40,6 +41,16 @@ pub fn export_project<F>(
     output_path: &Path,
     is_cancelled: F,
 ) -> Result<(), ExportError>
+where
+    F: Fn() -> bool,
+{
+    clear_session_cache();
+    let result = do_export(project, output_path, &is_cancelled);
+    clear_session_cache();
+    result
+}
+
+fn do_export<F>(project: &Project, output_path: &Path, is_cancelled: &F) -> Result<(), ExportError>
 where
     F: Fn() -> bool,
 {
