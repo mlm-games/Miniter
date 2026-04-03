@@ -134,6 +134,7 @@ class ProjectViewModel(
                             opacity = 1.0f,
                             muted = false,
                             transitionIn = null,
+                            transitionOut = null,
                             kind = RustVideoClipKind(
                                 sourcePath = initialVideoPath,
                                 width = info.width,
@@ -431,6 +432,7 @@ class ProjectViewModel(
                                         opacity = 1.0f,
                                         muted = false,
                                         transitionIn = null,
+                                        transitionOut = null,
                                         kind = RustVideoClipKind(
                                             sourcePath = item.file.path,
                                             width = info.width,
@@ -646,6 +648,7 @@ class ProjectViewModel(
                     opacity = 1.0f,
                     muted = false,
                     transitionIn = null,
+                    transitionOut = null,
                     kind = RustTextClipKind(
                         text = text,
                         style = RustTextStyleSnapshot(),
@@ -756,9 +759,16 @@ class ProjectViewModel(
         )
     }
 
-    fun setTextTransition(clipId: String, transition: RustTransitionSnapshot?) {
+    fun setTextTransitionIn(clipId: String, transition: RustTransitionSnapshot?) {
         dispatchAndSync(
             rustStore.commands.setTransitionIn(clipId, transition),
+            isDirty = true,
+        )
+    }
+
+    fun setTextTransitionOut(clipId: String, transition: RustTransitionSnapshot?) {
+        dispatchAndSync(
+            rustStore.commands.setTransitionOut(clipId, transition),
             isDirty = true,
         )
     }

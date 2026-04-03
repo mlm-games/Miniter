@@ -180,6 +180,14 @@ class RustCommandJson(
             }
         }
 
+    fun setTransitionOut(clipId: String, transition: RustTransitionSnapshot?): String =
+        wrap("SetTransitionOut") {
+            put("clip_id", uuid(clipId))
+            if (transition != null) {
+                put("transition", json.encodeToJsonElement(RustTransitionSnapshot.serializer(), transition))
+            }
+        }
+
     fun updateTextContent(clipId: String, text: String): String =
         wrap("UpdateTextContent") {
             put("clip_id", uuid(clipId))

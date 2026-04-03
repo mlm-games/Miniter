@@ -507,6 +507,19 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
 
+        EditCommand::SetTransitionOut {
+            clip_id,
+            transition,
+        } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            let old = clip.transition_out.take();
+            clip.transition_out = transition;
+            Ok(EditCommand::SetTransitionOut {
+                clip_id,
+                transition: old,
+            })
+        }
+
         EditCommand::UpdateTextContent { clip_id, text } => {
             let clip = find_clip_mut(state, clip_id)?;
             match &mut clip.kind {
@@ -711,6 +724,7 @@ mod tests {
             opacity: 1.0,
             muted: false,
             transition_in: None,
+            transition_out: None,
             kind: ClipKind::Video(VideoClip {
                 source_path: "sample.mp4".into(),
                 width: 1920,

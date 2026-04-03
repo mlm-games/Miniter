@@ -54,7 +54,8 @@ fun PropertiesPanel(
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
-    onSetTextTransition: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
+    onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
+    onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
 ) {
     val clip = snapshot?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -107,7 +108,8 @@ fun PropertiesPanel(
                 onUpdateText,
                 onUpdateTextStyle,
                 onSetTextDuration,
-                onSetTextTransition,
+                onSetTextTransitionIn,
+                onSetTextTransitionOut,
             )
         }
     }
@@ -507,11 +509,13 @@ private fun TextClipProperties(
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
-    onSetTextTransition: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
+    onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
+    onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
 ) {
     val style = kind.style
     val durationMs = clip.timelineDurationUs / 1000L
-    val transition = clip.transitionIn
+    val transitionIn = clip.transitionIn
+    val transitionOut = clip.transitionOut
 
     Text("Text Overlay", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(12.dp))
@@ -677,47 +681,73 @@ private fun TextClipProperties(
     HorizontalDivider()
     Spacer(Modifier.height(12.dp))
 
-    Text("Text Fade", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-    Text("Fade in/out for this text overlay", style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Spacer(Modifier.height(8.dp))
-
-    var transExpanded by remember { mutableStateOf(false) }
+    Text("Fade In", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(4.dp))
+    var fadeInExpanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { transExpanded = true }) {
-            Text(if (transition == null) "None" else "Fade In/Out")
+        OutlinedButton(onClick = { fadeInExpanded = true }) {
+            Text(if (transitionIn == null) "None" else "Fade (${transitionIn.duration / 1_000_000f}s)")
         }
-        DropdownMenu(expanded = transExpanded, onDismissRequest = { transExpanded = false }) {
+        DropdownMenu(expanded = fadeInExpanded, onDismissRequest = { fadeInExpanded = false }) {
             DropdownMenuItem(
                 text = { Text("None") },
-                onClick = { onSetTextTransition(clip.id, null); transExpanded = false },
+                onClick = { onSetTextTransitionIn(clip.id, null); fadeInExpanded = false },
             )
             DropdownMenuItem(
-                text = { Text("Fade In/Out") },
+                text = { Text("Fade In") },
                 onClick = {
-                    onSetTextTransition(
-                        clip.id,
-                        RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L)
-                    )
-                    transExpanded = false
+                    onSetTextTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+                    fadeInExpanded = false
                 },
             )
         }
     }
 
-    if (transition != null) {
-        Spacer(Modifier.height(8.dp))
-        var dur by remember(transition.duration) {
-            mutableFloatStateOf(transition.duration / 1_000_000f)
-        }
+    if (transitionIn != null) {
+        Spacer(Modifier.height(4.dp))
+        var dur by remember(transitionIn.duration) { mutableFloatStateOf(transitionIn.duration / 1_000_000f) }
         Text("Duration: ${String.format("%.1f", dur)}s", style = MaterialTheme.typography.labelSmall)
         Slider(
             value = dur, onValueChange = { dur = it },
             onValueChangeFinished = {
-                onSetTextTransition(
-                    clip.id,
-                    RustTransitionSnapshot(RustTransitionKind.CrossFade, (dur * 1_000_000L).toLong())
-                )
+                onSetTextTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, (dur * 1_000_000L).toLong()))
+            },
+            valueRange = 0.1f..3f, steps = 28,
+        )
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    Text("Fade Out", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(4.dp))
+    var fadeOutExpanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { fadeOutExpanded = true }) {
+            Text(if (transitionOut == null) "None" else "Fade (${transitionOut.duration / 1_000_000f}s)")
+        }
+        DropdownMenu(expanded = fadeOutExpanded, onDismissRequest = { fadeOutExpanded = false }) {
+            DropdownMenuItem(
+                text = { Text("None") },
+                onClick = { onSetTextTransitionOut(clip.id, null); fadeOutExpanded = false },
+            )
+            DropdownMenuItem(
+                text = { Text("Fade Out") },
+                onClick = {
+                    onSetTextTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+                    fadeOutExpanded = false
+                },
+            )
+        }
+    }
+
+    if (transitionOut != null) {
+        Spacer(Modifier.height(4.dp))
+        var dur by remember(transitionOut.duration) { mutableFloatStateOf(transitionOut.duration / 1_000_000f) }
+        Text("Duration: ${String.format("%.1f", dur)}s", style = MaterialTheme.typography.labelSmall)
+        Slider(
+            value = dur, onValueChange = { dur = it },
+            onValueChangeFinished = {
+                onSetTextTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, (dur * 1_000_000L).toLong()))
             },
             valueRange = 0.1f..3f, steps = 28,
         )

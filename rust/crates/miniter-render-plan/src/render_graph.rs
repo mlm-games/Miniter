@@ -113,32 +113,45 @@ fn node_for_clip(
         }
         ClipKind::Audio(_) => None,
         ClipKind::Text(overlay) => {
-            let base = RenderNode::Text {
-                overlay: overlay.clone(),
-                opacity: clip.opacity,
-            };
+            let mut opacity = clip.opacity;
+
             if let Some(ref trans) = clip.transition_in {
                 let progress = transition_progress(clip, trans, t);
-                let eased = ease_in_out(progress);
-                let (_, text_a) = opacity_pair(trans.kind, eased);
-                let fade_opacity = clip.opacity * text_a;
-                let base = RenderNode::Text {
-                    overlay: overlay.clone(),
-                    opacity: fade_opacity,
-                };
+                if progress < 1.0 {
+                    let eased = ease_in_out(progress);
+                    let (_, text_a) = opacity_pair(trans.kind, eased);
+                    opacity *= text_a;
+                }
                 if let Some(prev) = find_previous_clip(track, clip) {
-                    if let Some(prev_node) = node_for_clip(prev, t, track) {
-                        return Some(RenderNode::TransitionBlend {
-                            bottom: Box::new(prev_node),
-                            top: Box::new(base),
-                            kind: trans.kind,
-                            progress,
-                        });
+                    if progress < 1.0 {
+                        if let Some(prev_node) = node_for_clip(prev, t, track) {
+                            return Some(RenderNode::TransitionBlend {
+                                bottom: Box::new(prev_node),
+                                top: Box::new(RenderNode::Text {
+                                    overlay: overlay.clone(),
+                                    opacity,
+                                }),
+                                kind: trans.kind,
+                                progress,
+                            });
+                        }
                     }
                 }
-                return Some(base);
             }
-            Some(base)
+
+            if let Some(ref trans) = clip.transition_out {
+                let out_progress = transition_out_progress(clip, trans, t);
+                if out_progress < 1.0 {
+                    let eased = ease_in_out(out_progress);
+                    let (fade_a, _) = opacity_pair(trans.kind, eased);
+                    opacity *= fade_a;
+                }
+            }
+
+            Some(RenderNode::Text {
+                overlay: overlay.clone(),
+                opacity,
+            })
         }
     }
 }
@@ -157,6 +170,19 @@ fn find_previous_clip<'a>(
 
 fn transition_progress(clip: &Clip, trans: &Transition, t: Timestamp) -> f32 {
     let elapsed = (t - clip.timeline_start).as_micros() as f64;
+    let total = trans.duration.as_micros() as f64;
+    if total <= 0.0 {
+        1.0
+    } else {
+        (elapsed / total).clamp(0.0, 1.0) as f32
+    }
+}
+
+fn transition_out_progress(clip: &Clip, trans: &Transition, t: Timestamp) -> f32 {
+    let clip_end = clip.timeline_end();
+    let fade_start_us = clip_end.as_micros() - trans.duration.as_micros();
+    let fade_start = Timestamp::from_micros(fade_start_us);
+    let elapsed = (t - fade_start).as_micros() as f64;
     let total = trans.duration.as_micros() as f64;
     if total <= 0.0 {
         1.0

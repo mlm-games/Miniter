@@ -53,6 +53,7 @@ pub struct Clip {
 
     pub muted: bool,
     pub transition_in: Option<Transition>,
+    pub transition_out: Option<Transition>,
     pub kind: ClipKind,
 }
 

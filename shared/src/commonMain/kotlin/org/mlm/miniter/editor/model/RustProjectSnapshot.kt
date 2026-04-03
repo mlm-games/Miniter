@@ -80,6 +80,8 @@ data class RustClipSnapshot(
     val muted: Boolean = false,
     @SerialName("transition_in")
     val transitionIn: RustTransitionSnapshot? = null,
+    @SerialName("transition_out")
+    val transitionOut: RustTransitionSnapshot? = null,
     val kind: RustClipKindPayload,
 )
 

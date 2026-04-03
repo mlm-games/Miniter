@@ -26,7 +26,8 @@ fun PropertiesBottomSheet(
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetOpacity: (String, Float) -> Unit,
     onSetTextDuration: (String, Long) -> Unit,
-    onSetTextTransition: (String, RustTransitionSnapshot?) -> Unit,
+    onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
+    onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -52,7 +53,8 @@ fun PropertiesBottomSheet(
                 onUpdateTextStyle = onUpdateTextStyle,
                 onSetOpacity = onSetOpacity,
                 onSetTextDuration = onSetTextDuration,
-                onSetTextTransition = onSetTextTransition,
+                onSetTextTransitionIn = onSetTextTransitionIn,
+                onSetTextTransitionOut = onSetTextTransitionOut,
             )
         }
     }

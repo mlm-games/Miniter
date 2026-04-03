@@ -104,6 +104,10 @@ pub enum EditCommand {
         clip_id: ClipId,
         transition: Option<Transition>,
     },
+    SetTransitionOut {
+        clip_id: ClipId,
+        transition: Option<Transition>,
+    },
     UpdateTextContent {
         clip_id: ClipId,
         text: String,
