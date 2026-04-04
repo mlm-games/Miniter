@@ -1,13 +1,16 @@
-use crate::audio_export::{write_audio_sidecar_if_present, AudioSidecarExportError};
 use crate::clear_session_cache;
 use crate::decoder::DecodeError;
 use crate::encoder::{EncodeError, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession};
 use crate::frame::RgbaFrame;
-use crate::mux::{extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError};
+use crate::mux::{extract_sps_pps, AacTrackConfigOut, ContainerFormat, Mp4Muxer, MuxError};
 use crate::thumbnailer;
+use fdk_aac::enc::{
+    AudioObjectType as FdkAot, BitRate, ChannelMode, Encoder, EncoderError, EncoderParams,
+    Transport,
+};
 use font8x8::{UnicodeFonts, BASIC_FONTS};
-use miniter_domain::clip::ClipKind;
+use miniter_audio::mix::{mix_project_audio, AudioMixError, MixConfig, MixedAudio};
 use miniter_domain::export::ExportFormat;
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
@@ -16,6 +19,7 @@ use miniter_domain::Project;
 use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
+use mp4::{AudioObjectType, ChannelConfig, SampleFreqIndex};
 use std::fs::{create_dir_all, File};
 use std::io::BufWriter;
 use std::path::Path;
@@ -33,8 +37,10 @@ pub enum ExportError {
     #[error("MP4 mux: {0}")]
     Mp4Mux(#[from] MuxError),
 
-    #[error("Audio export: {0}")]
-    AudioExport(#[from] AudioSidecarExportError),
+    #[error("Audio mix: {0}")]
+    AudioMix(#[from] AudioMixError),
+    #[error("AAC encode: {0}")]
+    AacEncode(#[from] AacEncodeError),
 
     #[error("Could not extract SPS/PPS from H.264 stream")]
     MissingAvcConfig,
@@ -118,6 +124,22 @@ fn export_h264<F>(
 where
     F: Fn() -> bool,
 {
+    let config = MixConfig::default();
+    let mixed = mix_project_audio(project, config)?;
+    let audio_encoded = if !mixed.samples.is_empty() {
+        Some(encode_aac(&mixed, 128_000)?)
+    } else {
+        None
+    };
+
+    let audio_track = audio_encoded.as_ref().map(|ae| AacTrackConfigOut {
+        sample_rate: ae.sample_rate,
+        bitrate: ae.bitrate,
+        profile: AudioObjectType::AacLowComplexity,
+        freq_index: ae.freq_index,
+        chan_conf: ae.chan_conf,
+    });
+
     let mut encoder = VideoEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32)?;
 
     let mut iter = FramePlanIterator::new(&project.timeline, &project.export_profile);
@@ -142,7 +164,16 @@ where
 
     let file = File::create(output_path)?;
     let writer = BufWriter::new(file);
-    let mut muxer = Mp4Muxer::new(writer, width, height, fps, &sps, &pps, container)?;
+    let mut muxer = Mp4Muxer::new(
+        writer,
+        width,
+        height,
+        fps,
+        &sps,
+        &pps,
+        container,
+        audio_track,
+    )?;
     muxer.write_sample(&first_bitstream, contains_idr(&first_bitstream))?;
 
     let mut frame_count: u32 = 1;
@@ -169,8 +200,14 @@ where
     }
 
     on_progress(100_000);
+
+    if let Some(ae) = audio_encoded {
+        for chunk in &ae.chunks {
+            muxer.write_audio_sample_at(chunk.start_time, chunk.duration, &chunk.bytes)?;
+        }
+    }
+
     muxer.finish()?;
-    let _ = write_audio_sidecar_if_present(project, output_path)?;
 
     Ok(())
 }
@@ -245,7 +282,16 @@ fn render_node(node: &RenderNode, width: usize, height: usize) -> Result<Vec<u8>
                 | miniter_domain::transition::TransitionKind::SlideRight => {
                     let mut canvas = bottom_img;
                     let dx = (slide_offset(*kind, eased) * width as f32).round() as i32;
-                    alpha_over_with_offset(&mut canvas, &top_img, width, height, dx, 0);
+                    alpha_over_with_offset(
+                        &mut canvas,
+                        &top_img,
+                        width,
+                        height,
+                        width,
+                        height,
+                        dx,
+                        0,
+                    );
                     Ok(canvas)
                 }
             }
@@ -277,7 +323,16 @@ fn fit_rgba_into_canvas(
 
     let off_x = ((dst_w - scaled_w) / 2) as i32;
     let off_y = ((dst_h - scaled_h) / 2) as i32;
-    alpha_over_with_offset(&mut canvas, &scaled, dst_w, dst_h, off_x, off_y);
+    alpha_over_with_offset(
+        &mut canvas,
+        &scaled,
+        dst_w,
+        dst_h,
+        scaled_w,
+        scaled_h,
+        off_x,
+        off_y,
+    );
     canvas
 }
 
@@ -306,11 +361,13 @@ fn alpha_over_with_offset(
     src: &[u8],
     dst_w: usize,
     dst_h: usize,
+    src_w: usize,
+    src_h: usize,
     dx: i32,
     dy: i32,
 ) {
-    let src_w = dst_w;
-    let src_h = dst_h;
+    debug_assert_eq!(dst.len(), dst_w * dst_h * 4);
+    debug_assert_eq!(src.len(), src_w * src_h * 4);
 
     for y in 0..src_h as i32 {
         let ty = y + dy;
@@ -325,7 +382,10 @@ fn alpha_over_with_offset(
 
             let si = ((y as usize * src_w) + x as usize) * 4;
             let di = ((ty as usize * dst_w) + tx as usize) * 4;
-            alpha_over_pixel(&mut dst[di..di + 4], &src[si..si + 4]);
+
+            if si + 4 <= src.len() && di + 4 <= dst.len() {
+                alpha_over_pixel(&mut dst[di..di + 4], &src[si..si + 4]);
+            }
         }
     }
 }
@@ -824,4 +884,157 @@ where
 
     on_progress(100_000);
     Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AacEncodeError {
+    #[error("FDK-AAC encoder error: {0}")]
+    FdkAac(String),
+    #[error("Unsupported sample rate: {0}")]
+    UnsupportedSampleRate(u32),
+    #[error("Unsupported channel count: {0}")]
+    UnsupportedChannels(u16),
+}
+
+impl From<EncoderError> for AacEncodeError {
+    fn from(e: EncoderError) -> Self {
+        AacEncodeError::FdkAac(e.to_string())
+    }
+}
+
+struct EncodedAacChunk {
+    start_time: u64,
+    duration: u32,
+    bytes: Vec<u8>,
+}
+
+struct EncodedAac {
+    sample_rate: u32,
+    bitrate: u32,
+    freq_index: SampleFreqIndex,
+    chan_conf: ChannelConfig,
+    chunks: Vec<EncodedAacChunk>,
+}
+
+fn sample_rate_to_freq_index(rate: u32) -> Option<SampleFreqIndex> {
+    match rate {
+        96_000 => Some(SampleFreqIndex::Freq96000),
+        88_200 => Some(SampleFreqIndex::Freq88200),
+        64_000 => Some(SampleFreqIndex::Freq64000),
+        48_000 => Some(SampleFreqIndex::Freq48000),
+        44_100 => Some(SampleFreqIndex::Freq44100),
+        32_000 => Some(SampleFreqIndex::Freq32000),
+        24_000 => Some(SampleFreqIndex::Freq24000),
+        22_050 => Some(SampleFreqIndex::Freq22050),
+        16_000 => Some(SampleFreqIndex::Freq16000),
+        12_000 => Some(SampleFreqIndex::Freq12000),
+        11_025 => Some(SampleFreqIndex::Freq11025),
+        8_000 => Some(SampleFreqIndex::Freq8000),
+        _ => None,
+    }
+}
+
+fn channels_to_chan_conf(ch: u16) -> Option<ChannelConfig> {
+    match ch {
+        1 => Some(ChannelConfig::Mono),
+        2 => Some(ChannelConfig::Stereo),
+        _ => None,
+    }
+}
+
+fn encode_aac(mixed: &MixedAudio, bitrate: u32) -> Result<EncodedAac, AacEncodeError> {
+    let sample_rate = mixed.sample_rate;
+    let channels = mixed.channels;
+
+    let freq_index = sample_rate_to_freq_index(sample_rate)
+        .ok_or(AacEncodeError::UnsupportedSampleRate(sample_rate))?;
+    let chan_conf =
+        channels_to_chan_conf(channels).ok_or(AacEncodeError::UnsupportedChannels(channels))?;
+
+    let channel_mode = if channels == 1 {
+        ChannelMode::Mono
+    } else {
+        ChannelMode::Stereo
+    };
+
+    let aot = FdkAot::Mpeg4LowComplexity;
+
+    let params = EncoderParams {
+        bit_rate: BitRate::Cbr(bitrate),
+        sample_rate,
+        transport: Transport::Raw,
+        channels: channel_mode,
+        audio_object_type: aot,
+    };
+
+    let mut enc = Encoder::new(params)?;
+    let frame_length = enc.info()?.frameLength as usize;
+    let samples_per_frame = frame_length * channels as usize;
+
+    let pcm_f32 = &mixed.samples;
+    let total_pcm_frames = pcm_f32.len() / channels as usize;
+
+    let mut pcm_i16: Vec<i16> = Vec::with_capacity(total_pcm_frames * channels as usize);
+    for &s in pcm_f32 {
+        let clamped = s.clamp(-1.0, 1.0);
+        pcm_i16.push((clamped * 32767.0) as i16);
+    }
+
+    let mut chunks = Vec::new();
+    let mut output_time = 0u64;
+    let mut offset = 0usize;
+
+    let mut out_buf = vec![0u8; 8192];
+
+    while offset < total_pcm_frames {
+        let remaining = total_pcm_frames - offset;
+        let take = remaining.min(frame_length);
+
+        let buf_start = offset * channels as usize;
+        let buf_end = buf_start + take * channels as usize;
+
+        let frame_pcm: Vec<i16> = if take == frame_length {
+            pcm_i16[buf_start..buf_end].to_vec()
+        } else {
+            let mut padded = vec![0i16; samples_per_frame];
+            padded[..(take * channels as usize)].copy_from_slice(&pcm_i16[buf_start..buf_end]);
+            padded
+        };
+
+        let info = enc.encode(&frame_pcm, &mut out_buf)?;
+        if info.output_size > 0 {
+            let duration_ts = take as u64;
+            chunks.push(EncodedAacChunk {
+                start_time: output_time,
+                duration: duration_ts as u32,
+                bytes: out_buf[..info.output_size].to_vec(),
+            });
+            output_time += duration_ts;
+        }
+
+        offset += take;
+    }
+
+    for _ in 0..2 {
+        let silence = vec![0i16; samples_per_frame];
+        let info = enc.encode(&silence, &mut out_buf)?;
+        if info.output_size > 0 {
+            let remaining = frame_length - (total_pcm_frames % frame_length);
+            let duration_ts = remaining.min(frame_length) as u64;
+            chunks.push(EncodedAacChunk {
+                start_time: output_time,
+                duration: duration_ts as u32,
+                bytes: out_buf[..info.output_size].to_vec(),
+            });
+            output_time += duration_ts;
+        }
+    }
+
+    Ok(EncodedAac {
+        sample_rate,
+        bitrate,
+        freq_index,
+        chan_conf,
+        chunks,
+    })
 }

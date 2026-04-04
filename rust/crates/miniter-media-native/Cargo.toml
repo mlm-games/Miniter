@@ -24,5 +24,8 @@ av-ivf = "0.5"
 # Audio demuxing (pure Rust)
 symphonia = { version = "0.5.5", features = ["isomp4", "mkv", "pcm"] }
 
+# AAC encoding (bundles libfdk-aac source, compiles cross-platform)
+fdk-aac = "0.8"
+
 # Text rendering for export
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }

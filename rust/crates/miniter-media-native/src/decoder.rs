@@ -131,8 +131,11 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
                 None => return Ok(None),
             };
 
+            let composition_time = (sample.start_time as i64)
+                .saturating_add(sample.rendering_offset as i64)
+                .max(0);
             let pts_us = if self.timescale > 0 {
-                (sample.start_time as f64 / self.timescale as f64 * 1_000_000.0) as i64
+                ((composition_time as f64 / self.timescale as f64) * 1_000_000.0).round() as i64
             } else {
                 0
             };

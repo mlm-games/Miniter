@@ -32,6 +32,7 @@ import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTextStyleSnapshot
 import org.mlm.miniter.editor.model.RustTrackKind
+import org.mlm.miniter.editor.model.RustTrackSnapshot
 import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
@@ -706,36 +707,51 @@ class ProjectViewModel(
     }
 
     fun moveClipAbsolute(clipId: String, absoluteStartMs: Long) {
-        val trackId = rustStore.snapshot.value
-            ?.timeline
-            ?.tracks
-            ?.firstOrNull { track -> track.clips.any { it.id == clipId } }
-            ?.id ?: return
+        val snapshot = rustStore.snapshot.value ?: return
+        val track = snapshot.timeline.tracks.firstOrNull { t -> t.clips.any { it.id == clipId } } ?: return
+        val clip = track.clips.firstOrNull { it.id == clipId } ?: return
+
+        val requestedStartUs = absoluteStartMs.coerceAtLeast(0) * 1000L
+        val durationUs = clip.timelineDurationUs.coerceAtLeast(1L)
+        val clampedStartUs = findNearestNonOverlappingStartUs(
+            track = track,
+            clipId = clipId,
+            requestedStartUs = requestedStartUs,
+            durationUs = durationUs,
+        )
 
         dispatchAndSync(
             rustStore.commands.moveClip(
                 clipId = clipId,
-                trackId = trackId,
-                newStartUs = absoluteStartMs.coerceAtLeast(0) * 1000L,
+                trackId = track.id,
+                newStartUs = clampedStartUs,
             ),
             isDirty = true,
         )
     }
 
     fun moveClipToTrack(clipId: String, fromTrackId: String, toTrackId: String) {
-        val clip = rustStore.snapshot.value
-            ?.timeline
-            ?.tracks
-            ?.firstOrNull { it.id == fromTrackId }
+        val snapshot = rustStore.snapshot.value ?: return
+        val clip = snapshot.timeline.tracks
+            .firstOrNull { it.id == fromTrackId }
             ?.clips
             ?.firstOrNull { it.id == clipId }
             ?: return
+        val targetTrack = snapshot.timeline.tracks
+            .firstOrNull { it.id == toTrackId }
+            ?: return
+
+        val targetStartUs = findNearestOpenStartUs(
+            track = targetTrack,
+            requestedStartUs = clip.timelineStartUs,
+            durationUs = clip.timelineDurationUs.coerceAtLeast(1L),
+        )
 
         dispatchAndSync(
             rustStore.commands.moveClip(
                 clipId = clipId,
                 trackId = toTrackId,
-                newStartUs = clip.timelineStartUs,
+                newStartUs = targetStartUs,
             ),
             isDirty = true,
         )
@@ -743,7 +759,9 @@ class ProjectViewModel(
 
     fun trimClipStartAbsolute(clipId: String, newStartMs: Long) {
         val clip = findRustClip(clipId) ?: return
-        val newStartUs = newStartMs.coerceAtLeast(0) * 1000L
+        val requestedStartUs = newStartMs.coerceAtLeast(0) * 1000L
+        val maxStartUs = (clip.timelineStartUs + clip.timelineDurationUs - 100_000L).coerceAtLeast(0L)
+        val newStartUs = requestedStartUs.coerceIn(0L, maxStartUs)
         val deltaTimelineUs = newStartUs - clip.timelineStartUs
         val newSourceStartUs = (clip.sourceStartUs + (deltaTimelineUs * clip.speed).toLong()).coerceAtLeast(0L)
 
@@ -758,8 +776,16 @@ class ProjectViewModel(
     }
 
     fun trimClipEndAbsolute(clipId: String, newEndMs: Long) {
-        val clip = findRustClip(clipId) ?: return
-        val newDurationUs = ((newEndMs * 1000L) - clip.timelineStartUs).coerceAtLeast(100_000L)
+        val snapshot = rustStore.snapshot.value ?: return
+        val track = snapshot.timeline.tracks.firstOrNull { t -> t.clips.any { it.id == clipId } } ?: return
+        val clip = track.clips.firstOrNull { it.id == clipId } ?: return
+
+        val requestedDurationUs = ((newEndMs * 1000L) - clip.timelineStartUs).coerceAtLeast(100_000L)
+        val maxBySourceUs = (((clip.sourceTotalDurationUs - clip.sourceStartUs).coerceAtLeast(100_000L).toDouble() / clip.speed)
+            .toLong()).coerceAtLeast(100_000L)
+        val maxByNeighborUs = nextClipStartUs(track, clipId)?.let { (it - clip.timelineStartUs).coerceAtLeast(100_000L) }
+        val maxDurationUs = listOfNotNull(maxByNeighborUs, maxBySourceUs).minOrNull() ?: maxBySourceUs
+        val newDurationUs = requestedDurationUs.coerceIn(100_000L, maxDurationUs)
 
         dispatchAndSync(
             rustStore.commands.trimClipEnd(
@@ -1020,6 +1046,112 @@ class ProjectViewModel(
 
     fun clearSnapIndicator() {
         _state.update { it.copy(snapIndicatorMs = null) }
+    }
+
+    private fun findNearestNonOverlappingStartUs(
+        track: RustTrackSnapshot,
+        clipId: String,
+        requestedStartUs: Long,
+        durationUs: Long,
+    ): Long {
+        val others = track.clips
+            .asSequence()
+            .filter { it.id != clipId }
+            .sortedBy { it.timelineStartUs }
+            .toList()
+
+        if (others.isEmpty()) {
+            return requestedStartUs.coerceAtLeast(0L)
+        }
+
+        val reqStart = requestedStartUs.coerceAtLeast(0L)
+        val reqEnd = reqStart + durationUs
+
+        for (other in others) {
+            val otherStart = other.timelineStartUs
+            val otherEnd = other.timelineStartUs + other.timelineDurationUs
+            if (reqStart < otherEnd && otherStart < reqEnd) {
+                val leftEnd = otherStart - durationUs
+                val rightStart = otherEnd
+
+                val leftValid = leftEnd >= 0L && fitsWithoutOverlap(others, leftEnd, durationUs)
+                val rightValid = fitsWithoutOverlap(others, rightStart, durationUs)
+
+                return when {
+                    leftValid && rightValid -> {
+                        if (kotlin.math.abs(reqStart - leftEnd) <= kotlin.math.abs(rightStart - reqStart)) {
+                            leftEnd
+                        } else {
+                            rightStart
+                        }
+                    }
+                    leftValid -> leftEnd
+                    rightValid -> rightStart
+                    else -> reqStart
+                }
+            }
+        }
+
+        return reqStart
+    }
+
+    private fun findNearestOpenStartUs(
+        track: RustTrackSnapshot,
+        requestedStartUs: Long,
+        durationUs: Long,
+    ): Long {
+        val clips = track.clips.sortedBy { it.timelineStartUs }
+        if (clips.isEmpty()) {
+            return requestedStartUs.coerceAtLeast(0L)
+        }
+
+        val reqStart = requestedStartUs.coerceAtLeast(0L)
+        val reqEnd = reqStart + durationUs
+
+        for (clip in clips) {
+            val start = clip.timelineStartUs
+            val end = clip.timelineStartUs + clip.timelineDurationUs
+            if (reqStart < end && start < reqEnd) {
+                val leftEnd = start - durationUs
+                val rightStart = end
+
+                val leftValid = leftEnd >= 0L && fitsWithoutOverlap(clips, leftEnd, durationUs)
+                val rightValid = fitsWithoutOverlap(clips, rightStart, durationUs)
+
+                return when {
+                    leftValid && rightValid -> {
+                        if (kotlin.math.abs(reqStart - leftEnd) <= kotlin.math.abs(rightStart - reqStart)) {
+                            leftEnd
+                        } else {
+                            rightStart
+                        }
+                    }
+                    leftValid -> leftEnd
+                    rightValid -> rightStart
+                    else -> reqStart
+                }
+            }
+        }
+
+        return reqStart
+    }
+
+    private fun fitsWithoutOverlap(clips: List<RustClipSnapshot>, startUs: Long, durationUs: Long): Boolean {
+        val endUs = startUs + durationUs
+        return clips.none { existing ->
+            val existingStart = existing.timelineStartUs
+            val existingEnd = existing.timelineStartUs + existing.timelineDurationUs
+            startUs < existingEnd && existingStart < endUs
+        }
+    }
+
+    private fun nextClipStartUs(track: RustTrackSnapshot, clipId: String): Long? {
+        val clip = track.clips.firstOrNull { it.id == clipId } ?: return null
+        val currentStart = clip.timelineStartUs
+        return track.clips
+            .asSequence()
+            .filter { it.id != clipId && it.timelineStartUs > currentStart }
+            .minOfOrNull { it.timelineStartUs }
     }
 
     private fun ensureTrack(kind: RustTrackKind, defaultName: String): String {
