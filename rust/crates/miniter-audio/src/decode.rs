@@ -50,13 +50,10 @@ pub fn probe_has_audio_track(path: &Path) -> Result<bool, DecodeAudioError> {
 
     let reader = probed.format;
 
-    Ok(reader.tracks().iter().any(|t| {
-        let params = &t.codec_params;
-        params.codec != CODEC_TYPE_NULL
-            && (params.channels.is_some()
-                || params.sample_rate.is_some()
-                || params.bits_per_sample.is_some())
-    }))
+    Ok(reader
+        .tracks()
+        .iter()
+        .any(|t| is_likely_audio_params(&t.codec_params)))
 }
 
 pub fn decode_audio_f32(path: &Path) -> Result<DecodedAudio, DecodeAudioError> {
@@ -80,11 +77,7 @@ pub fn decode_audio_f32(path: &Path) -> Result<DecodedAudio, DecodeAudioError> {
     let track = reader
         .tracks()
         .iter()
-        .find(|t| {
-            let params = &t.codec_params;
-            params.codec != CODEC_TYPE_NULL
-                && (params.sample_rate.is_some() || params.channels.is_some())
-        })
+        .find(|t| is_likely_audio_params(&t.codec_params))
         .or_else(|| {
             reader
                 .tracks()
@@ -136,4 +129,11 @@ pub fn decode_audio_f32(path: &Path) -> Result<DecodedAudio, DecodeAudioError> {
         channels,
         samples,
     })
+}
+
+fn is_likely_audio_params(params: &symphonia::core::codecs::CodecParameters) -> bool {
+    params.codec != CODEC_TYPE_NULL
+        && (params.channels.is_some()
+            || params.bits_per_sample.is_some()
+            || params.sample_rate.is_some())
 }

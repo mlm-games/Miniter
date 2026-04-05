@@ -273,7 +273,7 @@ data class RustEqBandSnapshot(
 @Serializable
 data class RustExportProfileSnapshot(
     val format: RustExportFormat = RustExportFormat.Mp4,
-    val resolution: RustExportResolution = RustExportResolution.Hd1080,
+    val resolution: RustExportResolution = RustExportResolution.Source,
     val fps: Double = 30.0,
     @SerialName("video_bitrate_kbps")
     val videoBitrateKbps: Int = 8000,
@@ -294,6 +294,10 @@ enum class RustExportFormat {
 
 @Serializable(with = RustExportResolutionSerializer::class)
 sealed interface RustExportResolution {
+    @Serializable
+    @SerialName("Source")
+    data object Source : RustExportResolution
+
     @Serializable
     @SerialName("Sd480")
     data object Sd480 : RustExportResolution
@@ -327,6 +331,7 @@ object RustExportResolutionSerializer : KSerializer<RustExportResolution> {
             ?: throw SerializationException("RustExportResolutionSerializer only supports JSON")
 
         val element = when (value) {
+            RustExportResolution.Source -> JsonPrimitive("Source")
             RustExportResolution.Sd480 -> JsonPrimitive("Sd480")
             RustExportResolution.Hd720 -> JsonPrimitive("Hd720")
             RustExportResolution.Hd1080 -> JsonPrimitive("Hd1080")
@@ -348,6 +353,7 @@ object RustExportResolutionSerializer : KSerializer<RustExportResolution> {
 
         return when (val element = jsonDecoder.decodeJsonElement()) {
             is JsonPrimitive -> when (element.content) {
+                "Source" -> RustExportResolution.Source
                 "Sd480" -> RustExportResolution.Sd480
                 "Hd720" -> RustExportResolution.Hd720
                 "Hd1080" -> RustExportResolution.Hd1080
@@ -367,6 +373,7 @@ object RustExportResolutionSerializer : KSerializer<RustExportResolution> {
                     )
                 }
                 ?: when (element["type"]?.jsonPrimitive?.content) {
+                    "Source" -> RustExportResolution.Source
                     "Sd480" -> RustExportResolution.Sd480
                     "Hd720" -> RustExportResolution.Hd720
                     "Hd1080" -> RustExportResolution.Hd1080

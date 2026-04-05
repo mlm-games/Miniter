@@ -83,14 +83,10 @@ pub fn mix_project_audio(
     for clip in scheduled {
         if !cache.contains_key(&clip.source_path) {
             let path = Path::new(&clip.source_path);
-            let cached = if crate::decode::probe_has_audio_track(path).unwrap_or(false) {
-                match decode_audio_f32(path) {
-                    Ok(decoded) => Some(adapt_audio(decoded, config)),
-                    Err(DecodeAudioError::NoAudioTrack) => None,
-                    Err(err) => return Err(AudioMixError::Decode(err)),
-                }
-            } else {
-                None
+            let cached = match decode_audio_f32(path) {
+                Ok(decoded) => Some(adapt_audio(decoded, config)),
+                Err(DecodeAudioError::NoAudioTrack) => None,
+                Err(err) => return Err(AudioMixError::Decode(err)),
             };
             cache.insert(clip.source_path.clone(), cached);
         }

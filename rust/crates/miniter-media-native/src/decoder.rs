@@ -34,6 +34,7 @@ pub struct VideoDecodeSession<R: std::io::Read + Seek> {
     nalu_length_size: u8,
     sps: Option<Vec<u8>>,
     pps: Option<Vec<u8>>,
+    last_pts_us: i64,
 }
 
 impl VideoDecodeSession<BufReader<File>> {
@@ -97,6 +98,7 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             nalu_length_size,
             sps,
             pps,
+            last_pts_us: -1,
         })
     }
 
@@ -134,11 +136,15 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             let composition_time = (sample.start_time as i64)
                 .saturating_add(sample.rendering_offset as i64)
                 .max(0);
-            let pts_us = if self.timescale > 0 {
+            let mut pts_us = if self.timescale > 0 {
                 ((composition_time as f64 / self.timescale as f64) * 1_000_000.0).round() as i64
             } else {
                 0
             };
+            if pts_us <= self.last_pts_us {
+                pts_us = self.last_pts_us.saturating_add(1);
+            }
+            self.last_pts_us = pts_us;
 
             self.current_sample += 1;
 
@@ -177,12 +183,14 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
     pub fn reset(&mut self) -> Result<(), DecodeError> {
         self.current_sample = 1;
         self.h264_decoder = Decoder::new()?;
+        self.last_pts_us = -1;
         Ok(())
     }
 
     pub fn seek_to_sample(&mut self, sample_id: u32) -> Result<(), DecodeError> {
         self.current_sample = sample_id.max(1);
         self.h264_decoder = Decoder::new()?;
+        self.last_pts_us = -1;
         Ok(())
     }
 }

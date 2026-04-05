@@ -56,6 +56,7 @@ fun EditorVideoPreview(
             ?.filter { it.kind == RustTrackKind.Video && !it.muted }
             ?.flatMap { it.clips }
             ?.mapNotNull { clip ->
+                if (clip.muted) return@mapNotNull null
                 val video = clip.kind as? RustVideoClipKind ?: return@mapNotNull null
                 ClipPreview(
                     id = clip.id,
@@ -64,6 +65,7 @@ fun EditorVideoPreview(
                     sourcePath = video.sourcePath,
                     sourceStartMs = clip.sourceStartUs / 1000L,
                     sourceEndMs = clip.sourceEndUs / 1000L,
+                    sourceTotalDurationMs = clip.sourceTotalDurationUs / 1000L,
                     speed = clip.speed.toFloat(),
                     volume = clip.volume,
                     opacity = clip.opacity,
@@ -79,6 +81,7 @@ fun EditorVideoPreview(
             ?.filter { it.kind == RustTrackKind.Audio && !it.muted }
             ?.flatMap { it.clips }
             ?.mapNotNull { clip ->
+                if (clip.muted || clip.volume <= 0f) return@mapNotNull null
                 val audio = clip.kind as? RustAudioClipKind ?: return@mapNotNull null
                 AudioClipPreview(
                     id = clip.id,
@@ -87,6 +90,7 @@ fun EditorVideoPreview(
                     sourcePath = audio.sourcePath,
                     sourceStartMs = clip.sourceStartUs / 1000L,
                     sourceEndMs = clip.sourceEndUs / 1000L,
+                    sourceTotalDurationMs = clip.sourceTotalDurationUs / 1000L,
                     speed = clip.speed.toFloat(),
                     volume = clip.volume,
                 )
@@ -109,13 +113,47 @@ fun EditorVideoPreview(
     var playerReady by remember { mutableStateOf(false) }
     var scrubbedFrame by remember { mutableStateOf<ImageData?>(null) }
     var grabberReady by remember { mutableStateOf(false) }
+    var audioFileDurationMs by remember { mutableLongStateOf(0L) }
+    var lastLoadedAudioPath by remember { mutableStateOf<String?>(null) }
+    var audioPlayerReady by remember { mutableStateOf(false) }
 
     val audioPlayerState = rememberVideoPlayerState()
 
     LaunchedEffect(audioClipSourcePath) {
-        if (audioClipSourcePath != null) {
+        if (audioClipSourcePath != null && audioClipSourcePath != lastLoadedAudioPath) {
+            audioPlayerReady = false
+            audioFileDurationMs = 0L
+            lastLoadedAudioPath = audioClipSourcePath
+
             audioPlayerState.openUri(audioClipSourcePath)
             delay(200)
+            audioPlayerState.pause()
+
+            var attempts = 0
+            while (attempts < 40) {
+                val dur = audioPlayerState.metadata.duration
+                if (dur != null && dur > 0L) {
+                    audioFileDurationMs = dur
+                    break
+                }
+                delay(100)
+                attempts++
+            }
+
+            if (audioFileDurationMs <= 0L) {
+                audioFileDurationMs = maxOf(
+                    currentAudioClip.sourceTotalDurationMs,
+                    currentAudioClip.sourceEndMs,
+                )
+            }
+
+            audioPlayerReady = true
+        }
+
+        if (audioClipSourcePath == null) {
+            audioPlayerReady = false
+            audioFileDurationMs = 0L
+            lastLoadedAudioPath = null
             audioPlayerState.pause()
         }
     }
@@ -160,7 +198,7 @@ fun EditorVideoPreview(
             }
 
             if (fullFileDurationMs <= 0L) {
-                fullFileDurationMs = currentClip.sourceEndMs
+                fullFileDurationMs = maxOf(currentClip.sourceTotalDurationMs, currentClip.sourceEndMs)
             }
 
             playerReady = true
@@ -207,26 +245,87 @@ fun EditorVideoPreview(
         }
     }
 
-    LaunchedEffect(isPlaying, currentClip?.id, playerReady, fullFileDurationMs) {
-        if (!playerReady) return@LaunchedEffect
-
+    LaunchedEffect(
+        isPlaying,
+        currentClip?.id,
+        currentAudioClip?.id,
+        playerReady,
+        audioPlayerReady,
+        fullFileDurationMs,
+        audioFileDurationMs,
+    ) {
         if (!isPlaying) {
             playerState.pause()
+            audioPlayerState.pause()
             return@LaunchedEffect
         }
 
-        if (currentClip == null || fullFileDurationMs <= 0L) {
+        if (currentClip == null) {
+            playerState.pause()
+            val audioClip = currentAudioClip
+            if (audioClip == null || !audioPlayerReady || audioFileDurationMs <= 0L) {
+                onPlayingChange(false)
+                playerState.pause()
+                audioPlayerState.pause()
+                return@LaunchedEffect
+            }
+
+            val audioStartMs = audioClip.startMs
+            val audioEndMs = audioClip.startMs + audioClip.durationMs
+            if (playheadMs < audioStartMs || playheadMs >= audioEndMs) {
+                onPlayingChange(false)
+                playerState.pause()
+                audioPlayerState.pause()
+                return@LaunchedEffect
+            }
+
+            val audioOffset = playheadMs - audioStartMs
+            val audioSourceTimeMs = audioClip.sourceStartMs + (audioOffset * audioClip.speed).toLong()
+            val audioSeekTarget = (audioSourceTimeMs.toFloat() / audioFileDurationMs * 1000f)
+                .coerceIn(0f, 999f)
+            if (!audioSeekTarget.isNaN() && !audioSeekTarget.isInfinite()) {
+                audioPlayerState.sliderPos = audioSeekTarget
+                audioPlayerState.userDragging = true
+                delay(50)
+                audioPlayerState.userDragging = false
+                audioPlayerState.seekTo(audioPlayerState.sliderPos)
+                delay(100)
+            }
+            audioPlayerState.play()
+
+            val startMark = TimeSource.Monotonic.markNow()
+            val startPlayheadMs = playheadMs
+            while (isActive) {
+                delay(33)
+                val elapsedMs = startMark.elapsedNow().inWholeMilliseconds
+                val newPlayhead = startPlayheadMs + elapsedMs
+
+                if (newPlayhead >= audioEndMs) {
+                    onPlayheadChange(audioEndMs)
+                    onPlayingChange(false)
+                    playerState.pause()
+                    audioPlayerState.pause()
+                    break
+                }
+
+                onPlayheadChange(newPlayhead)
+            }
+            return@LaunchedEffect
+        }
+
+        if (!playerReady) return@LaunchedEffect
+
+        if (fullFileDurationMs <= 0L) {
             onPlayingChange(false)
+            audioPlayerState.pause()
             return@LaunchedEffect
         }
 
         scrubbedFrame = null
 
         val clipEndMs = currentClip.startMs + currentClip.durationMs
-        val speed = currentClip.speed
-
         val offsetInClip = playheadMs - currentClip.startMs
-        val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * speed).toLong()
+        val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
         val seekTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
             .coerceIn(0f, 999f)
 
@@ -246,20 +345,26 @@ fun EditorVideoPreview(
         val audioSpeed = currentAudioClip?.speed ?: 1f
         val audioSourceStartMs = currentAudioClip?.sourceStartMs ?: 0L
 
-        if (audioClipSourcePath != null && audioStartMs != null && audioEndMs != null) {
-            val audioOffset = playheadMs - audioStartMs
-            val audioSourceTimeMs = audioSourceStartMs + (audioOffset * audioSpeed).toLong()
-            val audioSeekTarget = (audioSourceTimeMs.toFloat() / playerState.metadata.duration!! * 1000f)
-                .coerceIn(0f, 999f)
-            if (!audioSeekTarget.isNaN() && !audioSeekTarget.isInfinite()) {
-                audioPlayerState.sliderPos = audioSeekTarget
-                audioPlayerState.userDragging = true
-                delay(50)
-                audioPlayerState.userDragging = false
-                audioPlayerState.seekTo(audioPlayerState.sliderPos)
-                delay(100)
+        if (audioClipSourcePath != null && audioStartMs != null && audioEndMs != null && audioPlayerReady && audioFileDurationMs > 0L) {
+            if (playheadMs in audioStartMs until audioEndMs) {
+                val audioOffset = playheadMs - audioStartMs
+                val audioSourceTimeMs = audioSourceStartMs + (audioOffset * audioSpeed).toLong()
+                val audioSeekTarget = (audioSourceTimeMs.toFloat() / audioFileDurationMs * 1000f)
+                    .coerceIn(0f, 999f)
+                if (!audioSeekTarget.isNaN() && !audioSeekTarget.isInfinite()) {
+                    audioPlayerState.sliderPos = audioSeekTarget
+                    audioPlayerState.userDragging = true
+                    delay(50)
+                    audioPlayerState.userDragging = false
+                    audioPlayerState.seekTo(audioPlayerState.sliderPos)
+                    delay(100)
+                }
+                audioPlayerState.play()
+            } else {
+                audioPlayerState.pause()
             }
-            audioPlayerState.play()
+        } else {
+            audioPlayerState.pause()
         }
 
         val startMark = TimeSource.Monotonic.markNow()
@@ -269,7 +374,7 @@ fun EditorVideoPreview(
             delay(33)
 
             val elapsedMs = startMark.elapsedNow().inWholeMilliseconds
-            val advancedMs = (elapsedMs * speed).toLong()
+            val advancedMs = elapsedMs
             val newPlayhead = startPlayheadMs + advancedMs
 
             if (newPlayhead >= clipEndMs) {
@@ -380,6 +485,7 @@ private data class ClipPreview(
     val sourcePath: String,
     val sourceStartMs: Long,
     val sourceEndMs: Long,
+    val sourceTotalDurationMs: Long,
     val speed: Float,
     val volume: Float,
     val opacity: Float,
@@ -393,6 +499,7 @@ private data class AudioClipPreview(
     val sourcePath: String,
     val sourceStartMs: Long,
     val sourceEndMs: Long,
+    val sourceTotalDurationMs: Long,
     val speed: Float,
     val volume: Float,
 )

@@ -1,7 +1,7 @@
 //! Encode RGBA frames → H.264 NAL units via OpenH264.
 
 use crate::frame::RgbaFrame;
-use openh264::encoder::{Encoder, EncoderConfig};
+use openh264::encoder::{Encoder, EncoderConfig, FrameType};
 use openh264::formats::YUVBuffer;
 
 #[derive(Debug, thiserror::Error)]
@@ -12,12 +12,22 @@ pub enum EncodeError {
     OpenH264(#[from] openh264::Error),
     #[error("Invalid dimensions: width and height must be > 0 and even")]
     InvalidDimensions,
+    #[error("Encoder skipped frame {frame_index}")]
+    SkippedFrame { frame_index: u32 },
+    #[error("Encoder produced empty output for frame {frame_index}")]
+    EmptyFrame { frame_index: u32 },
+}
+
+pub enum EncodedVideoOutput {
+    Sample { bytes: Vec<u8>, is_keyframe: bool },
+    Skipped,
 }
 
 pub struct VideoEncodeSession {
     encoder: Encoder,
     width: u32,
     height: u32,
+    frame_index: u32,
 }
 
 impl VideoEncodeSession {
@@ -27,8 +37,9 @@ impl VideoEncodeSession {
         }
 
         let config = EncoderConfig::new()
-            .set_bitrate_bps(bitrate_bps)
-            .max_frame_rate(fps);
+            .bitrate(openh264::encoder::BitRate::from_bps(bitrate_bps))
+            .max_frame_rate(openh264::encoder::FrameRate::from_hz(fps))
+            .skip_frames(false);
 
         let encoder = Encoder::with_api_config(openh264::OpenH264API::from_source(), config)?;
 
@@ -36,10 +47,14 @@ impl VideoEncodeSession {
             encoder,
             width,
             height,
+            frame_index: 0,
         })
     }
 
-    pub fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<Vec<u8>, EncodeError> {
+    pub fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<EncodedVideoOutput, EncodeError> {
+        let idx = self.frame_index;
+        self.frame_index += 1;
+
         let rgb = rgba_to_rgb(&frame.data);
 
         let mut yuv_buf = YUVBuffer::new(self.width as usize, self.height as usize);
@@ -51,18 +66,20 @@ impl VideoEncodeSession {
 
         let bitstream = self.encoder.encode(&yuv_buf)?;
 
-        let mut output = Vec::new();
-        for layer_idx in 0..bitstream.num_layers() {
-            if let Some(layer) = bitstream.layer(layer_idx) {
-                for nal_idx in 0..layer.nal_count() {
-                    if let Some(nal) = layer.nal_unit(nal_idx) {
-                        output.extend_from_slice(nal);
-                    }
+        match bitstream.frame_type() {
+            FrameType::Skip => Ok(EncodedVideoOutput::Skipped),
+            FrameType::Invalid => Err(EncodeError::OpenH264(openh264::Error::msg(
+                "encoder returned invalid frame type",
+            ))),
+            _ => {
+                let bytes = bitstream.to_vec();
+                if bytes.is_empty() {
+                    return Err(EncodeError::EmptyFrame { frame_index: idx });
                 }
+                let is_keyframe = matches!(bitstream.frame_type(), FrameType::IDR | FrameType::I);
+                Ok(EncodedVideoOutput::Sample { bytes, is_keyframe })
             }
         }
-
-        Ok(output)
     }
 
     pub fn width(&self) -> u32 {

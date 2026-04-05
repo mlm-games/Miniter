@@ -1,16 +1,15 @@
 use crate::clear_session_cache;
-use crate::decoder::DecodeError;
-use crate::encoder::{EncodeError, VideoEncodeSession};
+use crate::decoder::{DecodeError, VideoDecodeSession};
+use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession};
 use crate::frame::RgbaFrame;
-use crate::mux::{extract_sps_pps, AacTrackConfigOut, ContainerFormat, Mp4Muxer, MuxError};
-use crate::thumbnailer;
-use fdk_aac::enc::{
-    AudioObjectType as FdkAot, BitRate, ChannelMode, Encoder, EncoderError, EncoderParams,
-    Transport,
+use crate::mux::{
+    extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut, VideoTrackCodecOut,
 };
 use font8x8::{UnicodeFonts, BASIC_FONTS};
 use miniter_audio::mix::{mix_project_audio, AudioMixError, MixConfig, MixedAudio};
+use miniter_domain::clip::ClipId;
+use miniter_domain::clip::{ClipKind, VideoClip};
 use miniter_domain::export::ExportFormat;
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
@@ -19,10 +18,12 @@ use miniter_domain::Project;
 use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
-use mp4::{AudioObjectType, ChannelConfig, SampleFreqIndex};
+use std::collections::HashMap;
+use std::ffi::CStr;
 use std::fs::{create_dir_all, File};
 use std::io::BufWriter;
 use std::path::Path;
+use std::sync::atomic::{AtomicI64, Ordering};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExportError {
@@ -36,12 +37,10 @@ pub enum ExportError {
     Av1Encode(#[from] Av1EncodeError),
     #[error("MP4 mux: {0}")]
     Mp4Mux(#[from] MuxError),
-
     #[error("Audio mix: {0}")]
     AudioMix(#[from] AudioMixError),
-    #[error("AAC encode: {0}")]
-    AacEncode(#[from] AacEncodeError),
-
+    #[error("Opus encode: {0}")]
+    OpusEncode(#[from] OpusEncodeError),
     #[error("Could not extract SPS/PPS from H.264 stream")]
     MissingAvcConfig,
     #[error("Export cancelled")]
@@ -58,12 +57,7 @@ where
     F: Fn() -> bool,
 {
     clear_session_cache();
-    let (width, height) = project.export_profile.resolution.dimensions();
-    let fps = if project.export_profile.fps > 0.0 {
-        project.export_profile.fps
-    } else {
-        30.0
-    };
+    let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
 
     if let Some(parent) = output_path.parent() {
@@ -76,9 +70,9 @@ where
         ExportFormat::Mp4 => export_h264(
             project,
             output_path,
-            width,
-            height,
-            fps,
+            settings.width,
+            settings.height,
+            settings.fps,
             bitrate_kbps,
             ContainerFormat::Mp4,
             &is_cancelled,
@@ -87,9 +81,9 @@ where
         ExportFormat::Mov => export_h264(
             project,
             output_path,
-            width,
-            height,
-            fps,
+            settings.width,
+            settings.height,
+            settings.fps,
             bitrate_kbps,
             ContainerFormat::Mov,
             &is_cancelled,
@@ -98,9 +92,9 @@ where
         ExportFormat::Av1Ivf => export_av1(
             project,
             output_path,
-            width,
-            height,
-            fps,
+            settings.width,
+            settings.height,
+            settings.fps,
             bitrate_kbps,
             &is_cancelled,
             &on_progress,
@@ -108,6 +102,168 @@ where
     };
     clear_session_cache();
     result
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RenderSettings {
+    width: u32,
+    height: u32,
+    fps: f64,
+}
+
+fn resolve_render_settings(project: &Project) -> RenderSettings {
+    let (profile_w, profile_h) = project.export_profile.resolution.dimensions();
+    let (source_w, source_h) = first_video_dimensions(project);
+
+    if profile_w > 0 && profile_h > 0 {
+        log::info!(
+            "Export resolution requested: {}x{} (source {}x{})",
+            profile_w,
+            profile_h,
+            source_w,
+            source_h
+        );
+    } else {
+        log::info!(
+            "Export resolution requested: source ({}x{})",
+            source_w,
+            source_h
+        );
+    }
+
+    let width = normalize_even_dimension(if profile_w > 0 { profile_w } else { source_w }, 1920);
+    let height = normalize_even_dimension(if profile_h > 0 { profile_h } else { source_h }, 1080);
+    let fps = if project.export_profile.fps.is_finite() && project.export_profile.fps > 0.0 {
+        project.export_profile.fps
+    } else {
+        30.0
+    };
+
+    log::info!(
+        "Export render settings resolved: {}x{} @ {:.3}fps",
+        width,
+        height,
+        fps
+    );
+
+    RenderSettings { width, height, fps }
+}
+
+fn first_video_dimensions(project: &Project) -> (u32, u32) {
+    for track in &project.timeline.tracks {
+        for clip in &track.clips {
+            if let ClipKind::Video(VideoClip { width, height, .. }) = &clip.kind {
+                if *width > 0 && *height > 0 {
+                    return (*width, *height);
+                }
+            }
+        }
+    }
+    (1920, 1080)
+}
+
+fn normalize_even_dimension(value: u32, fallback: u32) -> u32 {
+    let mut dim = if value > 0 { value } else { fallback };
+    if dim % 2 != 0 {
+        dim = dim.saturating_sub(1);
+    }
+    dim.max(2)
+}
+
+struct ExportDecodeSession {
+    session: VideoDecodeSession<std::io::BufReader<std::fs::File>>,
+    last_pts: i64,
+    last_frame: Option<RgbaFrame>,
+    pending_frame: Option<RgbaFrame>,
+}
+
+struct ExportDecodeCache {
+    sessions: HashMap<ClipId, ExportDecodeSession>,
+}
+
+impl ExportDecodeCache {
+    fn new() -> Self {
+        Self {
+            sessions: HashMap::new(),
+        }
+    }
+
+    fn extract_frame(
+        &mut self,
+        clip_id: ClipId,
+        path: &Path,
+        target_us: i64,
+    ) -> Result<RgbaFrame, DecodeError> {
+        if !self.sessions.contains_key(&clip_id) {
+            let mut session = VideoDecodeSession::open(path)?;
+            let first_frame = session.next_frame()?;
+            let entry = ExportDecodeSession {
+                session,
+                last_pts: first_frame.as_ref().map_or(0, |f| f.pts_us),
+                last_frame: first_frame,
+                pending_frame: None,
+            };
+            self.sessions.insert(clip_id, entry);
+        }
+
+        let entry = self.sessions.get_mut(&clip_id).unwrap();
+
+        if let Some(ref last) = entry.last_frame {
+            if target_us < last.pts_us {
+                entry.session.reset()?;
+                entry.last_pts = 0;
+                entry.last_frame = None;
+                entry.pending_frame = None;
+            } else if let Some(ref pending) = entry.pending_frame {
+                if target_us < pending.pts_us {
+                    return Ok(last.clone());
+                } else {
+                    entry.last_frame = Some(pending.clone());
+                    entry.last_pts = pending.pts_us;
+                    entry.pending_frame = None;
+                }
+            }
+            if let Some(ref last) = entry.last_frame {
+                if last.pts_us == target_us {
+                    return Ok(last.clone());
+                }
+            }
+        }
+
+        loop {
+            match entry.session.next_frame()? {
+                Some(frame) => {
+                    if frame.pts_us == target_us {
+                        entry.last_pts = frame.pts_us;
+                        entry.last_frame = Some(frame.clone());
+                        entry.pending_frame = None;
+                        return Ok(frame);
+                    }
+                    if frame.pts_us > target_us {
+                        if let Some(ref last) = entry.last_frame {
+                            entry.pending_frame = Some(frame.clone());
+                            return Ok(last.clone());
+                        }
+                        entry.last_pts = frame.pts_us;
+                        entry.last_frame = Some(frame.clone());
+                        return Ok(frame);
+                    }
+                    entry.last_pts = frame.pts_us;
+                    entry.last_frame = Some(frame);
+                }
+                None => {
+                    if let Some(ref pending) = entry.pending_frame {
+                        let p = pending.clone();
+                        entry.last_frame = Some(p.clone());
+                        entry.last_pts = pending.pts_us;
+                        entry.pending_frame = None;
+                        return Ok(p);
+                    }
+                    return entry.last_frame.clone().ok_or(DecodeError::NoVideoStream);
+                }
+            }
+        }
+    }
 }
 
 fn export_h264<F>(
@@ -124,25 +280,31 @@ fn export_h264<F>(
 where
     F: Fn() -> bool,
 {
+    let mut decode_cache = ExportDecodeCache::new();
+    let first_decoded_video_pts_us = AtomicI64::new(-1);
+    on_progress(1);
     let config = MixConfig::default();
     let mixed = mix_project_audio(project, config)?;
     let audio_encoded = if !mixed.samples.is_empty() {
-        Some(encode_aac(&mixed, 128_000)?)
+        let bitrate_bps = project
+            .export_profile
+            .audio_bitrate_kbps
+            .max(32)
+            .saturating_mul(1000);
+        Some(encode_opus(&mixed, bitrate_bps)?)
     } else {
         None
     };
+    on_progress(5);
 
-    let audio_track = audio_encoded.as_ref().map(|ae| AacTrackConfigOut {
-        sample_rate: ae.sample_rate,
-        bitrate: ae.bitrate,
-        profile: AudioObjectType::AacLowComplexity,
-        freq_index: ae.freq_index,
-        chan_conf: ae.chan_conf,
+    let audio_track = audio_encoded.as_ref().map(|oe| OpusTrackConfigOut {
+        sample_rate: 48_000,
+        channels: oe.channels,
     });
 
     let mut encoder = VideoEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32)?;
 
-    let mut iter = FramePlanIterator::new(&project.timeline, &project.export_profile);
+    let mut iter = FramePlanIterator::with_render_settings(&project.timeline, width, height, fps);
     let total_frames = iter.total_frames() as u32;
     let first_plan = iter
         .next()
@@ -152,15 +314,25 @@ where
         return Err(ExportError::Cancelled);
     }
 
-    let first_rgba = render_plan_to_rgba(&first_plan)?;
+    let first_rgba =
+        render_plan_to_rgba(&first_plan, &mut decode_cache, &first_decoded_video_pts_us)?;
     let first_frame = RgbaFrame {
         width,
         height,
         data: first_rgba,
         pts_us: first_plan.timestamp.as_micros(),
     };
-    let first_bitstream = encoder.encode_frame(&first_frame)?;
-    let (sps, pps) = extract_sps_pps(&first_bitstream).ok_or(ExportError::MissingAvcConfig)?;
+    let first_output = encoder.encode_frame(&first_frame)?;
+    let (bytes, is_keyframe) = match first_output {
+        EncodedVideoOutput::Sample { bytes, is_keyframe } => (bytes, is_keyframe),
+        EncodedVideoOutput::Skipped => {
+            return Err(EncodeError::SkippedFrame { frame_index: 0 }.into());
+        }
+    };
+    if bytes.is_empty() || !has_annexb_start_code(&bytes) {
+        return Err(EncodeError::EmptyFrame { frame_index: 0 }.into());
+    }
+    let (sps, pps) = extract_sps_pps(&bytes).ok_or(ExportError::MissingAvcConfig)?;
 
     let file = File::create(output_path)?;
     let writer = BufWriter::new(file);
@@ -173,8 +345,9 @@ where
         &pps,
         container,
         audio_track,
+        VideoTrackCodecOut::H264,
     )?;
-    muxer.write_sample(&first_bitstream, contains_idr(&first_bitstream))?;
+    muxer.write_sample_at(first_frame.pts_us as u64, &bytes, is_keyframe)?;
 
     let mut frame_count: u32 = 1;
     for plan in iter {
@@ -182,15 +355,30 @@ where
             return Err(ExportError::Cancelled);
         }
 
-        let rgba = render_plan_to_rgba(&plan)?;
+        let rgba = render_plan_to_rgba(&plan, &mut decode_cache, &first_decoded_video_pts_us)?;
         let frame = RgbaFrame {
             width,
             height,
             data: rgba,
             pts_us: plan.timestamp.as_micros(),
         };
-        let bitstream = encoder.encode_frame(&frame)?;
-        muxer.write_sample(&bitstream, contains_idr(&bitstream))?;
+        let output = encoder.encode_frame(&frame)?;
+        let (bytes, is_keyframe) = match output {
+            EncodedVideoOutput::Sample { bytes, is_keyframe } => (bytes, is_keyframe),
+            EncodedVideoOutput::Skipped => {
+                return Err(EncodeError::SkippedFrame {
+                    frame_index: frame_count,
+                }
+                .into());
+            }
+        };
+        if bytes.is_empty() || !has_annexb_start_code(&bytes) {
+            return Err(EncodeError::EmptyFrame {
+                frame_index: frame_count,
+            }
+            .into());
+        }
+        muxer.write_sample_at(frame.pts_us as u64, &bytes, is_keyframe)?;
 
         frame_count += 1;
         if total_frames > 0 {
@@ -201,9 +389,11 @@ where
 
     on_progress(100_000);
 
-    if let Some(ae) = audio_encoded {
-        for chunk in &ae.chunks {
-            muxer.write_audio_sample_at(chunk.start_time, chunk.duration, &chunk.bytes)?;
+    if let Some(oe) = audio_encoded {
+        let start_anchor_us = first_decoded_video_pts_us.load(Ordering::Relaxed).max(0) as u64;
+        for packet in &oe.packets {
+            let pts = start_anchor_us.saturating_add(packet.pts_us);
+            muxer.write_audio_sample_at(pts, &packet.bytes)?;
         }
     }
 
@@ -212,24 +402,50 @@ where
     Ok(())
 }
 
-fn render_plan_to_rgba(plan: &RenderPlan) -> Result<Vec<u8>, ExportError> {
-    let mut rgba = render_node(&plan.root, plan.width as usize, plan.height as usize)?;
+fn render_plan_to_rgba(
+    plan: &RenderPlan,
+    decode_cache: &mut ExportDecodeCache,
+    first_decoded_video_pts_us: &AtomicI64,
+) -> Result<Vec<u8>, ExportError> {
+    let mut rgba = render_node(
+        &plan.root,
+        plan.width as usize,
+        plan.height as usize,
+        decode_cache,
+        first_decoded_video_pts_us,
+    )?;
     flatten_on_black(&mut rgba);
     Ok(rgba)
 }
 
-fn render_node(node: &RenderNode, width: usize, height: usize) -> Result<Vec<u8>, ExportError> {
+fn render_node(
+    node: &RenderNode,
+    width: usize,
+    height: usize,
+    decode_cache: &mut ExportDecodeCache,
+    first_decoded_video_pts_us: &AtomicI64,
+) -> Result<Vec<u8>, ExportError> {
     match node {
         RenderNode::VideoFrame {
+            clip_id,
             source_path,
             source_pts,
             filters,
             opacity,
         } => {
-            let frame = thumbnailer::extract_thumbnail(
+            let frame = decode_cache.extract_frame(
+                *clip_id,
                 Path::new(source_path),
                 source_pts.as_micros().max(0),
             )?;
+            if first_decoded_video_pts_us.load(Ordering::Relaxed) < 0 {
+                let _ = first_decoded_video_pts_us.compare_exchange(
+                    -1,
+                    frame.pts_us,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                );
+            }
             let mut fitted = fit_rgba_into_canvas(
                 &frame.data,
                 frame.width as usize,
@@ -251,7 +467,13 @@ fn render_node(node: &RenderNode, width: usize, height: usize) -> Result<Vec<u8>
         RenderNode::Stack(children) => {
             let mut canvas = transparent_rgba(width, height);
             for child in children {
-                let layer = render_node(child, width, height)?;
+                let layer = render_node(
+                    child,
+                    width,
+                    height,
+                    decode_cache,
+                    first_decoded_video_pts_us,
+                )?;
                 alpha_over(&mut canvas, &layer);
             }
             Ok(canvas)
@@ -264,8 +486,15 @@ fn render_node(node: &RenderNode, width: usize, height: usize) -> Result<Vec<u8>
             progress,
         } => {
             let eased = ease_in_out(*progress);
-            let bottom_img = render_node(bottom, width, height)?;
-            let top_img = render_node(top, width, height)?;
+            let bottom_img = render_node(
+                bottom,
+                width,
+                height,
+                decode_cache,
+                first_decoded_video_pts_us,
+            )?;
+            let top_img =
+                render_node(top, width, height, decode_cache, first_decoded_video_pts_us)?;
 
             match kind {
                 miniter_domain::transition::TransitionKind::CrossFade
@@ -765,38 +994,8 @@ fn parse_argb_hex(input: &str, default: [u8; 4]) -> [u8; 4] {
     }
 }
 
-fn contains_idr(annex_b: &[u8]) -> bool {
-    let mut i = 0;
-    while i + 4 <= annex_b.len() {
-        let start = if i + 4 <= annex_b.len()
-            && annex_b[i] == 0
-            && annex_b[i + 1] == 0
-            && annex_b[i + 2] == 0
-            && annex_b[i + 3] == 1
-        {
-            i + 4
-        } else if i + 3 <= annex_b.len()
-            && annex_b[i] == 0
-            && annex_b[i + 1] == 0
-            && annex_b[i + 2] == 1
-        {
-            i + 3
-        } else {
-            i += 1;
-            continue;
-        };
-
-        if start < annex_b.len() {
-            let nal_type = annex_b[start] & 0x1F;
-            if nal_type == 5 {
-                return true;
-            }
-        }
-
-        i = start;
-    }
-
-    false
+fn has_annexb_start_code(data: &[u8]) -> bool {
+    data.windows(4).any(|w| w == [0, 0, 0, 1]) || data.windows(3).any(|w| w == [0, 0, 1])
 }
 
 fn export_av1<F>(
@@ -812,6 +1011,8 @@ fn export_av1<F>(
 where
     F: Fn() -> bool,
 {
+    let mut decode_cache = ExportDecodeCache::new();
+    let first_decoded_video_pts_us = AtomicI64::new(-1);
     let fps_int = fps.round().max(1.0) as u32;
     let mut encoder = Av1EncodeSession::new(width, height, fps_int, bitrate_kbps)?;
 
@@ -824,7 +1025,7 @@ where
         1,
     );
 
-    let mut iter = FramePlanIterator::new(&project.timeline, &project.export_profile);
+    let mut iter = FramePlanIterator::with_render_settings(&project.timeline, width, height, fps);
     let total_frames = iter.total_frames() as u32;
     let first_plan = iter
         .next()
@@ -834,7 +1035,8 @@ where
         return Err(ExportError::Cancelled);
     }
 
-    let first_rgba = render_plan_to_rgba(&first_plan)?;
+    let first_rgba =
+        render_plan_to_rgba(&first_plan, &mut decode_cache, &first_decoded_video_pts_us)?;
     let first_frame = RgbaFrame {
         width,
         height,
@@ -852,7 +1054,7 @@ where
             return Err(ExportError::Cancelled);
         }
 
-        let rgba = render_plan_to_rgba(&plan)?;
+        let rgba = render_plan_to_rgba(&plan, &mut decode_cache, &first_decoded_video_pts_us)?;
         let frame = RgbaFrame {
             width,
             height,
@@ -887,154 +1089,189 @@ where
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum AacEncodeError {
-    #[error("FDK-AAC encoder error: {0}")]
-    FdkAac(String),
+pub enum OpusEncodeError {
     #[error("Unsupported sample rate: {0}")]
     UnsupportedSampleRate(u32),
     #[error("Unsupported channel count: {0}")]
     UnsupportedChannels(u16),
+    #[error("Opus encoder error: {0}")]
+    Encoder(String),
 }
 
-impl From<EncoderError> for AacEncodeError {
-    fn from(e: EncoderError) -> Self {
-        AacEncodeError::FdkAac(e.to_string())
-    }
-}
-
-struct EncodedAacChunk {
-    start_time: u64,
-    duration: u32,
+struct EncodedOpusPacket {
+    pts_us: u64,
     bytes: Vec<u8>,
 }
 
-struct EncodedAac {
-    sample_rate: u32,
-    bitrate: u32,
-    freq_index: SampleFreqIndex,
-    chan_conf: ChannelConfig,
-    chunks: Vec<EncodedAacChunk>,
+struct EncodedOpus {
+    channels: u16,
+    packets: Vec<EncodedOpusPacket>,
 }
 
-fn sample_rate_to_freq_index(rate: u32) -> Option<SampleFreqIndex> {
-    match rate {
-        96_000 => Some(SampleFreqIndex::Freq96000),
-        88_200 => Some(SampleFreqIndex::Freq88200),
-        64_000 => Some(SampleFreqIndex::Freq64000),
-        48_000 => Some(SampleFreqIndex::Freq48000),
-        44_100 => Some(SampleFreqIndex::Freq44100),
-        32_000 => Some(SampleFreqIndex::Freq32000),
-        24_000 => Some(SampleFreqIndex::Freq24000),
-        22_050 => Some(SampleFreqIndex::Freq22050),
-        16_000 => Some(SampleFreqIndex::Freq16000),
-        12_000 => Some(SampleFreqIndex::Freq12000),
-        11_025 => Some(SampleFreqIndex::Freq11025),
-        8_000 => Some(SampleFreqIndex::Freq8000),
-        _ => None,
-    }
-}
-
-fn channels_to_chan_conf(ch: u16) -> Option<ChannelConfig> {
-    match ch {
-        1 => Some(ChannelConfig::Mono),
-        2 => Some(ChannelConfig::Stereo),
-        _ => None,
-    }
-}
-
-fn encode_aac(mixed: &MixedAudio, bitrate: u32) -> Result<EncodedAac, AacEncodeError> {
-    let sample_rate = mixed.sample_rate;
+fn encode_opus(mixed: &MixedAudio, bitrate_bps: u32) -> Result<EncodedOpus, OpusEncodeError> {
     let channels = mixed.channels;
-
-    let freq_index = sample_rate_to_freq_index(sample_rate)
-        .ok_or(AacEncodeError::UnsupportedSampleRate(sample_rate))?;
-    let chan_conf =
-        channels_to_chan_conf(channels).ok_or(AacEncodeError::UnsupportedChannels(channels))?;
-
-    let channel_mode = if channels == 1 {
-        ChannelMode::Mono
-    } else {
-        ChannelMode::Stereo
-    };
-
-    let aot = FdkAot::Mpeg4LowComplexity;
-
-    let params = EncoderParams {
-        bit_rate: BitRate::Cbr(bitrate),
-        sample_rate,
-        transport: Transport::Raw,
-        channels: channel_mode,
-        audio_object_type: aot,
-    };
-
-    let mut enc = Encoder::new(params)?;
-    let frame_length = enc.info()?.frameLength as usize;
-    let samples_per_frame = frame_length * channels as usize;
-
-    let pcm_f32 = &mixed.samples;
-    let total_pcm_frames = pcm_f32.len() / channels as usize;
-
-    let mut pcm_i16: Vec<i16> = Vec::with_capacity(total_pcm_frames * channels as usize);
-    for &s in pcm_f32 {
-        let clamped = s.clamp(-1.0, 1.0);
-        pcm_i16.push((clamped * 32767.0) as i16);
+    if channels != 1 && channels != 2 {
+        return Err(OpusEncodeError::UnsupportedChannels(channels));
     }
 
-    let mut chunks = Vec::new();
-    let mut output_time = 0u64;
-    let mut offset = 0usize;
-
-    let mut out_buf = vec![0u8; 8192];
-
-    while offset < total_pcm_frames {
-        let remaining = total_pcm_frames - offset;
-        let take = remaining.min(frame_length);
-
-        let buf_start = offset * channels as usize;
-        let buf_end = buf_start + take * channels as usize;
-
-        let frame_pcm: Vec<i16> = if take == frame_length {
-            pcm_i16[buf_start..buf_end].to_vec()
-        } else {
-            let mut padded = vec![0i16; samples_per_frame];
-            padded[..(take * channels as usize)].copy_from_slice(&pcm_i16[buf_start..buf_end]);
-            padded
-        };
-
-        let info = enc.encode(&frame_pcm, &mut out_buf)?;
-        if info.output_size > 0 {
-            let duration_ts = take as u64;
-            chunks.push(EncodedAacChunk {
-                start_time: output_time,
-                duration: duration_ts as u32,
-                bytes: out_buf[..info.output_size].to_vec(),
-            });
-            output_time += duration_ts;
+    let sample_rate = 48_000;
+    let pcm = if mixed.sample_rate == 48_000 {
+        mixed.samples.clone()
+    } else {
+        if mixed.sample_rate == 0 {
+            return Err(OpusEncodeError::UnsupportedSampleRate(mixed.sample_rate));
         }
+        resample_interleaved_linear(&mixed.samples, mixed.sample_rate, 48_000, channels as usize)
+    };
+
+    let mut error = 0i32;
+    let encoder = unsafe {
+        opusic_sys::opus_encoder_create(
+            sample_rate as i32,
+            channels as i32,
+            opusic_sys::OPUS_APPLICATION_AUDIO,
+            &mut error,
+        )
+    };
+    if encoder.is_null() || error != opusic_sys::OPUS_OK {
+        let msg = if error == opusic_sys::OPUS_OK {
+            "unknown encoder creation failure".to_string()
+        } else {
+            opus_error_message(error)
+        };
+        return Err(OpusEncodeError::Encoder(format!(
+            "opus_encoder_create failed: {} ({})",
+            msg, error
+        )));
+    }
+
+    let set_ctl = |request: i32, value: i32, name: &str| -> Result<(), OpusEncodeError> {
+        let rc = unsafe { opusic_sys::opus_encoder_ctl(encoder, request, value) };
+        if rc == opusic_sys::OPUS_OK {
+            Ok(())
+        } else {
+            Err(OpusEncodeError::Encoder(format!(
+                "opus_encoder_ctl {} failed: {} ({})",
+                name,
+                opus_error_message(rc),
+                rc
+            )))
+        }
+    };
+
+    set_ctl(
+        opusic_sys::OPUS_SET_BITRATE_REQUEST,
+        bitrate_bps.min(i32::MAX as u32) as i32,
+        "OPUS_SET_BITRATE_REQUEST",
+    )?;
+    set_ctl(
+        opusic_sys::OPUS_SET_COMPLEXITY_REQUEST,
+        10,
+        "OPUS_SET_COMPLEXITY_REQUEST",
+    )?;
+    set_ctl(opusic_sys::OPUS_SET_VBR_REQUEST, 0, "OPUS_SET_VBR_REQUEST")?;
+    set_ctl(
+        opusic_sys::OPUS_SET_INBAND_FEC_REQUEST,
+        0,
+        "OPUS_SET_INBAND_FEC_REQUEST",
+    )?;
+    set_ctl(
+        opusic_sys::OPUS_SET_PACKET_LOSS_PERC_REQUEST,
+        0,
+        "OPUS_SET_PACKET_LOSS_PERC_REQUEST",
+    )?;
+
+    let frame_size = (sample_rate / 50) as usize;
+    let samples_per_packet = frame_size * channels as usize;
+
+    let mut packets = Vec::new();
+    let mut out_buf = vec![0u8; 1275];
+    let mut offset = 0usize;
+    let mut pts_samples = 0u64;
+
+    while offset < pcm.len() {
+        let remaining = pcm.len() - offset;
+        let take = remaining.min(samples_per_packet);
+
+        let mut frame = vec![0.0f32; samples_per_packet];
+        frame[..take].copy_from_slice(&pcm[offset..offset + take]);
+
+        let written = unsafe {
+            opusic_sys::opus_encode_float(
+                encoder,
+                frame.as_ptr(),
+                frame_size as i32,
+                out_buf.as_mut_ptr(),
+                out_buf.len() as i32,
+            )
+        };
+        if written < 0 {
+            unsafe {
+                opusic_sys::opus_encoder_destroy(encoder);
+            }
+            return Err(OpusEncodeError::Encoder(format!(
+                "opus_encode_float failed: {} ({})",
+                opus_error_message(written),
+                written
+            )));
+        }
+
+        packets.push(EncodedOpusPacket {
+            pts_us: (pts_samples * 1_000_000) / sample_rate as u64,
+            bytes: out_buf[..written as usize].to_vec(),
+        });
 
         offset += take;
+        pts_samples += frame_size as u64;
     }
 
-    for _ in 0..2 {
-        let silence = vec![0i16; samples_per_frame];
-        let info = enc.encode(&silence, &mut out_buf)?;
-        if info.output_size > 0 {
-            let remaining = frame_length - (total_pcm_frames % frame_length);
-            let duration_ts = remaining.min(frame_length) as u64;
-            chunks.push(EncodedAacChunk {
-                start_time: output_time,
-                duration: duration_ts as u32,
-                bytes: out_buf[..info.output_size].to_vec(),
-            });
-            output_time += duration_ts;
+    unsafe {
+        opusic_sys::opus_encoder_destroy(encoder);
+    }
+
+    Ok(EncodedOpus { channels, packets })
+}
+
+fn opus_error_message(code: i32) -> String {
+    let ptr = unsafe { opusic_sys::opus_strerror(code) };
+    if ptr.is_null() {
+        return "unknown opus error".to_string();
+    }
+    unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn resample_interleaved_linear(
+    input: &[f32],
+    in_rate: u32,
+    out_rate: u32,
+    channels: usize,
+) -> Vec<f32> {
+    if in_rate == out_rate || input.is_empty() {
+        return input.to_vec();
+    }
+
+    let in_frames = input.len() / channels;
+    if in_frames == 0 {
+        return Vec::new();
+    }
+
+    let out_frames = ((in_frames as u64 * out_rate as u64) / in_rate as u64) as usize;
+    let mut out = vec![0.0f32; out_frames * channels];
+
+    for of in 0..out_frames {
+        let src_pos = (of as f64) * (in_rate as f64) / (out_rate as f64);
+        let i0 = src_pos.floor() as usize;
+        let i1 = (i0 + 1).min(in_frames.saturating_sub(1));
+        let t = (src_pos - i0 as f64) as f32;
+
+        for ch in 0..channels {
+            let a = input[i0 * channels + ch];
+            let b = input[i1 * channels + ch];
+            out[of * channels + ch] = a + (b - a) * t;
         }
     }
 
-    Ok(EncodedAac {
-        sample_rate,
-        bitrate,
-        freq_index,
-        chan_conf,
-        chunks,
-    })
+    out
 }

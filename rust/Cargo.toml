@@ -21,3 +21,6 @@ uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 log = "0.4"
 uniffi = "0.31"
+
+[patch.crates-io]
+muxide = { git = "https://github.com/mlm-games/muxide" }

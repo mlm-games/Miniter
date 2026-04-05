@@ -8,7 +8,6 @@ struct SessionEntry {
     session: VideoDecodeSession<std::io::BufReader<std::fs::File>>,
     last_pts: i64,
     last_frame: Option<RgbaFrame>,
-    pending_frame: Option<RgbaFrame>,
 }
 
 static SESSION_CACHE: LazyLock<Mutex<HashMap<PathBuf, SessionEntry>>> =
@@ -23,7 +22,6 @@ pub fn extract_thumbnail(path: &Path, target_us: i64) -> Result<RgbaFrame, Decod
             session,
             last_pts: first_frame.as_ref().map_or(0, |f| f.pts_us),
             last_frame: first_frame,
-            pending_frame: None,
         };
         guard.insert(path.to_path_buf(), entry);
     }
@@ -38,46 +36,21 @@ pub fn extract_thumbnail(path: &Path, target_us: i64) -> Result<RgbaFrame, Decod
         entry.session.reset()?;
         entry.last_pts = 0;
         entry.last_frame = None;
-        entry.pending_frame = None;
     }
 
-    let mut candidate = entry.last_frame.clone();
-
     loop {
-        let next = if let Some(frame) = entry.pending_frame.take() {
-            Some(frame)
-        } else {
-            entry.session.next_frame()?
-        };
-
-        match next {
+        match entry.session.next_frame()? {
             Some(frame) => {
-                if frame.pts_us > target_us {
-                    entry.pending_frame = Some(frame);
-
-                    if let Some(chosen) = candidate {
-                        entry.last_pts = chosen.pts_us;
-                        entry.last_frame = Some(chosen.clone());
-                        return Ok(chosen);
-                    }
-
-                    let first = entry.pending_frame.as_ref().unwrap().clone();
-                    entry.last_pts = first.pts_us;
-                    entry.last_frame = Some(first.clone());
-                    return Ok(first);
+                if frame.pts_us >= target_us {
+                    entry.last_pts = frame.pts_us;
+                    entry.last_frame = Some(frame.clone());
+                    return Ok(frame);
                 }
-
-                candidate = Some(frame.clone());
                 entry.last_pts = frame.pts_us;
                 entry.last_frame = Some(frame);
             }
             None => {
-                if let Some(chosen) = candidate.or_else(|| entry.last_frame.clone()) {
-                    entry.last_pts = chosen.pts_us;
-                    entry.last_frame = Some(chosen.clone());
-                    return Ok(chosen);
-                }
-                return Err(DecodeError::NoVideoStream);
+                return entry.last_frame.clone().ok_or(DecodeError::NoVideoStream);
             }
         }
     }
@@ -109,7 +82,6 @@ pub fn extract_thumbnails(
             session,
             last_pts: first_frame.as_ref().map_or(0, |f| f.pts_us),
             last_frame: first_frame,
-            pending_frame: None,
         };
         guard.insert(path.to_path_buf(), entry);
     }
@@ -117,7 +89,6 @@ pub fn extract_thumbnails(
     entry.session.reset()?;
     entry.last_pts = 0;
     entry.last_frame = None;
-    entry.pending_frame = None;
     let mut target_idx = 0;
 
     loop {

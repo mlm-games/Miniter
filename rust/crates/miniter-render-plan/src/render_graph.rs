@@ -1,5 +1,5 @@
 use crate::transition_blend::{ease_in_out, opacity_pair};
-use miniter_domain::clip::{Clip, ClipKind};
+use miniter_domain::clip::{Clip, ClipId, ClipKind};
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::TextOverlay;
 use miniter_domain::time::Timestamp;
@@ -9,6 +9,7 @@ use miniter_domain::transition::{Transition, TransitionKind};
 #[derive(Debug, Clone)]
 pub enum RenderNode {
     VideoFrame {
+        clip_id: ClipId,
         source_path: String,
         source_pts: Timestamp,
         filters: Vec<VideoFilter>,
@@ -80,6 +81,7 @@ fn node_for_clip(
     match &clip.kind {
         ClipKind::Video(v) => {
             let base = RenderNode::VideoFrame {
+                clip_id: clip.id,
                 source_path: v.source_path.clone(),
                 source_pts,
                 filters: v.filters.clone(),
@@ -95,6 +97,7 @@ fn node_for_clip(
                     );
                     if let ClipKind::Video(pv) = &prev.kind {
                         let prev_node = RenderNode::VideoFrame {
+                            clip_id: prev.id,
                             source_path: pv.source_path.clone(),
                             source_pts: prev_pts,
                             filters: pv.filters.clone(),

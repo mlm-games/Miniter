@@ -20,6 +20,7 @@ import org.koin.compose.koinInject
 import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustExportResolution
+import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.engine.ExportProgress
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.util.popBack
@@ -34,8 +35,12 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val progress by vm.exportProgress.collectAsState()
 
     val profile = snapshot?.exportProfile
-    val profileFormat = profile?.format ?: RustExportFormat.Mp4
+    val profileFormat = when (profile?.format) {
+        RustExportFormat.Mov, null -> RustExportFormat.Mp4
+        else -> profile.format
+    }
     val (profileWidth, profileHeight) = when (val resolution = profile?.resolution) {
+        RustExportResolution.Source -> 0 to 0
         RustExportResolution.Sd480 -> 854 to 480
         RustExportResolution.Hd720 -> 1280 to 720
         RustExportResolution.Hd1080 -> 1920 to 1080
@@ -48,10 +53,27 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         ?.let { bitrate -> ((bitrate.toFloat() - 500f) / 80f).coerceIn(1f, 100f) }
         ?: 80f
 
+    val sourceWidth = snapshot?.timeline?.tracks
+        ?.flatMap { it.clips }
+        ?.firstNotNullOfOrNull { clip ->
+            (clip.kind as? RustVideoClipKind)?.width?.takeIf { it > 0 }
+        } ?: 0
+    val sourceHeight = snapshot?.timeline?.tracks
+        ?.flatMap { it.clips }
+        ?.firstNotNullOfOrNull { clip ->
+            (clip.kind as? RustVideoClipKind)?.height?.takeIf { it > 0 }
+        } ?: 0
+    val hasSourceDimensions = sourceWidth > 0 && sourceHeight > 0
+    val sourceResolutionText = if (hasSourceDimensions) "${sourceWidth}×${sourceHeight}" else "Unknown"
+    val sourceHintText = if (hasSourceDimensions) "0 = source ($sourceResolutionText)" else "0 = source (No vid?)"
+
+    val displayWidth = if (profileWidth > 0) profileWidth else sourceWidth
+    val displayHeight = if (profileHeight > 0) profileHeight else sourceHeight
+
     var format by remember(profileFormat) { mutableStateOf(profileFormat) }
     var quality by remember(profileQuality) { mutableFloatStateOf(profileQuality) }
-    var customWidth by remember(profileWidth) { mutableStateOf(profileWidth.takeIf { it > 0 }?.toString() ?: "") }
-    var customHeight by remember(profileHeight) { mutableStateOf(profileHeight.takeIf { it > 0 }?.toString() ?: "") }
+    var customWidth by remember(displayWidth) { mutableStateOf(displayWidth.takeIf { it > 0 }?.toString() ?: "") }
+    var customHeight by remember(displayHeight) { mutableStateOf(displayHeight.takeIf { it > 0 }?.toString() ?: "") }
 
     var outputFile by remember { mutableStateOf<PlatformFile?>(null) }
     var showCancelConfirm by remember { mutableStateOf(false) }
@@ -95,12 +117,12 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         ) {
             Text("Format", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                RustExportFormat.entries.forEachIndexed { index, fmt ->
+                RustExportFormat.entries.filter { it != RustExportFormat.Mov }.forEachIndexed { index, fmt ->
                     val enabled = !isExporting
                     SegmentedButton(
                         selected = format == fmt,
                         onClick = { format = fmt },
-                        shape = SegmentedButtonDefaults.itemShape(index, RustExportFormat.entries.size),
+                        shape = SegmentedButtonDefaults.itemShape(index, RustExportFormat.entries.filter { it != RustExportFormat.Mov }.size),
                         enabled = enabled,
                     ) {
                         Text(
@@ -153,7 +175,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                     enabled = !isExporting,
-                    supportingText = { Text("0 = source") },
+                    supportingText = { Text(sourceHintText) },
                 )
                 Text("×", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
@@ -163,7 +185,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                     enabled = !isExporting,
-                    supportingText = { Text("0 = source") },
+                    supportingText = { Text(sourceHintText) },
                 )
             }
 
@@ -325,6 +347,8 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         Button(
                             onClick = {
                                 val file = outputFile ?: return@Button
+                                val parsedWidth = customWidth.toIntOrNull() ?: 0
+                                val parsedHeight = customHeight.toIntOrNull() ?: 0
                                 vm.updateExportProfile(
                                     RustExportProfileSnapshot(
                                         format = when (format) {
@@ -333,15 +357,17 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                             RustExportFormat.Mov -> RustExportFormat.Mov
                                         },
                                         resolution = when {
-                                            (customWidth.toIntOrNull() ?: 0) == 854 && (customHeight.toIntOrNull() ?: 0) == 480 -> RustExportResolution.Sd480
-                                            (customWidth.toIntOrNull() ?: 0) == 1280 && (customHeight.toIntOrNull() ?: 0) == 720 -> RustExportResolution.Hd720
-                                            (customWidth.toIntOrNull() ?: 0) == 1920 && (customHeight.toIntOrNull() ?: 0) == 1080 -> RustExportResolution.Hd1080
-                                            (customWidth.toIntOrNull() ?: 0) == 3840 && (customHeight.toIntOrNull() ?: 0) == 2160 -> RustExportResolution.Uhd4k
-                                            (customWidth.toIntOrNull() ?: 0) > 0 && (customHeight.toIntOrNull() ?: 0) > 0 -> RustExportResolution.Custom(
-                                                customWidth.toIntOrNull() ?: 0,
-                                                customHeight.toIntOrNull() ?: 0,
+                                            parsedWidth <= 0 || parsedHeight <= 0 -> RustExportResolution.Source
+                                            hasSourceDimensions && parsedWidth == sourceWidth && parsedHeight == sourceHeight -> RustExportResolution.Source
+                                            parsedWidth == 854 && parsedHeight == 480 -> RustExportResolution.Sd480
+                                            parsedWidth == 1280 && parsedHeight == 720 -> RustExportResolution.Hd720
+                                            parsedWidth == 1920 && parsedHeight == 1080 -> RustExportResolution.Hd1080
+                                            parsedWidth == 3840 && parsedHeight == 2160 -> RustExportResolution.Uhd4k
+                                            parsedWidth > 0 && parsedHeight > 0 -> RustExportResolution.Custom(
+                                                parsedWidth,
+                                                parsedHeight,
                                             )
-                                            else -> RustExportResolution.Hd1080
+                                            else -> RustExportResolution.Source
                                         },
                                         fps = 30.0,
                                         videoBitrateKbps = (500 + quality * 80).toInt().coerceAtLeast(500),
@@ -395,15 +421,22 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
 
-                        val w = profileWidth
-                        val h = profileHeight
-                        if (w > 0 && h > 0) {
+                        val outputWidth = (customWidth.toIntOrNull() ?: 0).takeIf { it > 0 }
+                            ?: sourceWidth.takeIf { it > 0 }
+                        val outputHeight = (customHeight.toIntOrNull() ?: 0).takeIf { it > 0 }
+                            ?: sourceHeight.takeIf { it > 0 }
+                        if (outputWidth != null && outputHeight != null) {
                             Text(
-                                "Source: ${w}×${h}",
+                                "Output: ${outputWidth}×${outputHeight}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        Text(
+                            "Source: $sourceResolutionText",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

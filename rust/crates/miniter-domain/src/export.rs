@@ -27,6 +27,7 @@ impl ExportFormat {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExportResolution {
+    Source,
     Sd480,
     Hd720,
     Hd1080,
@@ -37,6 +38,7 @@ pub enum ExportResolution {
 impl ExportResolution {
     pub fn dimensions(self) -> (u32, u32) {
         match self {
+            Self::Source => (0, 0),
             Self::Sd480 => (854, 480),
             Self::Hd720 => (1280, 720),
             Self::Hd1080 => (1920, 1080),
@@ -61,7 +63,7 @@ impl Default for ExportProfile {
     fn default() -> Self {
         Self {
             format: ExportFormat::Mp4,
-            resolution: ExportResolution::Hd1080,
+            resolution: ExportResolution::Source,
             fps: 30.0,
             video_bitrate_kbps: 8_000,
             audio_bitrate_kbps: 192,
