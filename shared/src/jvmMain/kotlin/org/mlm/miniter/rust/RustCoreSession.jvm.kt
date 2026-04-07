@@ -75,7 +75,7 @@ actual class RustCoreSession private constructor(
             return ImageData.create(
                 width = frame.width.toInt(),
                 height = frame.height.toInt(),
-                pixels = frame.rgba.toList().toByteArray(),
+                pixels = frame.rgba.copyOf(),
             )
         }
 
@@ -84,7 +84,7 @@ actual class RustCoreSession private constructor(
                 ImageData.create(
                     width = frame.width.toInt(),
                     height = frame.height.toInt(),
-                    pixels = frame.rgba.toList().toByteArray(),
+                    pixels = frame.rgba.copyOf(),
                 )
             }
         }
