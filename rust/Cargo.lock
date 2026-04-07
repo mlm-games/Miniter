@@ -392,15 +392,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "cmake"
-version = "0.1.58"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -733,6 +724,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -811,10 +808,10 @@ dependencies = [
  "miniter-audio",
  "miniter-domain",
  "miniter-render-plan",
+ "mousiki",
  "mp4",
  "muxide",
  "openh264",
- "opusic-sys",
  "rav1e",
  "symphonia",
  "thiserror 2.0.18",
@@ -837,6 +834,18 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "uuid",
+]
+
+[[package]]
+name = "mousiki"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "025feef2fc01604ee1fac4ae254b33480574b16210945d0096d665009ba9c666"
+dependencies = [
+ "bitflags 2.11.0",
+ "cfg-if",
+ "libm",
+ "log",
 ]
 
 [[package]]
@@ -993,15 +1002,6 @@ dependencies = [
  "cc",
  "nasm-rs",
  "walkdir",
-]
-
-[[package]]
-name = "opusic-sys"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc3280fe5b6f97ac1a35a0ac003e2fb0b92f8e4bdf2b2057e1bf9b87acca5696"
-dependencies = [
- "cmake",
 ]
 
 [[package]]

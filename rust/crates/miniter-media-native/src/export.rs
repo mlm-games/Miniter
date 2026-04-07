@@ -19,7 +19,6 @@ use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
 use std::collections::HashMap;
-use std::ffi::CStr;
 use std::fs::{create_dir_all, File};
 use std::io::BufWriter;
 use std::path::Path;
@@ -1240,77 +1239,44 @@ struct EncodedOpus {
 }
 
 fn encode_opus(mixed: &MixedAudio, bitrate_bps: u32) -> Result<EncodedOpus, OpusEncodeError> {
-    let channels = mixed.channels;
-    if channels != 1 && channels != 2 {
-        return Err(OpusEncodeError::UnsupportedChannels(channels));
-    }
+    use mousiki::{
+        Application as MousikiApplication, Bitrate as MousikiBitrate, Channels as MousikiChannels,
+        Encoder as MousikiEncoder, FrameDuration as MousikiFrameDuration,
+    };
 
-    let sample_rate = 48_000;
-    let pcm = if mixed.sample_rate == 48_000 {
+    let channels = mixed.channels;
+
+    let mousiki_channels = match channels {
+        1 => MousikiChannels::Mono,
+        2 => MousikiChannels::Stereo,
+        other => return Err(OpusEncodeError::UnsupportedChannels(other)),
+    };
+
+    let sample_rate = 48_000u32;
+    let pcm = if mixed.sample_rate == sample_rate {
         mixed.samples.clone()
     } else {
         if mixed.sample_rate == 0 {
             return Err(OpusEncodeError::UnsupportedSampleRate(mixed.sample_rate));
         }
-        resample_interleaved_linear(&mixed.samples, mixed.sample_rate, 48_000, channels as usize)
-    };
-
-    let mut error = 0i32;
-    let encoder = unsafe {
-        opusic_sys::opus_encoder_create(
-            sample_rate as i32,
-            channels as i32,
-            opusic_sys::OPUS_APPLICATION_AUDIO,
-            &mut error,
+        resample_interleaved_linear(
+            &mixed.samples,
+            mixed.sample_rate,
+            sample_rate,
+            channels as usize,
         )
     };
-    if encoder.is_null() || error != opusic_sys::OPUS_OK {
-        let msg = if error == opusic_sys::OPUS_OK {
-            "unknown encoder creation failure".to_string()
-        } else {
-            opus_error_message(error)
-        };
-        return Err(OpusEncodeError::Encoder(format!(
-            "opus_encoder_create failed: {} ({})",
-            msg, error
-        )));
-    }
 
-    let set_ctl = |request: i32, value: i32, name: &str| -> Result<(), OpusEncodeError> {
-        let rc = unsafe { opusic_sys::opus_encoder_ctl(encoder, request, value) };
-        if rc == opusic_sys::OPUS_OK {
-            Ok(())
-        } else {
-            Err(OpusEncodeError::Encoder(format!(
-                "opus_encoder_ctl {} failed: {} ({})",
-                name,
-                opus_error_message(rc),
-                rc
-            )))
-        }
-    };
-
-    set_ctl(
-        opusic_sys::OPUS_SET_BITRATE_REQUEST,
-        bitrate_bps.min(i32::MAX as u32) as i32,
-        "OPUS_SET_BITRATE_REQUEST",
-    )?;
-    set_ctl(
-        opusic_sys::OPUS_SET_COMPLEXITY_REQUEST,
-        10,
-        "OPUS_SET_COMPLEXITY_REQUEST",
-    )?;
-    set_ctl(opusic_sys::OPUS_SET_VBR_REQUEST, 0, "OPUS_SET_VBR_REQUEST")?;
-    set_ctl(
-        opusic_sys::OPUS_SET_INBAND_FEC_REQUEST,
-        0,
-        "OPUS_SET_INBAND_FEC_REQUEST",
-    )?;
-    set_ctl(
-        opusic_sys::OPUS_SET_PACKET_LOSS_PERC_REQUEST,
-        0,
-        "OPUS_SET_PACKET_LOSS_PERC_REQUEST",
-    )?;
+    let mut encoder =
+        MousikiEncoder::builder(sample_rate, mousiki_channels, MousikiApplication::Audio)
+            .bitrate(MousikiBitrate::Bits(bitrate_bps.min(i32::MAX as u32) as i32))
+            .complexity(10)
+            .vbr(false)
+            .inband_fec(false)
+            .packet_loss_perc(0)
+            .frame_duration(MousikiFrameDuration::Ms20)
+            .build()
+            .map_err(|e| OpusEncodeError::Encoder(format!("mousiki build failed: {e:?}")))?;
 
     let frame_size = (sample_rate / 50) as usize;
     let samples_per_packet = frame_size * channels as usize;
@@ -1327,50 +1293,20 @@ fn encode_opus(mixed: &MixedAudio, bitrate_bps: u32) -> Result<EncodedOpus, Opus
         let mut frame = vec![0.0f32; samples_per_packet];
         frame[..take].copy_from_slice(&pcm[offset..offset + take]);
 
-        let written = unsafe {
-            opusic_sys::opus_encode_float(
-                encoder,
-                frame.as_ptr(),
-                frame_size as i32,
-                out_buf.as_mut_ptr(),
-                out_buf.len() as i32,
-            )
-        };
-        if written < 0 {
-            unsafe {
-                opusic_sys::opus_encoder_destroy(encoder);
-            }
-            return Err(OpusEncodeError::Encoder(format!(
-                "opus_encode_float failed: {} ({})",
-                opus_error_message(written),
-                written
-            )));
-        }
+        let written = encoder
+            .encode_float(&frame, &mut out_buf)
+            .map_err(|e| OpusEncodeError::Encoder(format!("mousiki encode failed: {e:?}")))?;
 
         packets.push(EncodedOpusPacket {
             pts_us: (pts_samples * 1_000_000) / sample_rate as u64,
-            bytes: out_buf[..written as usize].to_vec(),
+            bytes: out_buf[..written].to_vec(),
         });
 
         offset += take;
         pts_samples += frame_size as u64;
     }
 
-    unsafe {
-        opusic_sys::opus_encoder_destroy(encoder);
-    }
-
     Ok(EncodedOpus { channels, packets })
-}
-
-fn opus_error_message(code: i32) -> String {
-    let ptr = unsafe { opusic_sys::opus_strerror(code) };
-    if ptr.is_null() {
-        return "unknown opus error".to_string();
-    }
-    unsafe { CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .into_owned()
 }
 
 fn resample_interleaved_linear(

@@ -25,8 +25,8 @@ av-ivf = "0.5"
 # Audio demuxing
 symphonia = { version = "0.5.5", features = ["isomp4", "mkv", "pcm"] }
 
-# Opus encoding (cross-compiles)
-opusic-sys = "0.6.0"
+# Opus encoding)
+mousiki = "0.2.1"
 
 # Text rendering for export
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
