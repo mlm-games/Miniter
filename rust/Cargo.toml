@@ -23,4 +23,4 @@ log = "0.4"
 uniffi = "0.31"
 
 [patch.crates-io]
-muxide = { path = "/home/ymsr/Documents/Repos/muxide" }
+muxide = { git = "https://github.com/mlm-games/muxide" }

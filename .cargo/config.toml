@@ -1,0 +1,17 @@
+#[env]
+#CXXSTDLIB_aarch64_linux_android = { value = "c++_static", force = true }
+#CXXSTDLIB_armv7_linux_androideabi = { value = "c++_static", force = true }
+#CXXSTDLIB_i686_linux_android = { value = "c++_static", force = true }
+#CXXSTDLIB_x86_64_linux_android = { value = "c++_static", force = true }
+#
+#[target.aarch64-linux-android]
+#rustflags = ["-C", "link-arg=-static-libstdc++"]
+#
+#[target.armv7-linux-androideabi]
+#rustflags = ["-C", "link-arg=-static-libstdc++"]
+#
+#[target.i686-linux-android]
+#rustflags = ["-C", "link-arg=-static-libstdc++"]
+#
+#[target.x86_64-linux-android]
+#rustflags = ["-C", "link-arg=-static-libstdc++"]

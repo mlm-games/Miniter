@@ -10,6 +10,7 @@ plugins {
 
 rustUniffi {
     libraryName.set("miniter_ffi")
+    cargoNdkExtraArgs.set(listOf("--link-libcxx-shared"))
 }
 
 kotlin {
