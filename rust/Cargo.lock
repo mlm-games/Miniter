@@ -856,7 +856,6 @@ dependencies = [
 [[package]]
 name = "muxide"
 version = "0.2.0"
-source = "git+https://github.com/mlm-games/muxide#73d3fa932ed3d94f50a7343866163cdac5c5fff4"
 dependencies = [
  "anyhow",
  "clap",

@@ -103,8 +103,9 @@ impl Track {
 
     pub fn end_timestamp(&self) -> Timestamp {
         self.clips
-            .last()
+            .iter()
             .map(|c| c.timeline_end())
+            .max()
             .unwrap_or(Timestamp::ZERO)
     }
 }

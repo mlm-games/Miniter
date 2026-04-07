@@ -5,6 +5,7 @@ pub enum ExportFormat {
     Mp4,
     Mov,
     Av1Ivf,
+    Av1Mp4,
 }
 
 impl ExportFormat {
@@ -12,6 +13,7 @@ impl ExportFormat {
         match self {
             Self::Mp4 => "mp4",
             Self::Av1Ivf => "ivf",
+            Self::Av1Mp4 => "mp4",
             Self::Mov => "mov",
         }
     }
@@ -20,6 +22,7 @@ impl ExportFormat {
         match self {
             Self::Mp4 => "video/mp4",
             Self::Av1Ivf => "video/ivf",
+            Self::Av1Mp4 => "video/mp4",
             Self::Mov => "video/quicktime",
         }
     }

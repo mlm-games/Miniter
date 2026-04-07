@@ -1,7 +1,7 @@
 use crate::clear_session_cache;
 use crate::decoder::{DecodeError, VideoDecodeSession};
 use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
-use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession};
+use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
 use crate::frame::RgbaFrame;
 use crate::mux::{
     extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut, VideoTrackCodecOut,
@@ -96,6 +96,18 @@ where
             settings.height,
             settings.fps,
             bitrate_kbps,
+            Av1Container::Ivf,
+            &is_cancelled,
+            &on_progress,
+        ),
+        ExportFormat::Av1Mp4 => export_av1(
+            project,
+            output_path,
+            settings.width,
+            settings.height,
+            settings.fps,
+            bitrate_kbps,
+            Av1Container::Mp4,
             &is_cancelled,
             &on_progress,
         ),
@@ -109,6 +121,12 @@ struct RenderSettings {
     width: u32,
     height: u32,
     fps: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Av1Container {
+    Ivf,
+    Mp4,
 }
 
 fn resolve_render_settings(project: &Project) -> RenderSettings {
@@ -1005,6 +1023,7 @@ fn export_av1<F>(
     height: u32,
     fps: f64,
     bitrate_kbps: u32,
+    container: Av1Container,
     is_cancelled: &F,
     on_progress: &dyn Fn(u32),
 ) -> Result<(), ExportError>
@@ -1013,17 +1032,68 @@ where
 {
     let mut decode_cache = ExportDecodeCache::new();
     let first_decoded_video_pts_us = AtomicI64::new(-1);
-    let fps_int = fps.round().max(1.0) as u32;
-    let mut encoder = Av1EncodeSession::new(width, height, fps_int, bitrate_kbps)?;
+    on_progress(1);
 
-    let mut file = File::create(output_path)?;
-    ivf::write_ivf_header(
-        &mut file,
-        width as usize,
-        height as usize,
-        fps_int as usize,
-        1,
-    );
+    let (audio_track, audio_encoded) = if container == Av1Container::Mp4 {
+        let config = MixConfig::default();
+        let mixed = mix_project_audio(project, config)?;
+        let audio_encoded = if !mixed.samples.is_empty() {
+            let bitrate_bps = project
+                .export_profile
+                .audio_bitrate_kbps
+                .max(32)
+                .saturating_mul(1000);
+            Some(encode_opus(&mixed, bitrate_bps)?)
+        } else {
+            None
+        };
+
+        let audio_track = audio_encoded.as_ref().map(|oe| OpusTrackConfigOut {
+            sample_rate: 48_000,
+            channels: oe.channels,
+        });
+
+        (audio_track, audio_encoded)
+    } else {
+        (None, None)
+    };
+
+    on_progress(5);
+
+    let fps_int = fps.round().max(1.0) as u32;
+    let mut encoder = Av1EncodeSession::new(width, height, fps, bitrate_kbps)?;
+
+    let mut ivf_file: Option<File> = None;
+    let mut mp4_muxer: Option<Mp4Muxer<BufWriter<File>>> = None;
+
+    match container {
+        Av1Container::Ivf => {
+            let mut file = File::create(output_path)?;
+            ivf::write_ivf_header(
+                &mut file,
+                width as usize,
+                height as usize,
+                fps_int as usize,
+                1,
+            );
+            ivf_file = Some(file);
+        }
+        Av1Container::Mp4 => {
+            let file = File::create(output_path)?;
+            let writer = BufWriter::new(file);
+            mp4_muxer = Some(Mp4Muxer::new(
+                writer,
+                width,
+                height,
+                fps,
+                &[],
+                &[],
+                ContainerFormat::Mp4,
+                audio_track,
+                VideoTrackCodecOut::Av1,
+            )?);
+        }
+    }
 
     let mut iter = FramePlanIterator::with_render_settings(&project.timeline, width, height, fps);
     let total_frames = iter.total_frames() as u32;
@@ -1031,25 +1101,11 @@ where
         .next()
         .unwrap_or_else(|| plan_frame(&project.timeline, Timestamp::ZERO, width, height));
 
-    if is_cancelled() {
-        return Err(ExportError::Cancelled);
-    }
+    let mut frame_count: u32 = 0;
+    let mut ivf_packet_count: u32 = 0;
+    let mut encoded_frame_pts_us: Vec<u64> = Vec::new();
 
-    let first_rgba =
-        render_plan_to_rgba(&first_plan, &mut decode_cache, &first_decoded_video_pts_us)?;
-    let first_frame = RgbaFrame {
-        width,
-        height,
-        data: first_rgba,
-        pts_us: first_plan.timestamp.as_micros(),
-    };
-    let packets = encoder.encode_frame(&first_frame)?;
-    for packet in packets {
-        ivf::write_ivf_frame(&mut file, packet.pts, &packet.data);
-    }
-
-    let mut frame_count: u32 = 1;
-    for plan in iter {
+    for plan in std::iter::once(first_plan).chain(iter) {
         if is_cancelled() {
             return Err(ExportError::Cancelled);
         }
@@ -1061,12 +1117,30 @@ where
             data: rgba,
             pts_us: plan.timestamp.as_micros(),
         };
+
+        encoded_frame_pts_us.push(frame.pts_us.max(0) as u64);
+
         let packets = encoder.encode_frame(&frame)?;
-        for packet in packets {
-            ivf::write_ivf_frame(&mut file, packet.pts, &packet.data);
+
+        match container {
+            Av1Container::Ivf => {
+                let file = ivf_file
+                    .as_mut()
+                    .expect("IVF file must exist for AV1 IVF export");
+                for packet in packets {
+                    ivf::write_ivf_frame(file, packet.pts, &packet.data);
+                    ivf_packet_count = ivf_packet_count.saturating_add(1);
+                }
+            }
+            Av1Container::Mp4 => {
+                let muxer = mp4_muxer
+                    .as_mut()
+                    .expect("MP4 muxer must exist for AV1 MP4 export");
+                write_av1_packets_to_mux(muxer, &packets, &encoded_frame_pts_us, fps)?;
+            }
         }
 
-        frame_count += 1;
+        frame_count = frame_count.saturating_add(1);
         if total_frames > 0 {
             let pct = ((frame_count as f64 / total_frames as f64) * 100_000.0) as u32;
             on_progress(pct);
@@ -1074,18 +1148,75 @@ where
     }
 
     let finish_packets = encoder.finish()?;
-    for packet in finish_packets {
-        ivf::write_ivf_frame(&mut file, packet.pts, &packet.data);
-        frame_count += 1;
-    }
 
-    use std::io::{Seek, SeekFrom, Write};
-    file.seek(SeekFrom::Start(24))?;
-    file.write_all(&frame_count.to_le_bytes())?;
-    file.seek(SeekFrom::End(0))?;
+    match container {
+        Av1Container::Ivf => {
+            let file = ivf_file
+                .as_mut()
+                .expect("IVF file must exist for AV1 IVF export");
+
+            for packet in finish_packets {
+                ivf::write_ivf_frame(file, packet.pts, &packet.data);
+                ivf_packet_count = ivf_packet_count.saturating_add(1);
+            }
+
+            use std::io::{Seek, SeekFrom, Write};
+            file.seek(SeekFrom::Start(24))?;
+            file.write_all(&ivf_packet_count.to_le_bytes())?;
+            file.seek(SeekFrom::End(0))?;
+        }
+        Av1Container::Mp4 => {
+            let muxer = mp4_muxer
+                .as_mut()
+                .expect("MP4 muxer must exist for AV1 MP4 export");
+            write_av1_packets_to_mux(muxer, &finish_packets, &encoded_frame_pts_us, fps)?;
+
+            if let Some(oe) = audio_encoded {
+                let start_anchor_us =
+                    first_decoded_video_pts_us.load(Ordering::Relaxed).max(0) as u64;
+                for packet in &oe.packets {
+                    let pts = start_anchor_us.saturating_add(packet.pts_us);
+                    muxer.write_audio_sample_at(pts, &packet.bytes)?;
+                }
+            }
+
+            muxer.finish()?;
+        }
+    }
 
     on_progress(100_000);
     Ok(())
+}
+
+fn write_av1_packets_to_mux<W: std::io::Write>(
+    muxer: &mut Mp4Muxer<W>,
+    packets: &[Av1Packet],
+    encoded_frame_pts_us: &[u64],
+    fps: f64,
+) -> Result<usize, ExportError> {
+    let mut written = 0usize;
+    for packet in packets {
+        let pts_us = packet.pts;
+
+        let sample_data = strip_leading_temporal_delimiters(&packet.data);
+        if sample_data.is_empty() {
+            continue;
+        }
+        muxer.write_sample_at(pts_us, sample_data, packet.is_keyframe)?;
+        written += 1;
+    }
+    Ok(written)
+}
+
+fn strip_leading_temporal_delimiters(data: &[u8]) -> &[u8] {
+    let mut pos = 0usize;
+    while pos + 2 <= data.len() {
+        if data[pos] != 0x12 || data[pos + 1] != 0x00 {
+            break;
+        }
+        pos += 2;
+    }
+    &data[pos..]
 }
 
 #[derive(Debug, thiserror::Error)]

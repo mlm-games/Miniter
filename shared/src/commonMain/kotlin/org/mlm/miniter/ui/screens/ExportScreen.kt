@@ -129,6 +129,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             when (fmt) {
                                 RustExportFormat.Mp4 -> "H.264 / MP4"
                                 RustExportFormat.Av1Ivf -> "AV1 / IVF"
+                                RustExportFormat.Av1Mp4 -> "AV1 / MP4"
                                 RustExportFormat.Mov -> "H.264 / MOV"
                             }
                         )
@@ -354,6 +355,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                         format = when (format) {
                                             RustExportFormat.Mp4 -> RustExportFormat.Mp4
                                             RustExportFormat.Av1Ivf -> RustExportFormat.Av1Ivf
+                                            RustExportFormat.Av1Mp4 -> RustExportFormat.Av1Mp4
                                             RustExportFormat.Mov -> RustExportFormat.Mov
                                         },
                                         resolution = when {
@@ -463,5 +465,6 @@ private val RustExportFormat.extension: String
     get() = when (this) {
         RustExportFormat.Mp4 -> "mp4"
         RustExportFormat.Av1Ivf -> "ivf"
+        RustExportFormat.Av1Mp4 -> "mp4"
         RustExportFormat.Mov -> "mov"
     }

@@ -45,9 +45,9 @@ pub fn yuv420_to_rgba(
 ///
 /// Returns `(y_plane, u_plane, v_plane)`.
 pub fn rgba_to_yuv420(rgba: &[u8], width: usize, height: usize) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-    let mut y_plane = vec![0u8; width * height];
     let cw = width / 2;
     let ch = height / 2;
+    let mut y_plane = vec![0u8; width * height];
     let mut u_plane = vec![0u8; cw * ch];
     let mut v_plane = vec![0u8; cw * ch];
 
