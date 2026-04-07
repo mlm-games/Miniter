@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.mlm.miniter.platform.PlatformFileSystem
+import org.mlm.miniter.platform.prepareWritablePath
 import org.mlm.miniter.rust.RustCoreSession
 
 actual class PlatformVideoEngine actual constructor() {
@@ -19,7 +21,7 @@ actual class PlatformVideoEngine actual constructor() {
     private var exportCancelled = false
 
     actual suspend fun probeVideo(path: String): VideoInfo = withContext(Dispatchers.IO) {
-        RustCoreSession.probeVideo(path)
+        RustCoreSession.probeVideo(PlatformFileSystem.stageForNativeAccess(path))
     }
 
     actual suspend fun exportProjectJson(
@@ -35,6 +37,8 @@ actual class PlatformVideoEngine actual constructor() {
         try {
             ensureActive()
 
+            val preparedOutput = prepareWritablePath(outputPath)
+
             coroutineScope {
                 val progressJob = launch {
                     while (isActive && !exportCancelled) {
@@ -48,9 +52,13 @@ actual class PlatformVideoEngine actual constructor() {
                 }
 
                 try {
-                    val ok = RustCoreSession.exportProjectJson(projectJson, outputPath)
+                    val ok = RustCoreSession.exportProjectJson(projectJson, preparedOutput.localPath)
                     progressJob.cancel()
                     ensureActive()
+
+                    if (ok && !exportCancelled) {
+                        preparedOutput.commit()
+                    }
 
                     _exportProgress.value = if (ok && !exportCancelled) {
                         ExportProgress(
@@ -93,12 +101,13 @@ actual class PlatformVideoEngine actual constructor() {
         height: Int,
     ): List<ImageData> = withContext(Dispatchers.IO) {
         try {
-            val info = RustCoreSession.probeVideo(path)
+            val localPath = PlatformFileSystem.stageForNativeAccess(path)
+            val info = RustCoreSession.probeVideo(localPath)
             val durationUs = info.durationMs * 1000L
 
             if (durationUs <= 0L) return@withContext emptyList()
 
-            val frames = RustCoreSession.extractThumbnails(path, count, durationUs)
+            val frames = RustCoreSession.extractThumbnails(localPath, count, durationUs)
 
             frames.map { frame ->
                 ensureActive()
@@ -124,7 +133,8 @@ actual class PlatformVideoEngine actual constructor() {
         height: Int,
     ): ImageData? = withContext(Dispatchers.IO) {
         try {
-            val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L)
+            val localPath = PlatformFileSystem.stageForNativeAccess(path)
+            val frame = RustCoreSession.extractThumbnail(localPath, timestampMs * 1000L)
             val rgba = frame.pixels
             val fw = frame.width
             val fh = frame.height

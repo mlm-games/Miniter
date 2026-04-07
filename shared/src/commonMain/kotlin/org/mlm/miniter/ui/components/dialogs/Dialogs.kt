@@ -11,6 +11,12 @@ import androidx.compose.ui.unit.dp
 import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.vinceglb.filekit.path
+import org.mlm.miniter.platform.PlatformFileSystem
+
+private fun defaultProjectSavePath(projectName: String): String {
+    val appDir = PlatformFileSystem.getAppDataDirectory("miniter")
+    return PlatformFileSystem.combinePath(appDir, "$projectName.mntr")
+}
 
 @Composable
 fun ConfirmDialog(
@@ -63,8 +69,7 @@ fun NewProjectDialog(
         }
     }
 
-    val savePath = saveFile?.path
-        ?: (videoPath.substringBeforeLast("/") + "/$projectName.mntr")
+    val savePath = saveFile?.path ?: defaultProjectSavePath(projectName.ifBlank { "project" })
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -85,13 +90,13 @@ fun NewProjectDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OutlinedTextField(
-                        value = saveFile?.path ?: "Same as video location",
+                        value = saveFile?.path ?: "Default: app storage",
                         onValueChange = {},
                         label = { Text("Save Location") },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         readOnly = true,
-                        supportingText = { Text("Leave empty to save next to video") },
+                        supportingText = { Text("Choose a location to override") },
                     )
                     IconButton(
                         onClick = {
@@ -148,7 +153,7 @@ fun SaveProjectDialog(
         }
     }
 
-    val savePath = saveFile?.path ?: "$projectName.mntr"
+    val savePath = saveFile?.path ?: defaultProjectSavePath(projectName.ifBlank { "project" })
 
     AlertDialog(
         onDismissRequest = onDismiss,

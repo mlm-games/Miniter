@@ -12,6 +12,7 @@ import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.rust.RustCoreSession
 
 actual class PlatformFrameGrabber {
@@ -20,8 +21,9 @@ actual class PlatformFrameGrabber {
     private var currentPath: String? = null
 
     actual suspend fun open(path: String) {
+        val localPath = PlatformFileSystem.stageForNativeAccess(path)
         mutex.withLock {
-            currentPath = path
+            currentPath = localPath
         }
     }
 

@@ -69,8 +69,8 @@ fun App() {
                         entry<Route.Editor> {
                             EditorScreen(
                                 onOpenSettings = { backStack.add(Route.Settings) },
-                                onOpenProject = { path, name, savePath ->
-                                    backStack.add(Route.Project(path, name, savePath))
+                                onOpenProject = { path, name, savePath, openAsProject ->
+                                    backStack.add(Route.Project(path, name, savePath, openAsProject))
                                 }
                             )
                         }
@@ -85,6 +85,7 @@ fun App() {
                                 videoName = key.name,
                                 backStack = backStack,
                                 savePath = key.savePath,
+                                openAsProject = key.openAsProject,
                             )
                         }
 

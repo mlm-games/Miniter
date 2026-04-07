@@ -8,4 +8,11 @@ expect object PlatformFileSystem {
     fun getParentDirectory(path: String): String
     fun combinePath(parent: String, child: String): String
     fun getAppDataDirectory(appName: String): String
+
+    /**
+     * Returns a real local filesystem path that native/Rust code can read.
+     * On Android, content:// URIs are copied into app-private storage.
+     * On JVM, the path is returned unchanged.
+     */
+    suspend fun stageForNativeAccess(path: String): String
 }

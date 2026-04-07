@@ -29,7 +29,7 @@ import org.mlm.miniter.viewmodel.ProjectViewModel
 @Composable
 fun EditorScreen(
     onOpenSettings: () -> Unit,
-    onOpenProject: (String, String, String?) -> Unit,
+    onOpenProject: (String, String, String?, Boolean) -> Unit,
     editorViewModel: EditorViewModel = koinInject(),
 ) {
     val snackbarManager: SnackbarManager = koinInject()
@@ -51,7 +51,7 @@ fun EditorScreen(
     val projectPicker = rememberFilePickerLauncher(
         type = FileKitType.File(extensions = listOf("mntr")),
     ) { file: PlatformFile? ->
-        file?.let { onOpenProject(it.path, it.name, null) }
+        file?.let { onOpenProject(it.path, it.name, null, true) }
     }
 
     pendingVideo?.let { video ->
@@ -61,7 +61,7 @@ fun EditorScreen(
             onDismiss = { pendingVideo = null },
             onCreate = { projectName, savePath ->
                 pendingVideo = null
-                onOpenProject(video.path, projectName, savePath)
+                onOpenProject(video.path, projectName, savePath, false)
             },
         )
     }
@@ -132,9 +132,7 @@ fun EditorScreen(
                         RecentProjectItem(
                             recent = recent,
                             onClick = {
-                                if (recent.path.endsWith(".mntr")) {
-                                    onOpenProject(recent.path, recent.name, null)
-                                }
+                                onOpenProject(recent.path, recent.name, null, true)
                             },
                             onRemove = { editorViewModel.removeRecent(recent.path) },
                         )

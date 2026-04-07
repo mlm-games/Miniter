@@ -103,13 +103,14 @@ class ProjectViewModel(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             try {
-                val info = engine.probeVideo(initialVideoPath)
+                val stagedVideoPath = PlatformFileSystem.stageForNativeAccess(initialVideoPath)
+                val info = engine.probeVideo(stagedVideoPath)
                 if (!info.hasVideo) {
                     _state.update { it.copy(isLoading = false) }
                     snackbarManager.showError("Selected file has no video stream")
                     return@launch
                 }
-                val decodable = engine.extractSingleThumbnail(initialVideoPath, 0L, 160, 90) != null
+                val decodable = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90) != null
                 if (!decodable) {
                     _state.update { it.copy(isLoading = false) }
                     snackbarManager.showError("Selected video cannot be decoded. Try H.264 MP4 or MOV.")
@@ -144,7 +145,7 @@ class ProjectViewModel(
                             transitionIn = null,
                             transitionOut = null,
                             kind = RustVideoClipKind(
-                                sourcePath = initialVideoPath,
+                                sourcePath = stagedVideoPath,
                                 width = info.width,
                                 height = info.height,
                                 fps = if (info.frameRate > 0.0) info.frameRate else 30.0,
@@ -173,7 +174,7 @@ class ProjectViewModel(
                                 transitionIn = null,
                                 transitionOut = null,
                                 kind = RustAudioClipKind(
-                                    sourcePath = initialVideoPath,
+                                    sourcePath = stagedVideoPath,
                                     sampleRate = info.audioSampleRate.coerceAtLeast(44_100),
                                     channels = info.audioChannels.coerceAtLeast(1),
                                     filters = emptyList(),
@@ -190,7 +191,7 @@ class ProjectViewModel(
                     isDirty = true,
                 )
 
-                loadThumbnails(initialVideoPath)
+                loadThumbnails(stagedVideoPath)
                 if (savePath != null) {
                     recentProjectsRepository.addRecent(savePath, name)
                 }
@@ -206,6 +207,12 @@ class ProjectViewModel(
             _state.update { it.copy(isLoading = true) }
             try {
                 val projectJson = PlatformFileSystem.readText(path)
+                if (projectJson.isBlank()) {
+                    _state.update { it.copy(isLoading = false) }
+                    snackbarManager.showError("Selected project file is empty")
+                    return@launch
+                }
+
                 val snapshot = rustStore.openProjectJson(projectJson)
 
                 val missingFiles = snapshot.timeline.tracks
@@ -336,11 +343,14 @@ class ProjectViewModel(
     fun commitEdit() = commitContinuousEdit()
     fun cancelEdit() = cancelContinuousEdit()
 
-    fun initProject(videoPath: String, projectName: String, savePath: String?) {
-        if (videoPath.endsWith(".mntr") && PlatformFileSystem.exists(videoPath)) {
+    fun initProject(
+        videoPath: String,
+        projectName: String,
+        savePath: String?,
+        openAsProject: Boolean = false,
+    ) {
+        if (openAsProject) {
             loadProject(videoPath)
-        } else if (savePath != null && savePath.endsWith(".mntr") && PlatformFileSystem.exists(savePath)) {
-            loadProject(savePath)
         } else {
             newProject(projectName, videoPath, savePath)
         }
@@ -437,11 +447,13 @@ class ProjectViewModel(
 
                 data class ImportItem(
                     val file: PlatformFile,
+                    val stagedPath: String,
                     val info: VideoInfo,
                 )
 
                 val items = files.map { file ->
-                    ImportItem(file, engine.probeVideo(file.path))
+                    val stagedPath = PlatformFileSystem.stageForNativeAccess(file.path)
+                    ImportItem(file, stagedPath, engine.probeVideo(stagedPath))
                 }
 
                 var cursorVideoUs = initialCursorMs * 1000L
@@ -524,8 +536,8 @@ class ProjectViewModel(
                                     muted = false,
                                     transitionIn = null,
                                     transitionOut = null,
-                                    kind = RustVideoClipKind(
-                                        sourcePath = item.file.path,
+kind = RustVideoClipKind(
+    sourcePath = item.stagedPath,
                                         width = info.width,
                                         height = info.height,
                                         fps = if (info.frameRate > 0.0) info.frameRate else 30.0,
@@ -602,8 +614,8 @@ class ProjectViewModel(
                                     muted = false,
                                     transitionIn = null,
                                     transitionOut = null,
-                                    kind = RustAudioClipKind(
-                                        sourcePath = item.file.path,
+kind = RustAudioClipKind(
+    sourcePath = item.stagedPath,
                                         sampleRate = info.audioSampleRate.coerceAtLeast(44_100),
                                         channels = info.audioChannels.coerceAtLeast(1),
                                         filters = emptyList(),

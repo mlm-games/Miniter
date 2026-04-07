@@ -1,75 +1,68 @@
 package org.mlm.miniter.platform
 
 import android.net.Uri
+import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import androidx.core.net.toUri
+import java.io.FileNotFoundException
 
 actual object PlatformFileSystem {
 
-    private fun resolveToInternal(contentUri: String): String {
-        val uri = Uri.parse(contentUri)
-        val rawName = uri.lastPathSegment
-            ?.substringAfterLast("/")
-            ?.substringAfterLast(":")
-            ?: "project_${contentUri.hashCode().toUInt().toString(16)}"
-        val safeName = if (rawName.contains(".")) rawName else "$rawName.mntr"
-        val dir = File(AndroidContext.get().filesDir, "projects")
-        dir.mkdirs()
-        return File(dir, safeName).absolutePath
-    }
-
-    private fun resolve(path: String): String {
-        return if (path.startsWith("content://")) resolveToInternal(path) else path
-    }
-
     actual suspend fun readText(path: String): String = withContext(Dispatchers.IO) {
-        val resolved = resolve(path)
-        val file = File(resolved)
-        if (file.exists()) {
-            return@withContext file.readText(Charsets.UTF_8)
+        if (!path.startsWith("content://")) {
+            return@withContext File(path).readText(Charsets.UTF_8)
         }
-        if (path.startsWith("content://")) {
-            val context = AndroidContext.get()
-            val text = context.contentResolver.openInputStream(Uri.parse(path))
-                ?.bufferedReader()?.use { it.readText() }
-                ?: throw java.io.FileNotFoundException("Cannot read: $path")
-            file.parentFile?.mkdirs()
-            file.writeText(text, Charsets.UTF_8)
-            return@withContext text
-        }
-        throw java.io.FileNotFoundException("File not found: $path")
+
+        AndroidContext.get()
+            .contentResolver
+            .openInputStream(Uri.parse(path))
+            ?.bufferedReader(Charsets.UTF_8)
+            ?.use { it.readText() }
+            ?: throw FileNotFoundException("Cannot read: $path")
     }
 
     actual suspend fun writeText(path: String, content: String) = withContext(Dispatchers.IO) {
-        val resolved = resolve(path)
-        val file = File(resolved)
-        file.parentFile?.mkdirs()
-        file.writeText(content, Charsets.UTF_8)
-
-        if (path.startsWith("content://")) {
-            try {
-                val context = AndroidContext.get()
-                context.contentResolver.openOutputStream(Uri.parse(path))?.use { out ->
-                    out.bufferedWriter().use { it.write(content) }
-                }
-            } catch (_: SecurityException) {
-            } catch (_: Exception) {
-            }
+        if (!path.startsWith("content://")) {
+            val file = File(path)
+            file.parentFile?.mkdirs()
+            file.writeText(content, Charsets.UTF_8)
+            return@withContext
         }
+
+        AndroidContext.get()
+            .contentResolver
+            .openOutputStream(Uri.parse(path))
+            ?.bufferedWriter(Charsets.UTF_8)
+            ?.use { it.write(content) }
+            ?: throw FileNotFoundException("Cannot write: $path")
     }
 
     actual fun exists(path: String): Boolean {
-        return File(resolve(path)).exists()
+        if (!path.startsWith("content://")) return File(path).exists()
+
+        return try {
+            AndroidContext.get()
+                .contentResolver
+                .openFileDescriptor(Uri.parse(path), "r")
+                ?.use { true } ?: false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     actual fun delete(path: String): Boolean {
-        return File(resolve(path)).delete()
+        if (!path.startsWith("content://")) return File(path).delete()
+
+        return runCatching {
+            AndroidContext.get()
+                .contentResolver
+                .delete(Uri.parse(path), null, null) > 0
+        }.getOrDefault(false)
     }
 
     actual fun getParentDirectory(path: String): String {
-        return File(resolve(path)).parent ?: ""
+        return if (path.startsWith("content://")) "" else File(path).parent ?: ""
     }
 
     actual fun combinePath(parent: String, child: String): String {
@@ -82,4 +75,72 @@ actual object PlatformFileSystem {
         dir.mkdirs()
         return dir.absolutePath
     }
+
+    actual suspend fun stageForNativeAccess(path: String): String =
+        materializeReadablePath(path)
 }
+
+internal data class PreparedOutputPath(
+    val localPath: String,
+    val commit: suspend () -> Unit = {},
+)
+
+internal suspend fun materializeReadablePath(path: String): String = withContext(Dispatchers.IO) {
+    if (!path.startsWith("content://")) return@withContext path
+
+    val context = AndroidContext.get()
+    val uri = Uri.parse(path)
+    val displayName = queryDisplayName(uri)
+        ?: "picked_${path.hashCode().toUInt().toString(16)}"
+    val safeName = sanitizeFileName(displayName)
+
+    val dir = File(context.filesDir, "native-inputs").apply { mkdirs() }
+    val outFile = File(dir, "${path.hashCode().toUInt().toString(16)}_$safeName")
+
+    if (!outFile.exists() || outFile.length() == 0L) {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            outFile.outputStream().use { output -> input.copyTo(output) }
+        } ?: throw FileNotFoundException("Cannot open input URI: $path")
+    }
+
+    outFile.absolutePath
+}
+
+internal suspend fun prepareWritablePath(path: String): PreparedOutputPath =
+    withContext(Dispatchers.IO) {
+        if (!path.startsWith("content://")) {
+            return@withContext PreparedOutputPath(path)
+        }
+
+        val context = AndroidContext.get()
+        val uri = Uri.parse(path)
+        val displayName = sanitizeFileName(queryDisplayName(uri) ?: "export.mp4")
+
+        val dir = File(context.cacheDir, "pending-exports").apply { mkdirs() }
+        val tempFile = File(dir, "${System.currentTimeMillis()}_$displayName")
+
+        PreparedOutputPath(
+            localPath = tempFile.absolutePath,
+            commit = {
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    tempFile.inputStream().use { input -> input.copyTo(output) }
+                } ?: throw FileNotFoundException("Cannot open output URI: $path")
+
+                tempFile.delete()
+            }
+        )
+    }
+
+internal fun queryDisplayName(uri: Uri): String? {
+    val resolver = AndroidContext.get().contentResolver
+    resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (index >= 0 && cursor.moveToFirst()) {
+            return cursor.getString(index)
+        }
+    }
+    return uri.lastPathSegment?.substringAfterLast('/')
+}
+
+private fun sanitizeFileName(name: String): String =
+    name.replace(Regex("""[\\/:*?"<>|]"""), "_")

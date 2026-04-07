@@ -34,6 +34,7 @@ fun ProjectScreen(
     videoName: String,
     backStack: NavBackStack<NavKey>,
     savePath: String? = null,
+    openAsProject: Boolean = false,
 ) {
     val vm: ProjectViewModel = koinInject()
     val uiState by vm.state.collectAsState()
@@ -65,7 +66,7 @@ fun ProjectScreen(
 
     LaunchedEffect(videoPath) {
         if (snapshot == null) {
-            vm.initProject(videoPath, videoName, savePath)
+            vm.initProject(videoPath, videoName, savePath, openAsProject)
         }
     }
 

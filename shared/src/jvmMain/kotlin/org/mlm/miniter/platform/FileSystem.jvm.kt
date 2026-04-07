@@ -49,4 +49,6 @@ actual object PlatformFileSystem {
         dir.mkdirs()
         return dir.absolutePath
     }
+
+    actual suspend fun stageForNativeAccess(path: String): String = path
 }

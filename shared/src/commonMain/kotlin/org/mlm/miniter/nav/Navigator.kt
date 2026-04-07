@@ -19,7 +19,13 @@ sealed interface Route : NavKey {
     @Serializable data object Editor : Route
     @Serializable data object Settings : Route
     @Serializable data object Projects : Route
-    @Serializable data class Project(val path: String, val name: String, val savePath: String? = null) : Route
+    @Serializable
+    data class Project(
+        val path: String,
+        val name: String,
+        val savePath: String? = null,
+        val openAsProject: Boolean = false,
+    ) : Route
     @Serializable data class Export(val projectPath: String) : Route
 }
 
