@@ -59,6 +59,7 @@ enum class RustTrackKind {
     Video,
     Audio,
     Text,
+    Subtitle,
 }
 
 @Serializable
@@ -117,6 +118,13 @@ data class RustAudioClipKind(
 data class RustTextClipKind(
     val text: String,
     val style: RustTextStyleSnapshot = RustTextStyleSnapshot(),
+) : RustClipKindPayload
+
+@Serializable
+@SerialName("Subtitle")
+data class RustSubtitleClipKind(
+    @SerialName("source_path")
+    val sourcePath: String,
 ) : RustClipKindPayload
 
 @Serializable

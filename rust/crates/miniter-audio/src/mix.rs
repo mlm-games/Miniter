@@ -178,6 +178,7 @@ fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<Schedule
                 ClipKind::Video(video) => video.source_path.clone(),
                 ClipKind::Audio(audio) => audio.source_path.clone(),
                 ClipKind::Text(_) => continue,
+                ClipKind::Subtitle(_) => continue,
             };
 
             let timeline_len_us = clip.timeline_duration.as_micros();

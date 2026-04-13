@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
@@ -34,6 +35,7 @@ import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
+import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
@@ -110,6 +112,14 @@ fun PropertiesPanel(
                 onSetTextDuration,
                 onSetTextTransitionIn,
                 onSetTextTransitionOut,
+            )
+            is RustSubtitleClipKind -> SubtitleClipProperties(
+                clip = clip,
+                kind = kind,
+                onSetOpacity = onSetOpacity,
+                onSetDuration = onSetTextDuration,
+                onSetTransitionIn = onSetTextTransitionIn,
+                onSetTransitionOut = onSetTextTransitionOut,
             )
         }
     }
@@ -763,6 +773,259 @@ private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
     RustSharpenFilterSnapshot(1f),
     RustSepiaFilterSnapshot,
 )
+
+@Composable
+private fun SubtitleClipProperties(
+    clip: RustClipSnapshot,
+    kind: RustSubtitleClipKind,
+    onSetOpacity: (String, Float) -> Unit,
+    onSetDuration: (String, Long) -> Unit,
+    onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
+    onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
+) {
+    var opacityValue by remember(clip.opacity) { mutableFloatStateOf(clip.opacity) }
+    var durationSec by remember(clip.timelineDurationUs) {
+        mutableFloatStateOf((clip.timelineDurationUs / 1_000_000f).coerceAtLeast(0.5f))
+    }
+
+    var summary by remember(kind.sourcePath) { mutableStateOf<AssFeatureSummary?>(null) }
+    var loadError by remember(kind.sourcePath) { mutableStateOf<String?>(null) }
+    var loading by remember(kind.sourcePath) { mutableStateOf(true) }
+
+    val transitionIn = clip.transitionIn
+    val transitionOut = clip.transitionOut
+
+    LaunchedEffect(kind.sourcePath) {
+        loading = true
+        loadError = null
+        summary = null
+        try {
+            val content = PlatformFileSystem.readText(kind.sourcePath)
+            summary = parseAssFeatureSummary(content)
+        } catch (e: Exception) {
+            loadError = e.message ?: "Failed to read subtitle file"
+        } finally {
+            loading = false
+        }
+    }
+
+    Text("Subtitle Clip", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+    Spacer(Modifier.height(8.dp))
+    val fileName = kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
+
+    Text(
+        "Source: $fileName",
+        style = MaterialTheme.typography.labelMedium,
+    )
+
+    Spacer(Modifier.height(12.dp))
+
+    Text("Opacity", style = MaterialTheme.typography.labelMedium)
+    Slider(
+        value = opacityValue,
+        onValueChange = { opacityValue = it },
+        onValueChangeFinished = { onSetOpacity(clip.id, opacityValue) },
+        valueRange = 0f..1f,
+    )
+    Text("${(opacityValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+
+    Spacer(Modifier.height(12.dp))
+
+    Text("Duration", style = MaterialTheme.typography.labelMedium)
+    Slider(
+        value = durationSec,
+        onValueChange = { durationSec = it },
+        onValueChangeFinished = { onSetDuration(clip.id, (durationSec * 1000f).toLong()) },
+        valueRange = 0.5f..120f,
+        steps = 239,
+    )
+    Text("${String.format("%.1f", durationSec)}s", style = MaterialTheme.typography.labelSmall)
+
+    Spacer(Modifier.height(12.dp))
+
+    Text("Fade In", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(4.dp))
+    var fadeInExpanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { fadeInExpanded = true }) {
+            val label = if (transitionIn == null) {
+                "None"
+            } else {
+                "${transitionIn.kind.name} (${transitionIn.duration / 1_000_000f}s)"
+            }
+            Text(label)
+        }
+        DropdownMenu(expanded = fadeInExpanded, onDismissRequest = { fadeInExpanded = false }) {
+            DropdownMenuItem(
+                text = { Text("None") },
+                onClick = { onSetTransitionIn(clip.id, null); fadeInExpanded = false },
+            )
+            DropdownMenuItem(
+                text = { Text("Fade") },
+                onClick = {
+                    onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+                    fadeInExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Slide Left") },
+                onClick = {
+                    onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
+                    fadeInExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Slide Right") },
+                onClick = {
+                    onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
+                    fadeInExpanded = false
+                },
+            )
+        }
+    }
+
+    Spacer(Modifier.height(8.dp))
+
+    Text("Fade Out", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(4.dp))
+    var fadeOutExpanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { fadeOutExpanded = true }) {
+            val label = if (transitionOut == null) {
+                "None"
+            } else {
+                "${transitionOut.kind.name} (${transitionOut.duration / 1_000_000f}s)"
+            }
+            Text(label)
+        }
+        DropdownMenu(expanded = fadeOutExpanded, onDismissRequest = { fadeOutExpanded = false }) {
+            DropdownMenuItem(
+                text = { Text("None") },
+                onClick = { onSetTransitionOut(clip.id, null); fadeOutExpanded = false },
+            )
+            DropdownMenuItem(
+                text = { Text("Fade") },
+                onClick = {
+                    onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+                    fadeOutExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Slide Left") },
+                onClick = {
+                    onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
+                    fadeOutExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Slide Right") },
+                onClick = {
+                    onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
+                    fadeOutExpanded = false
+                },
+            )
+        }
+    }
+
+    Spacer(Modifier.height(16.dp))
+
+    Text("ASS Features", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(4.dp))
+    when {
+        loading -> Text("Analyzing subtitle file...", style = MaterialTheme.typography.labelSmall)
+        loadError != null -> Text("Could not inspect file: $loadError", style = MaterialTheme.typography.labelSmall)
+        summary != null -> {
+            val s = summary!!
+            Text("Script: ${s.scriptType ?: "Unknown"}", style = MaterialTheme.typography.labelSmall)
+            if (s.playResX != null && s.playResY != null) {
+                Text("Script resolution: ${s.playResX}x${s.playResY}", style = MaterialTheme.typography.labelSmall)
+            }
+            Text(
+                "Styles: ${s.styleCount} | Dialogue: ${s.dialogueCount} | Comments: ${s.commentCount}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Text(
+                "Karaoke: ${s.karaokeTags} | Animations: ${s.transformTags} | Position tags: ${s.posTags + s.moveTags}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Text(
+                "Clipping: ${s.clipTags} | Drawings: ${s.drawingTags}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            if (!s.looksLikeAss) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "This file does not look like ASS/SSA. Export rendering may fail.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+
+    Spacer(Modifier.height(8.dp))
+
+    Text(
+        "Timeline start: ${clip.timelineStartUs / 1000}ms",
+        style = MaterialTheme.typography.labelSmall,
+    )
+}
+
+private data class AssFeatureSummary(
+    val looksLikeAss: Boolean,
+    val scriptType: String?,
+    val playResX: Int?,
+    val playResY: Int?,
+    val styleCount: Int,
+    val dialogueCount: Int,
+    val commentCount: Int,
+    val karaokeTags: Int,
+    val transformTags: Int,
+    val posTags: Int,
+    val moveTags: Int,
+    val clipTags: Int,
+    val drawingTags: Int,
+)
+
+private fun parseAssFeatureSummary(content: String): AssFeatureSummary {
+    val normalized = content.replace("\r\n", "\n")
+    val looksLikeAss = normalized.contains("[Script Info]", ignoreCase = true) ||
+        normalized.contains("ScriptType:", ignoreCase = true)
+
+    val scriptType = Regex("""(?im)^ScriptType\s*:\s*(.+)$""")
+        .find(normalized)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+    val playResX = Regex("""(?im)^PlayResX\s*:\s*(\d+)\s*$""")
+        .find(normalized)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
+    val playResY = Regex("""(?im)^PlayResY\s*:\s*(\d+)\s*$""")
+        .find(normalized)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
+
+    fun Regex.countMatches(): Int = findAll(normalized).count()
+
+    return AssFeatureSummary(
+        looksLikeAss = looksLikeAss,
+        scriptType = scriptType,
+        playResX = playResX,
+        playResY = playResY,
+        styleCount = Regex("""(?im)^Style\s*:""").countMatches(),
+        dialogueCount = Regex("""(?im)^Dialogue\s*:""").countMatches(),
+        commentCount = Regex("""(?im)^Comment\s*:""").countMatches(),
+        karaokeTags = Regex("""\\(?:k|K|kf|ko|kt)\d+""", RegexOption.IGNORE_CASE).countMatches(),
+        transformTags = Regex("""\\t\(""", RegexOption.IGNORE_CASE).countMatches(),
+        posTags = Regex("""\\pos\(""", RegexOption.IGNORE_CASE).countMatches(),
+        moveTags = Regex("""\\move\(""", RegexOption.IGNORE_CASE).countMatches(),
+        clipTags = Regex("""\\i?clip\(""", RegexOption.IGNORE_CASE).countMatches(),
+        drawingTags = Regex("""\\p\d+""", RegexOption.IGNORE_CASE).countMatches(),
+    )
+}
 
 private fun RustVideoFilterSnapshot.displayName(): String = when (this) {
     is RustBrightnessFilterSnapshot -> "Brightness"

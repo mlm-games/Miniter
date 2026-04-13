@@ -30,3 +30,7 @@ mousiki = "0.2.1"
 
 # Text rendering for export
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
+
+# ASS subtitle rendering
+ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer", default-features = false, features = ["software-backend", "image", "simd"] }
+ass-core = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-core" }

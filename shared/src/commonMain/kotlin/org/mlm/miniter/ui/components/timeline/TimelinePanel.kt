@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
+import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTrackSnapshot
@@ -391,6 +392,7 @@ private fun ClipBlock(
         RustTrackKind.Video -> MaterialTheme.colorScheme.primaryContainer
         RustTrackKind.Audio -> MaterialTheme.colorScheme.secondaryContainer
         RustTrackKind.Text -> MaterialTheme.colorScheme.tertiaryContainer
+        RustTrackKind.Subtitle -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
     }.let { if (isMuted) it.copy(alpha = 0.5f) else it }
 
     val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
@@ -401,12 +403,14 @@ private fun ClipBlock(
         RustTrackKind.Video -> MaterialTheme.colorScheme.onPrimaryContainer
         RustTrackKind.Audio -> MaterialTheme.colorScheme.onSecondaryContainer
         RustTrackKind.Text -> MaterialTheme.colorScheme.onTertiaryContainer
+        RustTrackKind.Subtitle -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
     }
 
     val clipLabel = when (val kind = clip.kind) {
         is RustVideoClipKind -> kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
         is RustAudioClipKind -> kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
         is RustTextClipKind -> "T: ${kind.text}"
+        is RustSubtitleClipKind -> kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
     }
 
     val canSplit = clip.kind is RustVideoClipKind &&

@@ -64,6 +64,13 @@ fun ProjectScreen(
         if (files != null) vm.importMediaFiles(files)
     }
 
+    val subtitlePicker = rememberFilePickerLauncher(
+        type = FileKitType.File(extensions = SupportedFormats.subtitleExtensions.toSet()),
+        mode = FileKitMode.Multiple(),
+    ) { files ->
+        if (files != null) vm.importSubtitleFiles(files)
+    }
+
     LaunchedEffect(videoPath) {
         if (snapshot == null) {
             vm.initProject(videoPath, videoName, savePath, openAsProject)
@@ -127,6 +134,7 @@ fun ProjectScreen(
             onZoomIn = { vm.zoomIn() },
             onZoomOut = { vm.zoomOut() },
             onAddText = { vm.addTextOverlay() },
+            onAddSubtitle = { subtitlePicker.launch() },
             onSplit = { selectedClipId?.let { vm.splitClipAtPlayhead(it) } },
             onDuplicate = { selectedClipId?.let { vm.duplicateClip(it) } },
             onDelete = { vm.deleteSelectedClip() },

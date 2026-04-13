@@ -15,6 +15,10 @@ actual object SupportedFormats {
         listOf("mp3", "wav", "ogg", "m4a", "aac", "flac")
     }
 
+    actual val subtitleExtensions: List<String> by lazy {
+        listOf("ass", "ssa", "srt")
+    }
+
     actual val formatHelpMessage: String by lazy {
         val os = System.getProperty("os.name").lowercase()
         when {

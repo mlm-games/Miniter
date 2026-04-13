@@ -7,6 +7,7 @@ pub mod export;
 pub mod frame;
 pub mod mux;
 pub mod probe;
+pub mod subtitle;
 pub mod thumbnailer;
 pub mod yuv;
 
