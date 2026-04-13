@@ -30,6 +30,7 @@ pub enum ClipKind {
     Video(VideoClip),
     Audio(AudioClip),
     Text(TextOverlay),
+    Subtitle(SubtitleClip),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,4 +115,9 @@ pub struct AudioClip {
     pub sample_rate: u32,
     pub channels: u16,
     pub filters: Vec<AudioFilter>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubtitleClip {
+    pub source_path: String,
 }

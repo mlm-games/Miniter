@@ -14,7 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import io.github.mlmgames.settings.core.annotations.SettingPlatform
-import io.github.mlmgames.settings.core.platform.currentPlatform
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTrackSnapshot
 
@@ -31,12 +30,14 @@ fun TrackHeader(
         RustTrackKind.Video -> Icons.Default.Videocam
         RustTrackKind.Audio -> Icons.Default.MusicNote
         RustTrackKind.Text -> Icons.Default.TextFields
+        RustTrackKind.Subtitle -> Icons.Default.Subtitles
     }
 
     val trackColor = when (track.kind) {
         RustTrackKind.Video -> MaterialTheme.colorScheme.primary
         RustTrackKind.Audio -> MaterialTheme.colorScheme.secondary
         RustTrackKind.Text -> MaterialTheme.colorScheme.tertiary
+        RustTrackKind.Subtitle -> MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
     }
 
     var showMenu by remember { mutableStateOf(false) }
@@ -144,19 +145,29 @@ fun AddTrackRow(onAddTrack: (RustTrackKind) -> Unit) {
                         leadingIcon = { Icon(Icons.Default.MusicNote, null, Modifier.size(18.dp)) },
                         onClick = { onAddTrack(RustTrackKind.Audio); expanded = false },
                     )
-                    if (currentPlatform != SettingPlatform.ANDROID) {
-                        DropdownMenuItem(
-                            text = { Text("Text Track") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.TextFields,
-                                    null,
-                                    Modifier.size(18.dp)
-                                )
-                            },
-                            onClick = { onAddTrack(RustTrackKind.Text); expanded = false },
-                        )
-                    }
+                    DropdownMenuItem(
+                        text = { Text("Text Track") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.TextFields,
+                                null,
+                                Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = { onAddTrack(RustTrackKind.Text); expanded = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Subtitle Track") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Subtitles,
+                                null,
+                                Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = { onAddTrack(RustTrackKind.Subtitle); expanded = false },
+                    )
+
                 }
             }
         }

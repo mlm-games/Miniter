@@ -29,6 +29,7 @@ import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
+import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTextStyleSnapshot
 import org.mlm.miniter.editor.model.RustTrackKind
@@ -222,6 +223,7 @@ class ProjectViewModel(
                             is RustVideoClipKind -> kind.sourcePath
                             is RustAudioClipKind -> kind.sourcePath
                             is RustTextClipKind -> null
+                            is RustSubtitleClipKind -> kind.sourcePath
                         }
                     }
                     .distinct()
@@ -634,6 +636,59 @@ kind = RustAudioClipKind(
             } catch (e: Exception) {
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.showError("Failed to import: ${e.message}")
+            }
+        }
+    }
+
+    fun importSubtitleFiles(files: List<PlatformFile>) {
+        viewModelScope.launch {
+            val initialSnapshot = rustStore.snapshot.value ?: return@launch
+            _state.update { it.copy(isLoading = true) }
+
+            try {
+                var subtitleTrackId = initialSnapshot.timeline.tracks
+                    .firstOrNull { it.kind == RustTrackKind.Subtitle }?.id
+
+                if (subtitleTrackId == null) {
+                    subtitleTrackId = ensureTrack(RustTrackKind.Subtitle, "Subtitles")
+                }
+
+                val cursorMs = _state.value.playheadMs
+
+                for (file in files) {
+                    val stagedPath = PlatformFileSystem.stageForNativeAccess(file.path)
+                    val durationMs = 60000L
+                    val startUs = cursorMs * 1000L
+                    val durationUs = durationMs * 1000L
+
+                    dispatchNoSync(
+                        rustStore.commands.addClip(
+                            subtitleTrackId,
+                            RustClipSnapshot(
+                                id = randomUuid(),
+                                timelineStartUs = startUs,
+                                timelineDurationUs = durationUs,
+                                sourceStartUs = 0L,
+                                sourceEndUs = durationUs,
+                                sourceTotalDurationUs = durationUs,
+                                speed = 1.0,
+                                volume = 1.0f,
+                                opacity = 1.0f,
+                                muted = false,
+                                transitionIn = null,
+                                transitionOut = null,
+                                kind = RustSubtitleClipKind(sourcePath = stagedPath),
+                            ),
+                        )
+                    )
+                }
+
+                syncFromRust(isDirty = true)
+                _state.update { it.copy(isLoading = false) }
+                snackbarManager.show("Imported ${files.size} subtitle file(s)")
+            } catch (e: Exception) {
+                _state.update { it.copy(isLoading = false) }
+                snackbarManager.showError("Failed to import subtitles: ${e.message}")
             }
         }
     }

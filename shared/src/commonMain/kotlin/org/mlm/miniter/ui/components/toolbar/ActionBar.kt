@@ -12,7 +12,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.mlmgames.settings.core.annotations.SettingPlatform
-import io.github.mlmgames.settings.core.platform.currentPlatform
 
 @Composable
 fun ActionBar(
@@ -21,6 +20,7 @@ fun ActionBar(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onAddText: () -> Unit,
+    onAddSubtitle: () -> Unit,
     onSplit: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
@@ -78,13 +78,16 @@ fun ActionBar(
                             onClick = onDeselect,
                         )
                     } else {
-                        if (currentPlatform != SettingPlatform.ANDROID) {
-                            ActionChip(
-                                icon = Icons.Default.TextFields,
-                                label = "Text",
-                                onClick = onAddText,
-                            )
-                        }
+                        ActionChip(
+                            icon = Icons.Default.TextFields,
+                            label = "Text",
+                            onClick = onAddText,
+                        )
+                        ActionChip(
+                            icon = Icons.Default.Subtitles,
+                            label = "Subtitle",
+                            onClick = onAddSubtitle,
+                        )
 
                         ActionChip(
                             icon = Icons.Default.ZoomOut,

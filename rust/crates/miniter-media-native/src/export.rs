@@ -4,22 +4,23 @@ use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
 use crate::frame::RgbaFrame;
 use crate::mux::{
-    extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut, VideoTrackCodecOut,
+    ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut, VideoTrackCodecOut, extract_sps_pps,
 };
-use font8x8::{UnicodeFonts, BASIC_FONTS};
-use miniter_audio::mix::{mix_project_audio, AudioMixError, MixConfig, MixedAudio};
+use crate::subtitle::SubtitleRenderer;
+use font8x8::{BASIC_FONTS, UnicodeFonts};
+use miniter_audio::mix::{AudioMixError, MixConfig, MixedAudio, mix_project_audio};
+use miniter_domain::Project;
 use miniter_domain::clip::ClipId;
 use miniter_domain::clip::{ClipKind, VideoClip};
 use miniter_domain::export::ExportFormat;
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use miniter_domain::time::Timestamp;
-use miniter_domain::Project;
 use miniter_render_plan::compositor::FramePlanIterator;
-use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
+use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
 use std::collections::HashMap;
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::BufWriter;
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -196,12 +197,14 @@ struct ExportDecodeSession {
 
 struct ExportDecodeCache {
     sessions: HashMap<ClipId, ExportDecodeSession>,
+    subtitle_renderers: HashMap<String, SubtitleRenderer>,
 }
 
 impl ExportDecodeCache {
     fn new() -> Self {
         Self {
             sessions: HashMap::new(),
+            subtitle_renderers: HashMap::new(),
         }
     }
 
@@ -280,6 +283,24 @@ impl ExportDecodeCache {
                 }
             }
         }
+    }
+
+    fn get_subtitle_renderer(
+        &mut self,
+        path: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<&mut crate::subtitle::SubtitleRenderer, crate::subtitle::SubtitleError> {
+        if !self.subtitle_renderers.contains_key(path) {
+            let mut renderer = crate::subtitle::SubtitleRenderer::new(width, height)?;
+            renderer.load_script(Path::new(path))?;
+            self.subtitle_renderers.insert(path.to_string(), renderer);
+        }
+
+        Ok(self
+            .subtitle_renderers
+            .get_mut(path)
+            .expect("subtitle renderer must exist"))
     }
 }
 
@@ -479,6 +500,37 @@ fn render_node(
             let mut img = render_text_overlay(overlay, width, height);
             apply_global_alpha(&mut img, *opacity);
             Ok(img)
+        }
+
+        RenderNode::Subtitle {
+            source_path,
+            opacity,
+        } => {
+            if !Path::new(source_path).exists() {
+                return Ok(transparent_rgba(width, height));
+            }
+
+            let time_cs = (first_decoded_video_pts_us.load(Ordering::Relaxed) / 10_000) as i64;
+
+            match decode_cache.get_subtitle_renderer(source_path, width as u32, height as u32) {
+                Ok(renderer) => match renderer.render_frame(time_cs) {
+                    Ok(frame) => {
+                        let mut img = frame.into_buffer();
+                        if img.len() == width * height * 4 {
+                            apply_global_alpha(&mut img, *opacity);
+                            return Ok(img);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Subtitle render error: {}", e);
+                    }
+                },
+                Err(e) => {
+                    log::warn!("Subtitle renderer init error: {}", e);
+                }
+            }
+
+            Ok(transparent_rgba(width, height))
         }
 
         RenderNode::Stack(children) => {

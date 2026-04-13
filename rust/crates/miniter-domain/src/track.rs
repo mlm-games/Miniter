@@ -23,6 +23,7 @@ pub enum TrackKind {
     Video,
     Audio,
     Text,
+    Subtitle,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

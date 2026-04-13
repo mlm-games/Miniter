@@ -25,6 +25,10 @@ pub enum RenderNode {
         overlay: TextOverlay,
         opacity: f32,
     },
+    Subtitle {
+        source_path: String,
+        opacity: f32,
+    },
     Stack(Vec<RenderNode>),
 }
 
@@ -156,6 +160,10 @@ fn node_for_clip(
                 opacity,
             })
         }
+        ClipKind::Subtitle(sub) => Some(RenderNode::Subtitle {
+            source_path: sub.source_path.clone(),
+            opacity: clip.opacity,
+        }),
     }
 }
 

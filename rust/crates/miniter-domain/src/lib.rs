@@ -8,7 +8,7 @@ pub mod timeline;
 pub mod track;
 pub mod transition;
 
-pub use clip::{AudioClip, Clip, ClipId, ClipKind, VideoClip};
+pub use clip::{AudioClip, Clip, ClipId, ClipKind, SubtitleClip, VideoClip};
 pub use export::{ExportFormat, ExportProfile, ExportResolution};
 pub use filter::{AudioFilter, VideoFilter};
 pub use project::{Project, ProjectId, ProjectMeta};
