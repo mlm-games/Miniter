@@ -16,6 +16,7 @@ muxide = "0.2"
 
 # H.264 codec (compiles from source with CXX vars so, is cross-platform)
 openh264 = { version = "0.9", features = ["source"] }
+less-avc = "0.1.5"
 
 # AV1
 rav1e = { version = "0.8", default-features = false }

@@ -1,15 +1,16 @@
-//! Encode RGBA frames → H.264 NAL units via OpenH264.
+//! Encode RGBA frames -> H.264 NAL units via less-avc.
 
 use crate::frame::RgbaFrame;
-use openh264::encoder::{Encoder, EncoderConfig, FrameType};
-use openh264::formats::YUVBuffer;
+use crate::yuv::rgba_to_yuv420;
+use less_avc::ycbcr_image::{DataPlane, Planes, YCbCrImage};
+use less_avc::{BitDepth, LessEncoder};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeError {
     #[error("IO: {0}")]
     Io(#[from] std::io::Error),
-    #[error("OpenH264: {0}")]
-    OpenH264(#[from] openh264::Error),
+    #[error("less-avc: {0}")]
+    LessAvc(String),
     #[error("Invalid dimensions: width and height must be > 0 and even")]
     InvalidDimensions,
     #[error("Encoder skipped frame {frame_index}")]
@@ -24,29 +25,35 @@ pub enum EncodedVideoOutput {
 }
 
 pub struct VideoEncodeSession {
-    encoder: Encoder,
+    encoder: Option<LessEncoder>,
     width: u32,
     height: u32,
+    y_stride: usize,
+    uv_stride: usize,
+    y_rows: usize,
+    uv_rows: usize,
     frame_index: u32,
 }
 
 impl VideoEncodeSession {
-    pub fn new(width: u32, height: u32, bitrate_bps: u32, fps: f32) -> Result<Self, EncodeError> {
+    pub fn new(width: u32, height: u32, _bitrate_bps: u32, _fps: f32) -> Result<Self, EncodeError> {
         if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
             return Err(EncodeError::InvalidDimensions);
         }
 
-        let config = EncoderConfig::new()
-            .bitrate(openh264::encoder::BitRate::from_bps(bitrate_bps))
-            .max_frame_rate(openh264::encoder::FrameRate::from_hz(fps))
-            .skip_frames(false);
-
-        let encoder = Encoder::with_api_config(openh264::OpenH264API::from_source(), config)?;
+        let y_stride = next_multiple(width as usize, 16);
+        let uv_stride = next_multiple((width as usize) / 2, 8);
+        let y_rows = next_multiple(height as usize, 16);
+        let uv_rows = next_multiple((height as usize) / 2, 8);
 
         Ok(Self {
-            encoder,
+            encoder: None,
             width,
             height,
+            y_stride,
+            uv_stride,
+            y_rows,
+            uv_rows,
             frame_index: 0,
         })
     }
@@ -55,31 +62,58 @@ impl VideoEncodeSession {
         let idx = self.frame_index;
         self.frame_index += 1;
 
-        let rgb = rgba_to_rgb(&frame.data);
-
-        let mut yuv_buf = YUVBuffer::new(self.width as usize, self.height as usize);
-        yuv_buf.read_rgb8(RgbSlice {
-            data: rgb,
-            width: self.width as usize,
-            height: self.height as usize,
-        });
-
-        let bitstream = self.encoder.encode(&yuv_buf)?;
-
-        match bitstream.frame_type() {
-            FrameType::Skip => Ok(EncodedVideoOutput::Skipped),
-            FrameType::Invalid => Err(EncodeError::OpenH264(openh264::Error::msg(
-                "encoder returned invalid frame type",
-            ))),
-            _ => {
-                let bytes = bitstream.to_vec();
-                if bytes.is_empty() {
-                    return Err(EncodeError::EmptyFrame { frame_index: idx });
-                }
-                let is_keyframe = matches!(bitstream.frame_type(), FrameType::IDR | FrameType::I);
-                Ok(EncodedVideoOutput::Sample { bytes, is_keyframe })
-            }
+        if frame.width != self.width || frame.height != self.height {
+            return Err(EncodeError::InvalidDimensions);
         }
+
+        let (y_plane, u_plane, v_plane) = self.to_less_avc_planes(frame)?;
+        let image = YCbCrImage {
+            planes: Planes::YCbCr((
+                DataPlane {
+                    data: &y_plane,
+                    stride: self.y_stride,
+                    bit_depth: BitDepth::Depth8,
+                },
+                DataPlane {
+                    data: &u_plane,
+                    stride: self.uv_stride,
+                    bit_depth: BitDepth::Depth8,
+                },
+                DataPlane {
+                    data: &v_plane,
+                    stride: self.uv_stride,
+                    bit_depth: BitDepth::Depth8,
+                },
+            )),
+            width: self.width,
+            height: self.height,
+        };
+
+        let bytes = if let Some(encoder) = &mut self.encoder {
+            let nal = encoder
+                .encode(&image)
+                .map_err(|e| EncodeError::LessAvc(e.to_string()))?;
+            nal.to_annex_b_data()
+        } else {
+            let (initial, encoder) =
+                LessEncoder::new(&image).map_err(|e| EncodeError::LessAvc(e.to_string()))?;
+            self.encoder = Some(encoder);
+
+            let mut out = Vec::new();
+            for nal in initial.into_iter() {
+                out.extend(nal.to_annex_b_data());
+            }
+            out
+        };
+
+        if bytes.is_empty() {
+            return Err(EncodeError::EmptyFrame { frame_index: idx });
+        }
+
+        Ok(EncodedVideoOutput::Sample {
+            bytes,
+            is_keyframe: true,
+        })
     }
 
     pub fn width(&self) -> u32 {
@@ -89,45 +123,50 @@ impl VideoEncodeSession {
     pub fn height(&self) -> u32 {
         self.height
     }
+
+    fn to_less_avc_planes(
+        &self,
+        frame: &RgbaFrame,
+    ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), EncodeError> {
+        let (y_src, u_src, v_src) =
+            rgba_to_yuv420(&frame.data, self.width as usize, self.height as usize);
+
+        let y_sz = self
+            .y_stride
+            .checked_mul(self.y_rows)
+            .ok_or(EncodeError::InvalidDimensions)?;
+        let uv_sz = self
+            .uv_stride
+            .checked_mul(self.uv_rows)
+            .ok_or(EncodeError::InvalidDimensions)?;
+
+        let mut y_plane = vec![0u8; y_sz];
+        let mut u_plane = vec![128u8; uv_sz];
+        let mut v_plane = vec![128u8; uv_sz];
+
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let chroma_w = width / 2;
+        let chroma_h = height / 2;
+
+        for row in 0..height {
+            let src = &y_src[row * width..(row + 1) * width];
+            let dst = &mut y_plane[row * self.y_stride..row * self.y_stride + width];
+            dst.copy_from_slice(src);
+        }
+        for row in 0..chroma_h {
+            let src_u = &u_src[row * chroma_w..(row + 1) * chroma_w];
+            let src_v = &v_src[row * chroma_w..(row + 1) * chroma_w];
+            let dst_u = &mut u_plane[row * self.uv_stride..row * self.uv_stride + chroma_w];
+            let dst_v = &mut v_plane[row * self.uv_stride..row * self.uv_stride + chroma_w];
+            dst_u.copy_from_slice(src_u);
+            dst_v.copy_from_slice(src_v);
+        }
+
+        Ok((y_plane, u_plane, v_plane))
+    }
 }
 
-struct RgbSlice {
-    data: Vec<u8>,
-    width: usize,
-    height: usize,
-}
-
-impl openh264::formats::RGBSource for RgbSlice {
-    fn dimensions(&self) -> (usize, usize) {
-        (self.width, self.height)
-    }
-
-    fn pixel_f32(&self, x: usize, y: usize) -> (f32, f32, f32) {
-        let idx = (y * self.width + x) * 3;
-        (
-            self.data[idx] as f32,
-            self.data[idx + 1] as f32,
-            self.data[idx + 2] as f32,
-        )
-    }
-}
-
-impl openh264::formats::RGB8Source for RgbSlice {
-    fn dimensions_padded(&self) -> (usize, usize) {
-        (self.width, self.height)
-    }
-
-    fn rgb8_data(&self) -> &[u8] {
-        &self.data
-    }
-}
-
-fn rgba_to_rgb(rgba: &[u8]) -> Vec<u8> {
-    let mut rgb = Vec::with_capacity((rgba.len() / 4) * 3);
-    for px in rgba.chunks_exact(4) {
-        rgb.push(px[0]);
-        rgb.push(px[1]);
-        rgb.push(px[2]);
-    }
-    rgb
+fn next_multiple(value: usize, base: usize) -> usize {
+    value.div_ceil(base) * base
 }
