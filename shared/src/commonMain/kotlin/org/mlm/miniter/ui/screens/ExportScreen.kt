@@ -20,6 +20,7 @@ import org.koin.compose.koinInject
 import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustExportResolution
+import org.mlm.miniter.editor.model.RustSubtitleMode
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.engine.ExportProgress
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
@@ -74,6 +75,9 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     var quality by remember(profileQuality) { mutableFloatStateOf(profileQuality) }
     var customWidth by remember(displayWidth) { mutableStateOf(displayWidth.takeIf { it > 0 }?.toString() ?: "") }
     var customHeight by remember(displayHeight) { mutableStateOf(displayHeight.takeIf { it > 0 }?.toString() ?: "") }
+    var subtitleMode by remember(profile?.subtitleMode) {
+        mutableStateOf(profile?.subtitleMode ?: RustSubtitleMode.Hard)
+    }
 
     var outputFile by remember { mutableStateOf<PlatformFile?>(null) }
     var showCancelConfirm by remember { mutableStateOf(false) }
@@ -187,6 +191,29 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     modifier = Modifier.weight(1f),
                     enabled = !isExporting,
                     supportingText = { Text(sourceHintText) },
+                )
+            }
+
+            Text("Subtitles", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = subtitleMode == RustSubtitleMode.Hard,
+                    onClick = { subtitleMode = RustSubtitleMode.Hard },
+                    label = { Text("Burn in") },
+                    enabled = !isExporting,
+                )
+                FilterChip(
+                    selected = subtitleMode == RustSubtitleMode.Soft,
+                    onClick = { subtitleMode = RustSubtitleMode.Soft },
+                    label = { Text("Embed (soft)") },
+                    enabled = !isExporting,
+                )
+            }
+            if (subtitleMode == RustSubtitleMode.Soft && format == RustExportFormat.Mp4) {
+                Text(
+                    "ASS/SSA styling is converted to plain text in MP4 soft subtitles.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
 
@@ -376,6 +403,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                         audioBitrateKbps = 192,
                                         audioSampleRate = 48_000,
                                         outputPath = "",
+                                        subtitleMode = subtitleMode,
                                     )
                                 )
                                 // Pass the platform file path — on Android this is a
