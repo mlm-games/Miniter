@@ -9,7 +9,7 @@ pub mod track;
 pub mod transition;
 
 pub use clip::{AudioClip, Clip, ClipId, ClipKind, SubtitleClip, VideoClip};
-pub use export::{ExportFormat, ExportProfile, ExportResolution};
+pub use export::{ExportFormat, ExportProfile, ExportResolution, SubtitleMode};
 pub use filter::{AudioFilter, VideoFilter};
 pub use project::{Project, ProjectId, ProjectMeta};
 pub use text_overlay::{TextAlignment, TextOverlay, TextStyle};

@@ -1,7 +1,8 @@
 //! Mux H.264 video and Opus audio into MP4 using muxide.
 
 use muxide::api::{
-    AudioCodec, Muxer as InnerMuxer, MuxerBuilder, MuxerError as InnerMuxError, VideoCodec,
+    AudioCodec, Muxer as InnerMuxer, MuxerBuilder, MuxerError as InnerMuxError, SubtitleCodec,
+    VideoCodec,
 };
 use std::io::Write;
 
@@ -31,6 +32,17 @@ pub struct OpusTrackConfigOut {
     pub channels: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubtitleTrackCodecOut {
+    MovText,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubtitleTrackConfigOut {
+    pub codec: SubtitleTrackCodecOut,
+    pub language: Option<String>,
+}
+
 pub struct Mp4Muxer<W: Write> {
     writer: InnerMuxer<W>,
 }
@@ -45,6 +57,7 @@ impl<W: Write> Mp4Muxer<W> {
         _pps: &[u8],
         container: ContainerFormat,
         audio: Option<OpusTrackConfigOut>,
+        subtitle: Option<SubtitleTrackConfigOut>,
         video_codec: VideoTrackCodecOut,
     ) -> Result<Self, MuxError> {
         if matches!(container, ContainerFormat::Mov) {
@@ -60,6 +73,13 @@ impl<W: Write> Mp4Muxer<W> {
 
         if let Some(audio) = audio {
             builder = builder.audio(AudioCodec::Opus, audio.sample_rate, audio.channels);
+        }
+
+        if let Some(subtitle) = subtitle {
+            let codec = match subtitle.codec {
+                SubtitleTrackCodecOut::MovText => SubtitleCodec::MovText,
+            };
+            builder = builder.subtitle(codec, subtitle.language);
         }
 
         let writer = builder.build()?;
@@ -85,6 +105,18 @@ impl<W: Write> Mp4Muxer<W> {
     ) -> Result<(), MuxError> {
         let pts = start_time_us as f64 / 1_000_000.0;
         self.writer.write_audio(pts, data)?;
+        Ok(())
+    }
+
+    pub fn write_subtitle_sample_at(
+        &mut self,
+        start_time_us: u64,
+        duration_us: u64,
+        text: &str,
+    ) -> Result<(), MuxError> {
+        let pts = start_time_us as f64 / 1_000_000.0;
+        let duration = duration_us.max(1) as f64 / 1_000_000.0;
+        self.writer.write_subtitle(pts, duration, text)?;
         Ok(())
     }
 

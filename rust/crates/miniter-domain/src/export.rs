@@ -51,6 +51,13 @@ impl ExportResolution {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SubtitleMode {
+    #[default]
+    Hard,
+    Soft,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportProfile {
     pub format: ExportFormat,
@@ -60,6 +67,8 @@ pub struct ExportProfile {
     pub audio_bitrate_kbps: u32,
     pub audio_sample_rate: u32,
     pub output_path: String,
+    #[serde(default)]
+    pub subtitle_mode: SubtitleMode,
 }
 
 impl Default for ExportProfile {
@@ -72,6 +81,7 @@ impl Default for ExportProfile {
             audio_bitrate_kbps: 192,
             audio_sample_rate: 48_000,
             output_path: String::new(),
+            subtitle_mode: SubtitleMode::Hard,
         }
     }
 }

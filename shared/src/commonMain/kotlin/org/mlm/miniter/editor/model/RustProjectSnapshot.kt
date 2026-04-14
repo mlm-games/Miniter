@@ -291,7 +291,15 @@ data class RustExportProfileSnapshot(
     val audioSampleRate: Int = 48_000,
     @SerialName("output_path")
     val outputPath: String = "",
+    @SerialName("subtitle_mode")
+    val subtitleMode: RustSubtitleMode = RustSubtitleMode.Hard,
 )
+
+@Serializable
+enum class RustSubtitleMode {
+    Hard,
+    Soft,
+}
 
 @Serializable
 enum class RustExportFormat {

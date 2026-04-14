@@ -1,5 +1,6 @@
 use crate::transition_blend::{ease_in_out, opacity_pair};
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
+use miniter_domain::export::SubtitleMode;
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::TextOverlay;
 use miniter_domain::time::Timestamp;
@@ -40,7 +41,13 @@ pub struct RenderPlan {
     pub root: RenderNode,
 }
 
-pub fn plan_frame(timeline: &Timeline, t: Timestamp, width: u32, height: u32) -> RenderPlan {
+pub fn plan_frame(
+    timeline: &Timeline,
+    t: Timestamp,
+    width: u32,
+    height: u32,
+    subtitle_mode: SubtitleMode,
+) -> RenderPlan {
     let mut layers: Vec<RenderNode> = Vec::new();
 
     for track in &timeline.tracks {
@@ -48,7 +55,7 @@ pub fn plan_frame(timeline: &Timeline, t: Timestamp, width: u32, height: u32) ->
             continue;
         }
         if let Some(clip) = track.clip_at(t) {
-            if let Some(node) = node_for_clip(clip, t, track) {
+            if let Some(node) = node_for_clip(clip, t, track, subtitle_mode) {
                 layers.push(node);
             }
         }
@@ -72,6 +79,7 @@ fn node_for_clip(
     clip: &Clip,
     t: Timestamp,
     track: &miniter_domain::track::Track,
+    subtitle_mode: SubtitleMode,
 ) -> Option<RenderNode> {
     if clip.muted {
         return None;
@@ -131,7 +139,7 @@ fn node_for_clip(
                 }
                 if let Some(prev) = find_previous_clip(track, clip) {
                     if progress < 1.0 {
-                        if let Some(prev_node) = node_for_clip(prev, t, track) {
+                        if let Some(prev_node) = node_for_clip(prev, t, track, subtitle_mode) {
                             return Some(RenderNode::TransitionBlend {
                                 bottom: Box::new(prev_node),
                                 top: Box::new(RenderNode::Text {
@@ -160,10 +168,13 @@ fn node_for_clip(
                 opacity,
             })
         }
-        ClipKind::Subtitle(sub) => Some(RenderNode::Subtitle {
-            source_path: sub.source_path.clone(),
-            opacity: clip.opacity,
-        }),
+        ClipKind::Subtitle(sub) => match subtitle_mode {
+            SubtitleMode::Hard => Some(RenderNode::Subtitle {
+                source_path: sub.source_path.clone(),
+                opacity: clip.opacity,
+            }),
+            SubtitleMode::Soft => None,
+        },
     }
 }
 

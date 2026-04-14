@@ -1,6 +1,6 @@
-use crate::render_graph::{RenderPlan, plan_frame};
+use crate::render_graph::{plan_frame, RenderPlan};
 use miniter_domain::clip::ClipKind;
-use miniter_domain::export::ExportProfile;
+use miniter_domain::export::{ExportProfile, SubtitleMode};
 use miniter_domain::time::Timestamp;
 use miniter_domain::timeline::Timeline;
 
@@ -8,13 +8,20 @@ pub struct FramePlanIterator<'a> {
     timeline: &'a Timeline,
     width: u32,
     height: u32,
+    subtitle_mode: SubtitleMode,
     frame_duration_us: i64,
     current_frame: u64,
     total_frames: u64,
 }
 
 impl<'a> FramePlanIterator<'a> {
-    pub fn with_render_settings(timeline: &'a Timeline, width: u32, height: u32, fps: f64) -> Self {
+    pub fn with_render_settings(
+        timeline: &'a Timeline,
+        width: u32,
+        height: u32,
+        fps: f64,
+        subtitle_mode: SubtitleMode,
+    ) -> Self {
         let frame_dur = frame_duration_us(fps);
         let end = timeline.duration_end().as_micros().max(0);
 
@@ -28,6 +35,7 @@ impl<'a> FramePlanIterator<'a> {
             timeline,
             width,
             height,
+            subtitle_mode,
             frame_duration_us: frame_dur,
             current_frame: 0,
             total_frames: total,
@@ -41,7 +49,13 @@ impl<'a> FramePlanIterator<'a> {
         } else {
             first_video_dimensions(timeline).unwrap_or((1920, 1080))
         };
-        Self::with_render_settings(timeline, resolved_w, resolved_h, profile.fps)
+        Self::with_render_settings(
+            timeline,
+            resolved_w,
+            resolved_h,
+            profile.fps,
+            profile.subtitle_mode,
+        )
     }
 
     pub fn total_frames(&self) -> u64 {
@@ -58,7 +72,13 @@ impl<'a> Iterator for FramePlanIterator<'a> {
         }
         let t = Timestamp::from_micros(self.current_frame as i64 * self.frame_duration_us);
         self.current_frame += 1;
-        Some(plan_frame(self.timeline, t, self.width, self.height))
+        Some(plan_frame(
+            self.timeline,
+            t,
+            self.width,
+            self.height,
+            self.subtitle_mode,
+        ))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

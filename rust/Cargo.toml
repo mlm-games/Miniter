@@ -23,6 +23,6 @@ log = "0.4"
 uniffi = "0.31"
 
 [patch.crates-io]
-muxide = { git = "https://github.com/mlm-games/muxide" }
+muxide = { path = "/home/ymsr/Documents/Repos/muxide" }
 ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer" }
 ass-core = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-core" }

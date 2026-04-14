@@ -4,23 +4,25 @@ use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
 use crate::frame::RgbaFrame;
 use crate::mux::{
-    ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut, VideoTrackCodecOut, extract_sps_pps,
+    extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut,
+    SubtitleTrackCodecOut, SubtitleTrackConfigOut, VideoTrackCodecOut,
 };
 use crate::subtitle::SubtitleRenderer;
-use font8x8::{BASIC_FONTS, UnicodeFonts};
-use miniter_audio::mix::{AudioMixError, MixConfig, MixedAudio, mix_project_audio};
-use miniter_domain::Project;
+use font8x8::{UnicodeFonts, BASIC_FONTS};
+use miniter_audio::mix::{mix_project_audio, AudioMixError, MixConfig, MixedAudio};
 use miniter_domain::clip::ClipId;
 use miniter_domain::clip::{ClipKind, VideoClip};
-use miniter_domain::export::ExportFormat;
+use miniter_domain::export::{ExportFormat, SubtitleMode};
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use miniter_domain::time::Timestamp;
+use miniter_domain::track::TrackKind;
+use miniter_domain::Project;
 use miniter_render_plan::compositor::FramePlanIterator;
-use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
+use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
 use std::collections::HashMap;
-use std::fs::{File, create_dir_all};
+use std::fs::{create_dir_all, File};
 use std::io::BufWriter;
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -188,6 +190,291 @@ fn normalize_even_dimension(value: u32, fallback: u32) -> u32 {
     dim.max(2)
 }
 
+#[derive(Debug, Clone)]
+struct SourceSubtitleCue {
+    start_us: i64,
+    end_us: i64,
+    text: String,
+}
+
+#[derive(Debug, Clone)]
+struct SoftSubtitleSample {
+    start_us: i64,
+    duration_us: i64,
+    text: String,
+}
+
+fn collect_soft_subtitle_samples(project: &Project, output_path: &Path) -> Vec<SoftSubtitleSample> {
+    let preserve_styles = output_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("mkv"))
+        .unwrap_or(false);
+
+    let mut samples = Vec::new();
+
+    for track in &project.timeline.tracks {
+        if track.kind != TrackKind::Subtitle || track.muted {
+            continue;
+        }
+
+        for clip in &track.clips {
+            if clip.muted {
+                continue;
+            }
+
+            let ClipKind::Subtitle(sub) = &clip.kind else {
+                continue;
+            };
+
+            let path = Path::new(&sub.source_path);
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase());
+
+            let cues = match ext.as_deref() {
+                Some("srt") => parse_srt_cues(path),
+                Some("ass") | Some("ssa") => {
+                    if !preserve_styles {
+                        log::warn!(
+                            "Soft subtitle export to MP4 converts ASS styling to plain text: {}",
+                            path.display()
+                        );
+                    }
+                    parse_ass_cues(path, preserve_styles)
+                }
+                _ => {
+                    log::warn!(
+                        "Unsupported subtitle extension for soft export: {}",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
+
+            let cues = match cues {
+                Ok(c) => c,
+                Err(err) => {
+                    log::warn!("Failed to parse subtitle '{}': {}", path.display(), err);
+                    continue;
+                }
+            };
+
+            samples.extend(
+                cues.into_iter()
+                    .filter_map(|cue| map_cue_to_timeline_sample(clip, cue)),
+            );
+        }
+    }
+
+    samples.sort_by_key(|s| s.start_us);
+    samples
+}
+
+fn map_cue_to_timeline_sample(
+    clip: &miniter_domain::clip::Clip,
+    cue: SourceSubtitleCue,
+) -> Option<SoftSubtitleSample> {
+    let speed = if clip.speed.is_finite() && clip.speed > 0.0 {
+        clip.speed
+    } else {
+        1.0
+    };
+
+    let clip_source_start = clip.source_start.as_micros();
+    let inferred_source_end = clip_source_start
+        + (clip.timeline_duration.as_micros() as f64 * speed)
+            .round()
+            .max(1.0) as i64;
+    let clip_source_end = if clip.source_end.as_micros() > clip_source_start {
+        clip.source_end.as_micros()
+    } else {
+        inferred_source_end
+    };
+
+    let visible_start = cue.start_us.max(clip_source_start);
+    let visible_end = cue.end_us.min(clip_source_end);
+    if visible_end <= visible_start {
+        return None;
+    }
+
+    let local_start = ((visible_start - clip_source_start) as f64 / speed).round() as i64;
+    let local_end = ((visible_end - clip_source_start) as f64 / speed).round() as i64;
+
+    let clip_timeline_start = clip.timeline_start.as_micros();
+    let clip_timeline_end = clip.timeline_end().as_micros();
+
+    let sample_start = (clip_timeline_start + local_start).clamp(0, clip_timeline_end);
+    let sample_end = (clip_timeline_start + local_end).clamp(0, clip_timeline_end);
+    if sample_end <= sample_start {
+        return None;
+    }
+
+    let text = cue.text.trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    Some(SoftSubtitleSample {
+        start_us: sample_start,
+        duration_us: (sample_end - sample_start).max(1),
+        text: text.to_string(),
+    })
+}
+
+fn parse_srt_cues(path: &Path) -> Result<Vec<SourceSubtitleCue>, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read SRT '{}': {}", path.display(), e))?;
+
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    let mut cues = Vec::new();
+
+    for block in normalized.split("\n\n") {
+        let lines: Vec<&str> = block.lines().collect();
+        if lines.is_empty() {
+            continue;
+        }
+
+        let mut cursor = 0usize;
+        if lines[cursor].trim().chars().all(|c| c.is_ascii_digit()) {
+            cursor += 1;
+        }
+        if cursor >= lines.len() {
+            continue;
+        }
+
+        let Some((start_us, end_us)) = parse_srt_time_range(lines[cursor]) else {
+            continue;
+        };
+        cursor += 1;
+        if cursor >= lines.len() || end_us <= start_us {
+            continue;
+        }
+
+        let text = lines[cursor..].join("\n").trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+
+        cues.push(SourceSubtitleCue {
+            start_us,
+            end_us,
+            text,
+        });
+    }
+
+    Ok(cues)
+}
+
+fn parse_srt_time_range(line: &str) -> Option<(i64, i64)> {
+    let mut parts = line.split("-->");
+    let start = parts.next()?.trim();
+    let end = parts.next()?.trim();
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((parse_srt_timestamp_us(start)?, parse_srt_timestamp_us(end)?))
+}
+
+fn parse_srt_timestamp_us(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    let (time_part, frac_part) = if let Some((time, frac)) = trimmed.split_once(',') {
+        (time, frac)
+    } else if let Some((time, frac)) = trimmed.split_once('.') {
+        (time, frac)
+    } else {
+        return None;
+    };
+
+    let mut hms = time_part.split(':');
+    let h: i64 = hms.next()?.parse().ok()?;
+    let m: i64 = hms.next()?.parse().ok()?;
+    let s: i64 = hms.next()?.parse().ok()?;
+    if hms.next().is_some() || !(0..60).contains(&m) || !(0..60).contains(&s) {
+        return None;
+    }
+
+    let ms = match frac_part.len() {
+        0 => return None,
+        1 => frac_part.parse::<i64>().ok()?.saturating_mul(100),
+        2 => frac_part.parse::<i64>().ok()?.saturating_mul(10),
+        _ => frac_part.get(0..3)?.parse::<i64>().ok()?,
+    };
+
+    Some(((h * 3600 + m * 60 + s) * 1_000 + ms) * 1_000)
+}
+
+fn parse_ass_cues(path: &Path, preserve_styles: bool) -> Result<Vec<SourceSubtitleCue>, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read ASS/SSA '{}': {}", path.display(), e))?;
+    let script = ass_core::Script::parse(&content)
+        .map_err(|e| format!("failed to parse ASS/SSA '{}': {}", path.display(), e))?;
+
+    let mut cues = Vec::new();
+
+    for section in script.sections() {
+        let ass_core::Section::Events(events) = section else {
+            continue;
+        };
+
+        for event in events {
+            if !event.is_dialogue() {
+                continue;
+            }
+
+            let start_cs = event
+                .start_time_cs()
+                .map_err(|e| format!("invalid ASS start time in '{}': {}", path.display(), e))?;
+            let end_cs = event
+                .end_time_cs()
+                .map_err(|e| format!("invalid ASS end time in '{}': {}", path.display(), e))?;
+            if end_cs <= start_cs {
+                continue;
+            }
+
+            let mut text = event
+                .text
+                .replace("\\N", "\n")
+                .replace("\\n", "\n")
+                .replace("\\h", " ");
+
+            if !preserve_styles {
+                text = strip_ass_override_tags(&text);
+            }
+
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                continue;
+            }
+
+            cues.push(SourceSubtitleCue {
+                start_us: start_cs as i64 * 10_000,
+                end_us: end_cs as i64 * 10_000,
+                text,
+            });
+        }
+    }
+
+    Ok(cues)
+}
+
+fn strip_ass_override_tags(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_tag = false;
+
+    for ch in text.chars() {
+        match ch {
+            '{' if !in_tag => in_tag = true,
+            '}' if in_tag => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+
+    out
+}
+
 struct ExportDecodeSession {
     session: VideoDecodeSession<std::io::BufReader<std::fs::File>>,
     last_pts: i64,
@@ -318,6 +605,20 @@ fn export_h264<F>(
 where
     F: Fn() -> bool,
 {
+    let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
+        collect_soft_subtitle_samples(project, output_path)
+    } else {
+        Vec::new()
+    };
+    let subtitle_track = if subtitle_samples.is_empty() {
+        None
+    } else {
+        Some(SubtitleTrackConfigOut {
+            codec: SubtitleTrackCodecOut::MovText,
+            language: Some("und".to_string()),
+        })
+    };
+
     let mut decode_cache = ExportDecodeCache::new();
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
@@ -342,11 +643,23 @@ where
 
     let mut encoder = VideoEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32)?;
 
-    let mut iter = FramePlanIterator::with_render_settings(&project.timeline, width, height, fps);
+    let mut iter = FramePlanIterator::with_render_settings(
+        &project.timeline,
+        width,
+        height,
+        fps,
+        project.export_profile.subtitle_mode,
+    );
     let total_frames = iter.total_frames() as u32;
-    let first_plan = iter
-        .next()
-        .unwrap_or_else(|| plan_frame(&project.timeline, Timestamp::ZERO, width, height));
+    let first_plan = iter.next().unwrap_or_else(|| {
+        plan_frame(
+            &project.timeline,
+            Timestamp::ZERO,
+            width,
+            height,
+            project.export_profile.subtitle_mode,
+        )
+    });
 
     if is_cancelled() {
         return Err(ExportError::Cancelled);
@@ -383,6 +696,7 @@ where
         &pps,
         container,
         audio_track,
+        subtitle_track,
         VideoTrackCodecOut::H264,
     )?;
     muxer.write_sample_at(first_frame.pts_us as u64, &bytes, is_keyframe)?;
@@ -433,6 +747,14 @@ where
             let pts = start_anchor_us.saturating_add(packet.pts_us);
             muxer.write_audio_sample_at(pts, &packet.bytes)?;
         }
+    }
+
+    for sample in &subtitle_samples {
+        muxer.write_subtitle_sample_at(
+            sample.start_us.max(0) as u64,
+            sample.duration_us.max(1) as u64,
+            &sample.text,
+        )?;
     }
 
     muxer.finish()?;
@@ -1081,6 +1403,22 @@ fn export_av1<F>(
 where
     F: Fn() -> bool,
 {
+    let subtitle_samples = if container == Av1Container::Mp4
+        && project.export_profile.subtitle_mode == SubtitleMode::Soft
+    {
+        collect_soft_subtitle_samples(project, output_path)
+    } else {
+        Vec::new()
+    };
+    let subtitle_track = if subtitle_samples.is_empty() {
+        None
+    } else {
+        Some(SubtitleTrackConfigOut {
+            codec: SubtitleTrackCodecOut::MovText,
+            language: Some("und".to_string()),
+        })
+    };
+
     let mut decode_cache = ExportDecodeCache::new();
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
@@ -1141,21 +1479,32 @@ where
                 &[],
                 ContainerFormat::Mp4,
                 audio_track,
+                subtitle_track.clone(),
                 VideoTrackCodecOut::Av1,
             )?);
         }
     }
 
-    let mut iter = FramePlanIterator::with_render_settings(&project.timeline, width, height, fps);
+    let mut iter = FramePlanIterator::with_render_settings(
+        &project.timeline,
+        width,
+        height,
+        fps,
+        project.export_profile.subtitle_mode,
+    );
     let total_frames = iter.total_frames() as u32;
-    let first_plan = iter
-        .next()
-        .unwrap_or_else(|| plan_frame(&project.timeline, Timestamp::ZERO, width, height));
+    let first_plan = iter.next().unwrap_or_else(|| {
+        plan_frame(
+            &project.timeline,
+            Timestamp::ZERO,
+            width,
+            height,
+            project.export_profile.subtitle_mode,
+        )
+    });
 
     let mut frame_count: u32 = 0;
     let mut ivf_packet_count: u32 = 0;
-    let mut encoded_frame_pts_us: Vec<u64> = Vec::new();
-
     for plan in std::iter::once(first_plan).chain(iter) {
         if is_cancelled() {
             return Err(ExportError::Cancelled);
@@ -1168,8 +1517,6 @@ where
             data: rgba,
             pts_us: plan.timestamp.as_micros(),
         };
-
-        encoded_frame_pts_us.push(frame.pts_us.max(0) as u64);
 
         let packets = encoder.encode_frame(&frame)?;
 
@@ -1187,7 +1534,7 @@ where
                 let muxer = mp4_muxer
                     .as_mut()
                     .expect("MP4 muxer must exist for AV1 MP4 export");
-                write_av1_packets_to_mux(muxer, &packets, &encoded_frame_pts_us, fps)?;
+                write_av1_packets_to_mux(muxer, &packets)?;
             }
         }
 
@@ -1220,7 +1567,7 @@ where
             let muxer = mp4_muxer
                 .as_mut()
                 .expect("MP4 muxer must exist for AV1 MP4 export");
-            write_av1_packets_to_mux(muxer, &finish_packets, &encoded_frame_pts_us, fps)?;
+            write_av1_packets_to_mux(muxer, &finish_packets)?;
 
             if let Some(oe) = audio_encoded {
                 let start_anchor_us =
@@ -1229,6 +1576,14 @@ where
                     let pts = start_anchor_us.saturating_add(packet.pts_us);
                     muxer.write_audio_sample_at(pts, &packet.bytes)?;
                 }
+            }
+
+            for sample in &subtitle_samples {
+                muxer.write_subtitle_sample_at(
+                    sample.start_us.max(0) as u64,
+                    sample.duration_us.max(1) as u64,
+                    &sample.text,
+                )?;
             }
 
             muxer.finish()?;
@@ -1242,8 +1597,6 @@ where
 fn write_av1_packets_to_mux<W: std::io::Write>(
     muxer: &mut Mp4Muxer<W>,
     packets: &[Av1Packet],
-    encoded_frame_pts_us: &[u64],
-    fps: f64,
 ) -> Result<usize, ExportError> {
     let mut written = 0usize;
     for packet in packets {

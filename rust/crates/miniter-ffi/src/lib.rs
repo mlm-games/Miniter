@@ -105,6 +105,7 @@ impl EditorHandle {
             state.playhead,
             width,
             height,
+            state.project.export_profile.subtitle_mode,
         );
         Ok(format!("{plan:#?}"))
     }
