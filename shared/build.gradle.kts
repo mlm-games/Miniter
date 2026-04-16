@@ -12,7 +12,7 @@ plugins {
 
 rustUniffi {
     libraryName.set("miniter_ffi")
-    cargoNdkExtraArgs.set(listOf("--link-libcxx-shared", "--features", "hw-decoder"))
+    cargoNdkExtraArgs.set(listOf("--link-libcxx-shared"))
 }
 
 val cargoBuildWasm = tasks.named("cargoBuildWasm")
