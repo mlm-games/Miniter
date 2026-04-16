@@ -26,3 +26,5 @@ uniffi = { version = "0.31", features = ["wasm-unstable-single-threaded"] }
 muxide = { path = "/home/ymsr/Documents/Repos/muxide" }
 ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer" }
 ass-core = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-core" }
+cros-libva = { path = "/home/ymsr/Documents/Repos/cros-libva/lib" }
+cros-codecs = { path = "/home/ymsr/Documents/Repos/cros-codecs" }

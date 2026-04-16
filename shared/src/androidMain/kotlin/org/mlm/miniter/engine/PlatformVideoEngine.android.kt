@@ -1,5 +1,6 @@
 package org.mlm.miniter.engine
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
@@ -145,7 +146,8 @@ actual class PlatformVideoEngine actual constructor() {
                 ImageData(fw, fh, rgba)
             }
         } catch (e: Exception) {
-            null
+            Log.e("PlatformVideoEngine", "extractSingleThumbnail failed: ${e.message}", e)
+            throw e
         }
     }
 

@@ -15,7 +15,7 @@ pub enum DecodeError {
     NoVideoStream,
     #[error("Unsupported codec — only H.264 is supported")]
     UnsupportedCodec,
-    #[error("Decoder not available: enable videoson or experimental-baaba")]
+    #[error("Decoder not available: enable videoson or hw-decoder")]
     DecoderNotAvailable,
     #[error("Videoson: {0}")]
     Videoson(String),
@@ -129,7 +129,7 @@ mod videoson_decoder {
     }
 }
 
-#[cfg(feature = "experimental-baaba")]
+#[cfg(feature = "hw-decoder")]
 mod baaba_decoder {
     use super::*;
     use baabaabaabaabababbababbaa::{
@@ -175,7 +175,7 @@ mod baaba_decoder {
                 codec: VideoCodecId("video/avc".to_string()),
                 resolution: Some(Dimensions::new(width, height)),
                 description: None,
-                hardware_acceleration: Some(true),
+                hardware_acceleration: None,
             };
             let host = PlatformHost::new();
             let (input, output) = host
@@ -279,7 +279,7 @@ pub struct VideoDecodeSession<R: std::io::Read + Seek> {
 
     #[cfg(feature = "videoson")]
     videoson: Option<videoson_decoder::VideosonDecoder>,
-    #[cfg(feature = "experimental-baaba")]
+    #[cfg(feature = "hw-decoder")]
     baaba: Option<baaba_decoder::BaabaDecoder>,
 }
 
@@ -335,7 +335,7 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
 
         #[cfg(feature = "videoson")]
         let videoson = Some(videoson_decoder::VideosonDecoder::new(width, height)?);
-        #[cfg(feature = "experimental-baaba")]
+        #[cfg(feature = "hw-decoder")]
         let baaba = baaba_decoder::BaabaDecoder::new(width, height).ok();
 
         Ok(Self {
@@ -353,7 +353,7 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             pending_frame: None,
             #[cfg(feature = "videoson")]
             videoson,
-            #[cfg(feature = "experimental-baaba")]
+            #[cfg(feature = "hw-decoder")]
             baaba,
         })
     }
@@ -406,7 +406,7 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             self.pps.as_deref(),
         );
 
-        #[cfg(feature = "experimental-baaba")]
+        #[cfg(feature = "hw-decoder")]
         {
             if let Some(ref mut dec) = self.baaba {
                 return match dec.decode(annex_b.clone(), self.last_pts_us) {
@@ -446,7 +446,7 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             dec.reset();
         }
 
-        #[cfg(feature = "experimental-baaba")]
+        #[cfg(feature = "hw-decoder")]
         if let Some(ref mut dec) = self.baaba {
             dec.flush();
         }
