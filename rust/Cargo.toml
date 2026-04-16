@@ -17,10 +17,10 @@ license = "GPL-3.0"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "serde", "js"] }
 thiserror = "2"
 log = "0.4"
-uniffi = "0.31"
+uniffi = { version = "0.31", features = ["wasm-unstable-single-threaded"] }
 
 [patch.crates-io]
 muxide = { path = "/home/ymsr/Documents/Repos/muxide" }

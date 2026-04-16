@@ -10,7 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
-import io.github.vinceglb.filekit.path
+import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.PlatformFileSystem
 
 private fun defaultProjectSavePath(projectName: String): String {
@@ -59,7 +59,7 @@ fun NewProjectDialog(
         saveFile = file
         // Update project name to match chosen file name (without extension)
         if (file != null) {
-            val nameWithoutExt = file.path
+            val nameWithoutExt = file.platformPath()
                 .substringAfterLast("/")
                 .substringAfterLast("\\")
                 .substringBeforeLast(".")
@@ -69,7 +69,7 @@ fun NewProjectDialog(
         }
     }
 
-    val savePath = saveFile?.path ?: defaultProjectSavePath(projectName.ifBlank { "project" })
+    val savePath = saveFile?.platformPath() ?: defaultProjectSavePath(projectName.ifBlank { "project" })
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -90,7 +90,7 @@ fun NewProjectDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OutlinedTextField(
-                        value = saveFile?.path ?: "Default: app storage",
+                        value = saveFile?.platformPath() ?: "Default: app storage",
                         onValueChange = {},
                         label = { Text("Save Location") },
                         singleLine = true,
@@ -143,7 +143,7 @@ fun SaveProjectDialog(
     val fileSaverLauncher = rememberFileSaverLauncher { file: PlatformFile? ->
         saveFile = file
         if (file != null) {
-            val nameWithoutExt = file.path
+            val nameWithoutExt = file.platformPath()
                 .substringAfterLast("/")
                 .substringAfterLast("\\")
                 .substringBeforeLast(".")
@@ -153,7 +153,7 @@ fun SaveProjectDialog(
         }
     }
 
-    val savePath = saveFile?.path ?: defaultProjectSavePath(projectName.ifBlank { "project" })
+    val savePath = saveFile?.platformPath() ?: defaultProjectSavePath(projectName.ifBlank { "project" })
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -174,7 +174,7 @@ fun SaveProjectDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OutlinedTextField(
-                        value = saveFile?.path ?: "Default location",
+                        value = saveFile?.platformPath() ?: "Default location",
                         onValueChange = {},
                         label = { Text("Save Location") },
                         singleLine = true,

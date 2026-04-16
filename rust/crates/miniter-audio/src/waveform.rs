@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::DecoderOptions;
@@ -28,14 +29,38 @@ pub enum WaveformError {
 }
 
 pub fn extract_waveform(path: &Path, target_buckets: usize) -> Result<WaveformData, WaveformError> {
-    if target_buckets == 0 {
-        return Err(WaveformError::InvalidBucketCount);
-    }
     let file = File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
+    extract_waveform_stream(
+        mss,
+        target_buckets,
+        path.extension().and_then(|e| e.to_str()),
+    )
+}
+
+pub fn extract_waveform_bytes(
+    bytes: &[u8],
+    target_buckets: usize,
+    extension_hint: Option<&str>,
+) -> Result<WaveformData, WaveformError> {
+    let cursor = Cursor::new(bytes.to_vec());
+    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+
+    extract_waveform_stream(mss, target_buckets, extension_hint)
+}
+
+fn extract_waveform_stream(
+    mss: MediaSourceStream,
+    target_buckets: usize,
+    extension_hint: Option<&str>,
+) -> Result<WaveformData, WaveformError> {
+    if target_buckets == 0 {
+        return Err(WaveformError::InvalidBucketCount);
+    }
+
     let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+    if let Some(ext) = extension_hint {
         hint.with_extension(ext);
     }
 

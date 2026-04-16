@@ -12,7 +12,15 @@ miniter-usecases = { path = "../miniter-usecases" }
 miniter-audio = { path = "../miniter-audio" }
 miniter-render-plan = { path = "../miniter-render-plan" }
 miniter-media-native = { path = "../miniter-media-native" }
+serde.workspace = true
 uniffi.workspace = true
 serde_json.workspace = true
 log.workspace = true
 thiserror.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+wasm-bindgen = "=0.2.114"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+base64 = "0.22"

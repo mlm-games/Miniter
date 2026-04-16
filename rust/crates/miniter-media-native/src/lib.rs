@@ -3,10 +3,12 @@ pub mod audio_export;
 pub mod decoder;
 pub mod encoder;
 pub mod encoder_av1;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod export;
 pub mod frame;
 pub mod mux;
 pub mod probe;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod subtitle;
 pub mod thumbnailer;
 pub mod yuv;

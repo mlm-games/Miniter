@@ -3,7 +3,6 @@ package org.mlm.miniter.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.vinceglb.filekit.PlatformFile
-import io.github.vinceglb.filekit.path
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +41,7 @@ import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.platform.PlatformFileSystem
+import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
@@ -454,7 +454,7 @@ class ProjectViewModel(
                 )
 
                 val items = files.map { file ->
-                    val stagedPath = PlatformFileSystem.stageForNativeAccess(file.path)
+                    val stagedPath = PlatformFileSystem.stageForNativeAccess(file.platformPath())
                     ImportItem(file, stagedPath, engine.probeVideo(stagedPath))
                 }
 
@@ -656,7 +656,7 @@ kind = RustAudioClipKind(
                 val cursorMs = _state.value.playheadMs
 
                 for (file in files) {
-                    val stagedPath = PlatformFileSystem.stageForNativeAccess(file.path)
+                    val stagedPath = PlatformFileSystem.stageForNativeAccess(file.platformPath())
                     val durationMs = 60000L
                     val startUs = cursorMs * 1000L
                     val durationUs = durationMs * 1000L

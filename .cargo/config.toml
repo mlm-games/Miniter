@@ -15,3 +15,6 @@
 #
 #[target.x86_64-linux-android]
 #rustflags = ["-C", "link-arg=-static-libstdc++"]
+
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg=web_sys_unstable_apis"]

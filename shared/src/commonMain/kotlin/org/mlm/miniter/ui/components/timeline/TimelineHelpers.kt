@@ -179,5 +179,21 @@ fun formatRulerTime(ms: Long): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     val tenths = (ms % 1000) / 100
-    return if (min > 0) "%d:%02d.%d".format(min, sec, tenths) else "%d.%ds".format(sec, tenths)
+    return if (min > 0) {
+        buildString {
+            append(min)
+            append(':')
+            if (sec < 10) append('0')
+            append(sec)
+            append('.')
+            append(tenths)
+        }
+    } else {
+        buildString {
+            append(sec)
+            append('.')
+            append(tenths)
+            append('s')
+        }
+    }
 }

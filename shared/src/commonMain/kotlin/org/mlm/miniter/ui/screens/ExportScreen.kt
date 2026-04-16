@@ -15,8 +15,9 @@ import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
-import io.github.vinceglb.filekit.path
 import org.koin.compose.koinInject
+import org.mlm.miniter.platform.platformPath
+import org.mlm.miniter.platform.isProjectExportSupported
 import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustExportResolution
@@ -86,6 +87,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             !progress.isComplete &&
             !progress.isCancelled &&
             progress.error == null
+    val exportSupported = isProjectExportSupported
 
     DisposableEffect(Unit) {
         onDispose { vm.resetExport() }
@@ -219,33 +221,58 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
 
             HorizontalDivider()
 
-            // Output file picker — uses native Save dialog
-            Text("Save as", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = outputFile?.path ?: "Choose save location…",
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    enabled = !isExporting,
-                )
-                FilledTonalButton(
-                    onClick = {
-                        fileSaverLauncher.launch(
-                            suggestedName = snapshot?.meta?.name ?: "export",
-                            extension = format.extension,
-                        )
-                    },
-                    enabled = !isExporting,
+            if (!exportSupported) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Browse")
+                    Row(
+                        Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            "Export is not available on web yet. Use desktop or Android to render files.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            } else {
+                Text("Save as", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = outputFile?.platformPath() ?: "Choose save location…",
+                        onValueChange = {},
+                        readOnly = true,
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        enabled = !isExporting,
+                    )
+                    FilledTonalButton(
+                        onClick = {
+                            fileSaverLauncher.launch(
+                                suggestedName = snapshot?.meta?.name ?: "export",
+                                extension = format.extension,
+                            )
+                        },
+                        enabled = !isExporting,
+                    ) {
+                        Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Browse")
+                    }
                 }
             }
 
@@ -284,7 +311,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                         Text(
-                                            outputFile?.path ?: "${snapshot?.meta?.name}.${format.extension}",
+                                            outputFile?.platformPath() ?: "${snapshot?.meta?.name}.${format.extension}",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                         )
@@ -372,51 +399,50 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     }
 
                     else -> {
-                        Button(
-                            onClick = {
-                                val file = outputFile ?: return@Button
-                                val parsedWidth = customWidth.toIntOrNull() ?: 0
-                                val parsedHeight = customHeight.toIntOrNull() ?: 0
-                                vm.updateExportProfile(
-                                    RustExportProfileSnapshot(
-                                        format = when (format) {
-                                            RustExportFormat.Mp4 -> RustExportFormat.Mp4
-                                            RustExportFormat.Av1Ivf -> RustExportFormat.Av1Ivf
-                                            RustExportFormat.Av1Mp4 -> RustExportFormat.Av1Mp4
-                                            RustExportFormat.Mov -> RustExportFormat.Mov
-                                        },
-                                        resolution = when {
-                                            parsedWidth <= 0 || parsedHeight <= 0 -> RustExportResolution.Source
-                                            hasSourceDimensions && parsedWidth == sourceWidth && parsedHeight == sourceHeight -> RustExportResolution.Source
-                                            parsedWidth == 854 && parsedHeight == 480 -> RustExportResolution.Sd480
-                                            parsedWidth == 1280 && parsedHeight == 720 -> RustExportResolution.Hd720
-                                            parsedWidth == 1920 && parsedHeight == 1080 -> RustExportResolution.Hd1080
-                                            parsedWidth == 3840 && parsedHeight == 2160 -> RustExportResolution.Uhd4k
-                                            parsedWidth > 0 && parsedHeight > 0 -> RustExportResolution.Custom(
-                                                parsedWidth,
-                                                parsedHeight,
-                                            )
-                                            else -> RustExportResolution.Source
-                                        },
-                                        fps = 30.0,
-                                        videoBitrateKbps = (500 + quality * 80).toInt().coerceAtLeast(500),
-                                        audioBitrateKbps = 192,
-                                        audioSampleRate = 48_000,
-                                        outputPath = "",
-                                        subtitleMode = subtitleMode,
+                        if (exportSupported) {
+                            Button(
+                                onClick = {
+                                    val file = outputFile ?: return@Button
+                                    val parsedWidth = customWidth.toIntOrNull() ?: 0
+                                    val parsedHeight = customHeight.toIntOrNull() ?: 0
+                                    vm.updateExportProfile(
+                                        RustExportProfileSnapshot(
+                                            format = when (format) {
+                                                RustExportFormat.Mp4 -> RustExportFormat.Mp4
+                                                RustExportFormat.Av1Ivf -> RustExportFormat.Av1Ivf
+                                                RustExportFormat.Av1Mp4 -> RustExportFormat.Av1Mp4
+                                                RustExportFormat.Mov -> RustExportFormat.Mov
+                                            },
+                                            resolution = when {
+                                                parsedWidth <= 0 || parsedHeight <= 0 -> RustExportResolution.Source
+                                                hasSourceDimensions && parsedWidth == sourceWidth && parsedHeight == sourceHeight -> RustExportResolution.Source
+                                                parsedWidth == 854 && parsedHeight == 480 -> RustExportResolution.Sd480
+                                                parsedWidth == 1280 && parsedHeight == 720 -> RustExportResolution.Hd720
+                                                parsedWidth == 1920 && parsedHeight == 1080 -> RustExportResolution.Hd1080
+                                                parsedWidth == 3840 && parsedHeight == 2160 -> RustExportResolution.Uhd4k
+                                                parsedWidth > 0 && parsedHeight > 0 -> RustExportResolution.Custom(
+                                                    parsedWidth,
+                                                    parsedHeight,
+                                                )
+                                                else -> RustExportResolution.Source
+                                            },
+                                            fps = 30.0,
+                                            videoBitrateKbps = (500 + quality * 80).toInt().coerceAtLeast(500),
+                                            audioBitrateKbps = 192,
+                                            audioSampleRate = 48_000,
+                                            outputPath = "",
+                                            subtitleMode = subtitleMode,
+                                        )
                                     )
-                                )
-                                // Pass the platform file path — on Android this is a
-                                // content:// URI that PlatformVideoEngine handles via
-                                // the temp-file + contentResolver.openOutputStream approach
-                                vm.startExport(file.path)
-                            },
-                            enabled = outputFile != null && snapshot != null,
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                        ) {
-                            Icon(Icons.Default.FileDownload, null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Start Export")
+                                    vm.startExport(file.platformPath())
+                                },
+                                enabled = outputFile != null && snapshot != null,
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                            ) {
+                                Icon(Icons.Default.FileDownload, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Start Export")
+                            }
                         }
                     }
                 }
