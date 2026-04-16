@@ -12,7 +12,7 @@ plugins {
 
 rustUniffi {
     libraryName.set("miniter_ffi")
-    cargoNdkExtraArgs.set(listOf("--link-libcxx-shared"))
+    cargoNdkExtraArgs.set(listOf("--link-libcxx-shared", "--features", "hw-decoder"))
 }
 
 val cargoBuildWasm = tasks.named("cargoBuildWasm")
@@ -32,7 +32,7 @@ abstract class GenerateRustWasmBindingsTask @javax.inject.Inject constructor(
     fun run() {
         execOps.exec {
             workingDir = rustProjectDir.get().asFile
-            commandLine("cargo", "build", "--target", "wasm32-unknown-unknown", "--release")
+            commandLine("cargo", "build", "--target", "wasm32-unknown-unknown", "--release", "--features", "hw-decoder")
         }
 
         outputDir.get().asFile.mkdirs()

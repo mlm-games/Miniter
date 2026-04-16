@@ -111,10 +111,16 @@ class ProjectViewModel(
                     snackbarManager.showError("Selected file has no video stream")
                     return@launch
                 }
-                val decodable = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90) != null
-                if (!decodable) {
+                try {
+                    val decodable = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90) != null
+                    if (!decodable) {
+                        _state.update { it.copy(isLoading = false) }
+                        snackbarManager.showError("Selected video cannot be decoded. Try H.264 MP4 or MOV.")
+                        return@launch
+                    }
+                } catch (e: Exception) {
                     _state.update { it.copy(isLoading = false) }
-                    snackbarManager.showError("Selected video cannot be decoded. Try H.264 MP4 or MOV.")
+                    snackbarManager.showError("Decode error: ${e.message}")
                     return@launch
                 }
                 sourceDurationMs = info.durationMs
@@ -243,8 +249,7 @@ class ProjectViewModel(
 
                 val firstClip = snapshot.timeline.tracks
                     .flatMap { it.clips }
-                    .mapNotNull { clip -> (clip.kind as? RustVideoClipKind)?.let { kind -> clip to kind } }
-                    .firstOrNull()
+                    .firstNotNullOfOrNull { clip -> (clip.kind as? RustVideoClipKind)?.let { kind -> clip to kind } }
 
                 if (firstClip != null) {
                     val clip = firstClip.first
@@ -708,23 +713,26 @@ kind = RustAudioClipKind(
     fun exportProject(outputPath: String) {
         val snapshot = rustStore.snapshot.value ?: return
         viewModelScope.launch {
-            val invalidVideoPath = snapshot.timeline.tracks
-                .flatMap { it.clips }
-                .mapNotNull { clip -> (clip.kind as? RustVideoClipKind)?.sourcePath }
-                .distinct()
-                .firstOrNull { path ->
-                    try {
-                        val info = engine.probeVideo(path)
-                        if (!info.hasVideo) return@firstOrNull true
-                        engine.extractSingleThumbnail(path, 0L, 160, 90) == null
-                    } catch (_: Exception) {
-                        true
+            var exportError: String? = null
+            for (path in snapshot.timeline.tracks.flatMap { it.clips }.mapNotNull { clipSnapshot -> (clipSnapshot.kind as? RustVideoClipKind)?.sourcePath }.distinct()) {
+                try {
+                    val info = engine.probeVideo(path)
+                    if (!info.hasVideo) {
+                        exportError = "'${path.substringAfterLast("/")}' has no video stream"
+                        break
                     }
+                    if (engine.extractSingleThumbnail(path, 0L, 160, 90) == null) {
+                        exportError = "'${path.substringAfterLast("/")}' cannot be decoded"
+                        break
+                    }
+                } catch (e: Exception) {
+                    exportError = "'${path.substringAfterLast("/")}': ${e.message}"
+                    break
                 }
+            }
 
-            if (invalidVideoPath != null) {
-                val fileName = invalidVideoPath.substringAfterLast("/").substringAfterLast("\\")
-                snackbarManager.showError("Cannot export: '$fileName' has no readable video stream")
+            if (exportError != null) {
+                snackbarManager.showError("Cannot export: $exportError")
                 return@launch
             }
 

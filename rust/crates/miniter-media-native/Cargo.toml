@@ -10,14 +10,12 @@ miniter-audio = { path = "../miniter-audio" }
 thiserror.workspace = true
 log.workspace = true
 
-# Container demux/mux
+# Container demux/mux (switch to videoson later)
 mp4 = "0.14"
 muxide = "0.2"
 
-# H.264 encoder
+# H.264 encoder & decoders (fallback)
 less-avc = "0.1.5"
-
-# Pure Rust H.264 decoder (fallback)
 videoson-core = { path = "/home/ymsr/Documents/Repos/videoson/videoson-core", optional = true }
 videoson-codec-h264 = { path = "/home/ymsr/Documents/Repos/videoson/videoson-codec-h264", optional = true }
 
@@ -42,18 +40,12 @@ ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer",
     "simd",
 ] }
 ass-core = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-core" }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-baabaabaabaabababbababbaa = { path = "/home/ymsr/Documents/Repos/baabaabaabaabababbababbaa", optional = true, default-features = false, features = [
-    "linux",
-] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 baabaabaabaabababbababbaa = { path = "/home/ymsr/Documents/Repos/baabaabaabaabababbababbaa", optional = true, default-features = false, features = [
     "android",
 ] }
-tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 baabaabaabaabababbababbaa = { path = "/home/ymsr/Documents/Repos/baabaabaabaabababbababbaa", optional = true, default-features = false, features = [
@@ -65,5 +57,5 @@ wasm-bindgen-futures = "0.4"
 
 [features]
 default = ["videoson"]
+hw-decoder = ["dep:baabaabaabaabababbababbaa"]
 videoson = ["dep:videoson-core", "dep:videoson-codec-h264"]
-experimental-baaba = ["dep:baabaabaabaabababbababbaa"]
