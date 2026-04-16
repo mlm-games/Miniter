@@ -31,6 +31,7 @@ import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
+import org.mlm.miniter.platform.normalizeMediaUriForPlayback
 import kotlin.time.TimeSource
 
 @Composable
@@ -99,12 +100,14 @@ fun EditorVideoPreview(
     }
 
     val clipSourcePath = currentClip?.sourcePath
+    val clipPlaybackUri = clipSourcePath?.let(::normalizeMediaUriForPlayback)
     val clipSpeed = currentClip?.speed ?: 1f
     val clipVolume = currentClip?.volume ?: 1f
     val clipFilters = currentClip?.filters ?: emptyList()
     val clipOpacity = currentClip?.opacity ?: 1f
 
     val audioClipSourcePath = currentAudioClip?.sourcePath
+    val audioPlaybackUri = audioClipSourcePath?.let(::normalizeMediaUriForPlayback)
     val audioClipVolume = currentAudioClip?.volume ?: 1f
     val audioClipSpeed = currentAudioClip?.speed ?: 1f
 
@@ -119,13 +122,13 @@ fun EditorVideoPreview(
 
     val audioPlayerState = rememberVideoPlayerState()
 
-    LaunchedEffect(audioClipSourcePath) {
-        if (audioClipSourcePath != null && audioClipSourcePath != lastLoadedAudioPath) {
+    LaunchedEffect(audioClipSourcePath, audioPlaybackUri) {
+        if (audioClipSourcePath != null && audioPlaybackUri != null && audioClipSourcePath != lastLoadedAudioPath) {
             audioPlayerReady = false
             audioFileDurationMs = 0L
             lastLoadedAudioPath = audioClipSourcePath
 
-            audioPlayerState.openUri(audioClipSourcePath)
+            audioPlayerState.openUri(audioPlaybackUri)
             delay(200)
             audioPlayerState.pause()
 
@@ -166,15 +169,15 @@ fun EditorVideoPreview(
         audioPlayerState.playbackSpeed = audioClipSpeed.coerceIn(0.25f, 4f)
     }
 
-    LaunchedEffect(clipSourcePath) {
-        if (clipSourcePath != null && clipSourcePath != lastLoadedPath) {
+    LaunchedEffect(clipSourcePath, clipPlaybackUri) {
+        if (clipSourcePath != null && clipPlaybackUri != null && clipSourcePath != lastLoadedPath) {
             playerReady = false
             grabberReady = false
             scrubbedFrame = null
             fullFileDurationMs = 0L
             lastLoadedPath = clipSourcePath
 
-            playerState.openUri(clipSourcePath)
+            playerState.openUri(clipPlaybackUri)
             delay(200)
             playerState.pause()
 
