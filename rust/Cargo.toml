@@ -22,7 +22,7 @@ thiserror = "2"
 log = "0.4"
 uniffi = { version = "0.31", features = ["wasm-unstable-single-threaded"] }
 
-[patch.crates-io]
+[patch.crates-io] # Probably push all online later to remove direct path listings?
 muxide = { path = "/home/ymsr/Documents/Repos/muxide" }
 ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer" }
 ass-core = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-core" }
