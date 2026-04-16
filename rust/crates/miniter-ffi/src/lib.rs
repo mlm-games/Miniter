@@ -4,6 +4,9 @@ use miniter_usecases::reducer::{self, EditorState};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
+#[cfg(target_arch = "wasm32")]
+mod wasm_bridge;
+
 uniffi::setup_scaffolding!();
 
 static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
@@ -236,25 +239,38 @@ pub fn export_project_json(
     project_json: String,
     output_path: String,
 ) -> Result<bool, MiniterError> {
-    EXPORT_CANCELLED.store(false, Ordering::SeqCst);
-    EXPORT_PROGRESS.store(0, Ordering::SeqCst);
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (project_json, output_path);
+        return Err(MiniterError::Media {
+            detail: "Export is not supported on wasm yet".to_string(),
+        });
+    }
 
-    let mut project = Project::from_json(&project_json).map_err(|e| MiniterError::Parse {
-        detail: e.to_string(),
-    })?;
-    project.export_profile.output_path = output_path.clone();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        EXPORT_CANCELLED.store(false, Ordering::SeqCst);
+        EXPORT_PROGRESS.store(0, Ordering::SeqCst);
 
-    match miniter_media_native::export::export_project(
-        &project,
-        std::path::Path::new(&output_path),
-        || EXPORT_CANCELLED.load(Ordering::Relaxed),
-        |pct| EXPORT_PROGRESS.store(pct, Ordering::SeqCst),
-    ) {
-        Ok(()) => Ok(true),
-        Err(miniter_media_native::export::ExportError::Cancelled) => Err(MiniterError::Cancelled),
-        Err(e) => Err(MiniterError::Media {
+        let mut project = Project::from_json(&project_json).map_err(|e| MiniterError::Parse {
             detail: e.to_string(),
-        }),
+        })?;
+        project.export_profile.output_path = output_path.clone();
+
+        match miniter_media_native::export::export_project(
+            &project,
+            std::path::Path::new(&output_path),
+            || EXPORT_CANCELLED.load(Ordering::Relaxed),
+            |pct| EXPORT_PROGRESS.store(pct, Ordering::SeqCst),
+        ) {
+            Ok(()) => Ok(true),
+            Err(miniter_media_native::export::ExportError::Cancelled) => {
+                Err(MiniterError::Cancelled)
+            }
+            Err(e) => Err(MiniterError::Media {
+                detail: e.to_string(),
+            }),
+        }
     }
 }
 

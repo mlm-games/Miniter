@@ -14,9 +14,12 @@ log.workspace = true
 mp4 = "0.14"
 muxide = "0.2"
 
-# H.264 codec (compiles from source with CXX vars so, is cross-platform)
-openh264 = { version = "0.9", features = ["source"] }
+# H.264 encoder
 less-avc = "0.1.5"
+
+# Pure Rust H.264 decoder (fallback)
+videoson-core = { path = "/home/ymsr/Documents/Repos/videoson/videoson-core", optional = true }
+videoson-codec-h264 = { path = "/home/ymsr/Documents/Repos/videoson/videoson-codec-h264", optional = true }
 
 # AV1
 rav1e = { version = "0.8", default-features = false }
@@ -26,12 +29,41 @@ av-ivf = "0.5"
 # Audio demuxing
 symphonia = { version = "0.5.5", features = ["isomp4", "mkv", "pcm"] }
 
-# Opus encoding)
+# Opus encoding
 mousiki = "0.2.1"
 
 # Text rendering for export
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 
-# ASS subtitle rendering
-ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer", default-features = false, features = ["software-backend", "image", "simd"] }
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer", default-features = false, features = [
+    "software-backend",
+    "image",
+    "simd",
+] }
 ass-core = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-core" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+baabaabaabaabababbababbaa = { path = "/home/ymsr/Documents/Repos/baabaabaabaabababbababbaa", optional = true, default-features = false, features = [
+    "linux",
+] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+baabaabaabaabababbababbaa = { path = "/home/ymsr/Documents/Repos/baabaabaabaabababbababbaa", optional = true, default-features = false, features = [
+    "android",
+] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+baabaabaabaabababbababbaa = { path = "/home/ymsr/Documents/Repos/baabaabaabaabababbababbaa", optional = true, default-features = false, features = [
+    "web-codecs",
+] }
+web-sys = { version = "0.3.91", features = ["Window", "Document", "Storage"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+wasm-bindgen-futures = "0.4"
+
+[features]
+default = ["videoson"]
+videoson = ["dep:videoson-core", "dep:videoson-codec-h264"]
+experimental-baaba = ["dep:baabaabaabaabababbababbaa"]

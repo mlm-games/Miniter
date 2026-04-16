@@ -164,7 +164,7 @@ private fun VideoClipProperties(
         valueRange = 0.25f..4f,
         steps = 14,
     )
-    Text("${String.format("%.2f", speedValue)}x", style = MaterialTheme.typography.labelSmall)
+    Text("${formatFixed(speedValue, 2)}x", style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(16.dp))
 
@@ -281,7 +281,7 @@ private fun VideoClipProperties(
 
                 var paramVal by remember(filter) { mutableFloatStateOf(currentVal) }
                 Spacer(Modifier.height(8.dp))
-                Text("$label: ${String.format("%.1f", paramVal)}", style = MaterialTheme.typography.labelSmall)
+                Text("$label: ${formatFixed(paramVal, 1)}", style = MaterialTheme.typography.labelSmall)
                 Slider(
                     value = paramVal,
                     onValueChange = { paramVal = it },
@@ -428,7 +428,7 @@ private fun VideoClipProperties(
             valueRange = 0.1f..2f,
             steps = 18,
         )
-        Text("${String.format("%.1f", transDuration)}s", style = MaterialTheme.typography.labelSmall)
+        Text("${formatFixed(transDuration, 1)}s", style = MaterialTheme.typography.labelSmall)
 
         Spacer(Modifier.height(4.dp))
 
@@ -583,7 +583,7 @@ private fun TextClipProperties(
 
     Spacer(Modifier.height(8.dp))
 
-    Text("X: ${String.format("%.0f", style.positionX * 100)}%", style = MaterialTheme.typography.labelSmall)
+    Text("X: ${formatFixed(style.positionX * 100f, 0)}%", style = MaterialTheme.typography.labelSmall)
     var posX by remember(style.positionX) { mutableFloatStateOf(style.positionX) }
     Slider(
         value = posX,
@@ -593,7 +593,7 @@ private fun TextClipProperties(
         modifier = Modifier.height(28.dp),
     )
 
-    Text("Y: ${String.format("%.0f", style.positionY * 100)}%", style = MaterialTheme.typography.labelSmall)
+    Text("Y: ${formatFixed(style.positionY * 100f, 0)}%", style = MaterialTheme.typography.labelSmall)
     var posY by remember(style.positionY) { mutableFloatStateOf(style.positionY) }
     Slider(
         value = posY,
@@ -685,7 +685,7 @@ private fun TextClipProperties(
         valueRange = 0.5f..30f,
         steps = 58,
     )
-    Text("${String.format("%.1f", durationSec)}s", style = MaterialTheme.typography.labelSmall)
+    Text("${formatFixed(durationSec, 1)}s", style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(12.dp))
     HorizontalDivider()
@@ -716,7 +716,7 @@ private fun TextClipProperties(
     if (transitionIn != null) {
         Spacer(Modifier.height(4.dp))
         var dur by remember(transitionIn.duration) { mutableFloatStateOf(transitionIn.duration / 1_000_000f) }
-        Text("Duration: ${String.format("%.1f", dur)}s", style = MaterialTheme.typography.labelSmall)
+        Text("Duration: ${formatFixed(dur, 1)}s", style = MaterialTheme.typography.labelSmall)
         Slider(
             value = dur, onValueChange = { dur = it },
             onValueChangeFinished = {
@@ -753,7 +753,7 @@ private fun TextClipProperties(
     if (transitionOut != null) {
         Spacer(Modifier.height(4.dp))
         var dur by remember(transitionOut.duration) { mutableFloatStateOf(transitionOut.duration / 1_000_000f) }
-        Text("Duration: ${String.format("%.1f", dur)}s", style = MaterialTheme.typography.labelSmall)
+        Text("Duration: ${formatFixed(dur, 1)}s", style = MaterialTheme.typography.labelSmall)
         Slider(
             value = dur, onValueChange = { dur = it },
             onValueChangeFinished = {
@@ -839,7 +839,7 @@ private fun SubtitleClipProperties(
         valueRange = 0.5f..120f,
         steps = 239,
     )
-    Text("${String.format("%.1f", durationSec)}s", style = MaterialTheme.typography.labelSmall)
+    Text("${formatFixed(durationSec, 1)}s", style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(12.dp))
 
@@ -1036,4 +1036,21 @@ private fun RustVideoFilterSnapshot.displayName(): String = when (this) {
     is RustSharpenFilterSnapshot -> "Sharpen"
     RustSepiaFilterSnapshot -> "Sepia"
     else -> "Filter"
+}
+
+private fun formatFixed(value: Float, decimals: Int): String {
+    val safeDecimals = decimals.coerceAtLeast(0)
+    var scale = 1
+    repeat(safeDecimals) { scale *= 10 }
+
+    val negative = value < 0f
+    val rounded = kotlin.math.round(kotlin.math.abs(value) * scale).toInt()
+    val intPart = rounded / scale
+
+    if (safeDecimals == 0) {
+        return (if (negative) "-" else "") + intPart.toString()
+    }
+
+    val fracPart = rounded % scale
+    return (if (negative) "-" else "") + intPart.toString() + "." + fracPart.toString().padStart(safeDecimals, '0')
 }

@@ -20,9 +20,20 @@ fun <T : NavKey> NavBackStack<T>.replaceTop(key: T) {
 }
 
 fun formatTimestamp(ms: Long): String {
-    val totalSeconds = ms / 1000
+    val normalizedMs = ms.coerceAtLeast(0L)
+    val totalSeconds = normalizedMs / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    val millis = (ms % 1000) / 10
-    return "%02d:%02d.%02d".format(minutes, seconds, millis)
+    val hundredths = (normalizedMs % 1000) / 10
+
+    return buildString {
+        if (minutes < 10) append('0')
+        append(minutes)
+        append(':')
+        if (seconds < 10) append('0')
+        append(seconds)
+        append('.')
+        if (hundredths < 10) append('0')
+        append(hundredths)
+    }
 }

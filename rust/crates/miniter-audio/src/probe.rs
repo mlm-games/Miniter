@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
@@ -27,8 +28,25 @@ pub fn probe_audio(path: &Path) -> Result<AudioMeta, ProbeError> {
     let file = File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
+    probe_audio_stream(mss, path.extension().and_then(|e| e.to_str()))
+}
+
+pub fn probe_audio_bytes(
+    bytes: &[u8],
+    extension_hint: Option<&str>,
+) -> Result<AudioMeta, ProbeError> {
+    let cursor = Cursor::new(bytes.to_vec());
+    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+
+    probe_audio_stream(mss, extension_hint)
+}
+
+fn probe_audio_stream(
+    mss: MediaSourceStream,
+    extension_hint: Option<&str>,
+) -> Result<AudioMeta, ProbeError> {
     let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+    if let Some(ext) = extension_hint {
         hint.with_extension(ext);
     }
 

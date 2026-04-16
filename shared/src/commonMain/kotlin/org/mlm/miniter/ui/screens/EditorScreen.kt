@@ -17,8 +17,8 @@ import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.FileKitType
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import io.github.vinceglb.filekit.name
-import io.github.vinceglb.filekit.path
 import org.koin.compose.koinInject
+import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.project.RecentProject
 import org.mlm.miniter.ui.components.dialogs.NewProjectDialog
@@ -51,17 +51,17 @@ fun EditorScreen(
     val projectPicker = rememberFilePickerLauncher(
         type = FileKitType.File(extensions = listOf("mntr")),
     ) { file: PlatformFile? ->
-        file?.let { onOpenProject(it.path, it.name, null, true) }
+        file?.let { onOpenProject(it.platformPath(), it.name, null, true) }
     }
 
     pendingVideo?.let { video ->
         NewProjectDialog(
-            videoPath = video.path,
+            videoPath = video.platformPath(),
             videoName = video.name,
             onDismiss = { pendingVideo = null },
             onCreate = { projectName, savePath ->
                 pendingVideo = null
-                onOpenProject(video.path, projectName, savePath, false)
+                onOpenProject(video.platformPath(), projectName, savePath, false)
             },
         )
     }
