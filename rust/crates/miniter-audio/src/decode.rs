@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
 
 use symphonia::core::audio::SampleBuffer;
@@ -60,8 +61,25 @@ pub fn decode_audio_f32(path: &Path) -> Result<DecodedAudio, DecodeAudioError> {
     let file = File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
+    decode_audio_stream(mss, path.extension().and_then(|e| e.to_str()))
+}
+
+pub fn decode_audio_f32_bytes(
+    bytes: &[u8],
+    extension_hint: Option<&str>,
+) -> Result<DecodedAudio, DecodeAudioError> {
+    let cursor = Cursor::new(bytes.to_vec());
+    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+
+    decode_audio_stream(mss, extension_hint)
+}
+
+fn decode_audio_stream(
+    mss: MediaSourceStream,
+    extension_hint: Option<&str>,
+) -> Result<DecodedAudio, DecodeAudioError> {
     let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+    if let Some(ext) = extension_hint {
         hint.with_extension(ext);
     }
 

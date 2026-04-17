@@ -4,7 +4,7 @@ use std::path::Path;
 use miniter_domain::clip::ClipKind;
 use miniter_domain::Project;
 
-use crate::decode::{decode_audio_f32, DecodeAudioError, DecodedAudio};
+use crate::decode::{decode_audio_f32, decode_audio_f32_bytes, DecodeAudioError, DecodedAudio};
 
 #[derive(Debug, Clone, Copy)]
 pub struct MixConfig {
@@ -53,6 +53,22 @@ pub fn mix_project_audio(
     project: &Project,
     config: MixConfig,
 ) -> Result<MixedAudio, AudioMixError> {
+    mix_project_audio_internal(project, config, None)
+}
+
+pub fn mix_project_audio_with_source_map(
+    project: &Project,
+    config: MixConfig,
+    source_map: &HashMap<String, Vec<u8>>,
+) -> Result<MixedAudio, AudioMixError> {
+    mix_project_audio_internal(project, config, Some(source_map))
+}
+
+fn mix_project_audio_internal(
+    project: &Project,
+    config: MixConfig,
+    source_map: Option<&HashMap<String, Vec<u8>>>,
+) -> Result<MixedAudio, AudioMixError> {
     if config.sample_rate == 0 {
         return Err(AudioMixError::InvalidSampleRate);
     }
@@ -82,8 +98,7 @@ pub fn mix_project_audio(
 
     for clip in scheduled {
         if !cache.contains_key(&clip.source_path) {
-            let path = Path::new(&clip.source_path);
-            let cached = match decode_audio_f32(path) {
+            let cached = match decode_source_audio(&clip.source_path, source_map) {
                 Ok(decoded) => Some(adapt_audio(decoded, config)),
                 Err(DecodeAudioError::NoAudioTrack) => None,
                 Err(err) => return Err(AudioMixError::Decode(err)),
@@ -151,6 +166,23 @@ pub fn mix_project_audio(
         channels: config.channels,
         samples: mixed,
     })
+}
+
+fn decode_source_audio(
+    source_path: &str,
+    source_map: Option<&HashMap<String, Vec<u8>>>,
+) -> Result<DecodedAudio, DecodeAudioError> {
+    if let Some(map) = source_map {
+        if let Some(bytes) = map.get(source_path) {
+            return decode_audio_f32_bytes(bytes, extension_hint_from_path(source_path));
+        }
+    }
+
+    decode_audio_f32(Path::new(source_path))
+}
+
+fn extension_hint_from_path(path: &str) -> Option<&str> {
+    Path::new(path).extension().and_then(|ext| ext.to_str())
 }
 
 fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<ScheduledAudioClip> {

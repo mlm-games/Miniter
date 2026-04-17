@@ -132,6 +132,12 @@ actual class RustCoreSession private constructor(
             }
         }
 
+        fun mediaBlobUrl(path: String): String = wasmMediaBlobUrl(path)
+
+        fun revokeBlobUrl(url: String) {
+            wasmRevokeBlobUrl(url)
+        }
+
         actual fun fromJson(json: String): RustCoreSession =
             RustCoreSession(WasmEditorHandle.fromJson(json))
 

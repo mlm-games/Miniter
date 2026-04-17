@@ -26,6 +26,7 @@ internal object WasmPlatformFileRegistry {
     fun remove(path: String): Boolean {
         val removed = files.remove(path) ?: return false
         pathsByFile.remove(removed)
+        WasmPlaybackUriCache.forget(path)
         return true
     }
 }

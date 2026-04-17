@@ -101,6 +101,7 @@ fun EditorVideoPreview(
 
     val clipSourcePath = currentClip?.sourcePath
     val clipPlaybackUri = clipSourcePath?.let(::normalizeMediaUriForPlayback)
+    val canPlayClip = !clipPlaybackUri.isNullOrBlank()
     val clipSpeed = currentClip?.speed ?: 1f
     val clipVolume = currentClip?.volume ?: 1f
     val clipFilters = currentClip?.filters ?: emptyList()
@@ -108,6 +109,7 @@ fun EditorVideoPreview(
 
     val audioClipSourcePath = currentAudioClip?.sourcePath
     val audioPlaybackUri = audioClipSourcePath?.let(::normalizeMediaUriForPlayback)
+    val canPlayAudioClip = !audioPlaybackUri.isNullOrBlank()
     val audioClipVolume = currentAudioClip?.volume ?: 1f
     val audioClipSpeed = currentAudioClip?.speed ?: 1f
 
@@ -123,12 +125,13 @@ fun EditorVideoPreview(
     val audioPlayerState = rememberVideoPlayerState()
 
     LaunchedEffect(audioClipSourcePath, audioPlaybackUri) {
-        if (audioClipSourcePath != null && audioPlaybackUri != null && audioClipSourcePath != lastLoadedAudioPath) {
+        if (audioClipSourcePath != null && canPlayAudioClip && audioClipSourcePath != lastLoadedAudioPath) {
+            val playbackUri = audioPlaybackUri
             audioPlayerReady = false
             audioFileDurationMs = 0L
             lastLoadedAudioPath = audioClipSourcePath
 
-            audioPlayerState.openUri(audioPlaybackUri)
+            audioPlayerState.openUri(playbackUri)
             delay(200)
             audioPlayerState.pause()
 
@@ -159,6 +162,13 @@ fun EditorVideoPreview(
             lastLoadedAudioPath = null
             audioPlayerState.pause()
         }
+
+        if (!canPlayAudioClip) {
+            audioPlayerReady = false
+            audioFileDurationMs = 0L
+            lastLoadedAudioPath = null
+            audioPlayerState.pause()
+        }
     }
 
     LaunchedEffect(audioClipVolume) {
@@ -170,14 +180,15 @@ fun EditorVideoPreview(
     }
 
     LaunchedEffect(clipSourcePath, clipPlaybackUri) {
-        if (clipSourcePath != null && clipPlaybackUri != null && clipSourcePath != lastLoadedPath) {
+        if (clipSourcePath != null && canPlayClip && clipSourcePath != lastLoadedPath) {
+            val playbackUri = clipPlaybackUri
             playerReady = false
             grabberReady = false
             scrubbedFrame = null
             fullFileDurationMs = 0L
             lastLoadedPath = clipSourcePath
 
-            playerState.openUri(clipPlaybackUri)
+            playerState.openUri(playbackUri)
             delay(200)
             playerState.pause()
 
@@ -205,6 +216,13 @@ fun EditorVideoPreview(
             }
 
             playerReady = true
+        }
+
+        if (!canPlayClip) {
+            playerReady = false
+            fullFileDurationMs = 0L
+            lastLoadedPath = null
+            playerState.pause()
         }
     }
 
@@ -266,7 +284,7 @@ fun EditorVideoPreview(
         if (currentClip == null) {
             playerState.pause()
             val audioClip = currentAudioClip
-            if (audioClip == null || !audioPlayerReady || audioFileDurationMs <= 0L) {
+            if (audioClip == null || !canPlayAudioClip || !audioPlayerReady || audioFileDurationMs <= 0L) {
                 onPlayingChange(false)
                 playerState.pause()
                 audioPlayerState.pause()
@@ -316,7 +334,12 @@ fun EditorVideoPreview(
             return@LaunchedEffect
         }
 
-        if (!playerReady) return@LaunchedEffect
+        if (!canPlayClip || !playerReady) {
+            onPlayingChange(false)
+            playerState.pause()
+            audioPlayerState.pause()
+            return@LaunchedEffect
+        }
 
         if (fullFileDurationMs <= 0L) {
             onPlayingChange(false)
@@ -348,7 +371,7 @@ fun EditorVideoPreview(
         val audioSpeed = currentAudioClip?.speed ?: 1f
         val audioSourceStartMs = currentAudioClip?.sourceStartMs ?: 0L
 
-        if (audioClipSourcePath != null && audioStartMs != null && audioEndMs != null && audioPlayerReady && audioFileDurationMs > 0L) {
+        if (audioClipSourcePath != null && canPlayAudioClip && audioStartMs != null && audioEndMs != null && audioPlayerReady && audioFileDurationMs > 0L) {
             if (playheadMs in audioStartMs until audioEndMs) {
                 val audioOffset = playheadMs - audioStartMs
                 val audioSourceTimeMs = audioSourceStartMs + (audioOffset * audioSpeed).toLong()
@@ -411,7 +434,7 @@ fun EditorVideoPreview(
                 )
             }
 
-            clipSourcePath != null && lastLoadedPath == clipSourcePath -> {
+            canPlayClip && lastLoadedPath == clipSourcePath -> {
                 VideoPlayerSurface(
                     playerState = playerState,
                     modifier = Modifier.fillMaxSize(),

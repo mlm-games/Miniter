@@ -28,6 +28,7 @@ pub enum RenderNode {
     },
     Subtitle {
         source_path: String,
+        source_pts: Timestamp,
         opacity: f32,
     },
     Stack(Vec<RenderNode>),
@@ -171,6 +172,7 @@ fn node_for_clip(
         ClipKind::Subtitle(sub) => match subtitle_mode {
             SubtitleMode::Hard => Some(RenderNode::Subtitle {
                 source_path: sub.source_path.clone(),
+                source_pts,
                 opacity: clip.opacity,
             }),
             SubtitleMode::Soft => None,

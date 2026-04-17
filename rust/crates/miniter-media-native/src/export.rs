@@ -826,6 +826,7 @@ fn render_node(
 
         RenderNode::Subtitle {
             source_path,
+            source_pts: _,
             opacity,
         } => {
             if !Path::new(source_path).exists() {
