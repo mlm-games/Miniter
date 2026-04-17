@@ -129,7 +129,13 @@ mod videoson_decoder {
     }
 }
 
-#[cfg(feature = "hw-decoder")]
+#[cfg(all(
+    feature = "hw-decoder",
+    any(
+        all(target_os = "android", target_arch = "aarch64"),
+        target_arch = "wasm32"
+    )
+))]
 mod baaba_decoder {
     use super::*;
     use baabaabaabaabababbababbaa::{
@@ -235,6 +241,8 @@ mod baaba_decoder {
     }
 
     fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeError> {
+        let pts_us = frame.timestamp.as_micros().min(i64::MAX as u128) as i64;
+
         match frame.planes {
             VideoPlanes::Cpu(data) => {
                 let w = frame.dimensions.width as usize;
@@ -250,7 +258,7 @@ mod baaba_decoder {
                         width: frame.dimensions.width,
                         height: frame.dimensions.height,
                         data: rgba,
-                        pts_us: 0,
+                        pts_us,
                     })
                 } else {
                     Err(DecodeError::Other("Invalid plane data".to_string()))
@@ -279,7 +287,13 @@ pub struct VideoDecodeSession<R: std::io::Read + Seek> {
 
     #[cfg(feature = "videoson")]
     videoson: Option<videoson_decoder::VideosonDecoder>,
-    #[cfg(feature = "hw-decoder")]
+    #[cfg(all(
+        feature = "hw-decoder",
+        any(
+            all(target_os = "android", target_arch = "aarch64"),
+            target_arch = "wasm32"
+        )
+    ))]
     baaba: Option<baaba_decoder::BaabaDecoder>,
 }
 
@@ -335,7 +349,13 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
 
         #[cfg(feature = "videoson")]
         let videoson = Some(videoson_decoder::VideosonDecoder::new(width, height)?);
-        #[cfg(feature = "hw-decoder")]
+        #[cfg(all(
+            feature = "hw-decoder",
+            any(
+                all(target_os = "android", target_arch = "aarch64"),
+                target_arch = "wasm32"
+            )
+        ))]
         let baaba = baaba_decoder::BaabaDecoder::new(width, height).ok();
 
         Ok(Self {
@@ -353,7 +373,13 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             pending_frame: None,
             #[cfg(feature = "videoson")]
             videoson,
-            #[cfg(feature = "hw-decoder")]
+            #[cfg(all(
+                feature = "hw-decoder",
+                any(
+                    all(target_os = "android", target_arch = "aarch64"),
+                    target_arch = "wasm32"
+                )
+            ))]
             baaba,
         })
     }
@@ -376,64 +402,77 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             return Ok(Some(frame));
         }
 
-        if self.current_sample > self.total_samples {
-            return Ok(None);
-        }
+        while self.current_sample <= self.total_samples {
+            let sample = self
+                .mp4
+                .read_sample(self.video_track_id, self.current_sample)?
+                .ok_or_else(|| DecodeError::Other("Failed to read sample".to_string()))?;
 
-        let sample = self
-            .mp4
-            .read_sample(self.video_track_id, self.current_sample)?
-            .ok_or_else(|| DecodeError::Other("Failed to read sample".to_string()))?;
+            let pts = if self.timescale > 0 {
+                ((sample.start_time as f64 / self.timescale as f64) * 1_000_000.0).round() as i64
+            } else {
+                0
+            };
 
-        let pts = if self.timescale > 0 {
-            ((sample.start_time as f64 / self.timescale as f64) * 1_000_000.0).round() as i64
-        } else {
-            0
-        };
+            if pts <= self.last_pts_us {
+                self.last_pts_us = pts.saturating_add(1);
+            } else {
+                self.last_pts_us = pts;
+            }
 
-        if pts <= self.last_pts_us {
-            self.last_pts_us = pts.saturating_add(1);
-        } else {
-            self.last_pts_us = pts;
-        }
+            self.current_sample += 1;
 
-        self.current_sample += 1;
+            let annex_b = mp4_nalu_to_annex_b(
+                &sample.bytes,
+                self.nalu_length_size,
+                self.sps.as_deref(),
+                self.pps.as_deref(),
+            );
 
-        let annex_b = mp4_nalu_to_annex_b(
-            &sample.bytes,
-            self.nalu_length_size,
-            self.sps.as_deref(),
-            self.pps.as_deref(),
-        );
-
-        #[cfg(feature = "hw-decoder")]
-        {
-            if let Some(ref mut dec) = self.baaba {
-                return match dec.decode(annex_b.clone(), self.last_pts_us) {
-                    Ok(frame) => Ok(frame),
-                    Err(e) => {
-                        log::warn!("Baaba decoder failed, falling back to videoson: {}", e);
-                        self.baaba = None;
-                        #[cfg(feature = "videoson")]
-                        {
-                            if let Some(ref mut vdec) = self.videoson {
-                                return vdec.decode(annex_b, self.last_pts_us);
+            #[cfg(all(
+                feature = "hw-decoder",
+                any(
+                    all(target_os = "android", target_arch = "aarch64"),
+                    target_arch = "wasm32"
+                )
+            ))]
+            {
+                if let Some(ref mut dec) = self.baaba {
+                    match dec.decode(annex_b.clone(), self.last_pts_us) {
+                        Ok(Some(frame)) => return Ok(Some(frame)),
+                        Ok(None) => continue,
+                        Err(e) => {
+                            log::warn!("Baaba decoder failed, falling back to videoson: {}", e);
+                            self.baaba = None;
+                            #[cfg(feature = "videoson")]
+                            {
+                                if let Some(ref mut vdec) = self.videoson {
+                                    if let Some(frame) = vdec.decode(annex_b, self.last_pts_us)? {
+                                        return Ok(Some(frame));
+                                    }
+                                    continue;
+                                }
                             }
+                            return Err(e);
                         }
-                        Err(e)
                     }
-                };
+                }
             }
+
+            #[cfg(feature = "videoson")]
+            {
+                if let Some(ref mut dec) = self.videoson {
+                    if let Some(frame) = dec.decode(annex_b, self.last_pts_us)? {
+                        return Ok(Some(frame));
+                    }
+                    continue;
+                }
+            }
+
+            return Err(DecodeError::DecoderNotAvailable);
         }
 
-        #[cfg(feature = "videoson")]
-        {
-            if let Some(ref mut dec) = self.videoson {
-                return dec.decode(annex_b, self.last_pts_us);
-            }
-        }
-
-        Err(DecodeError::DecoderNotAvailable)
+        Ok(None)
     }
 
     pub fn reset(&mut self) -> Result<(), DecodeError> {
@@ -446,7 +485,13 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             dec.reset();
         }
 
-        #[cfg(feature = "hw-decoder")]
+        #[cfg(all(
+            feature = "hw-decoder",
+            any(
+                all(target_os = "android", target_arch = "aarch64"),
+                target_arch = "wasm32"
+            )
+        ))]
         if let Some(ref mut dec) = self.baaba {
             dec.flush();
         }

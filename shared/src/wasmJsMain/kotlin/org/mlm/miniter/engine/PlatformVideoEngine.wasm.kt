@@ -1,8 +1,12 @@
 package org.mlm.miniter.engine
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.rust.RustCoreSession
@@ -32,23 +36,53 @@ actual class PlatformVideoEngine actual constructor() {
             )
 
             try {
-                val ok = RustCoreSession.exportProjectJson(projectJson, outputPath)
-                _exportProgress.value = if (ok && !exportCancelled) {
-                    ExportProgress(
-                        phase = "Export complete",
-                        progress = 1f,
-                        isComplete = true,
-                    )
-                } else {
+                coroutineScope {
+                    val progressJob = launch {
+                        while (isActive && !exportCancelled) {
+                            val pct = RustCoreSession.exportProgress().toInt()
+                            _exportProgress.value = ExportProgress(
+                                phase = "Encoding video…",
+                                progress = (pct / 100_000f).coerceIn(0f, 1f),
+                            )
+                            kotlinx.coroutines.delay(100)
+                        }
+                    }
+
+                    try {
+                        val ok = RustCoreSession.exportProjectJson(projectJson, outputPath)
+                        progressJob.cancel()
+                        ensureActive()
+
+                        _exportProgress.value = if (ok && !exportCancelled) {
+                            ExportProgress(
+                                phase = "Export complete",
+                                progress = 1f,
+                                isComplete = true,
+                            )
+                        } else {
+                            ExportProgress(
+                                phase = "Export cancelled",
+                                isCancelled = true,
+                            )
+                        }
+                    } catch (e: Throwable) {
+                        progressJob.cancel()
+                        throw e
+                    }
+                }
+            } catch (e: Throwable) {
+                val cancelled = exportCancelled || e.message?.contains("cancel", ignoreCase = true) == true
+
+                _exportProgress.value = if (cancelled) {
                     ExportProgress(
                         phase = "Export cancelled",
                         isCancelled = true,
                     )
+                } else {
+                    ExportProgress(
+                        error = e.message ?: "Export failed",
+                    )
                 }
-            } catch (e: Throwable) {
-                _exportProgress.value = ExportProgress(
-                    error = e.message ?: "Export failed",
-                )
             }
         }
     }

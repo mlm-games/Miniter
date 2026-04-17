@@ -6,6 +6,8 @@ use std::sync::Mutex;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_bridge;
+#[cfg(target_arch = "wasm32")]
+mod wasm_export;
 
 uniffi::setup_scaffolding!();
 

@@ -1194,6 +1194,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "uuid",
+ "web-time",
 ]
 
 [[package]]
@@ -1202,19 +1203,24 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "console_error_panic_hook",
+ "font8x8",
  "getrandom 0.3.4",
+ "ivf",
+ "js-sys",
  "log",
  "miniter-audio",
  "miniter-domain",
  "miniter-media-native",
  "miniter-render-plan",
  "miniter-usecases",
+ "mousiki",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
  "thiserror 2.0.18",
  "uniffi",
  "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -1244,6 +1250,7 @@ dependencies = [
  "videoson-core",
  "wasm-bindgen-futures",
  "web-sys",
+ "web-time",
 ]
 
 [[package]]
