@@ -101,6 +101,54 @@ fn trigger_download(blob_url: &str, file_name: &str) -> Result<(), JsValue> {
     Ok(())
 }
 
+fn registered_file_to_blob_url(path: &str) -> Result<String, JsValue> {
+    let files = REGISTERED_FILES
+        .lock()
+        .map_err(|_| JsValue::from_str("Lock poisoned"))?;
+    let Some(file) = files.get(path) else {
+        return Ok(path.to_string());
+    };
+
+    let data = Uint8Array::from(file.bytes.as_slice());
+    let parts = Array::new();
+    parts.push(&data);
+
+    let mime = file
+        .extension_hint
+        .as_deref()
+        .map(guess_mime_type_from_extension)
+        .unwrap_or("application/octet-stream");
+    let bag = BlobPropertyBag::new();
+    bag.set_type(mime);
+    let blob =
+        Blob::new_with_u8_array_sequence_and_options(&parts, &bag).map_err(|e| JsValue::from(e))?;
+
+    Url::create_object_url_with_blob(&blob).map_err(|e| JsValue::from(e))
+}
+
+fn guess_mime_type_from_extension(ext: &str) -> &'static str {
+    match ext
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        "mkv" => "video/x-matroska",
+        "m4v" => "video/x-m4v",
+        "avi" => "video/x-msvideo",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "flac" => "audio/flac",
+        "aac" => "audio/aac",
+        "m4a" => "audio/mp4",
+        _ => "application/octet-stream",
+    }
+}
+
 #[wasm_bindgen(start)]
 pub fn init() {
     console_error_panic_hook::set_once();
@@ -506,4 +554,14 @@ pub fn export_project_blob(project_json: String, output_path: String) -> Result<
     let payload = run_wasm_export(project_json, output_path)?;
     serde_json::to_string(&payload)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+}
+
+#[wasm_bindgen(js_name = mediaBlobUrl)]
+pub fn media_blob_url(path: String) -> Result<String, JsValue> {
+    registered_file_to_blob_url(&path)
+}
+
+#[wasm_bindgen(js_name = revokeBlobUrl)]
+pub fn revoke_blob_url(url: String) -> Result<(), JsValue> {
+    Url::revoke_object_url(&url).map_err(|e| JsValue::from(e))
 }

@@ -2,16 +2,23 @@ use std::collections::HashMap;
 use std::io::{BufReader, Cursor, Seek, SeekFrom, Write};
 use std::path::Path;
 
+use font8x8::{UnicodeFonts, BASIC_FONTS};
+use miniter_audio::mix::{mix_project_audio_with_source_map, MixConfig, MixedAudio};
 use miniter_domain::clip::{ClipId, ClipKind, VideoClip};
-use miniter_domain::export::ExportFormat;
+use miniter_domain::export::{ExportFormat, SubtitleMode};
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::project::Project;
+use miniter_domain::text_overlay::{TextAlignment, TextOverlay, TextStyle};
 use miniter_domain::time::Timestamp;
+use miniter_domain::track::TrackKind;
 use miniter_media_native::decoder::{DecodeError, VideoDecodeSession};
 use miniter_media_native::encoder::{EncodedVideoOutput, VideoEncodeSession};
 use miniter_media_native::encoder_av1::{Av1EncodeSession, Av1Packet};
 use miniter_media_native::frame::RgbaFrame;
-use miniter_media_native::mux::{extract_sps_pps, ContainerFormat, Mp4Muxer, VideoTrackCodecOut};
+use miniter_media_native::mux::{
+    extract_sps_pps, ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut,
+    SubtitleTrackConfigOut, VideoTrackCodecOut,
+};
 use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
@@ -56,8 +63,24 @@ struct ExportDecodeSession {
     pending_frame: Option<RgbaFrame>,
 }
 
+#[derive(Debug, Clone)]
+struct SubtitleCue {
+    start_us: i64,
+    end_us: i64,
+    text: String,
+}
+
+#[derive(Debug, Clone)]
+struct SoftSubtitleSample {
+    start_us: i64,
+    duration_us: i64,
+    text: String,
+}
+
 struct ExportDecodeCache<'a> {
     sessions: HashMap<ClipId, ExportDecodeSession>,
+    subtitle_cues: HashMap<String, Vec<SubtitleCue>>,
+    first_decoded_video_pts_us: Option<i64>,
     registered_files: &'a HashMap<String, Vec<u8>>,
 }
 
@@ -65,7 +88,15 @@ impl<'a> ExportDecodeCache<'a> {
     fn new(registered_files: &'a HashMap<String, Vec<u8>>) -> Self {
         Self {
             sessions: HashMap::new(),
+            subtitle_cues: HashMap::new(),
+            first_decoded_video_pts_us: None,
             registered_files,
+        }
+    }
+
+    fn remember_first_decoded_video_pts(&mut self, pts_us: i64) {
+        if self.first_decoded_video_pts_us.is_none() {
+            self.first_decoded_video_pts_us = Some(pts_us);
         }
     }
 
@@ -173,6 +204,35 @@ impl<'a> ExportDecodeCache<'a> {
             }
         }
     }
+
+    fn subtitle_text_at(
+        &mut self,
+        path: &str,
+        source_pts_us: i64,
+    ) -> Result<Option<String>, String> {
+        if !self.subtitle_cues.contains_key(path) {
+            let cues = load_subtitle_cues(path, self.registered_files);
+            self.subtitle_cues.insert(path.to_string(), cues);
+        }
+
+        let cues = self
+            .subtitle_cues
+            .get(path)
+            .ok_or_else(|| "subtitle cache internal error".to_string())?;
+
+        let mut active = Vec::new();
+        for cue in cues {
+            if source_pts_us >= cue.start_us && source_pts_us < cue.end_us {
+                active.push(cue.text.as_str());
+            }
+        }
+
+        if active.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(active.join("\n")))
+        }
+    }
 }
 
 pub fn export_project_to_bytes(
@@ -261,9 +321,28 @@ fn export_h264_mp4_bytes(
 ) -> Result<Vec<u8>, String> {
     let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
+    let audio_encoded = prepare_audio_track(project, registered_files)?;
+    let audio_track = audio_encoded.as_ref().map(|encoded| OpusTrackConfigOut {
+        sample_rate: 48_000,
+        channels: encoded.channels,
+    });
+    let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
+        collect_soft_subtitle_samples(project, registered_files)
+    } else {
+        Vec::new()
+    };
+    let subtitle_track = if subtitle_samples.is_empty() {
+        None
+    } else {
+        Some(SubtitleTrackConfigOut {
+            codec: SubtitleTrackCodecOut::MovText,
+            language: Some("und".to_string()),
+        })
+    };
 
     let mut decode_cache = ExportDecodeCache::new(registered_files);
     on_progress(1);
+    on_progress(5);
 
     let mut encoder = VideoEncodeSession::new(
         settings.width,
@@ -330,8 +409,8 @@ fn export_h264_mp4_bytes(
             &sps,
             &pps,
             ContainerFormat::Mp4,
-            None,
-            None,
+            audio_track,
+            subtitle_track,
             VideoTrackCodecOut::H264,
         )
         .map_err(|e| format!("MP4 muxer init failed: {e}"))?;
@@ -383,6 +462,22 @@ fn export_h264_mp4_bytes(
             on_progress(pct.min(100_000));
         }
 
+        if let Some(encoded_audio) = &audio_encoded {
+            let start_anchor_us =
+                decode_cache.first_decoded_video_pts_us.unwrap_or(0).max(0) as u64;
+            write_audio_packets(&mut muxer, encoded_audio, start_anchor_us)?;
+        }
+
+        for sample in &subtitle_samples {
+            muxer
+                .write_subtitle_sample_at(
+                    sample.start_us.max(0) as u64,
+                    sample.duration_us.max(1) as u64,
+                    &sample.text,
+                )
+                .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
+        }
+
         muxer
             .finish()
             .map_err(|e| format!("MP4 finalize failed: {e}"))?;
@@ -400,9 +495,28 @@ fn export_av1_mp4_bytes(
 ) -> Result<Vec<u8>, String> {
     let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
+    let audio_encoded = prepare_audio_track(project, registered_files)?;
+    let audio_track = audio_encoded.as_ref().map(|encoded| OpusTrackConfigOut {
+        sample_rate: 48_000,
+        channels: encoded.channels,
+    });
+    let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
+        collect_soft_subtitle_samples(project, registered_files)
+    } else {
+        Vec::new()
+    };
+    let subtitle_track = if subtitle_samples.is_empty() {
+        None
+    } else {
+        Some(SubtitleTrackConfigOut {
+            codec: SubtitleTrackCodecOut::MovText,
+            language: Some("und".to_string()),
+        })
+    };
 
     let mut decode_cache = ExportDecodeCache::new(registered_files);
     on_progress(1);
+    on_progress(5);
 
     let mut encoder =
         Av1EncodeSession::new(settings.width, settings.height, settings.fps, bitrate_kbps)
@@ -417,8 +531,8 @@ fn export_av1_mp4_bytes(
         &[],
         &[],
         ContainerFormat::Mp4,
-        None,
-        None,
+        audio_track,
+        subtitle_track,
         VideoTrackCodecOut::Av1,
     )
     .map_err(|e| format!("MP4 muxer init failed: {e}"))?;
@@ -471,6 +585,21 @@ fn export_av1_mp4_bytes(
         .finish()
         .map_err(|e| format!("AV1 finalize failed: {e}"))?;
     write_av1_packets_to_mux(&mut muxer, &finish_packets)?;
+
+    if let Some(encoded_audio) = &audio_encoded {
+        let start_anchor_us = decode_cache.first_decoded_video_pts_us.unwrap_or(0).max(0) as u64;
+        write_audio_packets(&mut muxer, encoded_audio, start_anchor_us)?;
+    }
+
+    for sample in &subtitle_samples {
+        muxer
+            .write_subtitle_sample_at(
+                sample.start_us.max(0) as u64,
+                sample.duration_us.max(1) as u64,
+                &sample.text,
+            )
+            .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
+    }
 
     muxer
         .finish()
@@ -595,6 +724,656 @@ fn write_av1_packets_to_mux<W: Write>(
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+struct EncodedOpusPacket {
+    pts_us: u64,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+struct EncodedOpus {
+    channels: u16,
+    packets: Vec<EncodedOpusPacket>,
+}
+
+fn prepare_audio_track(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+) -> Result<Option<EncodedOpus>, String> {
+    let mixed = mix_project_audio_with_source_map(project, MixConfig::default(), registered_files)
+        .map_err(|e| format!("Audio mix failed: {e}"))?;
+    if mixed.samples.is_empty() {
+        return Ok(None);
+    }
+
+    let bitrate_bps = project
+        .export_profile
+        .audio_bitrate_kbps
+        .max(32)
+        .saturating_mul(1000);
+    let encoded = encode_opus(&mixed, bitrate_bps)?;
+    if encoded.packets.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(encoded))
+}
+
+fn write_audio_packets<W: Write>(
+    muxer: &mut Mp4Muxer<W>,
+    encoded: &EncodedOpus,
+    start_anchor_us: u64,
+) -> Result<(), String> {
+    for packet in &encoded.packets {
+        let pts = start_anchor_us.saturating_add(packet.pts_us);
+        muxer
+            .write_audio_sample_at(pts, &packet.bytes)
+            .map_err(|e| format!("MP4 audio write failed: {e}"))?;
+    }
+    Ok(())
+}
+
+fn encode_opus(mixed: &MixedAudio, bitrate_bps: u32) -> Result<EncodedOpus, String> {
+    use mousiki::{
+        Application as MousikiApplication, Bitrate as MousikiBitrate, Channels as MousikiChannels,
+        Encoder as MousikiEncoder, FrameDuration as MousikiFrameDuration,
+    };
+
+    let channels = mixed.channels;
+
+    let mousiki_channels = match channels {
+        1 => MousikiChannels::Mono,
+        2 => MousikiChannels::Stereo,
+        other => return Err(format!("Unsupported channel count: {other}")),
+    };
+
+    let sample_rate = 48_000u32;
+    let pcm = if mixed.sample_rate == sample_rate {
+        mixed.samples.clone()
+    } else {
+        if mixed.sample_rate == 0 {
+            return Err("Unsupported sample rate: 0".to_string());
+        }
+        resample_interleaved_linear(
+            &mixed.samples,
+            mixed.sample_rate,
+            sample_rate,
+            channels as usize,
+        )
+    };
+
+    let mut encoder =
+        MousikiEncoder::builder(sample_rate, mousiki_channels, MousikiApplication::Audio)
+            .bitrate(MousikiBitrate::Bits(bitrate_bps.min(i32::MAX as u32) as i32))
+            .complexity(10)
+            .vbr(false)
+            .inband_fec(false)
+            .packet_loss_perc(0)
+            .frame_duration(MousikiFrameDuration::Ms20)
+            .build()
+            .map_err(|e| format!("Opus encoder init failed: {e:?}"))?;
+
+    let frame_size = (sample_rate / 50) as usize;
+    let samples_per_packet = frame_size * channels as usize;
+
+    let mut packets = Vec::new();
+    let mut out_buf = vec![0u8; 1275];
+    let mut offset = 0usize;
+    let mut pts_samples = 0u64;
+
+    while offset < pcm.len() {
+        let remaining = pcm.len() - offset;
+        let take = remaining.min(samples_per_packet);
+
+        let mut frame = vec![0.0f32; samples_per_packet];
+        frame[..take].copy_from_slice(&pcm[offset..offset + take]);
+
+        let written = encoder
+            .encode_float(&frame, &mut out_buf)
+            .map_err(|e| format!("Opus encode failed: {e:?}"))?;
+
+        packets.push(EncodedOpusPacket {
+            pts_us: (pts_samples * 1_000_000) / sample_rate as u64,
+            bytes: out_buf[..written].to_vec(),
+        });
+
+        offset += take;
+        pts_samples += frame_size as u64;
+    }
+
+    Ok(EncodedOpus { channels, packets })
+}
+
+fn resample_interleaved_linear(
+    input: &[f32],
+    in_rate: u32,
+    out_rate: u32,
+    channels: usize,
+) -> Vec<f32> {
+    if in_rate == out_rate || input.is_empty() {
+        return input.to_vec();
+    }
+
+    let in_frames = input.len() / channels;
+    if in_frames == 0 {
+        return Vec::new();
+    }
+
+    let out_frames = ((in_frames as u64 * out_rate as u64) / in_rate as u64) as usize;
+    let mut out = vec![0.0f32; out_frames * channels];
+
+    for of in 0..out_frames {
+        let src_pos = (of as f64) * (in_rate as f64) / (out_rate as f64);
+        let i0 = src_pos.floor() as usize;
+        let i1 = (i0 + 1).min(in_frames.saturating_sub(1));
+        let t = (src_pos - i0 as f64) as f32;
+
+        for ch in 0..channels {
+            let a = input[i0 * channels + ch];
+            let b = input[i1 * channels + ch];
+            out[of * channels + ch] = a + (b - a) * t;
+        }
+    }
+
+    out
+}
+
+fn load_subtitle_cues(path: &str, registered_files: &HashMap<String, Vec<u8>>) -> Vec<SubtitleCue> {
+    let content = if let Some(bytes) = registered_files.get(path) {
+        match std::str::from_utf8(bytes) {
+            Ok(text) => text.to_string(),
+            Err(_) => String::new(),
+        }
+    } else {
+        std::fs::read_to_string(path).unwrap_or_default()
+    };
+
+    if content.trim().is_empty() {
+        return Vec::new();
+    }
+
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    match ext.as_str() {
+        "srt" => parse_srt_cues(&content),
+        "ass" | "ssa" => parse_ass_cues(&content),
+        _ => parse_srt_cues(&content),
+    }
+}
+
+fn collect_soft_subtitle_samples(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+) -> Vec<SoftSubtitleSample> {
+    let mut samples = Vec::new();
+
+    for track in &project.timeline.tracks {
+        if track.kind != TrackKind::Subtitle || track.muted {
+            continue;
+        }
+
+        for clip in &track.clips {
+            if clip.muted {
+                continue;
+            }
+
+            let ClipKind::Subtitle(sub) = &clip.kind else {
+                continue;
+            };
+
+            samples.extend(
+                load_subtitle_cues(&sub.source_path, registered_files)
+                    .into_iter()
+                    .filter_map(|cue| map_cue_to_timeline_sample(clip, cue)),
+            );
+        }
+    }
+
+    samples.sort_by_key(|s| s.start_us);
+    samples
+}
+
+fn map_cue_to_timeline_sample(
+    clip: &miniter_domain::clip::Clip,
+    cue: SubtitleCue,
+) -> Option<SoftSubtitleSample> {
+    let speed = if clip.speed.is_finite() && clip.speed > 0.0 {
+        clip.speed
+    } else {
+        1.0
+    };
+
+    let clip_source_start = clip.source_start.as_micros();
+    let inferred_source_end = clip_source_start
+        + (clip.timeline_duration.as_micros() as f64 * speed)
+            .round()
+            .max(1.0) as i64;
+    let clip_source_end = if clip.source_end.as_micros() > clip_source_start {
+        clip.source_end.as_micros()
+    } else {
+        inferred_source_end
+    };
+
+    let visible_start = cue.start_us.max(clip_source_start);
+    let visible_end = cue.end_us.min(clip_source_end);
+    if visible_end <= visible_start {
+        return None;
+    }
+
+    let local_start = ((visible_start - clip_source_start) as f64 / speed).round() as i64;
+    let local_end = ((visible_end - clip_source_start) as f64 / speed).round() as i64;
+
+    let clip_timeline_start = clip.timeline_start.as_micros();
+    let clip_timeline_end = clip.timeline_end().as_micros();
+
+    let sample_start = (clip_timeline_start + local_start).clamp(0, clip_timeline_end);
+    let sample_end = (clip_timeline_start + local_end).clamp(0, clip_timeline_end);
+    if sample_end <= sample_start {
+        return None;
+    }
+
+    let text = cue.text.trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    Some(SoftSubtitleSample {
+        start_us: sample_start,
+        duration_us: (sample_end - sample_start).max(1),
+        text: text.to_string(),
+    })
+}
+
+fn parse_srt_cues(content: &str) -> Vec<SubtitleCue> {
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    let mut cues = Vec::new();
+
+    for block in normalized.split("\n\n") {
+        let lines: Vec<&str> = block.lines().collect();
+        if lines.is_empty() {
+            continue;
+        }
+
+        let mut cursor = 0usize;
+        if lines[cursor].trim().chars().all(|c| c.is_ascii_digit()) {
+            cursor += 1;
+        }
+        if cursor >= lines.len() {
+            continue;
+        }
+
+        let Some((start_us, end_us)) = parse_srt_time_range(lines[cursor]) else {
+            continue;
+        };
+        cursor += 1;
+        if cursor >= lines.len() || end_us <= start_us {
+            continue;
+        }
+
+        let text = lines[cursor..].join("\n").trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+
+        cues.push(SubtitleCue {
+            start_us,
+            end_us,
+            text,
+        });
+    }
+
+    cues
+}
+
+fn parse_srt_time_range(line: &str) -> Option<(i64, i64)> {
+    let mut parts = line.split("-->");
+    let start = parts.next()?.trim();
+    let end = parts.next()?.trim();
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((parse_srt_timestamp_us(start)?, parse_srt_timestamp_us(end)?))
+}
+
+fn parse_srt_timestamp_us(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    let (time_part, frac_part) = if let Some((time, frac)) = trimmed.split_once(',') {
+        (time, frac)
+    } else if let Some((time, frac)) = trimmed.split_once('.') {
+        (time, frac)
+    } else {
+        return None;
+    };
+
+    let mut hms = time_part.split(':');
+    let h: i64 = hms.next()?.parse().ok()?;
+    let m: i64 = hms.next()?.parse().ok()?;
+    let s: i64 = hms.next()?.parse().ok()?;
+    if hms.next().is_some() || !(0..60).contains(&m) || !(0..60).contains(&s) {
+        return None;
+    }
+
+    let ms = match frac_part.len() {
+        0 => return None,
+        1 => frac_part.parse::<i64>().ok()?.saturating_mul(100),
+        2 => frac_part.parse::<i64>().ok()?.saturating_mul(10),
+        _ => frac_part.get(0..3)?.parse::<i64>().ok()?,
+    };
+
+    Some(((h * 3600 + m * 60 + s) * 1_000 + ms) * 1_000)
+}
+
+fn parse_ass_cues(content: &str) -> Vec<SubtitleCue> {
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    let mut cues = Vec::new();
+
+    for line in normalized.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("Dialogue:") {
+            continue;
+        }
+
+        let payload = trimmed.trim_start_matches("Dialogue:").trim();
+        let fields: Vec<&str> = payload.splitn(10, ',').collect();
+        if fields.len() < 10 {
+            continue;
+        }
+
+        let Some(start_us) = parse_ass_timestamp_us(fields[1].trim()) else {
+            continue;
+        };
+        let Some(end_us) = parse_ass_timestamp_us(fields[2].trim()) else {
+            continue;
+        };
+        if end_us <= start_us {
+            continue;
+        }
+
+        let text = normalize_ass_text(fields[9]).trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+
+        cues.push(SubtitleCue {
+            start_us,
+            end_us,
+            text,
+        });
+    }
+
+    cues
+}
+
+fn parse_ass_timestamp_us(value: &str) -> Option<i64> {
+    let mut hms = value.trim().split(':');
+    let h: i64 = hms.next()?.parse().ok()?;
+    let m: i64 = hms.next()?.parse().ok()?;
+    let sec_frac = hms.next()?;
+    if hms.next().is_some() {
+        return None;
+    }
+
+    let mut sf = sec_frac.split('.');
+    let s: i64 = sf.next()?.parse().ok()?;
+    let cs_str = sf.next()?;
+    if sf.next().is_some() {
+        return None;
+    }
+    let cs: i64 = match cs_str.len() {
+        0 => return None,
+        1 => cs_str.parse::<i64>().ok()?.saturating_mul(10),
+        _ => cs_str.get(0..2)?.parse::<i64>().ok()?,
+    };
+
+    if !(0..60).contains(&m) || !(0..60).contains(&s) {
+        return None;
+    }
+
+    Some(((h * 3600 + m * 60 + s) * 1_000_000) + (cs * 10_000))
+}
+
+fn normalize_ass_text(input: &str) -> String {
+    let mut text = input
+        .replace("\\N", "\n")
+        .replace("\\n", "\n")
+        .replace("\\h", " ");
+    text = strip_ass_override_tags(&text);
+    text
+}
+
+fn strip_ass_override_tags(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_tag = false;
+
+    for ch in text.chars() {
+        match ch {
+            '{' if !in_tag => in_tag = true,
+            '}' if in_tag => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+
+    out
+}
+
+fn render_text_overlay(overlay: &TextOverlay, width: usize, height: usize) -> Vec<u8> {
+    let mut canvas = transparent_rgba(width, height);
+    let lines: Vec<&str> = overlay.text.lines().collect();
+    if lines.is_empty() {
+        return canvas;
+    }
+
+    let scale = (overlay.style.font_size / 8.0).round().max(1.0) as i32;
+    let line_h = 8 * scale + scale;
+    let block_h = line_h * lines.len() as i32;
+    let anchor_x = (overlay.style.position_x.clamp(0.0, 1.0) * width as f32) as i32;
+    let anchor_y = (overlay.style.position_y.clamp(0.0, 1.0) * height as f32) as i32;
+    let start_y = anchor_y - block_h / 2;
+
+    let fg = parse_argb_hex(&overlay.style.color, [255, 255, 255, 255]);
+    let bg = overlay
+        .style
+        .background_color
+        .as_ref()
+        .map(|c| parse_argb_hex(c, [0, 0, 0, 0]));
+    let outline = overlay
+        .style
+        .outline_color
+        .as_ref()
+        .map(|c| parse_argb_hex(c, [0, 0, 0, 255]));
+
+    let max_w = lines
+        .iter()
+        .map(|line| line.chars().count() as i32 * 8 * scale)
+        .max()
+        .unwrap_or(0);
+
+    if let Some(bg) = bg {
+        let x = match overlay.style.alignment {
+            TextAlignment::Left => anchor_x,
+            TextAlignment::Center => anchor_x - max_w / 2,
+            TextAlignment::Right => anchor_x - max_w,
+        };
+        draw_rect(
+            &mut canvas,
+            width,
+            height,
+            x - scale,
+            start_y - scale,
+            max_w + scale * 2,
+            block_h + scale * 2,
+            bg,
+        );
+    }
+
+    for (line_idx, line) in lines.iter().enumerate() {
+        let line_w = line.chars().count() as i32 * 8 * scale;
+        let x = match overlay.style.alignment {
+            TextAlignment::Left => anchor_x,
+            TextAlignment::Center => anchor_x - line_w / 2,
+            TextAlignment::Right => anchor_x - line_w,
+        };
+        let y = start_y + (line_idx as i32 * line_h);
+
+        let mut pen_x = x;
+        for ch in line.chars() {
+            if overlay.style.shadow {
+                draw_char(
+                    &mut canvas,
+                    width,
+                    height,
+                    ch,
+                    pen_x + scale / 2,
+                    y + scale / 2,
+                    scale,
+                    [0, 0, 0, 128],
+                    None,
+                    false,
+                );
+            }
+
+            draw_char(
+                &mut canvas,
+                width,
+                height,
+                ch,
+                pen_x,
+                y,
+                scale,
+                fg,
+                outline,
+                overlay.style.bold,
+            );
+
+            pen_x += 8 * scale;
+        }
+    }
+
+    canvas
+}
+
+fn draw_char(
+    canvas: &mut [u8],
+    width: usize,
+    height: usize,
+    ch: char,
+    x: i32,
+    y: i32,
+    scale: i32,
+    color: [u8; 4],
+    outline: Option<[u8; 4]>,
+    bold: bool,
+) {
+    let glyph = BASIC_FONTS.get(ch).or_else(|| BASIC_FONTS.get('?'));
+    let Some(glyph) = glyph else { return };
+
+    if let Some(outline_color) = outline {
+        for oy in -1..=1 {
+            for ox in -1..=1 {
+                if ox == 0 && oy == 0 {
+                    continue;
+                }
+                rasterize_glyph(
+                    canvas,
+                    width,
+                    height,
+                    &glyph,
+                    x + ox * scale,
+                    y + oy * scale,
+                    scale,
+                    outline_color,
+                );
+            }
+        }
+    }
+
+    rasterize_glyph(canvas, width, height, &glyph, x, y, scale, color);
+    if bold {
+        rasterize_glyph(canvas, width, height, &glyph, x + 1, y, scale, color);
+    }
+}
+
+fn rasterize_glyph(
+    canvas: &mut [u8],
+    width: usize,
+    height: usize,
+    glyph: &[u8; 8],
+    x: i32,
+    y: i32,
+    scale: i32,
+    color: [u8; 4],
+) {
+    for (row, bits) in glyph.iter().enumerate() {
+        for col in 0..8 {
+            if (bits & (1 << col)) == 0 {
+                continue;
+            }
+
+            for sy in 0..scale {
+                for sx in 0..scale {
+                    let px = x + col * scale + sx;
+                    let py = y + row as i32 * scale + sy;
+                    if px < 0 || py < 0 || px >= width as i32 || py >= height as i32 {
+                        continue;
+                    }
+
+                    let i = ((py as usize * width) + px as usize) * 4;
+                    alpha_over_pixel(&mut canvas[i..i + 4], &color);
+                }
+            }
+        }
+    }
+}
+
+fn draw_rect(
+    canvas: &mut [u8],
+    width: usize,
+    height: usize,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    color: [u8; 4],
+) {
+    for py in y.max(0)..(y + h).min(height as i32) {
+        for px in x.max(0)..(x + w).min(width as i32) {
+            let i = ((py as usize * width) + px as usize) * 4;
+            alpha_over_pixel(&mut canvas[i..i + 4], &color);
+        }
+    }
+}
+
+fn parse_argb_hex(input: &str, default: [u8; 4]) -> [u8; 4] {
+    let s = input.trim().trim_start_matches('#');
+    match s.len() {
+        8 => {
+            let a = u8::from_str_radix(&s[0..2], 16).ok();
+            let r = u8::from_str_radix(&s[2..4], 16).ok();
+            let g = u8::from_str_radix(&s[4..6], 16).ok();
+            let b = u8::from_str_radix(&s[6..8], 16).ok();
+            match (r, g, b, a) {
+                (Some(r), Some(g), Some(b), Some(a)) => [r, g, b, a],
+                _ => default,
+            }
+        }
+        6 => {
+            let r = u8::from_str_radix(&s[0..2], 16).ok();
+            let g = u8::from_str_radix(&s[2..4], 16).ok();
+            let b = u8::from_str_radix(&s[4..6], 16).ok();
+            match (r, g, b) {
+                (Some(r), Some(g), Some(b)) => [r, g, b, 255],
+                _ => default,
+            }
+        }
+        _ => default,
+    }
+}
+
 fn strip_leading_temporal_delimiters(data: &[u8]) -> &[u8] {
     let mut pos = 0usize;
     while pos + 2 <= data.len() {
@@ -673,6 +1452,7 @@ fn render_node(
         } => {
             let frame =
                 decode_cache.extract_frame(*clip_id, source_path, source_pts.as_micros().max(0))?;
+            decode_cache.remember_first_decoded_video_pts(frame.pts_us);
             let mut fitted = fit_rgba_into_canvas(
                 &frame.data,
                 frame.width as usize,
@@ -684,8 +1464,44 @@ fn render_node(
             apply_global_alpha(&mut fitted, *opacity);
             Ok(fitted)
         }
-        RenderNode::Text { .. } => Ok(transparent_rgba(width, height)),
-        RenderNode::Subtitle { .. } => Ok(transparent_rgba(width, height)),
+        RenderNode::Text { overlay, opacity } => {
+            let mut img = render_text_overlay(overlay, width, height);
+            apply_global_alpha(&mut img, *opacity);
+            Ok(img)
+        }
+        RenderNode::Subtitle {
+            source_path,
+            source_pts,
+            opacity,
+        } => {
+            let Some(text) = decode_cache.subtitle_text_at(source_path, source_pts.as_micros())?
+            else {
+                return Ok(transparent_rgba(width, height));
+            };
+
+            let subtitle_style = TextStyle {
+                font_size: ((height as f32) * 0.045).clamp(22.0, 56.0),
+                position_x: 0.5,
+                position_y: 0.90,
+                alignment: TextAlignment::Center,
+                color: "FFFFFFFF".to_string(),
+                outline_color: Some("FF000000".to_string()),
+                outline_width: 2.0,
+                shadow: true,
+                bold: false,
+                italic: false,
+                background_color: None,
+                font_family: "sans-serif".to_string(),
+            };
+            let overlay = TextOverlay {
+                text,
+                style: subtitle_style,
+            };
+
+            let mut img = render_text_overlay(&overlay, width, height);
+            apply_global_alpha(&mut img, *opacity);
+            Ok(img)
+        }
         RenderNode::Stack(children) => {
             let mut canvas = transparent_rgba(width, height);
             for child in children {
