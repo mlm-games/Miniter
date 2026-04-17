@@ -3,12 +3,13 @@ name = "miniter-media-native"
 version.workspace = true
 edition.workspace = true
 
-[dependencies] # Pure rust or class platform options only!
+[dependencies] # Pure rust or cross platform options only!
 miniter-domain = { path = "../miniter-domain" }
 miniter-render-plan = { path = "../miniter-render-plan" }
 miniter-audio = { path = "../miniter-audio" }
 thiserror.workspace = true
 log.workspace = true
+web-time.workspace = true
 
 # Container demux/mux (switch to videoson later)
 mp4 = "0.14"
@@ -42,7 +43,7 @@ ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer",
 ass-core = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-core" }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 
-[target.'cfg(target_os = "android")'.dependencies]
+[target.'cfg(all(target_os = "android", target_arch = "aarch64"))'.dependencies]
 baabaabaabaabababbababbaa = { path = "/home/ymsr/Documents/Repos/baabaabaabaabababbababbaa", optional = true, default-features = false, features = [
     "android",
 ] }
@@ -56,6 +57,6 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen-futures = "0.4"
 
 [features]
-default = ["videoson"]
+default = ["videoson", "hw-decoder"]
 hw-decoder = ["dep:baabaabaabaabababbababbaa"]
 videoson = ["dep:videoson-core", "dep:videoson-codec-h264"]

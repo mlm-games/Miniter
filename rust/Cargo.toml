@@ -20,6 +20,7 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde", "js"] }
 thiserror = "2"
 log = "0.4"
+web-time = "1.1.0"
 uniffi = { version = "0.31", features = ["wasm-unstable-single-threaded"] }
 
 [patch.crates-io] # Probably push all online later to remove direct path listings?

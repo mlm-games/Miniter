@@ -18,6 +18,7 @@ import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import org.koin.compose.koinInject
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.isProjectExportSupported
+import org.mlm.miniter.platform.requiresExplicitExportPathSelection
 import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustExportResolution
@@ -88,6 +89,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             !progress.isCancelled &&
             progress.error == null
     val exportSupported = isProjectExportSupported
+    val needsOutputPicker = requiresExplicitExportPathSelection
 
     DisposableEffect(Unit) {
         onDispose { vm.resetExport() }
@@ -245,7 +247,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         )
                     }
                 }
-            } else {
+            } else if (needsOutputPicker) {
                 Text("Save as", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(
                     Modifier.fillMaxWidth(),
@@ -311,7 +313,12 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                         Text(
-                                            outputFile?.platformPath() ?: "${snapshot?.meta?.name}.${format.extension}",
+                                            outputFile?.platformPath()
+                                                ?: if (needsOutputPicker) {
+                                                    "${snapshot?.meta?.name}.${format.extension}"
+                                                } else {
+                                                    "Downloaded via browser"
+                                                },
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                         )
@@ -402,7 +409,12 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         if (exportSupported) {
                             Button(
                                 onClick = {
-                                    val file = outputFile ?: return@Button
+                                    val outputPath = if (needsOutputPicker) {
+                                        val file = outputFile ?: return@Button
+                                        file.platformPath()
+                                    } else {
+                                        "${snapshot?.meta?.name ?: "export"}.${format.extension}"
+                                    }
                                     val parsedWidth = customWidth.toIntOrNull() ?: 0
                                     val parsedHeight = customHeight.toIntOrNull() ?: 0
                                     vm.updateExportProfile(
@@ -434,9 +446,9 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                             subtitleMode = subtitleMode,
                                         )
                                     )
-                                    vm.startExport(file.platformPath())
+                                    vm.startExport(outputPath)
                                 },
-                                enabled = outputFile != null && snapshot != null,
+                                enabled = snapshot != null && (!needsOutputPicker || outputFile != null),
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                             ) {
                                 Icon(Icons.Default.FileDownload, null)

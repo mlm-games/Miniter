@@ -34,6 +34,14 @@ private data class WasmFramePayload(
     val ptsUs: Long,
 )
 
+@Serializable
+internal data class WasmExportPayload(
+    val ok: Boolean,
+    val bytesBase64: String,
+    val fileName: String,
+    val mimeType: String,
+)
+
 private fun decodeBase64ToBytes(encoded: String): ByteArray {
     if (encoded.isEmpty()) return ByteArray(0)
 
@@ -189,6 +197,10 @@ actual class RustCoreSession private constructor(
 
         actual fun exportProjectJson(projectJson: String, outputPath: String): Boolean =
             wasmExportProjectJson(projectJson, outputPath)
+
+        internal fun exportProjectBlob(projectJson: String, outputPath: String): WasmExportPayload {
+            return wasmBridgeJson.decodeFromString(wasmExportProjectBlob(projectJson, outputPath))
+        }
 
         actual fun cancelExport() {
             wasmCancelExport()
