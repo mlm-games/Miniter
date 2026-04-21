@@ -3,6 +3,7 @@ package org.mlm.miniter.settings
 import io.github.mlmgames.settings.core.annotations.*
 import io.github.mlmgames.settings.core.types.*
 import kotlinx.serialization.Serializable
+import org.mlm.miniter.editor.model.RustExportFormat
 
 @CategoryDefinition(order = 0) object Appearance
 @CategoryDefinition(order = 1) object Editor
@@ -34,24 +35,23 @@ data class AppSettings(
     @Persisted
     val fontSize: Float = 16f,
 
-    @Setting(
-        title = "Default export format",
-        description = "Preferred video format for exports",
-        category = Export::class,
-        type = Dropdown::class,
-        options = ["MP4", "WebM", "MOV"]
-    )
-    val defaultExportFormat: Int = 0,
+//    @Setting(
+//        title = "Default export format",
+//        description = "Preferred video format for exports",
+//        category = Export::class,
+//        type = Dropdown::class,
+//    )
+    val defaultExportFormat: RustExportFormat = RustExportFormat.Av1Mp4,
 
-    @Setting(
-        title = "Export quality",
-        description = "Default export quality",
-        category = Export::class,
-        type = Slider::class,
-        min = 1f,
-        max = 100f,
-        step = 5f
-    )
+//    @Setting(
+//        title = "Export quality",
+//        description = "Default export quality",
+//        category = Export::class,
+//        type = Slider::class,
+//        min = 1f,
+//        max = 100f,
+//        step = 5f
+//    )
     val exportQuality: Float = 80f,
 
     @Setting(
