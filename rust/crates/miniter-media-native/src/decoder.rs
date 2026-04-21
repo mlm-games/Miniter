@@ -26,12 +26,17 @@ pub enum DecodeError {
 #[cfg(feature = "videoson")]
 mod videoson_decoder {
     use super::*;
+    use std::collections::VecDeque;
     use videoson_codec_h264::H264Decoder;
     use videoson_core::{
         NalFormat, Packet as VideoPacket, VideoCodecParams, VideoDecoder, VideoDecoderOptions,
     };
 
-    pub struct VideosonDecoder(H264Decoder);
+    pub struct VideosonDecoder {
+        inner: H264Decoder,
+        queued: VecDeque<RgbaFrame>,
+        eos_sent: bool,
+    }
 
     impl VideosonDecoder {
         pub fn new(width: u32, height: u32) -> Result<Self, DecodeError> {
@@ -44,28 +49,50 @@ mod videoson_decoder {
             };
             let decoder = H264Decoder::try_new(&params, &VideoDecoderOptions::default())
                 .map_err(|e| DecodeError::Videoson(format!("{:?}", e)))?;
-            Ok(Self(decoder))
+            Ok(Self {
+                inner: decoder,
+                queued: VecDeque::new(),
+                eos_sent: false,
+            })
         }
 
         pub fn decode(
             &mut self,
             annex_b: Vec<u8>,
             pts_us: i64,
+            is_sync: bool,
         ) -> Result<Option<RgbaFrame>, DecodeError> {
             let packet = VideoPacket {
                 track_id: 0,
                 pts: Some(pts_us * 1000),
                 dts: None,
                 duration: None,
-                is_sync: false,
+                is_sync,
                 data: annex_b,
             };
-            self.0
+            self.inner
                 .send_packet(&packet)
                 .map_err(|e| DecodeError::Videoson(format!("{:?}", e)))?;
 
-            if let Some(frame) = self
-                .0
+            self.drain_ready_frames(pts_us)?;
+            Ok(self.queued.pop_front())
+        }
+
+        pub fn finish(&mut self) -> Result<Option<RgbaFrame>, DecodeError> {
+            if !self.eos_sent {
+                self.inner
+                    .send_eos()
+                    .map_err(|e| DecodeError::Videoson(format!("{:?}", e)))?;
+                self.eos_sent = true;
+            }
+
+            self.drain_ready_frames(0)?;
+            Ok(self.queued.pop_front())
+        }
+
+        fn drain_ready_frames(&mut self, fallback_pts_us: i64) -> Result<(), DecodeError> {
+            while let Some(frame) = self
+                .inner
                 .receive_frame()
                 .map_err(|e| DecodeError::Videoson(format!("{:?}", e)))?
             {
@@ -113,18 +140,27 @@ mod videoson_decoder {
                         rgba[(y * w + x) * 4 + 3] = 255;
                     }
                 }
-                return Ok(Some(RgbaFrame {
+                let pts_from_frame = frame.pts.map(|p| p / 1000).unwrap_or(fallback_pts_us);
+
+                self.queued.push_back(RgbaFrame {
                     width: w as u32,
                     height: h as u32,
                     data: rgba,
-                    pts_us,
-                }));
+                    pts_us: if frame.pts.is_some() {
+                        pts_from_frame
+                    } else {
+                        fallback_pts_us
+                    },
+                });
             }
-            Ok(None)
+
+            Ok(())
         }
 
         pub fn reset(&mut self) {
-            self.0.reset();
+            self.inner.reset();
+            self.queued.clear();
+            self.eos_sent = false;
         }
     }
 }
@@ -409,16 +445,14 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
                 .ok_or_else(|| DecodeError::Other("Failed to read sample".to_string()))?;
 
             let pts = if self.timescale > 0 {
-                ((sample.start_time as f64 / self.timescale as f64) * 1_000_000.0).round() as i64
+                let dts = sample.start_time as i64;
+                let pts_raw = dts + sample.rendering_offset as i64;
+                (pts_raw * 1_000_000) / (self.timescale as i64)
             } else {
                 0
             };
 
-            if pts <= self.last_pts_us {
-                self.last_pts_us = pts.saturating_add(1);
-            } else {
-                self.last_pts_us = pts;
-            }
+            self.last_pts_us = pts;
 
             self.current_sample += 1;
 
@@ -447,7 +481,9 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
                             #[cfg(feature = "videoson")]
                             {
                                 if let Some(ref mut vdec) = self.videoson {
-                                    if let Some(frame) = vdec.decode(annex_b, self.last_pts_us)? {
+                                    if let Some(frame) =
+                                        vdec.decode(annex_b, self.last_pts_us, sample.is_sync)?
+                                    {
                                         return Ok(Some(frame));
                                     }
                                     continue;
@@ -462,7 +498,7 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             #[cfg(feature = "videoson")]
             {
                 if let Some(ref mut dec) = self.videoson {
-                    if let Some(frame) = dec.decode(annex_b, self.last_pts_us)? {
+                    if let Some(frame) = dec.decode(annex_b, self.last_pts_us, sample.is_sync)? {
                         return Ok(Some(frame));
                     }
                     continue;
@@ -470,6 +506,15 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             }
 
             return Err(DecodeError::DecoderNotAvailable);
+        }
+
+        #[cfg(feature = "videoson")]
+        {
+            if let Some(ref mut dec) = self.videoson {
+                if let Some(frame) = dec.finish()? {
+                    return Ok(Some(frame));
+                }
+            }
         }
 
         Ok(None)
