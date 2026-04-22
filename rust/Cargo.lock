@@ -204,6 +204,7 @@ dependencies = [
 [[package]]
 name = "ass-core"
 version = "0.1.1"
+source = "git+https://github.com/mlm-games/ass-rs#40268bd9c66eaf582c00b59ad59ca33c445cbeb3"
 dependencies = [
  "ahash",
  "bitflags 2.11.1",
@@ -216,6 +217,7 @@ dependencies = [
 [[package]]
 name = "ass-renderer"
 version = "0.1.0"
+source = "git+https://github.com/mlm-games/ass-rs#40268bd9c66eaf582c00b59ad59ca33c445cbeb3"
 dependencies = [
  "ahash",
  "ass-core",
@@ -318,6 +320,7 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
+source = "git+https://github.com/mlm-games/baa4bababab2baa#b1e2349edd470cb63196dc7e9eca28e13904da2f"
 dependencies = [
  "bytes",
  "js-sys",
@@ -1148,6 +1151,7 @@ dependencies = [
 [[package]]
 name = "mediacodec"
 version = "0.1.4"
+source = "git+https://github.com/mlm-games/rust_mediacodec?branch=main#55ad2ae68c51fede06278e8c4f7d121ccdc58d1f"
 dependencies = [
  "android_logger",
  "jni",
@@ -1311,6 +1315,7 @@ dependencies = [
 [[package]]
 name = "muxide"
 version = "0.2.1"
+source = "git+https://github.com/mlm-games/muxide#5d66e25107e471dd6c0d5f8dfe92857b23f82b78"
 dependencies = [
  "anyhow",
  "clap",
@@ -2268,9 +2273,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.52.0"
+version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a91135f59b1cbf38c91e73cf3386fca9bb77915c45ce2771460c9d92f0f3d776"
+checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
 dependencies = [
  "pin-project-lite",
  "tokio-macros",
@@ -2317,7 +2322,7 @@ version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
 dependencies = [
- "winnow 1.0.1",
+ "winnow 1.0.2",
 ]
 
 [[package]]
@@ -2537,6 +2542,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "videoson-codec-h264"
 version = "0.1.0"
+source = "git+https://github.com/mlm-games/videoson#788a1bc9d109d2e9231c5a60e0884f005f752f10"
 dependencies = [
  "rust_h264",
  "videoson-common",
@@ -2546,10 +2552,12 @@ dependencies = [
 [[package]]
 name = "videoson-common"
 version = "0.1.0"
+source = "git+https://github.com/mlm-games/videoson#788a1bc9d109d2e9231c5a60e0884f005f752f10"
 
 [[package]]
 name = "videoson-core"
 version = "0.1.0"
+source = "git+https://github.com/mlm-games/videoson#788a1bc9d109d2e9231c5a60e0884f005f752f10"
 
 [[package]]
 name = "walkdir"
@@ -2563,11 +2571,11 @@ dependencies = [
 
 [[package]]
 name = "wasip2"
-version = "1.0.2+wasi-0.2.9"
+version = "1.0.3+wasi-0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9517f9239f02c069db75e65f174b3da828fe5f5b945c4dd26bd25d89c03ebcf5"
+checksum = "20064672db26d7cdc89c7798c48a0fdfac8213434a1186e5ef29fd560ae223d6"
 dependencies = [
- "wit-bindgen",
+ "wit-bindgen 0.57.1",
 ]
 
 [[package]]
@@ -2576,7 +2584,7 @@ version = "0.4.0+wasi-0.3.0-rc-2026-01-06"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5428f8bf88ea5ddc08faddef2ac4a67e390b88186c703ce6dbd955e1c145aca5"
 dependencies = [
- "wit-bindgen",
+ "wit-bindgen 0.51.0",
 ]
 
 [[package]]
@@ -2842,9 +2850,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09dac053f1cd375980747450bfc7250c264eaae0583872e845c0c7cd578872b5"
+checksum = "2ee1708bef14716a11bae175f579062d4554d95be2c6829f518df847b7b3fdd0"
 
 [[package]]
 name = "wit-bindgen"
@@ -2854,6 +2862,12 @@ checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 dependencies = [
  "wit-bindgen-rust-macro",
 ]
+
+[[package]]
+name = "wit-bindgen"
+version = "0.57.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wit-bindgen-core"
@@ -2987,7 +3001,14 @@ dependencies = [
 [[patch.unused]]
 name = "cros-codecs"
 version = "0.0.5"
+source = "git+https://github.com/mlm-games/cros-codecs#a5dc00f9d2aefb33fcfa7d505e0e0c23145044cc"
 
 [[patch.unused]]
 name = "cros-libva"
 version = "0.0.13"
+source = "git+https://github.com/mlm-games/cros-libva#ba36b968231402071b2e344d4dad5974040a74a2"
+
+[[patch.unused]]
+name = "mediacodec"
+version = "0.1.4"
+source = "git+https://github.com/mlm-games/rust_mediacodec#55ad2ae68c51fede06278e8c4f7d121ccdc58d1f"

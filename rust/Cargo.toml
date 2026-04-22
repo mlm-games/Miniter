@@ -23,9 +23,19 @@ log = "0.4"
 web-time = "1.1.0"
 uniffi = { version = "0.31", features = ["wasm-unstable-single-threaded"] }
 
-[patch.crates-io] # Probably push all online later to remove direct path listings?
-muxide = { path = "/home/ymsr/Documents/Repos/muxide" }
-ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer" }
-ass-core = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-core" }
-cros-libva = { path = "/home/ymsr/Documents/Repos/cros-libva/lib" }
-cros-codecs = { path = "/home/ymsr/Documents/Repos/cros-codecs" }
+[patch.crates-io]
+muxide = { git = "https://github.com/mlm-games/muxide" }
+ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-renderer" }
+ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
+videoson-core = { git = "https://github.com/mlm-games/videoson", package = "videoson-core" }
+videoson-codec-h264 = { git = "https://github.com/mlm-games/videoson", package = "videoson-codec-h264" }
+baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
+cros-codecs = { git = "https://github.com/mlm-games/cros-codecs" }
+cros-libva = { git = "https://github.com/mlm-games/cros-libva" }
+mediacodec = { git = "https://github.com/mlm-games/rust_mediacodec", package = "mediacodec" }
+
+# muxide = { path = "../../../Documents/Repos/muxide" }
+# ass-renderer = { path = "../../../Documents/Repos/ass-rs/crates/ass-renderer" }
+# ass-core = { path = "../../../Documents/Repos/ass-rs/crates/ass-core" }
+# cros-libva = { path = "../../../Documents/Repos/cros-libva/lib" }
+# cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
