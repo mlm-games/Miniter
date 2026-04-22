@@ -15,6 +15,7 @@ import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
+import io.github.mlmgames.settings.core.SettingsRepository
 import org.koin.compose.koinInject
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.isProjectExportSupported
@@ -25,6 +26,7 @@ import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.editor.model.RustSubtitleMode
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.engine.ExportProgress
+import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.util.popBack
 import org.mlm.miniter.viewmodel.ProjectViewModel
@@ -37,11 +39,11 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val snapshot = uiState.snapshot
     val progress by vm.exportProgress.collectAsState()
 
+    val settingsRepository: SettingsRepository<AppSettings> = koinInject()
+    val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
+
     val profile = snapshot?.exportProfile
-    val profileFormat = when (profile?.format) {
-        RustExportFormat.Mov, null -> RustExportFormat.Av1Mp4
-        else -> profile.format
-    }
+    val profileFormat = (profile?.format ?: settings.defaultExportFormat).takeIf { it != RustExportFormat.Mov } ?: RustExportFormat.Av1Mp4
     val (profileWidth, profileHeight) = when (val resolution = profile?.resolution) {
         RustExportResolution.Source -> 0 to 0
         RustExportResolution.Sd480 -> 854 to 480
@@ -54,7 +56,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val profileQuality = profile
         ?.videoBitrateKbps
         ?.let { bitrate -> ((bitrate.toFloat() - 500f) / 80f).coerceIn(1f, 100f) }
-        ?: 80f
+        ?: settings.exportQuality
 
     val sourceWidth = snapshot?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -90,6 +92,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             progress.error == null
     val exportSupported = isProjectExportSupported
     val needsOutputPicker = requiresExplicitExportPathSelection
+    val platformFormats = RustExportFormat.entries.filter { it != RustExportFormat.Mov }
 
     DisposableEffect(Unit) {
         onDispose { vm.resetExport() }
@@ -125,19 +128,19 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         ) {
             Text("Format", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                RustExportFormat.entries.filter { it != RustExportFormat.Mov }.forEachIndexed { index, fmt ->
+                platformFormats.forEachIndexed { index, fmt ->
                     val enabled = !isExporting
                     SegmentedButton(
                         selected = format == fmt,
                         onClick = { format = fmt },
-                        shape = SegmentedButtonDefaults.itemShape(index, RustExportFormat.entries.filter { it != RustExportFormat.Mov }.size),
+                        shape = SegmentedButtonDefaults.itemShape(index, platformFormats.size),
                         enabled = enabled,
                     ) {
                         Text(
                             when (fmt) {
                                 RustExportFormat.Mp4 -> "H.264 / MP4"
-                                RustExportFormat.Av1Ivf -> "AV1 / IVF"
                                 RustExportFormat.Av1Mp4 -> "AV1 / MP4"
+                                RustExportFormat.Av1Ivf -> "AV1 / IVF"
                                 RustExportFormat.Mov -> "H.264 / MOV"
                             }
                         )
@@ -424,12 +427,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                     val parsedHeight = customHeight.toIntOrNull() ?: 0
                                     vm.updateExportProfile(
                                         RustExportProfileSnapshot(
-                                            format = when (format) {
-                                                RustExportFormat.Mp4 -> RustExportFormat.Mp4
-                                                RustExportFormat.Av1Ivf -> RustExportFormat.Av1Ivf
-                                                RustExportFormat.Av1Mp4 -> RustExportFormat.Av1Mp4
-                                                RustExportFormat.Mov -> RustExportFormat.Mov
-                                            },
+                                            format = format,
                                             resolution = when {
                                                 parsedWidth <= 0 || parsedHeight <= 0 -> RustExportResolution.Source
                                                 hasSourceDimensions && parsedWidth == sourceWidth && parsedHeight == sourceHeight -> RustExportResolution.Source

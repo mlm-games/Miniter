@@ -74,14 +74,14 @@ pub struct ExportProfile {
 impl Default for ExportProfile {
     fn default() -> Self {
         Self {
-            format: ExportFormat::Mp4,
+            format: ExportFormat::Av1Mp4,
             resolution: ExportResolution::Source,
             fps: 30.0,
             video_bitrate_kbps: 8_000,
             audio_bitrate_kbps: 192,
             audio_sample_rate: 48_000,
             output_path: String::new(),
-            subtitle_mode: SubtitleMode::Hard,
+            subtitle_mode: SubtitleMode::Soft,
         }
     }
 }

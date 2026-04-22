@@ -304,9 +304,9 @@ enum class RustSubtitleMode {
 @Serializable
 enum class RustExportFormat {
     Mp4,
+    Av1Mp4,
     Mov,
     Av1Ivf,
-    Av1Mp4,
 }
 
 @Serializable(with = RustExportResolutionSerializer::class)
