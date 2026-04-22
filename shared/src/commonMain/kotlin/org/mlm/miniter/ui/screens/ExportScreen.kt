@@ -39,7 +39,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
 
     val profile = snapshot?.exportProfile
     val profileFormat = when (profile?.format) {
-        RustExportFormat.Mov, null -> RustExportFormat.Mp4
+        RustExportFormat.Mov, null -> RustExportFormat.Av1Mp4
         else -> profile.format
     }
     val (profileWidth, profileHeight) = when (val resolution = profile?.resolution) {
@@ -78,7 +78,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     var customWidth by remember(displayWidth) { mutableStateOf(displayWidth.takeIf { it > 0 }?.toString() ?: "") }
     var customHeight by remember(displayHeight) { mutableStateOf(displayHeight.takeIf { it > 0 }?.toString() ?: "") }
     var subtitleMode by remember(profile?.subtitleMode) {
-        mutableStateOf(profile?.subtitleMode ?: RustSubtitleMode.Hard)
+        mutableStateOf(profile?.subtitleMode ?: RustSubtitleMode.Soft)
     }
 
     var outputFile by remember { mutableStateOf<PlatformFile?>(null) }
