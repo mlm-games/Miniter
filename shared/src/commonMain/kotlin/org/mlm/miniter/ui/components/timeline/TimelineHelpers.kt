@@ -13,7 +13,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
-import io.github.mlmgames.settings.core.annotations.SettingPlatform
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTrackSnapshot
 
@@ -156,18 +155,6 @@ fun AddTrackRow(onAddTrack: (RustTrackKind) -> Unit) {
                         },
                         onClick = { onAddTrack(RustTrackKind.Text); expanded = false },
                     )
-                    DropdownMenuItem(
-                        text = { Text("Subtitle Track") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Subtitles,
-                                null,
-                                Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = { onAddTrack(RustTrackKind.Subtitle); expanded = false },
-                    )
-
                 }
             }
         }

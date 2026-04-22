@@ -20,7 +20,6 @@ fun ActionBar(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onAddText: () -> Unit,
-    onAddSubtitle: () -> Unit,
     onSplit: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
@@ -82,11 +81,6 @@ fun ActionBar(
                             icon = Icons.Default.TextFields,
                             label = "Text",
                             onClick = onAddText,
-                        )
-                        ActionChip(
-                            icon = Icons.Default.Subtitles,
-                            label = "Subtitle",
-                            onClick = onAddSubtitle,
                         )
 
                         ActionChip(

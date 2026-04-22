@@ -26,6 +26,7 @@ fun CompactTopBar(
     onRedo: () -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
+    onImportSubtitles: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -75,6 +76,11 @@ fun CompactTopBar(
                         text = { Text("Import to Existing Track") },
                         leadingIcon = { Icon(Icons.Default.VideoFile, null, Modifier.size(20.dp)) },
                         onClick = { onImport(); showMenu = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Import Subtitles") },
+                        leadingIcon = { Icon(Icons.Default.Subtitles, null, Modifier.size(20.dp)) },
+                        onClick = { onImportSubtitles(); showMenu = false },
                     )
                 }
             }
