@@ -489,7 +489,7 @@ class ProjectViewModel(
                             videoTrackId = ensureTrack(RustTrackKind.Video, "Video 1")
                         }
 
-                        val currentVideoTrackId = videoTrackId!!
+                        val currentVideoTrackId = videoTrackId
                         val currentVideoTrack = snapshotNow.timeline.tracks
                             .firstOrNull { it.id == currentVideoTrackId && it.kind == RustTrackKind.Video }
 
@@ -580,7 +580,7 @@ kind = RustVideoClipKind(
                         } ?: false
 
                         val targetAudioTrackId = if (!currentConflicts) {
-                            currentAudioTrackId!!
+                            currentAudioTrackId
                         } else {
                             val alternate = snapshotNow2.timeline.tracks
                                 .filter { it.kind == RustTrackKind.Audio && it.id != currentAudioTrackId }
