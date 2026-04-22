@@ -2542,7 +2542,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "videoson-codec-h264"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/videoson#788a1bc9d109d2e9231c5a60e0884f005f752f10"
+source = "git+https://github.com/mlm-games/videoson#1c6ec92d48ddb93b2c1ffd6a4d60d0ec0dd1066d"
 dependencies = [
  "rust_h264",
  "videoson-common",
@@ -2552,12 +2552,12 @@ dependencies = [
 [[package]]
 name = "videoson-common"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/videoson#788a1bc9d109d2e9231c5a60e0884f005f752f10"
+source = "git+https://github.com/mlm-games/videoson#1c6ec92d48ddb93b2c1ffd6a4d60d0ec0dd1066d"
 
 [[package]]
 name = "videoson-core"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/videoson#788a1bc9d109d2e9231c5a60e0884f005f752f10"
+source = "git+https://github.com/mlm-games/videoson#1c6ec92d48ddb93b2c1ffd6a4d60d0ec0dd1066d"
 
 [[package]]
 name = "walkdir"
