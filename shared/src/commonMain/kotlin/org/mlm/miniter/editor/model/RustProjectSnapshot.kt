@@ -280,7 +280,7 @@ data class RustEqBandSnapshot(
 
 @Serializable
 data class RustExportProfileSnapshot(
-    val format: RustExportFormat = RustExportFormat.Mp4,
+    val format: RustExportFormat = RustExportFormat.Av1Mp4,
     val resolution: RustExportResolution = RustExportResolution.Source,
     val fps: Double = 30.0,
     @SerialName("video_bitrate_kbps")
@@ -292,7 +292,7 @@ data class RustExportProfileSnapshot(
     @SerialName("output_path")
     val outputPath: String = "",
     @SerialName("subtitle_mode")
-    val subtitleMode: RustSubtitleMode = RustSubtitleMode.Hard,
+    val subtitleMode: RustSubtitleMode = RustSubtitleMode.Soft,
 )
 
 @Serializable

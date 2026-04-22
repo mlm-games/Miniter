@@ -103,6 +103,7 @@ fun ProjectScreen(
             onRedo = { vm.redo() },
             onExport = { backStack.add(Route.Export(savePath ?: "")) },
             onImport = { importPicker.launch() },
+            onImportSubtitles = { subtitlePicker.launch() },
         )
 
         EditorVideoPreview(
@@ -134,7 +135,6 @@ fun ProjectScreen(
             onZoomIn = { vm.zoomIn() },
             onZoomOut = { vm.zoomOut() },
             onAddText = { vm.addTextOverlay() },
-            onAddSubtitle = { subtitlePicker.launch() },
             onSplit = { selectedClipId?.let { vm.splitClipAtPlayhead(it) } },
             onDuplicate = { selectedClipId?.let { vm.duplicateClip(it) } },
             onDelete = { vm.deleteSelectedClip() },

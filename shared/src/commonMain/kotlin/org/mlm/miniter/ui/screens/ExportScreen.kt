@@ -199,20 +199,25 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             }
 
             Text("Subtitles", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = subtitleMode == RustSubtitleMode.Hard,
-                    onClick = { subtitleMode = RustSubtitleMode.Hard },
-                    label = { Text("Burn in") },
-                    enabled = !isExporting,
-                )
-                FilterChip(
-                    selected = subtitleMode == RustSubtitleMode.Soft,
-                    onClick = { subtitleMode = RustSubtitleMode.Soft },
-                    label = { Text("Embed (soft)") },
-                    enabled = !isExporting,
-                )
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                val subtitleOptions = listOf(RustSubtitleMode.Soft, RustSubtitleMode.Hard)
+                subtitleOptions.forEachIndexed { index, mode ->
+                    SegmentedButton(
+                        selected = subtitleMode == mode,
+                        onClick = { subtitleMode = mode },
+                        shape = SegmentedButtonDefaults.itemShape(index, subtitleOptions.size),
+                        enabled = !isExporting && mode != RustSubtitleMode.Hard,
+                    ) {
+                        Text(
+                            when (mode) {
+                                RustSubtitleMode.Hard -> "Burn in"
+                                RustSubtitleMode.Soft -> "Embed (soft)"
+                            }
+                        )
+                    }
+                }
             }
+
             if (subtitleMode == RustSubtitleMode.Soft && format == RustExportFormat.Mp4) {
                 Text(
                     "ASS/SSA styling is converted to plain text in MP4 soft subtitles.",
