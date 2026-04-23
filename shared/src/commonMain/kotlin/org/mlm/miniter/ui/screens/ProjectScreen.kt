@@ -180,29 +180,31 @@ fun ProjectScreen(
     }
 
     if (showPropertiesSheet && selectedClipId != null) {
-        PropertiesBottomSheet(
-            sheetState = sheetState,
-            snapshot = snapshot,
-            selectedClipId = selectedClipId,
-            onDismiss = {
-                scope.launch { sheetState.hide() }
-                showPropertiesSheet = false
-            },
-            onAddFilter = vm::addFilter,
-            onRemoveFilter = vm::removeFilter,
-            onUpdateFilterParams = vm::updateFilterParams,
-            onSetSpeed = vm::setClipSpeed,
-            onSetVolume = vm::setClipVolume,
-            onSetTransition = vm::setTransition,
-            onUpdateText = vm::updateTextClip,
-            onUpdateTextStyle = { clipId, fontSize, color, bgColor, posX, posY, bold, italic ->
-                vm.updateTextClipStyle(clipId, fontSize, color, bgColor, posX, posY, bold, italic)
-            },
-            onSetOpacity = vm::setClipOpacity,
-            onSetTextDuration = vm::setTextClipDuration,
-            onSetTextTransitionIn = vm::setTextTransitionIn,
-            onSetTextTransitionOut = vm::setTextTransitionOut,
-        )
+            PropertiesBottomSheet(
+                sheetState = sheetState,
+                snapshot = snapshot,
+                selectedClipId = selectedClipId,
+                onDismiss = {
+                    scope.launch { sheetState.hide() }
+                    showPropertiesSheet = false
+                },
+                onAddFilter = vm::addFilter,
+                onRemoveFilter = vm::removeFilter,
+                onUpdateFilterParams = vm::updateFilterParams,
+                onSetSpeed = vm::setClipSpeed,
+                onSetVolume = vm::setClipVolume,
+                onSetTransitionIn = vm::setTransitionIn,
+                onSetTransitionOut = vm::setTransitionOut,
+                onUpdateText = vm::updateTextClip,
+                onUpdateTextStyle = { clipId, fontSize, color, bgColor, posX, posY, bold, italic ->
+                    vm.updateTextClipStyle(clipId, fontSize, color, bgColor, posX, posY, bold, italic)
+                },
+                onSetOpacity = vm::setClipOpacity,
+                onSetTextDuration = vm::setTextClipDuration,
+                onSetTextTransitionIn = vm::setTextTransitionIn,
+                onSetTextTransitionOut = vm::setTextTransitionOut,
+            )
+
     }
 
     if (showExitConfirm) {

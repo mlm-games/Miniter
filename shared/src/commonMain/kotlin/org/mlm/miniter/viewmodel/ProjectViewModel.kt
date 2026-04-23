@@ -1051,9 +1051,16 @@ kind = RustAudioClipKind(
         )
     }
 
-    fun setTransition(clipId: String, transition: RustTransitionSnapshot?) {
+    fun setTransitionIn(clipId: String, transition: RustTransitionSnapshot?) {
         dispatchAndSync(
             rustStore.commands.setTransitionIn(clipId, transition),
+            isDirty = true,
+        )
+    }
+
+    fun setTransitionOut(clipId: String, transition: RustTransitionSnapshot?) {
+        dispatchAndSync(
+            rustStore.commands.setTransitionOut(clipId, transition),
             isDirty = true,
         )
     }

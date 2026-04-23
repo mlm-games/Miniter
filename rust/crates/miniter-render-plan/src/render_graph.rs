@@ -125,6 +125,38 @@ fn node_for_clip(
                     }
                 }
             }
+
+            if let Some(ref trans) = clip.transition_out {
+                let out_progress = transition_out_progress(clip, trans, t);
+                if out_progress < 1.0 {
+                    if let Some(next) = find_next_clip(track, clip) {
+                        if let ClipKind::Video(nv) = &next.kind {
+                            let clip_end = clip.timeline_end();
+                            let fade_start = Timestamp::from_micros(clip_end.as_micros() - trans.duration.as_micros());
+                            let offset = (t - fade_start).as_micros();
+                            let next_t = Timestamp::from_micros(next.timeline_start.as_micros() + offset);
+                            
+                            let next_pts = Timestamp::from_micros(
+                                next.source_start.as_micros()
+                                    + ((next_t - next.timeline_start).as_micros() as f64 * next.speed) as i64,
+                            );
+                            let next_node = RenderNode::VideoFrame {
+                                clip_id: next.id,
+                                source_path: nv.source_path.clone(),
+                                source_pts: next_pts,
+                                filters: nv.filters.clone(),
+                                opacity: next.opacity,
+                            };
+                            return Some(RenderNode::TransitionBlend {
+                                bottom: Box::new(base),
+                                top: Box::new(next_node),
+                                kind: trans.kind,
+                                progress: out_progress,
+                            });
+                        }
+                    }
+                }
+            }
             Some(base)
         }
         ClipKind::Audio(_) => None,
@@ -170,13 +202,47 @@ fn node_for_clip(
             })
         }
         ClipKind::Subtitle(sub) => match subtitle_mode {
-            SubtitleMode::Hard => Some(RenderNode::Subtitle {
-                source_path: sub.source_path.clone(),
-                source_pts,
-                opacity: clip.opacity,
-            }),
+            SubtitleMode::Hard => {
+                let mut opacity = clip.opacity;
+
+                if let Some(ref trans) = clip.transition_in {
+                    let progress = transition_progress(clip, trans, t);
+                    if progress < 1.0 {
+                        let eased = ease_in_out(progress);
+                        let (_, text_a) = opacity_pair(trans.kind, eased);
+                        opacity *= text_a;
+                    }
+                }
+
+                if let Some(ref trans) = clip.transition_out {
+                    let out_progress = transition_out_progress(clip, trans, t);
+                    if out_progress < 1.0 {
+                        let eased = ease_in_out(out_progress);
+                        let (fade_a, _) = opacity_pair(trans.kind, eased);
+                        opacity *= fade_a;
+                    }
+                }
+
+                Some(RenderNode::Subtitle {
+                    source_path: sub.source_path.clone(),
+                    source_pts,
+                    opacity,
+                })
+            }
             SubtitleMode::Soft => None,
         },
+    }
+}
+
+fn find_next_clip<'a>(
+    track: &'a miniter_domain::track::Track,
+    clip: &Clip,
+) -> Option<&'a Clip> {
+    let idx = track.clip_index(clip.id)?;
+    if idx + 1 < track.clips.len() {
+        Some(&track.clips[idx + 1])
+    } else {
+        None
     }
 }
 

@@ -51,7 +51,8 @@ fun PropertiesPanel(
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
-    onSetTransition: (String, RustTransitionSnapshot?) -> Unit,
+    onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
+    onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
@@ -100,7 +101,8 @@ fun PropertiesPanel(
                 onUpdateFilterParams = onUpdateFilterParams,
                 onSetSpeed = onSetSpeed,
                 onSetVolume = onSetVolume,
-                onSetTransition = onSetTransition,
+                onSetTransitionIn = onSetTransitionIn,
+                onSetTransitionOut = onSetTransitionOut,
                 onSetOpacity = onSetOpacity,
             )
             is RustAudioClipKind -> AudioClipProperties(clip, kind, onSetVolume)
@@ -134,7 +136,8 @@ private fun VideoClipProperties(
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
-    onSetTransition: (String, RustTransitionSnapshot?) -> Unit,
+    onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
+    onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
 ) {
     val fileName = kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
@@ -313,17 +316,17 @@ private fun VideoClipProperties(
     )
     Spacer(Modifier.height(8.dp))
 
-    var transExpanded by remember { mutableStateOf(false) }
-    val currentTransition = clipTransition
+    var transInExpanded by remember { mutableStateOf(false) }
+    val currentTransitionIn = clip.transitionIn
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box {
-            OutlinedButton(onClick = { transExpanded = true }) {
+            OutlinedButton(onClick = { transInExpanded = true }) {
                 Icon(
-                    when (currentTransition?.kind) {
+                    when (currentTransitionIn?.kind) {
                         RustTransitionKind.CrossFade -> Icons.Default.Animation
                         RustTransitionKind.Dissolve -> Icons.Default.BlurOn
                         RustTransitionKind.SlideLeft -> Icons.AutoMirrored.Filled.ArrowBack
@@ -334,13 +337,13 @@ private fun VideoClipProperties(
                     Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(6.dp))
-                Text(currentTransition?.kind?.name ?: "None")
+                Text(currentTransitionIn?.kind?.name ?: "None")
             }
-            DropdownMenu(expanded = transExpanded, onDismissRequest = { transExpanded = false }) {
+            DropdownMenu(expanded = transInExpanded, onDismissRequest = { transInExpanded = false }) {
                 DropdownMenuItem(
                     text = { Text("None") },
                     leadingIcon = { Icon(Icons.Default.Block, null, Modifier.size(18.dp)) },
-                    onClick = { onSetTransition(clip.id, null); transExpanded = false },
+                    onClick = { onSetTransitionIn(clip.id, null); transInExpanded = false },
                 )
                 HorizontalDivider()
                 DropdownMenuItem(
@@ -354,8 +357,8 @@ private fun VideoClipProperties(
                     },
                     leadingIcon = { Icon(Icons.Default.Animation, null, Modifier.size(18.dp)) },
                     onClick = {
-                        onSetTransition(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
-                        transExpanded = false
+                        onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+                        transInExpanded = false
                     },
                 )
                 DropdownMenuItem(
@@ -369,8 +372,8 @@ private fun VideoClipProperties(
                     },
                     leadingIcon = { Icon(Icons.Default.BlurOn, null, Modifier.size(18.dp)) },
                     onClick = {
-                        onSetTransition(clip.id, RustTransitionSnapshot(RustTransitionKind.Dissolve, 500_000L))
-                        transExpanded = false
+                        onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.Dissolve, 500_000L))
+                        transInExpanded = false
                     },
                 )
                 DropdownMenuItem(
@@ -384,8 +387,8 @@ private fun VideoClipProperties(
                     },
                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(18.dp)) },
                     onClick = {
-                        onSetTransition(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
-                        transExpanded = false
+                        onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
+                        transInExpanded = false
                     },
                 )
                 DropdownMenuItem(
@@ -399,84 +402,169 @@ private fun VideoClipProperties(
                     },
                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp)) },
                     onClick = {
-                        onSetTransition(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
-                        transExpanded = false
+                        onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
+                        transInExpanded = false
                     },
                 )
             }
         }
     }
 
-    if (currentTransition != null) {
+    if (currentTransitionIn != null) {
         Spacer(Modifier.height(8.dp))
         Text("Duration", style = MaterialTheme.typography.labelSmall)
-        var transDuration by remember(currentTransition.duration) {
-            mutableFloatStateOf(currentTransition.duration / 1_000_000f)
+        var transInDuration by remember(currentTransitionIn.duration) {
+            mutableFloatStateOf(currentTransitionIn.duration / 1_000_000f)
         }
         Slider(
-            value = transDuration,
-            onValueChange = { transDuration = it },
+            value = transInDuration,
+            onValueChange = { transInDuration = it },
             onValueChangeFinished = {
-                onSetTransition(
+                onSetTransitionIn(
                     clip.id,
                     RustTransitionSnapshot(
-                        kind = currentTransition.kind,
-                        duration = (transDuration * 1_000_000L).toLong(),
+                        kind = currentTransitionIn.kind,
+                        duration = (transInDuration * 1_000_000L).toLong(),
                     )
                 )
             },
             valueRange = 0.1f..2f,
             steps = 18,
         )
-        Text("${formatFixed(transDuration, 1)}s", style = MaterialTheme.typography.labelSmall)
+        Text("${formatFixed(transInDuration, 1)}s", style = MaterialTheme.typography.labelSmall)
 
         Spacer(Modifier.height(4.dp))
+    }
 
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = MaterialTheme.shapes.small,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(
-                Modifier.padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                // Previous clip indicator
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = MaterialTheme.shapes.extraSmall,
-                    modifier = Modifier.weight(1f).height(24.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("← Previous", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                }
+    Spacer(Modifier.height(16.dp))
 
-                Surface(
-                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
-                    shape = MaterialTheme.shapes.extraSmall,
-                    modifier = Modifier.width(40.dp).height(24.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("↔", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
+    Text("Transition Out", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        "Controls how this clip exits. Adds a fade effect to the end of this clip and the start of the next clip.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(8.dp))
 
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = MaterialTheme.shapes.extraSmall,
-                    modifier = Modifier.weight(1f).height(24.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("This →", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer)
-                    }
-                }
+    var transOutExpanded by remember { mutableStateOf(false) }
+    val currentTransitionOut = clip.transitionOut
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box {
+            OutlinedButton(onClick = { transOutExpanded = true }) {
+                Icon(
+                    when (currentTransitionOut?.kind) {
+                        RustTransitionKind.CrossFade -> Icons.Default.Animation
+                        RustTransitionKind.Dissolve -> Icons.Default.BlurOn
+                        RustTransitionKind.SlideLeft -> Icons.AutoMirrored.Filled.ArrowBack
+                        RustTransitionKind.SlideRight -> Icons.AutoMirrored.Filled.ArrowForward
+                        null -> Icons.Default.Block
+                    },
+                    null,
+                    Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(currentTransitionOut?.kind?.name ?: "None")
+            }
+            DropdownMenu(expanded = transOutExpanded, onDismissRequest = { transOutExpanded = false }) {
+                DropdownMenuItem(
+                    text = { Text("None") },
+                    leadingIcon = { Icon(Icons.Default.Block, null, Modifier.size(18.dp)) },
+                    onClick = { onSetTransitionOut(clip.id, null); transOutExpanded = false },
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Cross Fade")
+                            Text("Fades to/from black between clips",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.Default.Animation, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+                        transOutExpanded = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Dissolve")
+                            Text("Smooth dissolve between clips",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.Default.BlurOn, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.Dissolve, 500_000L))
+                        transOutExpanded = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Slide Left")
+                            Text("Previous slides out left, this enters from right",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
+                        transOutExpanded = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Slide Right")
+                            Text("Previous slides out right, this enters from left",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
+                        transOutExpanded = false
+                    },
+                )
             }
         }
+    }
+
+    if (currentTransitionOut != null) {
+        Spacer(Modifier.height(8.dp))
+        Text("Duration", style = MaterialTheme.typography.labelSmall)
+        var transOutDuration by remember(currentTransitionOut.duration) {
+            mutableFloatStateOf(currentTransitionOut.duration / 1_000_000f)
+        }
+        Slider(
+            value = transOutDuration,
+            onValueChange = { transOutDuration = it },
+            onValueChangeFinished = {
+                onSetTransitionOut(
+                    clip.id,
+                    RustTransitionSnapshot(
+                        kind = currentTransitionOut.kind,
+                        duration = (transOutDuration * 1_000_000L).toLong(),
+                    )
+                )
+            },
+            valueRange = 0.1f..2f,
+            steps = 18,
+        )
+        Text("${formatFixed(transOutDuration, 1)}s", style = MaterialTheme.typography.labelSmall)
+
+        Spacer(Modifier.height(4.dp))
     }
 }
 
