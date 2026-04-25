@@ -3,6 +3,7 @@ use crate::decoder::{DecodeError, VideoDecodeSession};
 use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
 use crate::frame::RgbaFrame;
+use crate::image_cache::ImageCache;
 use crate::mux::{
     ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut, SubtitleTrackCodecOut,
     SubtitleTrackConfigOut, VideoTrackCodecOut, extract_sps_pps,
@@ -509,9 +510,26 @@ struct ExportDecodeSession {
     pending_frame: Option<RgbaFrame>,
 }
 
+struct ImageSession {
+    frame: RgbaFrame,
+}
+
+enum ExportSession {
+    Video(ExportDecodeSession),
+    Image(ImageSession),
+}
+
 struct ExportDecodeCache {
-    sessions: HashMap<ClipId, ExportDecodeSession>,
+    sessions: HashMap<ClipId, ExportSession>,
     subtitle_renderers: HashMap<String, SubtitleRenderer>,
+    image_cache: ImageCache,
+}
+
+fn is_image_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
+        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif")
+    )
 }
 
 impl ExportDecodeCache {
@@ -519,6 +537,7 @@ impl ExportDecodeCache {
         Self {
             sessions: HashMap::new(),
             subtitle_renderers: HashMap::new(),
+            image_cache: ImageCache::new(),
         }
     }
 
@@ -529,71 +548,82 @@ impl ExportDecodeCache {
         target_us: i64,
     ) -> Result<RgbaFrame, DecodeError> {
         if !self.sessions.contains_key(&clip_id) {
-            let mut session = VideoDecodeSession::open(path)?;
-            let first_frame = session.next_frame()?;
-            let entry = ExportDecodeSession {
-                session,
-                last_pts: first_frame.as_ref().map_or(0, |f| f.pts_us),
-                last_frame: first_frame,
-                pending_frame: None,
-            };
-            self.sessions.insert(clip_id, entry);
-        }
-
-        let entry = self.sessions.get_mut(&clip_id).unwrap();
-
-        if let Some(ref last) = entry.last_frame {
-            if target_us < last.pts_us {
-                entry.session.reset()?;
-                entry.last_pts = 0;
-                entry.last_frame = None;
-                entry.pending_frame = None;
-            } else if let Some(ref pending) = entry.pending_frame {
-                if target_us < pending.pts_us {
-                    return Ok(last.clone());
-                } else {
-                    entry.last_frame = Some(pending.clone());
-                    entry.last_pts = pending.pts_us;
-                    entry.pending_frame = None;
-                }
-            }
-            if let Some(ref last) = entry.last_frame {
-                if last.pts_us == target_us {
-                    return Ok(last.clone());
-                }
+            if is_image_file(path) {
+                let frame = self.image_cache.get_frame(path).map_err(|e| {
+                    DecodeError::NoVideoStream
+                })?;
+                let entry = ImageSession { frame };
+                self.sessions.insert(clip_id, ExportSession::Image(entry));
+            } else {
+                let mut session = VideoDecodeSession::open(path)?;
+                let first_frame = session.next_frame()?;
+                let entry = ExportDecodeSession {
+                    session,
+                    last_pts: first_frame.as_ref().map_or(0, |f| f.pts_us),
+                    last_frame: first_frame,
+                    pending_frame: None,
+                };
+                self.sessions.insert(clip_id, ExportSession::Video(entry));
             }
         }
 
-        loop {
-            match entry.session.next_frame()? {
-                Some(frame) => {
-                    if frame.pts_us == target_us {
-                        entry.last_pts = frame.pts_us;
-                        entry.last_frame = Some(frame.clone());
+        match self.sessions.get_mut(&clip_id).unwrap() {
+            ExportSession::Image(entry) => Ok(entry.frame.clone()),
+            ExportSession::Video(entry) => {
+                if let Some(ref last) = entry.last_frame {
+                    if target_us < last.pts_us {
+                        entry.session.reset()?;
+                        entry.last_pts = 0;
+                        entry.last_frame = None;
                         entry.pending_frame = None;
-                        return Ok(frame);
+                    } else if let Some(ref pending) = entry.pending_frame {
+                        if target_us < pending.pts_us {
+                            return Ok(last.clone());
+                        } else {
+                            entry.last_frame = Some(pending.clone());
+                            entry.last_pts = pending.pts_us;
+                            entry.pending_frame = None;
+                        }
                     }
-                    if frame.pts_us > target_us {
-                        if let Some(ref last) = entry.last_frame {
-                            entry.pending_frame = Some(frame.clone());
+                    if let Some(ref last) = entry.last_frame {
+                        if last.pts_us == target_us {
                             return Ok(last.clone());
                         }
-                        entry.last_pts = frame.pts_us;
-                        entry.last_frame = Some(frame.clone());
-                        return Ok(frame);
                     }
-                    entry.last_pts = frame.pts_us;
-                    entry.last_frame = Some(frame);
                 }
-                None => {
-                    if let Some(ref pending) = entry.pending_frame {
-                        let p = pending.clone();
-                        entry.last_frame = Some(p.clone());
-                        entry.last_pts = pending.pts_us;
-                        entry.pending_frame = None;
-                        return Ok(p);
+
+                loop {
+                    match entry.session.next_frame()? {
+                        Some(frame) => {
+                            if frame.pts_us == target_us {
+                                entry.last_pts = frame.pts_us;
+                                entry.last_frame = Some(frame.clone());
+                                entry.pending_frame = None;
+                                return Ok(frame);
+                            }
+                            if frame.pts_us > target_us {
+                                if let Some(ref last) = entry.last_frame {
+                                    entry.pending_frame = Some(frame.clone());
+                                    return Ok(last.clone());
+                                }
+                                entry.last_pts = frame.pts_us;
+                                entry.last_frame = Some(frame.clone());
+                                return Ok(frame);
+                            }
+                            entry.last_pts = frame.pts_us;
+                            entry.last_frame = Some(frame);
+                        }
+                        None => {
+                            if let Some(ref pending) = entry.pending_frame {
+                                let p = pending.clone();
+                                entry.last_frame = Some(p.clone());
+                                entry.last_pts = pending.pts_us;
+                                entry.pending_frame = None;
+                                return Ok(p);
+                            }
+                            return entry.last_frame.clone().ok_or(DecodeError::NoVideoStream);
+                        }
                     }
-                    return entry.last_frame.clone().ok_or(DecodeError::NoVideoStream);
                 }
             }
         }

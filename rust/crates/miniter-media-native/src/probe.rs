@@ -1,3 +1,4 @@
+use image::GenericImageView;
 use miniter_audio::probe;
 use mp4::Mp4Reader;
 use std::fs::File;
@@ -56,6 +57,7 @@ pub fn probe_media(path: &Path) -> Result<MediaInfo, MediaProbeError> {
         "ivf" => probe_ivf(path),
         "wav" => probe_wav(path),
         "mp3" | "ogg" | "m4a" | "aac" | "flac" => probe_audio_only(path),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" => probe_image(path),
         _ => probe_mp4(path),
     }
 }
@@ -70,6 +72,9 @@ pub fn probe_media_bytes(
         "ivf" => probe_ivf_bytes(bytes),
         "wav" => probe_wav_bytes(bytes),
         "mp3" | "ogg" | "m4a" | "aac" | "flac" => probe_audio_only_bytes(bytes, extension_hint),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" => {
+            probe_image_bytes(bytes, extension_hint)
+        }
         _ => probe_mp4_bytes(bytes),
     }
 }
@@ -374,5 +379,44 @@ fn probe_audio_only_bytes(
             channels: meta.channels as u32,
             bitrate: 0,
         }],
+    })
+}
+
+fn probe_image(path: &Path) -> Result<MediaInfo, MediaProbeError> {
+    let img = image::open(path).map_err(|e| MediaProbeError::Io(std::io::Error::other(e.to_string())))?;
+    let (width, height) = img.dimensions();
+    Ok(MediaInfo {
+        duration_us: None,
+        video_streams: vec![VideoStreamInfo {
+            track_id: 1,
+            codec: "Image".to_string(),
+            width,
+            height,
+            frame_rate: 0.0,
+            bitrate: 0,
+        }],
+        audio_streams: Vec::new(),
+    })
+}
+
+pub fn probe_image_bytes(bytes: &[u8], extension_hint: Option<&str>) -> Result<MediaInfo, MediaProbeError> {
+    use std::io::Cursor;
+    let fmt = extension_hint
+        .and_then(|e| image::ImageFormat::from_extension(e))
+        .unwrap_or(image::ImageFormat::Png);
+    let img = image::load(Cursor::new(bytes), fmt)
+        .map_err(|e| MediaProbeError::Io(std::io::Error::other(e.to_string())))?;
+    let (width, height) = img.dimensions();
+    Ok(MediaInfo {
+        duration_us: None,
+        video_streams: vec![VideoStreamInfo {
+            track_id: 1,
+            codec: "Image".to_string(),
+            width,
+            height,
+            frame_rate: 0.0,
+            bitrate: 0,
+        }],
+        audio_streams: Vec::new(),
     })
 }

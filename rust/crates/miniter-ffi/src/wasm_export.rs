@@ -15,6 +15,7 @@ use miniter_media_native::decoder::{DecodeError, VideoDecodeSession};
 use miniter_media_native::encoder::{EncodedVideoOutput, VideoEncodeSession};
 use miniter_media_native::encoder_av1::{Av1EncodeSession, Av1Packet};
 use miniter_media_native::frame::RgbaFrame;
+use miniter_media_native::image_cache::ImageCache;
 use miniter_media_native::mux::{
     extract_sps_pps, ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut,
     SubtitleTrackConfigOut, VideoTrackCodecOut,
@@ -22,6 +23,34 @@ use miniter_media_native::mux::{
 use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
+
+fn is_image_path(path: &str) -> bool {
+    matches!(
+        std::path::Path::new(path).extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
+        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif")
+    )
+}
+
+fn image_format_from_path(path: &str) -> image::ImageFormat {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .and_then(image::ImageFormat::from_extension)
+        .unwrap_or(image::ImageFormat::Png)
+}
+
+fn load_image_from_bytes(bytes: &[u8], fmt: image::ImageFormat) -> Result<RgbaFrame, String> {
+    let img = image::load_from_memory_with_format(bytes, fmt)
+        .map_err(|e| e.to_string())?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok(RgbaFrame {
+        width,
+        height,
+        data: rgba.into_raw(),
+        pts_us: 0,
+    })
+}
 
 pub struct WasmExportArtifact {
     pub bytes: Vec<u8>,
@@ -39,6 +68,7 @@ struct RenderSettings {
 enum DecodeSession {
     File(VideoDecodeSession<BufReader<std::fs::File>>),
     Memory(VideoDecodeSession<Cursor<Vec<u8>>>),
+    Image(RgbaFrame),
 }
 
 impl DecodeSession {
@@ -46,6 +76,7 @@ impl DecodeSession {
         match self {
             Self::File(session) => session.next_frame(),
             Self::Memory(session) => session.next_frame(),
+            Self::Image(frame) => Ok(Some(frame.clone())),
         }
     }
 
@@ -53,6 +84,7 @@ impl DecodeSession {
         match self {
             Self::File(session) => session.reset(),
             Self::Memory(session) => session.reset(),
+            Self::Image(_) => Ok(()),
         }
     }
 }
@@ -82,6 +114,7 @@ struct ExportDecodeCache<'a> {
     subtitle_cues: HashMap<String, Vec<SubtitleCue>>,
     first_decoded_video_pts_us: Option<i64>,
     registered_files: &'a HashMap<String, Vec<u8>>,
+    image_cache: ImageCache,
 }
 
 impl<'a> ExportDecodeCache<'a> {
@@ -91,6 +124,7 @@ impl<'a> ExportDecodeCache<'a> {
             subtitle_cues: HashMap::new(),
             first_decoded_video_pts_us: None,
             registered_files,
+            image_cache: ImageCache::new(),
         }
     }
 
@@ -107,7 +141,17 @@ impl<'a> ExportDecodeCache<'a> {
         target_us: i64,
     ) -> Result<RgbaFrame, String> {
         if !self.sessions.contains_key(&clip_id) {
-            let session = if let Some(bytes) = self.registered_files.get(path) {
+            let session = if is_image_path(path) {
+                if let Some(bytes) = self.registered_files.get(path) {
+                    let fmt = image_format_from_path(path);
+                    let img = load_image_from_bytes(bytes, fmt)?;
+                    DecodeSession::Image(img)
+                } else {
+                    let img = self.image_cache.get_frame(Path::new(path))
+                        .map_err(|e| format!("image load failed for '{path}': {e}"))?;
+                    DecodeSession::Image(img)
+                }
+            } else if let Some(bytes) = self.registered_files.get(path) {
                 let size = bytes.len() as u64;
                 let reader = Cursor::new(bytes.clone());
                 DecodeSession::Memory(
@@ -259,6 +303,9 @@ pub fn export_project_to_bytes(
         ExportFormat::Mov => {
             return Err("MOV export is not supported on web yet".to_string());
         }
+        ExportFormat::Av1Mkv | ExportFormat::Av1WebM => {
+            return Err("MKV/WebM AV1 export is not supported on web yet".to_string());
+        }
     };
 
     Ok(WasmExportArtifact {
@@ -274,6 +321,7 @@ fn export_target_info(format: ExportFormat) -> Result<(&'static str, &'static st
         ExportFormat::Av1Mp4 => Ok(("mp4", "video/mp4")),
         ExportFormat::Av1Ivf => Ok(("ivf", "video/ivf")),
         ExportFormat::Mov => Err("MOV export is not supported on web yet".to_string()),
+        ExportFormat::Av1Mkv | ExportFormat::Av1WebM => Err("MKV/WebM AV1 export is not supported on web yet".to_string()),
     }
 }
 

@@ -164,8 +164,9 @@ actual class RustCoreSession private constructor(
                     hasVideo = false,
                 )
             }
+            val durationUs = if (payload.durationUs == 0L && payload.width > 0) 5_000_000L else payload.durationUs
             return VideoInfo(
-                durationMs = payload.durationUs / 1000L,
+                durationMs = durationUs / 1000L,
                 width = payload.width,
                 height = payload.height,
                 frameRate = payload.frameRate,

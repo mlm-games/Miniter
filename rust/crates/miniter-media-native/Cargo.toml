@@ -11,6 +11,9 @@ thiserror.workspace = true
 log.workspace = true
 web-time.workspace = true
 
+# Image loading (PNG, JPG, WebP, GIF, BMP, TIFF)
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"] }
+
 # Container demux/mux
 mp4 = "0.14"
 muxide = "0.2"

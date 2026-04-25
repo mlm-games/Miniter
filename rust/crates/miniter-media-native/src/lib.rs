@@ -7,6 +7,7 @@ pub mod encoder_av1;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod export;
 pub mod frame;
+pub mod image_cache;
 pub mod mux;
 pub mod probe;
 #[cfg(not(target_arch = "wasm32"))]

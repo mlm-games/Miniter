@@ -1,8 +1,12 @@
 use crate::decoder::{DecodeError, VideoDecodeSession};
 use crate::frame::RgbaFrame;
+use image::GenericImageView;
 use std::path::Path;
 
 pub fn extract_thumbnail(path: &Path, target_us: i64) -> Result<RgbaFrame, DecodeError> {
+    if is_image_file(path) {
+        return load_image_as_frame(path);
+    }
     let mut session = VideoDecodeSession::open(path)?;
     let mut last_frame: Option<RgbaFrame> = None;
 
@@ -26,6 +30,11 @@ pub fn extract_thumbnails(
     count: usize,
     duration_us: i64,
 ) -> Result<Vec<RgbaFrame>, DecodeError> {
+    if is_image_file(path) {
+        let frame = load_image_as_frame(path)?;
+        return Ok(vec![frame; count.min(1)]);
+    }
+
     if count == 0 || duration_us <= 0 {
         return Ok(Vec::new());
     }
@@ -63,4 +72,30 @@ pub fn extract_thumbnails(
     }
 
     Ok(results)
+}
+
+fn is_image_file(path: &Path) -> bool {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif"
+    )
+}
+
+fn load_image_as_frame(path: &Path) -> Result<RgbaFrame, DecodeError> {
+    let img = image::open(path).map_err(|e| DecodeError::NoVideoStream)?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let data = rgba.into_raw();
+    Ok(RgbaFrame {
+        width,
+        height,
+        data,
+        pts_us: 0,
+    })
 }

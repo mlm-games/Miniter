@@ -25,6 +25,9 @@ pub enum ProbeError {
 }
 
 pub fn probe_audio(path: &Path) -> Result<AudioMeta, ProbeError> {
+    if is_image_file(path) {
+        return Err(ProbeError::NoAudioTrack);
+    }
     let file = File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
@@ -35,6 +38,9 @@ pub fn probe_audio_bytes(
     bytes: &[u8],
     extension_hint: Option<&str>,
 ) -> Result<AudioMeta, ProbeError> {
+    if is_image_extension(extension_hint) {
+        return Err(ProbeError::NoAudioTrack);
+    }
     let cursor = Cursor::new(bytes.to_vec());
     let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
 
@@ -78,4 +84,15 @@ fn probe_audio_stream(
         channels: params.channels.map(|c| c.count() as u16).unwrap_or(0),
         duration_us,
     })
+}
+
+fn is_image_file(path: &Path) -> bool {
+    is_image_extension(path.extension().and_then(|e| e.to_str()))
+}
+
+fn is_image_extension(ext: Option<&str>) -> bool {
+    match ext.map(|e| e.to_lowercase()).as_deref() {
+        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif") => true,
+        _ => false,
+    }
 }
