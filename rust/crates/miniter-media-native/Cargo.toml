@@ -1,9 +1,9 @@
 [package]
 name = "miniter-media-native"
-version.workspace = true
-edition.workspace = true
+version = { workspace = true }
+edition = { workspace = true }
 
-[dependencies] # Pure rust or cross platform options only!
+[dependencies]
 miniter-domain = { path = "../miniter-domain" }
 miniter-render-plan = { path = "../miniter-render-plan" }
 miniter-audio = { path = "../miniter-audio" }
@@ -11,14 +11,12 @@ thiserror.workspace = true
 log.workspace = true
 web-time.workspace = true
 
-# Container demux/mux (switch to videoson later)
+# Container demux/mux
 mp4 = "0.14"
 muxide = "0.2"
 
-# H.264 encoder & decoders (fallback)
+# H.264 encoder
 less-avc = "0.1.5"
-videoson-core = { git = "https://github.com/mlm-games/videoson", optional = true, default-features = false, package = "videoson-core" }
-videoson-codec-h264 = { git = "https://github.com/mlm-games/videoson", optional = true, default-features = false, package = "videoson-codec-h264" }
 
 # AV1
 rav1e = { version = "0.8", default-features = false }
@@ -34,29 +32,55 @@ mousiki = "0.2.1"
 # Text rendering for export
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 
+
+oxideav-core = { version = "0.1.3", optional = true }
+oxideav-codec = { version = "0.1.2", optional = true }
+
+oxideav-h264 = { version = "0.0.4", optional = true }
+oxideav-h265 = { version = "0.0.4", optional = true }
+oxideav-vp8 = { version = "0.1.0", optional = true }
+# oxideav-vp9 = NOT YET PUBLISHED
+
+# AV1 decoder (rav1d-safe is a safe fork of rav1d)
+rav1d-safe = { version = "0.3", optional = true }
+
+# videoson for H.264 (supports B-slices)
+videoson-core = { version = "0.1", optional = true }
+videoson-codec-h264 = { version = "0.1", optional = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ass-renderer = { git = "https://github.com/mlm-games/ass-rs", default-features = false, features = [
-    "software-backend",
-    "image",
-    "simd",
-] }
+ass-renderer = { git = "https://github.com/mlm-games/ass-rs", default-features = false, features = ["software-backend", "image", "simd"] }
 ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
-tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [target.'cfg(all(target_os = "android", target_arch = "aarch64"))'.dependencies]
-baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", optional = true, default-features = false, features = [
-    "android",
-] }
+baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", optional = true, features = ["android"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", optional = true, default-features = false, features = [
-    "web-codecs",
-] }
+baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", optional = true, features = ["web-codecs"] }
 web-sys = { version = "0.3.91", features = ["Window", "Document", "Storage"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen-futures = "0.4"
 
 [features]
-default = ["videoson", "hw-decoder"]
+default = ["oxideav", "videoson", "av1"]
+
+# Use oxideav (pure-Rust) for H.265, VP8 decoding
+# videoson handles H.264 including B-slices
+oxideav = [
+    "dep:oxideav-core",
+    "dep:oxideav-codec",
+    "dep:oxideav-h265",
+    "dep:oxideav-vp8",
+]
+
+# videoson for H.264 (supports B-slices)
+videoson = [
+    "dep:videoson-core",
+    "dep:videoson-codec-h264",
+]
+
+# AV1 via rav1d-safe
+av1 = ["dep:rav1d-safe"]
+
+# Use hw-decoder (native platform decoder) if available
 hw-decoder = ["dep:baabaabaabaabababbababbaa"]
-videoson = ["dep:videoson-core", "dep:videoson-codec-h264"]

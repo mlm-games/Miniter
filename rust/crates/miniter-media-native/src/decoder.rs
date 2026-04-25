@@ -2,7 +2,7 @@
 
 use crate::frame::RgbaFrame;
 use mp4::{Mp4Reader, TrackType};
-use std::io::{BufReader, Seek};
+use std::io::{BufReader, Seek, Write};
 use std::path::Path;
 
 #[derive(Debug, thiserror::Error)]
@@ -15,10 +15,14 @@ pub enum DecodeError {
     NoVideoStream,
     #[error("Unsupported codec — only H.264 is supported")]
     UnsupportedCodec,
-    #[error("Decoder not available: enable videoson or hw-decoder")]
+    #[error("No decoder available — enable oxideav feature")]
     DecoderNotAvailable,
     #[error("Videoson: {0}")]
     Videoson(String),
+    #[error("OxideAV: {0}")]
+    OxideAv(String),
+    #[error("AV1: {0}")]
+    Av1(String),
     #[error("Decoder error: {0}")]
     Other(String),
 }
@@ -307,6 +311,216 @@ mod baaba_decoder {
     }
 }
 
+#[cfg(feature = "oxideav")]
+mod oxideav_decoder {
+    use super::*;
+    use oxideav_core::{CodecId, CodecParameters, Frame, Packet, PixelFormat, TimeBase};
+
+    pub struct OxideAvDecoder {
+        decoder: Box<dyn oxideav_codec::Decoder + Send>,
+        width: u32,
+        height: u32,
+    }
+
+    impl OxideAvDecoder {
+        pub fn new(width: u32, height: u32) -> Result<Self, DecodeError> {
+            let mut reg = oxideav_codec::CodecRegistry::new();
+            oxideav_h265::register(&mut reg);
+
+            let mut params = CodecParameters::video(CodecId::new("h265"));
+            params.width = Some(width);
+            params.height = Some(height);
+
+            let decoder = reg
+                .make_decoder(&params)
+                .map_err(|e| DecodeError::OxideAv(format!("Failed to create decoder: {e}")))?;
+
+            Ok(Self {
+                decoder,
+                width,
+                height,
+            })
+        }
+
+        pub fn decode(
+            &mut self,
+            annex_b: Vec<u8>,
+            pts_us: i64,
+            _is_sync: bool,
+        ) -> Result<Option<RgbaFrame>, DecodeError> {
+            let timebase = TimeBase::new(1, 90_000);
+            let mut pkt = Packet::new(0, timebase, annex_b);
+            pkt.pts = Some(pts_us);
+
+            self.decoder
+                .send_packet(&pkt)
+                .map_err(|e| DecodeError::OxideAv(format!("send_packet: {e}")))?;
+
+            match self.decoder.receive_frame() {
+                Ok(Frame::Video(vf)) => {
+                    let (w, h) = (vf.width as usize, vf.height as usize);
+                    let rgba = match vf.format {
+                        PixelFormat::Yuv420P => {
+                            if vf.planes.len() >= 3 {
+                                let y_plane = &vf.planes[0];
+                                let u_plane = &vf.planes[1];
+                                let v_plane = &vf.planes[2];
+                                let y = &y_plane.data;
+                                let u = &u_plane.data;
+                                let v = &v_plane.data;
+                                crate::yuv::yuv420_to_rgba(
+                                    y,
+                                    u,
+                                    v,
+                                    w,
+                                    h,
+                                    y_plane.stride,
+                                    u_plane.stride,
+                                    v_plane.stride,
+                                )
+                            } else {
+                                return Err(DecodeError::OxideAv(
+                                    "Invalid plane count".to_string(),
+                                ));
+                            }
+                        }
+                        other => {
+                            return Err(DecodeError::OxideAv(format!(
+                                "Unsupported pixel format: {other:?}"
+                            )));
+                        }
+                    };
+                    Ok(Some(RgbaFrame {
+                        width: vf.width as u32,
+                        height: vf.height as u32,
+                        data: rgba,
+                        pts_us,
+                    }))
+                }
+                Ok(_) => Err(DecodeError::OxideAv("Expected video frame".to_string())),
+                Err(e) => {
+                    let err_str = format!("{e}");
+                    if err_str.contains("again") || err_str.contains("would block") {
+                        Ok(None)
+                    } else {
+                        Err(DecodeError::OxideAv(format!("receive_frame: {e}")))
+                    }
+                }
+            }
+        }
+
+        pub fn finish(&mut self) -> Result<Option<RgbaFrame>, DecodeError> {
+            self.decoder
+                .flush()
+                .map_err(|e| DecodeError::OxideAv(format!("flush: {e}")))?;
+            Ok(None)
+        }
+
+        pub fn reset(&mut self) {
+            let _ = self.decoder.reset();
+        }
+    }
+}
+
+#[cfg(feature = "av1")]
+mod av1_decoder {
+    use super::*;
+    use rav1d_safe::{Decoder, Frame, Planes, Planes8};
+
+    pub struct Av1Decoder {
+        decoder: Decoder,
+    }
+
+    impl Av1Decoder {
+        pub fn new() -> Result<Self, DecodeError> {
+            let decoder = Decoder::new()
+                .map_err(|e| DecodeError::Av1(format!("Failed to create decoder: {e}")))?;
+            Ok(Self { decoder })
+        }
+
+        pub fn decode(
+            &mut self,
+            obu_data: Vec<u8>,
+            _pts_us: i64,
+        ) -> Result<Option<RgbaFrame>, DecodeError> {
+            match self.decoder.decode(&obu_data) {
+                Ok(Some(frame)) => {
+                    let rgba = Self::frame_to_rgba(&frame)?;
+                    Ok(Some(rgba))
+                }
+                Ok(None) => Ok(None),
+                Err(rav1d_safe::Error::NeedMoreData) => Ok(None),
+                Err(e) => Err(DecodeError::Av1(format!("decode: {e}"))),
+            }
+        }
+
+        pub fn finish(&mut self) -> Result<Option<RgbaFrame>, DecodeError> {
+            match self.decoder.flush() {
+                Ok(frames) if !frames.is_empty() => {
+                    let rgba = Self::frame_to_rgba(&frames[0])?;
+                    Ok(Some(rgba))
+                }
+                Ok(_) => Ok(None),
+                Err(e) => Err(DecodeError::Av1(format!("flush: {e}"))),
+            }
+        }
+
+        fn frame_to_rgba(frame: &Frame) -> Result<RgbaFrame, DecodeError> {
+            let (w, h) = (frame.width() as usize, frame.height() as usize);
+
+            let rgba = match frame.planes() {
+                Planes::Depth8(planes) => Self::planes8_to_rgba(&planes, w, h),
+                Planes::Depth16(_) => {
+                    return Err(DecodeError::Av1("16-bit depth not supported".to_string()));
+                }
+            };
+
+            Ok(RgbaFrame {
+                width: frame.width() as u32,
+                height: frame.height() as u32,
+                data: rgba,
+                pts_us: 0,
+            })
+        }
+
+        fn planes8_to_rgba(planes: &Planes8, w: usize, h: usize) -> Vec<u8> {
+            let y_plane = planes.y();
+            let u_plane = planes.u().unwrap_or_else(|| planes.y());
+            let v_plane = planes.v().unwrap_or_else(|| planes.y());
+
+            let y_stride = y_plane.stride();
+            let u_stride = u_plane.stride();
+            let v_stride = v_plane.stride();
+
+            let mut rgba = vec![0u8; w * h * 4];
+
+            for row in 0..h {
+                let y_row = y_plane.row(row);
+                let u_row = u_plane.row(row / 2);
+                let v_row = v_plane.row(row / 2);
+
+                for col in 0..w {
+                    let yy = y_row[col] as f32;
+                    let uu = u_row[col / 2] as f32 - 128.0;
+                    let vv = v_row[col / 2] as f32 - 128.0;
+
+                    let r = (yy + 1.402 * vv).clamp(0.0, 255.0) as u8;
+                    let g = (yy - 0.344136 * uu - 0.714136 * vv).clamp(0.0, 255.0) as u8;
+                    let b = (yy + 1.772 * uu).clamp(0.0, 255.0) as u8;
+
+                    let base = (row * w + col) * 4;
+                    rgba[base] = r;
+                    rgba[base + 1] = g;
+                    rgba[base + 2] = b;
+                    rgba[base + 3] = 255;
+                }
+            }
+
+            rgba
+        }
+    }
+}
+
 pub struct VideoDecodeSession<R: std::io::Read + Seek> {
     mp4: Mp4Reader<R>,
     width: u32,
@@ -323,6 +537,10 @@ pub struct VideoDecodeSession<R: std::io::Read + Seek> {
 
     #[cfg(feature = "videoson")]
     videoson: Option<videoson_decoder::VideosonDecoder>,
+    #[cfg(feature = "oxideav")]
+    oxideav: Option<oxideav_decoder::OxideAvDecoder>,
+    #[cfg(feature = "av1")]
+    av1: Option<av1_decoder::Av1Decoder>,
     #[cfg(all(
         feature = "hw-decoder",
         any(
@@ -385,6 +603,10 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
 
         #[cfg(feature = "videoson")]
         let videoson = Some(videoson_decoder::VideosonDecoder::new(width, height)?);
+        #[cfg(feature = "oxideav")]
+        let oxideav = oxideav_decoder::OxideAvDecoder::new(width, height).ok();
+        #[cfg(feature = "av1")]
+        let av1 = av1_decoder::Av1Decoder::new().ok();
         #[cfg(all(
             feature = "hw-decoder",
             any(
@@ -409,6 +631,10 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             pending_frame: None,
             #[cfg(feature = "videoson")]
             videoson,
+            #[cfg(feature = "oxideav")]
+            oxideav,
+            #[cfg(feature = "av1")]
+            av1,
             #[cfg(all(
                 feature = "hw-decoder",
                 any(
@@ -498,19 +724,51 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             #[cfg(feature = "videoson")]
             {
                 if let Some(ref mut dec) = self.videoson {
-                    if let Some(frame) = dec.decode(annex_b, self.last_pts_us, sample.is_sync)? {
+                    if let Some(frame) =
+                        dec.decode(annex_b.clone(), self.last_pts_us, sample.is_sync)?
+                    {
                         return Ok(Some(frame));
                     }
                     continue;
                 }
             }
 
+            #[cfg(feature = "oxideav")]
+            {
+                if let Some(ref mut dec) = self.oxideav {
+                    match dec.decode(annex_b.clone(), self.last_pts_us, sample.is_sync) {
+                        Ok(Some(frame)) => return Ok(Some(frame)),
+                        Ok(None) => continue,
+                        Err(e) => {
+                            let err_str = format!("{e}");
+                            if err_str.contains("again")
+                                || err_str.contains("would block")
+                                || err_str.contains("need more data")
+                            {
+                                continue;
+                            }
+                            self.oxideav = None;
+                        }
+                    }
+                }
+            }
+
+            log::error!("No decoder available for codec");
             return Err(DecodeError::DecoderNotAvailable);
         }
 
         #[cfg(feature = "videoson")]
         {
             if let Some(ref mut dec) = self.videoson {
+                if let Some(frame) = dec.finish()? {
+                    return Ok(Some(frame));
+                }
+            }
+        }
+
+        #[cfg(feature = "oxideav")]
+        {
+            if let Some(ref mut dec) = self.oxideav {
                 if let Some(frame) = dec.finish()? {
                     return Ok(Some(frame));
                 }
@@ -527,6 +785,11 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
 
         #[cfg(feature = "videoson")]
         if let Some(ref mut dec) = self.videoson {
+            dec.reset();
+        }
+
+        #[cfg(feature = "oxideav")]
+        if let Some(ref mut dec) = self.oxideav {
             dec.reset();
         }
 
