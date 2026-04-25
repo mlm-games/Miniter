@@ -309,7 +309,7 @@ class ProjectViewModel(
                 val s = _state.value
                 if (s.isDirty && !s.isSaving) {
                     if (s.projectPath != null) saveProject()
-                    else snackbarManager.show("Auto-save unavailable — save project manually first")
+                    else snackbarManager.show("Auto-save unavailable - save project manually first")
                 }
             }
         }
@@ -543,8 +543,8 @@ class ProjectViewModel(
                                     muted = false,
                                     transitionIn = null,
                                     transitionOut = null,
-kind = RustVideoClipKind(
-    sourcePath = item.stagedPath,
+                                    kind = RustVideoClipKind(
+                                        sourcePath = item.stagedPath,
                                         width = info.width,
                                         height = info.height,
                                         fps = if (info.frameRate > 0.0) info.frameRate else 30.0,
@@ -621,8 +621,8 @@ kind = RustVideoClipKind(
                                     muted = false,
                                     transitionIn = null,
                                     transitionOut = null,
-kind = RustAudioClipKind(
-    sourcePath = item.stagedPath,
+                                    kind = RustAudioClipKind(
+                                        sourcePath = item.stagedPath,
                                         sampleRate = info.audioSampleRate.coerceAtLeast(44_100),
                                         channels = info.audioChannels.coerceAtLeast(1),
                                         filters = emptyList(),
@@ -714,7 +714,8 @@ kind = RustAudioClipKind(
         val snapshot = rustStore.snapshot.value ?: return
         viewModelScope.launch {
             var exportError: String? = null
-            for (path in snapshot.timeline.tracks.flatMap { it.clips }.mapNotNull { clipSnapshot -> (clipSnapshot.kind as? RustVideoClipKind)?.sourcePath }.distinct()) {
+            for (path in snapshot.timeline.tracks.flatMap { it.clips }
+                .mapNotNull { clipSnapshot -> (clipSnapshot.kind as? RustVideoClipKind)?.sourcePath }.distinct()) {
                 try {
                     val info = engine.probeVideo(path)
                     if (!info.hasVideo) {
@@ -856,9 +857,11 @@ kind = RustAudioClipKind(
         val clip = track.clips.firstOrNull { it.id == clipId } ?: return
 
         val requestedDurationUs = ((newEndMs * 1000L) - clip.timelineStartUs).coerceAtLeast(100_000L)
-        val maxBySourceUs = (((clip.sourceTotalDurationUs - clip.sourceStartUs).coerceAtLeast(100_000L).toDouble() / clip.speed)
-            .toLong()).coerceAtLeast(100_000L)
-        val maxByNeighborUs = nextClipStartUs(track, clipId)?.let { (it - clip.timelineStartUs).coerceAtLeast(100_000L) }
+        val maxBySourceUs =
+            (((clip.sourceTotalDurationUs - clip.sourceStartUs).coerceAtLeast(100_000L).toDouble() / clip.speed)
+                .toLong()).coerceAtLeast(100_000L)
+        val maxByNeighborUs =
+            nextClipStartUs(track, clipId)?.let { (it - clip.timelineStartUs).coerceAtLeast(100_000L) }
         val maxDurationUs = listOfNotNull(maxByNeighborUs, maxBySourceUs).minOrNull() ?: maxBySourceUs
         val newDurationUs = requestedDurationUs.coerceIn(100_000L, maxDurationUs)
 
@@ -1167,6 +1170,7 @@ kind = RustAudioClipKind(
                             rightStart
                         }
                     }
+
                     leftValid -> leftEnd
                     rightValid -> rightStart
                     else -> reqStart
@@ -1208,6 +1212,7 @@ kind = RustAudioClipKind(
                             rightStart
                         }
                     }
+
                     leftValid -> leftEnd
                     rightValid -> rightStart
                     else -> reqStart

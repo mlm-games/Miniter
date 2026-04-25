@@ -1304,9 +1304,7 @@ dependencies = [
  "muxide",
  "oxideav-codec",
  "oxideav-core",
- "oxideav-h264",
  "oxideav-h265",
- "oxideav-vp8",
  "rav1d-safe",
  "rav1e",
  "symphonia",
@@ -1521,31 +1519,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxideav-container"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab06fe26fd19a9c10df400f70c971f31abf1bcdaeca8a75e3501896ae0a7c9d1"
-dependencies = [
- "oxideav-core",
-]
-
-[[package]]
 name = "oxideav-core"
-version = "0.1.3"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c6205b6fa8d7cd51b5632ea2f322dd81078f3f1234558015f6bda5993c9cbd2"
+checksum = "5f4672c43a9d07b9141d03260f23799e8c91faaa344b69db0c8c01ad87fc88a9"
 dependencies = [
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "oxideav-h264"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13002f742d44900a2ae97426dc2f2230e795813c9ef33aed69eeaf22e5ead48b"
-dependencies = [
- "oxideav-codec",
- "oxideav-core",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1555,17 +1535,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca187d85bbd051233cb8176fbf041a7c04285684e84474fb1fca7f172951d3ce"
 dependencies = [
  "oxideav-codec",
- "oxideav-core",
-]
-
-[[package]]
-name = "oxideav-vp8"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "636008ef5e13c40db4345c5e2e3e7a840b27d4ed98562213638643757d14acd4"
-dependencies = [
- "oxideav-codec",
- "oxideav-container",
  "oxideav-core",
 ]
 

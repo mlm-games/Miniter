@@ -82,7 +82,7 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
         val classBody = classMatch.groupValues[1]
 
         val sb = StringBuilder()
-        sb.appendLine("// AUTO-GENERATED from ${dtsFile.get().asFile.name} — do not edit")
+        sb.appendLine("// AUTO-GENERATED from ${dtsFile.get().asFile.name} - do not edit")
         sb.appendLine("@file:JsModule(\"./wasm/miniter_ffi.js\")")
         sb.appendLine()
         sb.appendLine("package org.mlm.miniter.rust")

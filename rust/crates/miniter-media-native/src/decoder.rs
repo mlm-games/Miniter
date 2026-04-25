@@ -13,9 +13,9 @@ pub enum DecodeError {
     Mp4(#[from] mp4::Error),
     #[error("No video stream")]
     NoVideoStream,
-    #[error("Unsupported codec — only H.264 is supported")]
+    #[error("Unsupported codec - only H.264 is supported")]
     UnsupportedCodec,
-    #[error("No decoder available — enable oxideav feature")]
+    #[error("No decoder available - enable oxideav feature")]
     DecoderNotAvailable,
     #[error("Videoson: {0}")]
     Videoson(String),

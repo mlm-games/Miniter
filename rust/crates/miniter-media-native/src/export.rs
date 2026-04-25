@@ -4,12 +4,14 @@ use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
 use crate::frame::RgbaFrame;
 use crate::mux::{
-    extract_sps_pps, ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut,
-    SubtitleTrackCodecOut, SubtitleTrackConfigOut, VideoTrackCodecOut,
+    ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut, SubtitleTrackCodecOut,
+    SubtitleTrackConfigOut, VideoTrackCodecOut, extract_sps_pps,
 };
 use crate::subtitle::SubtitleRenderer;
-use font8x8::{UnicodeFonts, BASIC_FONTS};
-use miniter_audio::mix::{mix_project_audio, AudioMixError, MixConfig, MixedAudio};
+
+use font8x8::{BASIC_FONTS, UnicodeFonts};
+use miniter_audio::mix::{AudioMixError, MixConfig, MixedAudio, mix_project_audio};
+use miniter_domain::Project;
 use miniter_domain::clip::ClipId;
 use miniter_domain::clip::{ClipKind, VideoClip};
 use miniter_domain::export::{ExportFormat, SubtitleMode};
@@ -17,12 +19,11 @@ use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use miniter_domain::time::Timestamp;
 use miniter_domain::track::TrackKind;
-use miniter_domain::Project;
 use miniter_render_plan::compositor::FramePlanIterator;
-use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
+use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
 use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
 use std::collections::HashMap;
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::BufWriter;
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -47,6 +48,8 @@ pub enum ExportError {
     MissingAvcConfig,
     #[error("Export cancelled")]
     Cancelled,
+    #[error("{format} export is not yet available")]
+    MkvNotAvailable { format: String },
 }
 
 pub fn export_project<F>(
@@ -113,6 +116,28 @@ where
             &is_cancelled,
             &on_progress,
         ),
+        ExportFormat::Av1Mkv => export_av1(
+            project,
+            output_path,
+            settings.width,
+            settings.height,
+            settings.fps,
+            bitrate_kbps,
+            Av1Container::Mkv,
+            &is_cancelled,
+            &on_progress,
+        ),
+        ExportFormat::Av1WebM => export_av1(
+            project,
+            output_path,
+            settings.width,
+            settings.height,
+            settings.fps,
+            bitrate_kbps,
+            Av1Container::WebM,
+            &is_cancelled,
+            &on_progress,
+        ),
     };
     clear_session_cache();
     result
@@ -129,6 +154,8 @@ struct RenderSettings {
 enum Av1Container {
     Ivf,
     Mp4,
+    Mkv,
+    WebM,
 }
 
 fn resolve_render_settings(project: &Project) -> RenderSettings {
@@ -1484,6 +1511,15 @@ where
                 VideoTrackCodecOut::Av1,
             )?);
         }
+        Av1Container::Mkv | Av1Container::WebM => {
+            return Err(ExportError::MkvNotAvailable {
+                format: if container == Av1Container::WebM {
+                    "WebM".to_string()
+                } else {
+                    "MKV".to_string()
+                },
+            });
+        }
     }
 
     let mut iter = FramePlanIterator::with_render_settings(
@@ -1537,6 +1573,9 @@ where
                     .expect("MP4 muxer must exist for AV1 MP4 export");
                 write_av1_packets_to_mux(muxer, &packets)?;
             }
+            Av1Container::Mkv | Av1Container::WebM => {
+                unreachable!();
+            }
         }
 
         frame_count = frame_count.saturating_add(1);
@@ -1588,6 +1627,9 @@ where
             }
 
             muxer.finish()?;
+        }
+        Av1Container::Mkv | Av1Container::WebM => {
+            unreachable!();
         }
     }
 

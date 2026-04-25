@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod audio_export;
 pub mod decoder;
+pub mod demux;
 pub mod encoder;
 pub mod encoder_av1;
 #[cfg(not(target_arch = "wasm32"))]

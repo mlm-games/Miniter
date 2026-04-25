@@ -54,7 +54,7 @@ fun NewProjectDialog(
     var projectName by remember { mutableStateOf(videoName.substringBeforeLast(".")) }
     var saveFile by remember { mutableStateOf<PlatformFile?>(null) }
 
-    // Native "Save As" dialog — returns a writable PlatformFile
+    // Native "Save As" dialog - returns a writable PlatformFile
     val fileSaverLauncher = rememberFileSaverLauncher { file: PlatformFile? ->
         saveFile = file
         // Update project name to match chosen file name (without extension)
