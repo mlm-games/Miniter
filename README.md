@@ -5,3 +5,8 @@ Is limited by ffmpeg-based android libs, hence planning to instead focus on a ru
 
 
 > Android save workaround: After saving your project, if the videos aren't loaded on opening an old project, just reimport the videos (that were intially present) in the tracks, and delete them (to just load the video into cache), to re-load the videos in the project.
+
+
+# LICENSE
+
+**[GPL v3.0 only](https://spdx.org/licenses/GPL-3.0-only.html)**
