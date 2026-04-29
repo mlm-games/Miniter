@@ -36,6 +36,7 @@ import org.mlm.miniter.editor.model.RustTrackSnapshot
 import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
@@ -1018,26 +1019,26 @@ class ProjectViewModel(
     fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {
         val video = findRustClip(clipId)?.kind as? RustVideoClipKind ?: return
         val current = video.filters.getOrNull(filterIndex) ?: return
-        val updated = when (current) {
-            is RustBrightnessFilterSnapshot -> RustBrightnessFilterSnapshot(newParams["value"] ?: current.value)
-            is RustContrastFilterSnapshot -> RustContrastFilterSnapshot(newParams["value"] ?: current.value)
-            is RustSaturationFilterSnapshot -> RustSaturationFilterSnapshot(newParams["value"] ?: current.value)
-            is RustBlurFilterSnapshot -> RustBlurFilterSnapshot(newParams["radius"] ?: current.radius)
-            is RustSharpenFilterSnapshot -> RustSharpenFilterSnapshot(newParams["amount"] ?: current.amount)
-            else -> current
+        val updatedFilter = when (val filter = current.filter) {
+            is RustBrightnessFilterSnapshot -> RustBrightnessFilterSnapshot(newParams["value"] ?: filter.value)
+            is RustContrastFilterSnapshot -> RustContrastFilterSnapshot(newParams["value"] ?: filter.value)
+            is RustSaturationFilterSnapshot -> RustSaturationFilterSnapshot(newParams["value"] ?: filter.value)
+            is RustBlurFilterSnapshot -> RustBlurFilterSnapshot(newParams["radius"] ?: filter.radius)
+            is RustSharpenFilterSnapshot -> RustSharpenFilterSnapshot(newParams["amount"] ?: filter.amount)
+            else -> filter
         }
 
         dispatchAndSync(
             rustStore.commands.updateVideoFilter(
                 clipId = clipId,
                 index = filterIndex,
-                filter = updated,
+                filter = current.copy(filter = updatedFilter),
             ),
             isDirty = true,
         )
     }
 
-    fun addFilter(clipId: String, filter: RustVideoFilterSnapshot) {
+    fun addFilter(clipId: String, filter: RustVideoEffectSnapshot) {
         dispatchAndSync(
             rustStore.commands.addVideoFilter(
                 clipId = clipId,
@@ -1050,6 +1051,20 @@ class ProjectViewModel(
     fun removeFilter(clipId: String, filterIndex: Int) {
         dispatchAndSync(
             rustStore.commands.removeVideoFilter(clipId, filterIndex),
+            isDirty = true,
+        )
+    }
+
+    fun setFilterEnabled(clipId: String, filterIndex: Int, enabled: Boolean) {
+        dispatchAndSync(
+            rustStore.commands.setVideoFilterEnabled(clipId, filterIndex, enabled),
+            isDirty = true,
+        )
+    }
+
+    fun moveFilter(clipId: String, fromIndex: Int, toIndex: Int) {
+        dispatchAndSync(
+            rustStore.commands.moveVideoFilter(clipId, fromIndex, toIndex),
             isDirty = true,
         )
     }

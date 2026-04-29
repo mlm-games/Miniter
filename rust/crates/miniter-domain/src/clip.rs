@@ -1,4 +1,4 @@
-use crate::filter::{AudioFilter, VideoFilter};
+use crate::filter::{AudioFilter, VideoEffect};
 use crate::text_overlay::TextOverlay;
 use crate::time::{MediaDuration, Timestamp};
 use crate::transition::Transition;
@@ -105,7 +105,7 @@ pub struct VideoClip {
     pub width: u32,
     pub height: u32,
     pub fps: f64,
-    pub filters: Vec<VideoFilter>,
+    pub filters: Vec<VideoEffect>,
     pub audio_filters: Vec<AudioFilter>,
 }
 

@@ -9,6 +9,7 @@ import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -16,6 +17,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
@@ -97,7 +99,7 @@ data class RustVideoClipKind(
     val width: Int,
     val height: Int,
     val fps: Double,
-    val filters: List<RustVideoFilterSnapshot> = emptyList(),
+    val filters: List<RustVideoEffectSnapshot> = emptyList(),
     @SerialName("audio_filters")
     val audioFilters: List<RustAudioFilterSnapshot> = emptyList(),
 ) : RustClipKindPayload
@@ -174,6 +176,54 @@ enum class RustTransitionKind {
 @Serializable
 sealed interface RustVideoFilterSnapshot
 
+@Serializable(with = RustVideoEffectSnapshotSerializer::class)
+data class RustVideoEffectSnapshot(
+    val filter: RustVideoFilterSnapshot,
+    val enabled: Boolean = true,
+)
+
+object RustVideoEffectSnapshotSerializer : KSerializer<RustVideoEffectSnapshot> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("RustVideoEffectSnapshot") {
+        element("enabled", JsonPrimitive.serializer().descriptor, isOptional = true)
+        element("filter", RustVideoFilterSnapshot.serializer().descriptor)
+    }
+
+    override fun deserialize(decoder: Decoder): RustVideoEffectSnapshot {
+        val jsonDecoder = decoder as? JsonDecoder
+            ?: throw SerializationException("RustVideoEffectSnapshot must be decoded from JSON")
+        val element = jsonDecoder.decodeJsonElement()
+
+        if (element is JsonObject && element.containsKey("filter")) {
+            val enabled = element["enabled"]?.jsonPrimitive?.booleanOrNull ?: true
+            val filterElement = element["filter"] ?: throw SerializationException("Missing filter payload")
+            val filter = jsonDecoder.json.decodeFromJsonElement(
+                RustVideoFilterSnapshot.serializer(),
+                filterElement,
+            )
+            return RustVideoEffectSnapshot(filter = filter, enabled = enabled)
+        }
+
+        val filter = jsonDecoder.json.decodeFromJsonElement(
+            RustVideoFilterSnapshot.serializer(),
+            element,
+        )
+        return RustVideoEffectSnapshot(filter = filter, enabled = true)
+    }
+
+    override fun serialize(encoder: Encoder, value: RustVideoEffectSnapshot) {
+        val jsonEncoder = encoder as? JsonEncoder
+            ?: throw SerializationException("RustVideoEffectSnapshot must be encoded to JSON")
+        val payload = buildJsonObject {
+            put("enabled", JsonPrimitive(value.enabled))
+            put(
+                "filter",
+                jsonEncoder.json.encodeToJsonElement(RustVideoFilterSnapshot.serializer(), value.filter),
+            )
+        }
+        jsonEncoder.encodeJsonElement(payload)
+    }
+}
+
 @Serializable
 @SerialName("Brightness")
 data class RustBrightnessFilterSnapshot(val value: Float) : RustVideoFilterSnapshot
@@ -201,6 +251,16 @@ data class RustSharpenFilterSnapshot(val amount: Float) : RustVideoFilterSnapsho
 @Serializable
 @SerialName("Sepia")
 data object RustSepiaFilterSnapshot : RustVideoFilterSnapshot
+
+@Serializable
+@SerialName("Transform")
+data class RustTransformFilterSnapshot(
+    val scale: Float,
+    @SerialName("translate_x")
+    val translateX: Float,
+    @SerialName("translate_y")
+    val translateY: Float,
+) : RustVideoFilterSnapshot
 
 @Serializable
 @SerialName("Hue")

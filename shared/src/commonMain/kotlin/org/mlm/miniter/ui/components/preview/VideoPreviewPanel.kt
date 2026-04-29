@@ -27,6 +27,7 @@ import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
+import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
@@ -243,11 +244,11 @@ fun EditorVideoPreview(
 
         delay(80)
 
-        if (grabberReady && (clipFilters.isNotEmpty() || clipOpacity < 1f)) {
+        if (grabberReady && (clipFilters.any { it.enabled } || clipOpacity < 1f)) {
             try {
                 scrubbedFrame = frameGrabber.grabFrame(
                     timestampMs = sourceTimeMs,
-                    filters = clipFilters,
+                    filters = clipFilters.map { it.filter }.filterIsInstance<RustVideoFilterSnapshot>(),
                     opacity = clipOpacity,
                 )
             } catch (_: Exception) {}
@@ -472,14 +473,15 @@ fun EditorVideoPreview(
         }
 
         if (currentClip != null) {
-            if (clipFilters.isNotEmpty()) {
+            val enabledCount = clipFilters.count { it.enabled }
+            if (enabledCount > 0) {
                 Surface(
                     modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
                     shape = MaterialTheme.shapes.small,
                 ) {
                     Text(
-                        "${clipFilters.size} filter${if (clipFilters.size > 1) "s" else ""}",
+                        "$enabledCount filter${if (enabledCount > 1) "s" else ""}",
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -515,7 +517,7 @@ private data class ClipPreview(
     val speed: Float,
     val volume: Float,
     val opacity: Float,
-    val filters: List<RustVideoFilterSnapshot>,
+    val filters: List<RustVideoEffectSnapshot>,
 )
 
 private data class AudioClipPreview(

@@ -18,7 +18,7 @@ import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTextStyleSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustTrackKind
-import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 
 class RustCommandJson(
     private val json: Json,
@@ -138,21 +138,35 @@ class RustCommandJson(
             put("muted", JsonPrimitive(muted))
         }
 
-    fun addVideoFilter(clipId: String, filter: RustVideoFilterSnapshot): String =
+    fun addVideoFilter(clipId: String, filter: RustVideoEffectSnapshot): String =
         wrap("AddVideoFilter") {
             put("clip_id", uuid(clipId))
-            put("filter", json.encodeToJsonElement(RustVideoFilterSnapshot.serializer(), filter))
+            put("filter", json.encodeToJsonElement(RustVideoEffectSnapshot.serializer(), filter))
         }
 
     fun updateVideoFilter(
         clipId: String,
         index: Int,
-        filter: RustVideoFilterSnapshot,
+        filter: RustVideoEffectSnapshot,
     ): String = wrap("UpdateVideoFilter") {
         put("clip_id", uuid(clipId))
         put("index", JsonPrimitive(index))
-        put("filter", json.encodeToJsonElement(RustVideoFilterSnapshot.serializer(), filter))
+        put("filter", json.encodeToJsonElement(RustVideoEffectSnapshot.serializer(), filter))
     }
+
+    fun setVideoFilterEnabled(clipId: String, index: Int, enabled: Boolean): String =
+        wrap("SetVideoFilterEnabled") {
+            put("clip_id", uuid(clipId))
+            put("index", JsonPrimitive(index))
+            put("enabled", JsonPrimitive(enabled))
+        }
+
+    fun moveVideoFilter(clipId: String, from: Int, to: Int): String =
+        wrap("MoveVideoFilter") {
+            put("clip_id", uuid(clipId))
+            put("from", JsonPrimitive(from))
+            put("to", JsonPrimitive(to))
+        }
 
     fun removeVideoFilter(clipId: String, index: Int): String =
         wrap("RemoveVideoFilter") {

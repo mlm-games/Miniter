@@ -2,6 +2,7 @@ use crate::commands::EditCommand;
 use crate::history::History;
 use crate::selection::Selection;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
+use miniter_domain::filter::VideoEffect;
 use miniter_domain::project::Project;
 use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::track::{Track, TrackId};
@@ -486,6 +487,51 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                     Ok(EditCommand::AddVideoFilter {
                         clip_id,
                         filter: removed,
+                    })
+                }
+                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            }
+        }
+
+        EditCommand::SetVideoFilterEnabled {
+            clip_id,
+            index,
+            enabled,
+        } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            match &mut clip.kind {
+                ClipKind::Video(v) => {
+                    if index >= v.filters.len() {
+                        return Err(ApplyError::IndexOutOfBounds);
+                    }
+                    let old = v.filters[index].enabled;
+                    v.filters[index].enabled = enabled;
+                    Ok(EditCommand::SetVideoFilterEnabled {
+                        clip_id,
+                        index,
+                        enabled: old,
+                    })
+                }
+                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            }
+        }
+
+        EditCommand::MoveVideoFilter { clip_id, from, to } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            match &mut clip.kind {
+                ClipKind::Video(v) => {
+                    if from >= v.filters.len() || to >= v.filters.len() {
+                        return Err(ApplyError::IndexOutOfBounds);
+                    }
+                    if from == to {
+                        return Ok(EditCommand::MoveVideoFilter { clip_id, from, to });
+                    }
+                    let moved = v.filters.remove(from);
+                    v.filters.insert(to, moved);
+                    Ok(EditCommand::MoveVideoFilter {
+                        clip_id,
+                        from: to,
+                        to: from,
                     })
                 }
                 _ => Err(ApplyError::WrongClipKind(clip_id)),
@@ -1040,7 +1086,7 @@ mod tests {
     fn update_video_filter_replaces_existing_filter() {
         let mut clip = video_clip(0, 10_000_000);
         if let ClipKind::Video(v) = &mut clip.kind {
-            v.filters.push(VideoFilter::Brightness { value: 0.2 });
+            v.filters.push(VideoEffect::new(VideoFilter::Brightness { value: 0.2 }));
         }
 
         let clip_id = clip.id;
@@ -1054,7 +1100,7 @@ mod tests {
             EditCommand::UpdateVideoFilter {
                 clip_id,
                 index: 0,
-                filter: VideoFilter::Contrast { value: 1.5 },
+                filter: VideoEffect::new(VideoFilter::Contrast { value: 1.5 }),
             },
         )
         .unwrap();
@@ -1062,7 +1108,7 @@ mod tests {
         let clip = &state.project.timeline.tracks[0].clips[0];
         match &clip.kind {
             ClipKind::Video(v) => {
-                assert!(matches!(v.filters[0], VideoFilter::Contrast { value: _ }));
+                assert!(matches!(v.filters[0].filter, VideoFilter::Contrast { value: _ }));
             }
             _ => panic!("expected video clip"),
         }

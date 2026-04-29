@@ -6,7 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
-import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -16,9 +16,11 @@ fun PropertiesBottomSheet(
     snapshot: RustProjectSnapshot?,
     selectedClipId: String?,
     onDismiss: () -> Unit,
-    onAddFilter: (String, RustVideoFilterSnapshot) -> Unit,
+    onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
+    onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
+    onMoveFilter: (String, Int, Int) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
@@ -47,6 +49,8 @@ fun PropertiesBottomSheet(
                 onAddFilter = onAddFilter,
                 onRemoveFilter = onRemoveFilter,
                 onUpdateFilterParams = onUpdateFilterParams,
+                onToggleFilterEnabled = onToggleFilterEnabled,
+                onMoveFilter = onMoveFilter,
                 onSetSpeed = onSetSpeed,
                 onSetVolume = onSetVolume,
                 onSetTransitionIn = onSetTransitionIn,

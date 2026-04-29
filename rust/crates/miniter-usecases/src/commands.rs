@@ -1,6 +1,6 @@
 use miniter_domain::clip::{Clip, ClipId};
 use miniter_domain::export::ExportProfile;
-use miniter_domain::filter::{AudioFilter, VideoFilter};
+use miniter_domain::filter::{AudioFilter, VideoEffect, VideoFilter};
 use miniter_domain::text_overlay::TextStyle;
 use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::track::{TrackId, TrackKind};
@@ -81,16 +81,26 @@ pub enum EditCommand {
     },
     AddVideoFilter {
         clip_id: ClipId,
-        filter: VideoFilter,
+        filter: VideoEffect,
     },
     UpdateVideoFilter {
         clip_id: ClipId,
         index: usize,
-        filter: VideoFilter,
+        filter: VideoEffect,
     },
     RemoveVideoFilter {
         clip_id: ClipId,
         index: usize,
+    },
+    SetVideoFilterEnabled {
+        clip_id: ClipId,
+        index: usize,
+        enabled: bool,
+    },
+    MoveVideoFilter {
+        clip_id: ClipId,
+        from: usize,
+        to: usize,
     },
     AddAudioFilter {
         clip_id: ClipId,

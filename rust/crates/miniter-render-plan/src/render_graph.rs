@@ -1,7 +1,7 @@
 use crate::transition_blend::{ease_in_out, opacity_pair};
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
 use miniter_domain::export::SubtitleMode;
-use miniter_domain::filter::VideoFilter;
+use miniter_domain::filter::{VideoEffect, VideoFilter};
 use miniter_domain::text_overlay::TextOverlay;
 use miniter_domain::time::Timestamp;
 use miniter_domain::timeline::Timeline;
@@ -97,7 +97,7 @@ fn node_for_clip(
                 clip_id: clip.id,
                 source_path: v.source_path.clone(),
                 source_pts,
-                filters: v.filters.clone(),
+                filters: active_filters(&v.filters),
                 opacity: clip.opacity,
             };
 
@@ -113,7 +113,7 @@ fn node_for_clip(
                             clip_id: prev.id,
                             source_path: pv.source_path.clone(),
                             source_pts: prev_pts,
-                            filters: pv.filters.clone(),
+                            filters: active_filters(&pv.filters),
                             opacity: prev.opacity,
                         };
                         return Some(RenderNode::TransitionBlend {
@@ -144,7 +144,7 @@ fn node_for_clip(
                                 clip_id: next.id,
                                 source_path: nv.source_path.clone(),
                                 source_pts: next_pts,
-                                filters: nv.filters.clone(),
+                                filters: active_filters(&nv.filters),
                                 opacity: next.opacity,
                             };
                             return Some(RenderNode::TransitionBlend {
@@ -232,6 +232,14 @@ fn node_for_clip(
             SubtitleMode::Soft => None,
         },
     }
+}
+
+fn active_filters(filters: &[VideoEffect]) -> Vec<VideoFilter> {
+    filters
+        .iter()
+        .filter(|fx| fx.enabled)
+        .map(|fx| fx.filter.clone())
+        .collect()
 }
 
 fn find_next_clip<'a>(

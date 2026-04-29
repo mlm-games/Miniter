@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,16 +41,20 @@ import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
+import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 
 @Composable
 fun PropertiesPanel(
     snapshot: RustProjectSnapshot?,
     selectedClipId: String?,
-    onAddFilter: (String, RustVideoFilterSnapshot) -> Unit,
+    onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
+    onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
+    onMoveFilter: (String, Int, Int) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
@@ -99,6 +105,8 @@ fun PropertiesPanel(
                 onAddFilter = onAddFilter,
                 onRemoveFilter = onRemoveFilter,
                 onUpdateFilterParams = onUpdateFilterParams,
+                onToggleFilterEnabled = onToggleFilterEnabled,
+                onMoveFilter = onMoveFilter,
                 onSetSpeed = onSetSpeed,
                 onSetVolume = onSetVolume,
                 onSetTransitionIn = onSetTransitionIn,
@@ -131,9 +139,11 @@ fun PropertiesPanel(
 private fun VideoClipProperties(
     clip: RustClipSnapshot,
     kind: RustVideoClipKind,
-    onAddFilter: (String, RustVideoFilterSnapshot) -> Unit,
+    onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
+    onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
+    onMoveFilter: (String, Int, Int) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
     onSetVolume: (String, Float) -> Unit,
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
@@ -199,16 +209,36 @@ private fun VideoClipProperties(
     Text("Filters", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(4.dp))
 
-    for ((index, filter) in clipFilters.withIndex()) {
-        InputChip(
-            selected = true,
-            onClick = { onRemoveFilter(clip.id, index) },
-            label = { Text(filter.displayName()) },
-            trailingIcon = {
-                Icon(Icons.Default.Close, "Remove", modifier = Modifier.size(16.dp))
-            },
-            modifier = Modifier.padding(end = 4.dp, bottom = 4.dp),
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        clipFilters.forEachIndexed { index, effect ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                FilterChip(
+                    selected = effect.enabled,
+                    onClick = { onToggleFilterEnabled(clip.id, index, !effect.enabled) },
+                    label = { Text(effect.displayName()) },
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = { onMoveFilter(clip.id, index, index - 1) },
+                    enabled = index > 0,
+                ) {
+                    Icon(Icons.Default.KeyboardArrowUp, null)
+                }
+                IconButton(
+                    onClick = { onMoveFilter(clip.id, index, index + 1) },
+                    enabled = index < clipFilters.lastIndex,
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, null)
+                }
+                IconButton(onClick = { onRemoveFilter(clip.id, index) }) {
+                    Icon(Icons.Default.Close, null)
+                }
+            }
+        }
     }
 
     var expanded by remember { mutableStateOf(false) }
@@ -222,7 +252,7 @@ private fun VideoClipProperties(
                 DropdownMenuItem(
                     text = { Text(filter.displayName()) },
                     onClick = {
-                        onAddFilter(clip.id, filter)
+                        onAddFilter(clip.id, RustVideoEffectSnapshot(filter = filter, enabled = true))
                         expanded = false
                     },
                 )
@@ -230,7 +260,8 @@ private fun VideoClipProperties(
         }
     }
 
-    clipFilters.forEachIndexed { index, filter ->
+    clipFilters.forEachIndexed { index, effect ->
+        val filter = effect.filter
         when (filter) {
             is RustBrightnessFilterSnapshot,
             is RustContrastFilterSnapshot,
@@ -853,6 +884,7 @@ private fun TextClipProperties(
 }
 
 private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
+    RustTransformFilterSnapshot(scale = 1f, translateX = 0f, translateY = 0f),
     RustBrightnessFilterSnapshot(0f),
     RustContrastFilterSnapshot(1f),
     RustSaturationFilterSnapshot(1f),
@@ -1123,8 +1155,11 @@ private fun RustVideoFilterSnapshot.displayName(): String = when (this) {
     is RustBlurFilterSnapshot -> "Blur"
     is RustSharpenFilterSnapshot -> "Sharpen"
     RustSepiaFilterSnapshot -> "Sepia"
+    is RustTransformFilterSnapshot -> "Transform"
     else -> "Filter"
 }
+
+private fun RustVideoEffectSnapshot.displayName(): String = filter.displayName()
 
 private fun formatFixed(value: Float, decimals: Int): String {
     val safeDecimals = decimals.coerceAtLeast(0)
