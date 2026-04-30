@@ -12,6 +12,10 @@ import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.editor.model.RustFlipFilterSnapshot
+import org.mlm.miniter.editor.model.RustHueFilterSnapshot
+import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
+import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.rust.RustCoreSession
 
@@ -145,6 +149,46 @@ private fun applyFiltersToRgba(
                 }
             }
             is RustBlurFilterSnapshot, is RustSharpenFilterSnapshot -> { }
+            is RustHueFilterSnapshot -> {
+                val angle = ((filter.degrees % 360f) * PI / 180f)
+                val cosA = cos(angle.toDouble()).toFloat()
+                val sinA = sin(angle.toDouble()).toFloat()
+                for (i in 0 until total) {
+                    val b = i * 4
+                    val r = pixels[b].toInt().and(0xFF) / 255f
+                    val g = pixels[b + 1].toInt().and(0xFF) / 255f
+                    val bl = pixels[b + 2].toInt().and(0xFF) / 255f
+                    val nr = (0.299f + 0.701f * cosA + 0.168f * sinA) * r +
+                            (0.587f - 0.587f * cosA + 0.330f * sinA) * g +
+                            (0.114f - 0.114f * cosA - 0.497f * sinA) * bl
+                    val ng = (0.299f - 0.299f * cosA - 0.328f * sinA) * r +
+                            (0.587f + 0.413f * cosA + 0.035f * sinA) * g +
+                            (0.114f - 0.114f * cosA + 0.292f * sinA) * bl
+                    val nb = (0.299f - 0.300f * cosA + 1.250f * sinA) * r +
+                            (0.587f - 0.588f * cosA - 1.050f * sinA) * g +
+                            (0.114f + 0.886f * cosA - 0.203f * sinA) * bl
+                    pixels[b] = (nr.coerceIn(0f, 1f) * 255).toInt().coerceIn(0, 255).toByte()
+                    pixels[b + 1] = (ng.coerceIn(0f, 1f) * 255).toInt().coerceIn(0, 255).toByte()
+                    pixels[b + 2] = (nb.coerceIn(0f, 1f) * 255).toInt().coerceIn(0, 255).toByte()
+                }
+            }
+            is RustFlipFilterSnapshot -> {
+                if (filter.horizontal || filter.vertical) {
+                    val stride = width * 4
+                    for (row in 0 until height) {
+                        val srcRow = if (filter.vertical) height - 1 - row else row
+                        for (col in 0 until width) {
+                            val srcCol = if (filter.horizontal) width - 1 - col else col
+                            val di = row * stride + col * 4
+                            val si = srcRow * stride + srcCol * 4
+                            pixels[di] = src[si]; pixels[di + 1] = src[si + 1]
+                            pixels[di + 2] = src[si + 2]; pixels[di + 3] = src[si + 3]
+                        }
+                    }
+                }
+            }
+            is RustRotateFilterSnapshot -> { }
+            is RustTransformFilterSnapshot -> { }
             else -> { }
         }
     }

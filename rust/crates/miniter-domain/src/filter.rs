@@ -1,6 +1,7 @@
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+#[allow(dead_code)]
 fn default_effect_enabled() -> bool {
     true
 }

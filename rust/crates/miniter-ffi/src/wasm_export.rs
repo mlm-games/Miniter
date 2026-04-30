@@ -1797,7 +1797,26 @@ fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: usize, filter
                 *pixels = sharpen_rgba(pixels, width, height, *amount);
             }
             VideoFilter::Opacity { value } => apply_global_alpha(pixels, *value),
-            _ => {}
+            VideoFilter::Hue { degrees } => {
+                *pixels = hue_shift_rgba(pixels, *degrees);
+            }
+            VideoFilter::Flip { horizontal, vertical } => {
+                *pixels = flip_rgba(pixels, width, height, *horizontal, *vertical);
+            }
+            VideoFilter::Rotate { degrees } => {
+                *pixels = rotate_rgba(pixels, width, height, *degrees);
+            }
+            VideoFilter::Crop { left, top, right, bottom } => {
+                *pixels = crop_rgba(pixels, width, height, *left, *top, *right, *bottom);
+            }
+            VideoFilter::Transform { scale, translate_x: _, translate_y: _ } => {
+                let new_w = (width as f32 * scale).round() as usize;
+                let new_h = (height as f32 * scale).round() as usize;
+                if new_w > 0 && new_h > 0 {
+                    *pixels = scale_rgba(pixels, width, height, new_w, new_h);
+                }
+            }
+            VideoFilter::Speed { factor: _ } => {}
         }
     }
 }
@@ -1847,6 +1866,126 @@ fn sharpen_rgba(src: &[u8], width: usize, height: usize, amount: f32) -> Vec<u8>
             out[i + c] = val.round().clamp(0.0, 255.0) as u8;
         }
         out[i + 3] = src[i + 3];
+    }
+
+    out
+}
+
+fn hue_shift_rgba(src: &[u8], degrees: f32) -> Vec<u8> {
+    let angle = (degrees % 360.0) * std::f32::consts::PI / 180.0;
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
+    let mut out = src.to_vec();
+
+    for px in out.chunks_exact_mut(4) {
+        let r = px[0] as f32 / 255.0;
+        let g = px[1] as f32 / 255.0;
+        let b = px[2] as f32 / 255.0;
+
+        let nr = (0.299 + 0.701 * cos_a + 0.168 * sin_a) * r
+            + (0.587 - 0.587 * cos_a + 0.330 * sin_a) * g
+            + (0.114 - 0.114 * cos_a - 0.497 * sin_a) * b;
+        let ng = (0.299 - 0.299 * cos_a - 0.328 * sin_a) * r
+            + (0.587 + 0.413 * cos_a + 0.035 * sin_a) * g
+            + (0.114 - 0.114 * cos_a + 0.292 * sin_a) * b;
+        let nb = (0.299 - 0.300 * cos_a + 1.250 * sin_a) * r
+            + (0.587 - 0.588 * cos_a - 1.050 * sin_a) * g
+            + (0.114 + 0.886 * cos_a - 0.203 * sin_a) * b;
+
+        px[0] = (nr.clamp(0.0, 1.0) * 255.0).round().clamp(0.0, 255.0) as u8;
+        px[1] = (ng.clamp(0.0, 1.0) * 255.0).round().clamp(0.0, 255.0) as u8;
+        px[2] = (nb.clamp(0.0, 1.0) * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+
+    out
+}
+
+fn flip_rgba(src: &[u8], width: usize, height: usize, horizontal: bool, vertical: bool) -> Vec<u8> {
+    if !horizontal && !vertical {
+        return src.to_vec();
+    }
+
+    let mut out = src.to_vec();
+    let stride = width * 4;
+
+    for y in 0..height {
+        let src_y = if vertical { height - 1 - y } else { y };
+        for x in 0..width {
+            let src_x = if horizontal { width - 1 - x } else { x };
+            let di = (y * stride) + x * 4;
+            let si = (src_y * stride) + src_x * 4;
+            out[di..di + 4].copy_from_slice(&src[si..si + 4]);
+        }
+    }
+
+    out
+}
+
+fn rotate_rgba(src: &[u8], width: usize, height: usize, degrees: f32) -> Vec<u8> {
+    let normalized = ((degrees % 360.0) + 360.0) % 360.0;
+
+    match normalized {
+        d if (d - 90.0).abs() < 0.5 => {
+            let mut out = vec![0u8; width * height * 4];
+            for row in 0..height {
+                for col in 0..width {
+                    let si = (row * width + col) * 4;
+                    let di = (col * height + (height - 1 - row)) * 4;
+                    out[di..di + 4].copy_from_slice(&src[si..si + 4]);
+                }
+            }
+            out
+        }
+        d if (d - 180.0).abs() < 0.5 || (d + 180.0).abs() < 0.5 => {
+            let mut out = vec![0u8; width * height * 4];
+            for row in 0..height {
+                for col in 0..width {
+                    let si = (row * width + col) * 4;
+                    let di = (row * width + (width - 1 - col)) * 4;
+                    out[di..di + 4].copy_from_slice(&src[si..si + 4]);
+                }
+            }
+            out
+        }
+        d if (d - 270.0).abs() < 0.5 => {
+            let mut out = vec![0u8; width * height * 4];
+            for row in 0..height {
+                for col in 0..width {
+                    let si = (row * width + col) * 4;
+                    let di = ((width - 1 - col) * height + row) * 4;
+                    out[di..di + 4].copy_from_slice(&src[si..si + 4]);
+                }
+            }
+            out
+        }
+        _ => src.to_vec(),
+    }
+}
+
+fn crop_rgba(src: &[u8], width: usize, height: usize, left: f32, top: f32, right: f32, bottom: f32) -> Vec<u8> {
+    let l = (left.clamp(0.0, 1.0) * width as f32).round() as usize;
+    let t = (top.clamp(0.0, 1.0) * height as f32).round() as usize;
+    let r = (right.clamp(0.0, 1.0) * width as f32).round() as usize;
+    let b = (bottom.clamp(0.0, 1.0) * height as f32).round() as usize;
+
+    let l = l.min(width);
+    let r = r.max(l).min(width);
+    let t = t.min(height);
+    let b = b.max(t).min(height);
+
+    let new_w = r - l;
+    let new_h = b - t;
+    if new_w == 0 || new_h == 0 {
+        return src.to_vec();
+    }
+
+    let mut out = vec![0u8; new_w * new_h * 4];
+    for y in t..b {
+        for x in l..r {
+            let si = (y * width + x) * 4;
+            let di = ((y - t) * new_w + (x - l)) * 4;
+            out[di..di + 4].copy_from_slice(&src[si..si + 4]);
+        }
     }
 
     out
