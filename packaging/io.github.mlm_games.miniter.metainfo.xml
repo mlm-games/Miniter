@@ -23,6 +23,35 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.6.1" date="2026-05-01" type="stable">
+      <description>
+        <ul>
+          <li>Add image support via image crate</li>
+          <li>save unified demuxer</li>
+          <li>test oxideav</li>
+          <li>Add transition out for clips, and also fix few transitions not appearing</li>
+          <li>fix mp4 decode skipping frames</li>
+          <li>the logic works and runs on web!</li>
+          <li>web shenanigans (vid doesn't play, but projectl loads)</li>
+          <li>remove thumbnail caching, causes too many issues to preserve (due to wasm)</li>
+          <li>fix kotlin</li>
+          <li>platform media paths</li>
+          <li>going experimental (use my hardware d&amp;e crate (web init too)</li>
+          <li>Create rust-toolchain.toml</li>
+          <li>replace encoder with less-avc</li>
+          <li>Partial hard subs (save, but add soft subs via ass -&gt; srt in muxide fork)</li>
+          <li>replace opusic-sys with mousiki (pure rust)</li>
+          <li>save</li>
+          <li>Fix dual audio clips not being condensed, and also av1 video being not exported correctly with blank space</li>
+          <li>Fix video size issue for few mp4s, and opus audio err</li>
+          <li>s1</li>
+          <li>add text fade out</li>
+          <li>base rust functionality with AOL</li>
+          <li>add base rust structure</li>
+          <li>Clarify Android save workaround in README</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.5.15" date="2026-03-25" type="stable">
       <description>
         <ul/>

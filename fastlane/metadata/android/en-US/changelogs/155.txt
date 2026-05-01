@@ -1,0 +1,23 @@
+- Add image support via image crate
+- save unified demuxer
+- test oxideav
+- Add transition out for clips, and also fix few transitions not appearing
+- fix mp4 decode skipping frames
+- the logic works and runs on web!
+- web shenanigans (vid doesn't play, but projectl loads)
+- remove thumbnail caching, causes too many issues to preserve (due to wasm)
+- fix kotlin
+- platform media paths
+- going experimental (use my hardware d&e crate (web init too)
+- Create rust-toolchain.toml
+- replace encoder with less-avc
+- Partial hard subs (save, but add soft subs via ass -> srt in muxide fork)
+- replace opusic-sys with mousiki (pure rust)
+- save
+- Fix dual audio clips not being condensed, and also av1 video being not exported correctly with blank space
+- Fix video size issue for few mp4s, and opus audio err
+- s1
+- add text fade out
+- base rust functionality with AOL
+- add base rust structure
+- Clarify Android save workaround in README
