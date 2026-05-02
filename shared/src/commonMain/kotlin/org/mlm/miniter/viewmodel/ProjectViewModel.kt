@@ -38,6 +38,7 @@ import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.VideoInfo
@@ -1025,6 +1026,11 @@ class ProjectViewModel(
             is RustSaturationFilterSnapshot -> RustSaturationFilterSnapshot(newParams["value"] ?: filter.value)
             is RustBlurFilterSnapshot -> RustBlurFilterSnapshot(newParams["radius"] ?: filter.radius)
             is RustSharpenFilterSnapshot -> RustSharpenFilterSnapshot(newParams["amount"] ?: filter.amount)
+            is RustTransformFilterSnapshot -> RustTransformFilterSnapshot(
+                scale = newParams["scale"] ?: filter.scale,
+                translateX = newParams["translate_x"] ?: filter.translateX,
+                translateY = newParams["translate_y"] ?: filter.translateY,
+            )
             else -> filter
         }
 

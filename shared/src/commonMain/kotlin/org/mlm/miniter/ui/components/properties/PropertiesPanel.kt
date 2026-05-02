@@ -263,6 +263,42 @@ private fun VideoClipProperties(
     clipFilters.forEachIndexed { index, effect ->
         val filter = effect.filter
         when (filter) {
+            is RustTransformFilterSnapshot -> {
+                Spacer(Modifier.height(12.dp))
+                Text("Scale: ${formatFixed(filter.scale, 1)}x", style = MaterialTheme.typography.labelSmall)
+                var scaleVal by remember(filter) { mutableFloatStateOf(filter.scale) }
+                Slider(
+                    value = scaleVal,
+                    onValueChange = { scaleVal = it },
+                    onValueChangeFinished = {
+                        onUpdateFilterParams(clip.id, index, mapOf("scale" to scaleVal))
+                    },
+                    valueRange = 0.5f..3f,
+                    steps = 24,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Pan X: ${(filter.translateX * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                var translateXVal by remember(filter) { mutableFloatStateOf(filter.translateX) }
+                Slider(
+                    value = translateXVal,
+                    onValueChange = { translateXVal = it },
+                    onValueChangeFinished = {
+                        onUpdateFilterParams(clip.id, index, mapOf("translate_x" to translateXVal))
+                    },
+                    valueRange = -1f..1f,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Pan Y: ${(filter.translateY * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                var translateYVal by remember(filter) { mutableFloatStateOf(filter.translateY) }
+                Slider(
+                    value = translateYVal,
+                    onValueChange = { translateYVal = it },
+                    onValueChangeFinished = {
+                        onUpdateFilterParams(clip.id, index, mapOf("translate_y" to translateYVal))
+                    },
+                    valueRange = -1f..1f,
+                )
+            }
             is RustBrightnessFilterSnapshot,
             is RustContrastFilterSnapshot,
             is RustSaturationFilterSnapshot,
@@ -320,11 +356,7 @@ private fun VideoClipProperties(
                     value = paramVal,
                     onValueChange = { paramVal = it },
                     onValueChangeFinished = {
-                        onUpdateFilterParams(
-                            clip.id,
-                            index,
-                            mapOf(paramKey to paramVal),
-                        )
+                        onUpdateFilterParams(clip.id, index, mapOf(paramKey to paramVal))
                     },
                     valueRange = range,
                     steps = steps,

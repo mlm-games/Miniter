@@ -938,7 +938,7 @@ mod tests {
                 width: 1920,
                 height: 1080,
                 fps: 30.0,
-                filters: Vec::<VideoFilter>::new(),
+                filters: Vec::<VideoEffect>::new(),
                 audio_filters: Vec::<AudioFilter>::new(),
             }),
         }
@@ -1086,7 +1086,8 @@ mod tests {
     fn update_video_filter_replaces_existing_filter() {
         let mut clip = video_clip(0, 10_000_000);
         if let ClipKind::Video(v) = &mut clip.kind {
-            v.filters.push(VideoEffect::new(VideoFilter::Brightness { value: 0.2 }));
+            v.filters
+                .push(VideoEffect::new(VideoFilter::Brightness { value: 0.2 }));
         }
 
         let clip_id = clip.id;
@@ -1108,7 +1109,10 @@ mod tests {
         let clip = &state.project.timeline.tracks[0].clips[0];
         match &clip.kind {
             ClipKind::Video(v) => {
-                assert!(matches!(v.filters[0].filter, VideoFilter::Contrast { value: _ }));
+                assert!(matches!(
+                    v.filters[0].filter,
+                    VideoFilter::Contrast { value: _ }
+                ));
             }
             _ => panic!("expected video clip"),
         }

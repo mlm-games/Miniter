@@ -1,21 +1,31 @@
 package org.mlm.miniter.ui.components.preview
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.VideoFile
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.editor.model.RustAudioClipKind
@@ -33,6 +43,9 @@ import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.time.TimeSource
 
 @Composable
@@ -44,6 +57,10 @@ fun EditorVideoPreview(
     onPlayheadChange: (Long) -> Unit,
     modifier: Modifier = Modifier,
     thumbnailFallback: ImageData? = null,
+    onVisualTransformChange: ((scale: Float, translateX: Float, translateY: Float) -> Unit)? = null,
+    initialVisualScale: Float = 1f,
+    initialVisualTranslateX: Float = 0f,
+    initialVisualTranslateY: Float = 0f,
 ) {
     val playerState = rememberVideoPlayerState()
     val frameGrabber = remember { PlatformFrameGrabber() }
@@ -124,6 +141,24 @@ fun EditorVideoPreview(
     var audioPlayerReady by remember { mutableStateOf(false) }
 
     val audioPlayerState = rememberVideoPlayerState()
+
+    var visualScale by remember { mutableFloatStateOf(initialVisualScale) }
+    var visualTranslateX by remember { mutableFloatStateOf(initialVisualTranslateX) }
+    var visualTranslateY by remember { mutableFloatStateOf(initialVisualTranslateY) }
+    var showZoomIndicator by remember { mutableStateOf(false) }
+
+    LaunchedEffect(initialVisualScale, initialVisualTranslateX, initialVisualTranslateY) {
+        visualScale = initialVisualScale
+        visualTranslateX = initialVisualTranslateX
+        visualTranslateY = initialVisualTranslateY
+    }
+
+    val coroutineScope = remember { CoroutineScope(Dispatchers.Main) }
+    fun syncVisualTransform() {
+        if (onVisualTransformChange != null && (visualScale != 1f || visualTranslateX != 0f || visualTranslateY != 0f)) {
+            onVisualTransformChange(visualScale, visualTranslateX, visualTranslateY)
+        }
+    }
 
     LaunchedEffect(audioClipSourcePath, audioPlaybackUri) {
         if (audioClipSourcePath != null && canPlayAudioClip && audioClipSourcePath != lastLoadedAudioPath) {
@@ -420,17 +455,49 @@ fun EditorVideoPreview(
         }
     }
 
+    val previewModifier = modifier
+        .background(Color.Black)
+        .pointerInput(Unit) {
+            detectTransformGestures { centroid, pan, zoom, rotation ->
+                if (isPlaying) return@detectTransformGestures
+                visualScale = (visualScale * zoom).coerceIn(0.5f, 5f)
+                visualTranslateX += pan.x
+                visualTranslateY += pan.y
+                showZoomIndicator = true
+            }
+        }
+        .pointerInput(Unit) {
+            detectTapGestures(
+                onDoubleTap = {
+                    if (isPlaying) return@detectTapGestures
+                    visualScale = 1f
+                    visualTranslateX = 0f
+                    visualTranslateY = 0f
+                    syncVisualTransform()
+                }
+            )
+        }
+
     Box(
-        modifier = modifier.background(Color.Black),
+        modifier = previewModifier,
         contentAlignment = Alignment.Center,
     ) {
+        val transformModifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                scaleX = visualScale
+                scaleY = visualScale
+                translationX = visualTranslateX
+                translationY = visualTranslateY
+            }
+
         when {
             !isPlaying && scrubbedFrame != null -> {
                 val bitmap = remember(scrubbedFrame) { scrubbedFrame!!.toImageBitmap() }
                 Image(
                     bitmap = bitmap,
                     contentDescription = "Preview",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = transformModifier,
                     contentScale = ContentScale.Fit,
                 )
             }
@@ -438,7 +505,7 @@ fun EditorVideoPreview(
             canPlayClip && lastLoadedPath == clipSourcePath -> {
                 VideoPlayerSurface(
                     playerState = playerState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = transformModifier,
                 )
             }
 
@@ -447,7 +514,7 @@ fun EditorVideoPreview(
                 Image(
                     bitmap = bitmap,
                     contentDescription = "Preview",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = transformModifier,
                     contentScale = ContentScale.Fit,
                 )
             }
@@ -502,6 +569,33 @@ fun EditorVideoPreview(
                     )
                 }
             }
+            if (visualScale != 1f) {
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(4.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    val zoomPercent = (visualScale * 100).toInt()
+                    Text(
+                        "$zoomPercent%",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
+            }
+        }
+
+        LaunchedEffect(showZoomIndicator) {
+            if (showZoomIndicator) {
+                delay(800)
+                showZoomIndicator = false
+            }
+        }
+
+        LaunchedEffect(visualScale, visualTranslateX, visualTranslateY) {
+            delay(300)
+            syncVisualTransform()
         }
     }
 }

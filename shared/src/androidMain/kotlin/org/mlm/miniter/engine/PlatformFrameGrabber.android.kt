@@ -16,6 +16,7 @@ import org.mlm.miniter.editor.model.RustFlipFilterSnapshot
 import org.mlm.miniter.editor.model.RustHueFilterSnapshot
 import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
+import org.mlm.miniter.editor.model.RustCropFilterSnapshot
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.rust.RustCoreSession
 
@@ -91,7 +92,7 @@ private fun applyFiltersToRgba(
     filters: List<RustVideoFilterSnapshot>,
     opacity: Float,
 ): ByteArray {
-    val pixels = src.copyOf()
+    var pixels = src.copyOf()
     val total = width * height
 
     for (filter in filters) {
@@ -187,8 +188,19 @@ private fun applyFiltersToRgba(
                     }
                 }
             }
-            is RustRotateFilterSnapshot -> { }
-            is RustTransformFilterSnapshot -> { }
+            is RustRotateFilterSnapshot -> {
+                if (kotlin.math.abs(filter.degrees) >= 0.5f) {
+                    pixels = applyRotateRgba(pixels, width, height, filter.degrees)
+                }
+            }
+            is RustTransformFilterSnapshot -> {
+                if (kotlin.math.abs(filter.scale - 1f) >= 1e-6f || kotlin.math.abs(filter.translateX) >= 1e-6f || kotlin.math.abs(filter.translateY) >= 1e-6f) {
+                    pixels = applyTransformRgba(pixels, width, height, filter.scale, filter.translateX, filter.translateY)
+                }
+            }
+            is RustCropFilterSnapshot -> {
+                pixels = applyCropRgba(pixels, width, height, filter.left, filter.top, filter.right, filter.bottom)
+            }
             else -> { }
         }
     }
@@ -203,4 +215,71 @@ private fun applyFiltersToRgba(
     }
 
     return pixels
+}
+
+private fun applyRotateRgba(src: ByteArray, w: Int, h: Int, deg: Float): ByteArray {
+    if (w == 0 || h == 0) return src
+    val rad = Math.toRadians(deg.toDouble()).toFloat()
+    val sin = kotlin.math.sin(rad.toDouble()).toFloat()
+    val cos = kotlin.math.cos(rad.toDouble()).toFloat()
+    val dst = ByteArray(src.size)
+    val cx = w / 2f
+    val cy = h / 2f
+
+    for (y in 0 until h) {
+        for (x in 0 until w) {
+            val px = (x - cx) * cos - (y - cy) * sin
+            val py = (x - cx) * sin + (y - cy) * cos
+            val sx = (px + cx).toInt().coerceIn(0, w - 1)
+            val sy = (py + cy).toInt().coerceIn(0, h - 1)
+            val si = sy * w * 4 + sx * 4
+            val di = y * w * 4 + x * 4
+            dst[di] = src[si]; dst[di + 1] = src[si + 1]; dst[di + 2] = src[si + 2]; dst[di + 3] = src[si + 3]
+        }
+    }
+    return dst
+}
+
+private fun applyTransformRgba(src: ByteArray, w: Int, h: Int, scale: Float, tx: Float, ty: Float): ByteArray {
+    if (w == 0 || h == 0) return src
+    val zoom = scale.coerceIn(0.05f, 50f)
+    val dst = ByteArray(src.size)
+
+    for (yd in 0 until h) {
+        for (xd in 0 until w) {
+            var u = (xd.toFloat() / w) - 0.5f
+            var v = (yd.toFloat() / h) - 0.5f
+            u -= tx
+            v -= ty
+            u *= zoom
+            v *= zoom
+            u += 0.5f
+            v += 0.5f
+            val sx = (u * w).toInt().coerceIn(0, w - 1)
+            val sy = (v * h).toInt().coerceIn(0, h - 1)
+            val si = sy * w * 4 + sx * 4
+            val di = yd * w * 4 + xd * 4
+            dst[di] = src[si]; dst[di + 1] = src[si + 1]; dst[di + 2] = src[si + 2]; dst[di + 3] = src[si + 3]
+        }
+    }
+    return dst
+}
+
+private fun applyCropRgba(src: ByteArray, w: Int, h: Int, left: Float, top: Float, right: Float, bottom: Float): ByteArray {
+    if (w == 0 || h == 0) return src
+    val l = (left.coerceIn(0f, 1f) * w).toInt()
+    val t = (top.coerceIn(0f, 1f) * h).toInt()
+    val r = w - (right.coerceIn(0f, 1f) * w).toInt()
+    val b = h - (bottom.coerceIn(0f, 1f) * h).toInt()
+    if (r <= l || b <= t) return src
+
+    val dst = ByteArray(r * b * 4)
+    for (y in t until b) {
+        for (x in l until r) {
+            val si = y * w * 4 + x * 4
+            val di = (y - t) * r * 4 + (x - l) * 4
+            dst[di] = src[si]; dst[di + 1] = src[si + 1]; dst[di + 2] = src[si + 2]; dst[di + 3] = src[si + 3]
+        }
+    }
+    return dst
 }

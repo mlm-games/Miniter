@@ -1028,6 +1028,32 @@ fn scale_rgba(src: &[u8], src_w: usize, src_h: usize, dst_w: usize, dst_h: usize
     out
 }
 
+fn transform_rgba(src: &[u8], width: usize, height: usize, scale: f32, tx: f32, ty: f32) -> Vec<u8> {
+    let zoom = scale.clamp(0.05, 50.0);
+    let mut dst = vec![0u8; width * height * 4];
+    let wf = width as f32;
+    let hf = height as f32;
+
+    for yd in 0..height {
+        for xd in 0..width {
+            let mut u = (xd as f32 / wf) - 0.5;
+            let mut v = (yd as f32 / hf) - 0.5;
+            u -= tx;
+            v -= ty;
+            u *= zoom;
+            v *= zoom;
+            u += 0.5;
+            v += 0.5;
+            let sx = (u * wf).round().clamp(0.0, wf - 1.0) as usize;
+            let sy = (v * hf).round().clamp(0.0, hf - 1.0) as usize;
+            let si = sy * width * 4 + sx * 4;
+            let di = yd * width * 4 + xd * 4;
+            dst[di..di + 4].copy_from_slice(&src[si..si + 4]);
+        }
+    }
+    dst
+}
+
 fn alpha_over(dst: &mut [u8], src: &[u8]) {
     for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
         alpha_over_pixel(d, s);
@@ -1187,12 +1213,8 @@ fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: usize, filter
             VideoFilter::Crop { left, top, right, bottom } => {
                 *pixels = crop_rgba(pixels, width, height, *left, *top, *right, *bottom);
             }
-            VideoFilter::Transform { scale, translate_x: _, translate_y: _ } => {
-                let new_w = (width as f32 * scale).round() as usize;
-                let new_h = (height as f32 * scale).round() as usize;
-                if new_w > 0 && new_h > 0 {
-                    *pixels = scale_rgba(pixels, width, height, new_w, new_h);
-                }
+            VideoFilter::Transform { scale, translate_x, translate_y } => {
+                *pixels = transform_rgba(pixels, width, height, *scale, *translate_x, *translate_y);
             }
             VideoFilter::Speed { factor: _ } => {}
         }
