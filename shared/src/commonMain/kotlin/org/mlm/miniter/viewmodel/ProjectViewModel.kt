@@ -1030,6 +1030,7 @@ class ProjectViewModel(
                 scale = newParams["scale"] ?: filter.scale,
                 translateX = newParams["translate_x"] ?: filter.translateX,
                 translateY = newParams["translate_y"] ?: filter.translateY,
+                rotate = newParams["rotate"] ?: filter.rotate,
             )
             else -> filter
         }

@@ -298,6 +298,17 @@ private fun VideoClipProperties(
                     },
                     valueRange = -1f..1f,
                 )
+                Spacer(Modifier.height(8.dp))
+                Text("Rotate: ${filter.rotate.toInt()}°", style = MaterialTheme.typography.labelSmall)
+                var rotateVal by remember(filter) { mutableFloatStateOf(filter.rotate) }
+                Slider(
+                    value = rotateVal,
+                    onValueChange = { rotateVal = it },
+                    onValueChangeFinished = {
+                        onUpdateFilterParams(clip.id, index, mapOf("rotate" to rotateVal))
+                    },
+                    valueRange = -180f..180f,
+                )
             }
             is RustBrightnessFilterSnapshot,
             is RustContrastFilterSnapshot,
@@ -916,7 +927,7 @@ private fun TextClipProperties(
 }
 
 private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
-    RustTransformFilterSnapshot(scale = 1f, translateX = 0f, translateY = 0f),
+    RustTransformFilterSnapshot(scale = 1f, translateX = 0f, translateY = 0f, rotate = 0f),
     RustBrightnessFilterSnapshot(0f),
     RustContrastFilterSnapshot(1f),
     RustSaturationFilterSnapshot(1f),

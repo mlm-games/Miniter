@@ -89,6 +89,7 @@ pub enum VideoFilter {
         scale: f32,
         translate_x: f32,
         translate_y: f32,
+        rotate: f32,
     },
     Speed {
         factor: f64,

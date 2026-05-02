@@ -74,10 +74,11 @@ pub fn apply_affine_transforms(pixels: &mut Vec<u8>, width: usize, height: usize
             }
             VideoFilter::Rotate { degrees } => { if degrees.is_finite() { rotate_deg += *degrees; } }
             VideoFilter::Flip { horizontal, vertical } => { flip_h ^= *horizontal; flip_v ^= *vertical; }
-            VideoFilter::Transform { scale, translate_x: tx, translate_y: ty } => {
+            VideoFilter::Transform { scale, translate_x: tx, translate_y: ty, rotate } => {
                 zoom = safe_zoom(zoom * scale);
                 translate_x = tx;
                 translate_y = ty;
+                if rotate.is_finite() { rotate_deg += rotate; }
             }
             _ => {}
         }

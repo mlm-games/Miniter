@@ -260,6 +260,7 @@ data class RustTransformFilterSnapshot(
     val translateX: Float,
     @SerialName("translate_y")
     val translateY: Float,
+    val rotate: Float = 0f,
 ) : RustVideoFilterSnapshot
 
 @Serializable

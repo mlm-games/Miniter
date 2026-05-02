@@ -192,8 +192,8 @@ private fun applyFiltersToRgba(
                 }
             }
             is RustTransformFilterSnapshot -> {
-                if (kotlin.math.abs(filter.scale - 1f) >= 1e-6f || kotlin.math.abs(filter.translateX) >= 1e-6f || kotlin.math.abs(filter.translateY) >= 1e-6f) {
-                    pixels = applyTransformRgba(pixels, width, height, filter.scale, filter.translateX, filter.translateY)
+                if (kotlin.math.abs(filter.scale - 1f) >= 1e-6f || kotlin.math.abs(filter.translateX) >= 1e-6f || kotlin.math.abs(filter.translateY) >= 1e-6f || kotlin.math.abs(filter.rotate) >= 1e-6f) {
+                    pixels = applyTransformRgba(pixels, width, height, filter.scale, filter.translateX, filter.translateY, filter.rotate)
                 }
             }
             is RustCropFilterSnapshot -> {
@@ -238,17 +238,22 @@ private fun applyRotateRgba(src: ByteArray, w: Int, h: Int, deg: Float): ByteArr
     return dst
 }
 
-private fun applyTransformRgba(src: ByteArray, w: Int, h: Int, scale: Float, tx: Float, ty: Float): ByteArray {
+private fun applyTransformRgba(src: ByteArray, w: Int, h: Int, scale: Float, tx: Float, ty: Float, rotate: Float): ByteArray {
     if (w == 0 || h == 0) return src
     val zoom = scale.coerceIn(0.05f, 50f)
+    val rad = Math.toRadians(rotate.toDouble()).toFloat()
+    val cosR = kotlin.math.cos(rad.toDouble()).toFloat()
+    val sinR = kotlin.math.sin(rad.toDouble()).toFloat()
     val dst = ByteArray(src.size)
 
     for (yd in 0 until h) {
         for (xd in 0 until w) {
             var u = (xd.toFloat() / w) - 0.5f
             var v = (yd.toFloat() / h) - 0.5f
-            u -= tx
-            v -= ty
+            val rx = u * cosR - v * sinR
+            val ry = u * sinR + v * cosR
+            u = rx - tx
+            v = ry - ty
             u *= zoom
             v *= zoom
             u += 0.5f

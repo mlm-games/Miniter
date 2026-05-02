@@ -1028,8 +1028,10 @@ fn scale_rgba(src: &[u8], src_w: usize, src_h: usize, dst_w: usize, dst_h: usize
     out
 }
 
-fn transform_rgba(src: &[u8], width: usize, height: usize, scale: f32, tx: f32, ty: f32) -> Vec<u8> {
+fn transform_rgba(src: &[u8], width: usize, height: usize, scale: f32, tx: f32, ty: f32, rotate: f32) -> Vec<u8> {
     let zoom = scale.clamp(0.05, 50.0);
+    let rad = rotate.to_radians();
+    let (cos_r, sin_r) = rad.sin_cos();
     let mut dst = vec![0u8; width * height * 4];
     let wf = width as f32;
     let hf = height as f32;
@@ -1038,8 +1040,10 @@ fn transform_rgba(src: &[u8], width: usize, height: usize, scale: f32, tx: f32, 
         for xd in 0..width {
             let mut u = (xd as f32 / wf) - 0.5;
             let mut v = (yd as f32 / hf) - 0.5;
-            u -= tx;
-            v -= ty;
+            let rx = u * cos_r - v * sin_r;
+            let ry = u * sin_r + v * cos_r;
+            u = rx - tx;
+            v = ry - ty;
             u *= zoom;
             v *= zoom;
             u += 0.5;
@@ -1213,8 +1217,8 @@ fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: usize, filter
             VideoFilter::Crop { left, top, right, bottom } => {
                 *pixels = crop_rgba(pixels, width, height, *left, *top, *right, *bottom);
             }
-            VideoFilter::Transform { scale, translate_x, translate_y } => {
-                *pixels = transform_rgba(pixels, width, height, *scale, *translate_x, *translate_y);
+            VideoFilter::Transform { scale, translate_x, translate_y, rotate } => {
+                *pixels = transform_rgba(pixels, width, height, *scale, *translate_x, *translate_y, *rotate);
             }
             VideoFilter::Speed { factor: _ } => {}
         }
