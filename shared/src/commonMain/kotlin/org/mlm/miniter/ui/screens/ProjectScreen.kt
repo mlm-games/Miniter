@@ -205,6 +205,9 @@ fun ProjectScreen(
                 onSetTextDuration = vm::setTextClipDuration,
                 onSetTextTransitionIn = vm::setTextTransitionIn,
                 onSetTextTransitionOut = vm::setTextTransitionOut,
+                onAddAudioFilter = { clipId, filter -> vm.addAudioFilter(clipId, filter) },
+                onRemoveAudioFilter = { clipId, index -> vm.removeAudioFilter(clipId, index) },
+                onUpdateAudioFilterDuration = { clipId, index, duration -> vm.updateAudioFilterDuration(clipId, index, duration) },
             )
 
     }

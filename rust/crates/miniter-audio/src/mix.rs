@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use miniter_domain::clip::ClipKind;
 use miniter_domain::Project;
+use miniter_domain::clip::ClipKind;
+use miniter_domain::filter::AudioFilter;
 
-use crate::decode::{decode_audio_f32, decode_audio_f32_bytes, DecodeAudioError, DecodedAudio};
+use crate::decode::{DecodeAudioError, DecodedAudio, decode_audio_f32, decode_audio_f32_bytes};
 
 #[derive(Debug, Clone, Copy)]
 pub struct MixConfig {
@@ -47,6 +48,7 @@ struct ScheduledAudioClip {
     source_end_frame: Option<usize>,
     speed: f64,
     gain: f32,
+    audio_filters: Vec<AudioFilter>,
 }
 
 pub fn mix_project_audio(
@@ -84,6 +86,12 @@ fn mix_project_audio_internal(
             samples: Vec::new(),
         });
     }
+
+    let has_normalize = scheduled.iter().any(|clip| {
+        clip.audio_filters
+            .iter()
+            .any(|f| matches!(f, AudioFilter::Normalize))
+    });
 
     let out_channels = config.channels as usize;
     let total_frames = scheduled
@@ -136,16 +144,22 @@ fn mix_project_audio_internal(
                 break;
             }
 
-            mixed_any = true;
-            mix_interpolated_frame(
-                &mut mixed,
-                dst_frame,
-                &asset.samples,
-                asset_frames,
-                out_channels,
-                src_pos,
-                clip.gain,
-            );
+            let fade_gain =
+                calculate_fade_gain(dst_offset, clip.timeline_len_frames, &clip.audio_filters);
+            let effective_gain = clip.gain * fade_gain;
+
+            if effective_gain > 0.0 {
+                mixed_any = true;
+                mix_interpolated_frame(
+                    &mut mixed,
+                    dst_frame,
+                    &asset.samples,
+                    asset_frames,
+                    out_channels,
+                    src_pos,
+                    effective_gain,
+                );
+            }
         }
     }
 
@@ -159,6 +173,10 @@ fn mix_project_audio_internal(
 
     for sample in &mut mixed {
         *sample = sample.clamp(-1.0, 1.0);
+    }
+
+    if has_normalize {
+        apply_normalize(&mut mixed);
     }
 
     Ok(MixedAudio {
@@ -206,9 +224,9 @@ fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<Schedule
                 continue;
             }
 
-            let source_path = match &clip.kind {
-                ClipKind::Video(video) => video.source_path.clone(),
-                ClipKind::Audio(audio) => audio.source_path.clone(),
+            let (source_path, audio_filters) = match &clip.kind {
+                ClipKind::Video(video) => (video.source_path.clone(), video.audio_filters.clone()),
+                ClipKind::Audio(audio) => (audio.source_path.clone(), audio.filters.clone()),
                 ClipKind::Text(_) => continue,
                 ClipKind::Subtitle(_) => continue,
             };
@@ -238,11 +256,49 @@ fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<Schedule
                 source_end_frame,
                 speed: clip.speed,
                 gain: clip.volume,
+                audio_filters,
             });
         }
     }
 
     scheduled
+}
+
+fn calculate_fade_gain(current_frame: usize, total_frames: usize, filters: &[AudioFilter]) -> f32 {
+    let mut fade_in_gain = 1.0f32;
+    let mut fade_out_gain = 1.0f32;
+
+    for filter in filters {
+        match filter {
+            AudioFilter::FadeIn { duration_us } => {
+                let fade_frames = micros_to_frames(*duration_us, 48_000);
+                if current_frame < fade_frames {
+                    fade_in_gain *= current_frame as f32 / fade_frames as f32;
+                }
+            }
+            AudioFilter::FadeOut { duration_us } => {
+                let fade_frames = micros_to_frames(*duration_us, 48_000);
+                let remaining = total_frames.saturating_sub(current_frame);
+                if remaining < fade_frames {
+                    fade_out_gain *= remaining as f32 / fade_frames as f32;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fade_in_gain * fade_out_gain
+}
+
+fn apply_normalize(samples: &mut [f32]) {
+    let peak = samples.iter().fold(0.0f32, |max, &s| max.max(s.abs()));
+    if peak > 0.001 {
+        let target_peak = 0.99f32;
+        let gain = target_peak / peak;
+        for sample in samples.iter_mut() {
+            *sample = (*sample * gain).clamp(-1.0, 1.0);
+        }
+    }
 }
 
 fn adapt_audio(mut audio: DecodedAudio, config: MixConfig) -> DecodedAudio {

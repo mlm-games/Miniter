@@ -5,6 +5,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
@@ -31,6 +32,9 @@ fun PropertiesBottomSheet(
     onSetTextDuration: (String, Long) -> Unit,
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
+    onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
+    onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
+    onUpdateAudioFilterDuration: (String, Int, Long) -> Unit = { _, _, _ -> },
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -61,6 +65,9 @@ fun PropertiesBottomSheet(
                 onSetTextDuration = onSetTextDuration,
                 onSetTextTransitionIn = onSetTextTransitionIn,
                 onSetTextTransitionOut = onSetTextTransitionOut,
+                onAddAudioFilter = onAddAudioFilter,
+                onRemoveAudioFilter = onRemoveAudioFilter,
+                onUpdateAudioFilterDuration = onUpdateAudioFilterDuration,
             )
         }
     }

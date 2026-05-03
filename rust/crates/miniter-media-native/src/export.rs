@@ -527,7 +527,10 @@ struct ExportDecodeCache {
 
 fn is_image_file(path: &Path) -> bool {
     matches!(
-        path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
         Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif")
     )
 }
@@ -549,9 +552,10 @@ impl ExportDecodeCache {
     ) -> Result<RgbaFrame, DecodeError> {
         if !self.sessions.contains_key(&clip_id) {
             if is_image_file(path) {
-                let frame = self.image_cache.get_frame(path).map_err(|e| {
-                    DecodeError::NoVideoStream
-                })?;
+                let frame = self
+                    .image_cache
+                    .get_frame(path)
+                    .map_err(|e| DecodeError::NoVideoStream)?;
                 let entry = ImageSession { frame };
                 self.sessions.insert(clip_id, ExportSession::Image(entry));
             } else {
@@ -1028,7 +1032,15 @@ fn scale_rgba(src: &[u8], src_w: usize, src_h: usize, dst_w: usize, dst_h: usize
     out
 }
 
-fn transform_rgba(src: &[u8], width: usize, height: usize, scale: f32, tx: f32, ty: f32, rotate: f32) -> Vec<u8> {
+fn transform_rgba(
+    src: &[u8],
+    width: usize,
+    height: usize,
+    scale: f32,
+    tx: f32,
+    ty: f32,
+    rotate: f32,
+) -> Vec<u8> {
     let zoom = scale.clamp(0.05, 50.0);
     let rad = rotate.to_radians();
     let (cos_r, sin_r) = rad.sin_cos();
@@ -1217,19 +1229,42 @@ fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: usize, filter
             VideoFilter::Hue { degrees } => {
                 *pixels = hue_shift_rgba(pixels, *degrees);
             }
-            VideoFilter::Flip { horizontal, vertical } => {
+            VideoFilter::Flip {
+                horizontal,
+                vertical,
+            } => {
                 *pixels = flip_rgba(pixels, width, height, *horizontal, *vertical);
             }
             VideoFilter::Rotate { degrees } => {
                 *pixels = rotate_rgba(pixels, width, height, *degrees);
             }
-            VideoFilter::Crop { left, top, right, bottom } => {
+            VideoFilter::Crop {
+                left,
+                top,
+                right,
+                bottom,
+            } => {
                 *pixels = crop_rgba(pixels, width, height, *left, *top, *right, *bottom);
             }
-            VideoFilter::Transform { scale, translate_x, translate_y, rotate } => {
-                *pixels = transform_rgba(pixels, width, height, *scale, *translate_x, *translate_y, *rotate);
+            VideoFilter::Transform {
+                scale,
+                translate_x,
+                translate_y,
+                rotate,
+            } => {
+                *pixels = transform_rgba(
+                    pixels,
+                    width,
+                    height,
+                    *scale,
+                    *translate_x,
+                    *translate_y,
+                    *rotate,
+                );
             }
-            VideoFilter::Speed { factor: _ } => {}
+            VideoFilter::Speed { .. } => {
+                // handled at clip level via clip.speed, not as per-frame filter
+            }
         }
     }
 }
@@ -1382,7 +1417,15 @@ fn rotate_rgba(src: &[u8], width: usize, height: usize, degrees: f32) -> Vec<u8>
     }
 }
 
-fn crop_rgba(src: &[u8], width: usize, height: usize, left: f32, top: f32, right: f32, bottom: f32) -> Vec<u8> {
+fn crop_rgba(
+    src: &[u8],
+    width: usize,
+    height: usize,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+) -> Vec<u8> {
     let l = (left.clamp(0.0, 1.0) * width as f32).round() as usize;
     let t = (top.clamp(0.0, 1.0) * height as f32).round() as usize;
     let r = (right.clamp(0.0, 1.0) * width as f32).round() as usize;

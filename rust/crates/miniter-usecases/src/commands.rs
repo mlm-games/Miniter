@@ -110,6 +110,11 @@ pub enum EditCommand {
         clip_id: ClipId,
         index: usize,
     },
+    UpdateAudioFilterDuration {
+        clip_id: ClipId,
+        index: usize,
+        duration_us: i64,
+    },
     SetTransitionIn {
         clip_id: ClipId,
         transition: Option<Transition>,
@@ -133,4 +138,5 @@ pub enum EditCommand {
         label: String,
         commands: Vec<EditCommand>,
     },
+    Nop,
 }

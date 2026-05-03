@@ -33,6 +33,7 @@ import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeInAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
+import org.mlm.miniter.editor.model.RustNormalizeAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
@@ -61,10 +62,13 @@ fun PropertiesPanel(
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
-    onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
+    onSetOpacity: (String, Float) -> Unit = { _, _ -> },
+    onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
+    onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
+    onUpdateAudioFilterDuration: (String, Int, Long) -> Unit = { _, _, _ -> },
 ) {
     val clip = snapshot?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -113,7 +117,7 @@ fun PropertiesPanel(
                 onSetTransitionOut = onSetTransitionOut,
                 onSetOpacity = onSetOpacity,
             )
-            is RustAudioClipKind -> AudioClipProperties(clip, kind, onSetVolume)
+            is RustAudioClipKind -> AudioClipProperties(clip, kind, onSetVolume, onAddAudioFilter, onRemoveAudioFilter, onUpdateAudioFilterDuration)
             is RustTextClipKind -> TextClipProperties(
                 clip,
                 kind,
@@ -647,11 +651,12 @@ private fun AudioClipProperties(
     clip: RustClipSnapshot,
     kind: RustAudioClipKind,
     onSetVolume: (String, Float) -> Unit,
+    onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit,
+    onRemoveAudioFilter: (String, Int) -> Unit,
+    onUpdateAudioFilterDuration: (String, Int, Long) -> Unit,
 ) {
     val clipVolume = clip.volume
     val audioFilters = kind.filters
-    val fadeInMs = audioFilters.filterIsInstance<RustFadeInAudioFilterSnapshot>().maxOfOrNull { it.durationUs / 1000L } ?: 0L
-    val fadeOutMs = audioFilters.filterIsInstance<RustFadeOutAudioFilterSnapshot>().maxOfOrNull { it.durationUs / 1000L } ?: 0L
 
     Text("Audio Clip", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(8.dp))
@@ -667,11 +672,104 @@ private fun AudioClipProperties(
     )
     Text("${(volumeValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
 
-    Spacer(Modifier.height(8.dp))
-    Text(
-        "Fade in: ${fadeInMs}ms | Fade out: ${fadeOutMs}ms",
-        style = MaterialTheme.typography.labelSmall,
-    )
+    Spacer(Modifier.height(16.dp))
+    Text("Audio Filters", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+
+    var audioFilterExpanded by remember { mutableStateOf(false) }
+    Box {
+        AssistChip(
+            onClick = { audioFilterExpanded = true },
+            label = { Text("+ Add Audio Filter") },
+        )
+        DropdownMenu(expanded = audioFilterExpanded, onDismissRequest = { audioFilterExpanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Fade In") },
+                onClick = {
+                    onAddAudioFilter(clip.id, RustFadeInAudioFilterSnapshot(500_000L))
+                    audioFilterExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Fade Out") },
+                onClick = {
+                    onAddAudioFilter(clip.id, RustFadeOutAudioFilterSnapshot(500_000L))
+                    audioFilterExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Normalize") },
+                onClick = {
+                    onAddAudioFilter(clip.id, RustNormalizeAudioFilterSnapshot)
+                    audioFilterExpanded = false
+                },
+            )
+        }
+    }
+
+    audioFilters.forEachIndexed { index, filter ->
+        when (filter) {
+            is RustFadeInAudioFilterSnapshot -> {
+                Spacer(Modifier.height(8.dp))
+                Text("Fade In", style = MaterialTheme.typography.labelSmall)
+                var fadeInValue by remember(filter.durationUs) { mutableFloatStateOf(filter.durationUs / 1_000_000f) }
+                Slider(
+                    value = fadeInValue,
+                    onValueChange = { fadeInValue = it },
+                    onValueChangeFinished = {
+                        onUpdateAudioFilterDuration(clip.id, index, (fadeInValue * 1_000_000L).toLong())
+                    },
+                    valueRange = 0f..3f,
+                    steps = 29,
+                )
+                Text("${formatFixed(fadeInValue, 1)}s", style = MaterialTheme.typography.labelSmall)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
+                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            is RustFadeOutAudioFilterSnapshot -> {
+                Spacer(Modifier.height(8.dp))
+                Text("Fade Out", style = MaterialTheme.typography.labelSmall)
+                var fadeOutValue by remember(filter.durationUs) { mutableFloatStateOf(filter.durationUs / 1_000_000f) }
+                Slider(
+                    value = fadeOutValue,
+                    onValueChange = { fadeOutValue = it },
+                    onValueChangeFinished = {
+                        onUpdateAudioFilterDuration(clip.id, index, (fadeOutValue * 1_000_000L).toLong())
+                    },
+                    valueRange = 0f..3f,
+                    steps = 29,
+                )
+                Text("${formatFixed(fadeOutValue, 1)}s", style = MaterialTheme.typography.labelSmall)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
+                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            is RustNormalizeAudioFilterSnapshot -> {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Normalize", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
+                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            else -> { }
+        }
+    }
 }
 
 @Composable

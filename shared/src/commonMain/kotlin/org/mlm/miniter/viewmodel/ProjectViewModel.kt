@@ -24,6 +24,7 @@ import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.editor.model.RustFadeInAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
+import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
@@ -955,6 +956,27 @@ class ProjectViewModel(
     fun setClipOpacity(clipId: String, opacity: Float) {
         dispatchAndSync(
             rustStore.commands.setClipOpacity(clipId, opacity),
+            isDirty = true,
+        )
+    }
+
+    fun addAudioFilter(clipId: String, filter: RustAudioFilterSnapshot) {
+        dispatchAndSync(
+            rustStore.commands.addAudioFilter(clipId = clipId, filter = filter),
+            isDirty = true,
+        )
+    }
+
+    fun removeAudioFilter(clipId: String, filterIndex: Int) {
+        dispatchAndSync(
+            rustStore.commands.removeAudioFilter(clipId, filterIndex),
+            isDirty = true,
+        )
+    }
+
+    fun updateAudioFilterDuration(clipId: String, filterIndex: Int, durationUs: Long) {
+        dispatchAndSync(
+            rustStore.commands.updateAudioFilterDuration(clipId, filterIndex, durationUs),
             isDirty = true,
         )
     }

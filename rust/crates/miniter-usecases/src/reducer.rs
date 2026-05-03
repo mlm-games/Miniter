@@ -2,7 +2,7 @@ use crate::commands::EditCommand;
 use crate::history::History;
 use crate::selection::Selection;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
-use miniter_domain::filter::VideoEffect;
+use miniter_domain::filter::{AudioFilter, VideoEffect};
 use miniter_domain::project::Project;
 use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::track::{Track, TrackId};
@@ -34,6 +34,8 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             state.project.timeline.add_track(track);
             Ok(EditCommand::RemoveTrack { track_id: id })
         }
+
+        EditCommand::Nop => Ok(EditCommand::Nop),
 
         EditCommand::RemoveTrack { track_id } => {
             let track = state
@@ -588,6 +590,37 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             }
         }
 
+        EditCommand::UpdateAudioFilterDuration { clip_id, index, duration_us } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            match &mut clip.kind {
+                ClipKind::Video(v) => {
+                    if index >= v.audio_filters.len() {
+                        return Err(ApplyError::IndexOutOfBounds);
+                    }
+                    let filter = &mut v.audio_filters[index];
+                    match filter {
+                        AudioFilter::FadeIn { duration_us: d } => *d = duration_us,
+                        AudioFilter::FadeOut { duration_us: d } => *d = duration_us,
+                        _ => return Err(ApplyError::InvalidCommand("Only fade filters have duration")),
+                    }
+                    Ok(EditCommand::Nop)
+                }
+                ClipKind::Audio(a) => {
+                    if index >= a.filters.len() {
+                        return Err(ApplyError::IndexOutOfBounds);
+                    }
+                    let filter = &mut a.filters[index];
+                    match filter {
+                        AudioFilter::FadeIn { duration_us: d } => *d = duration_us,
+                        AudioFilter::FadeOut { duration_us: d } => *d = duration_us,
+                        _ => return Err(ApplyError::InvalidCommand("Only fade filters have duration")),
+                    }
+                    Ok(EditCommand::Nop)
+                }
+                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            }
+        }
+
         EditCommand::SetTransitionIn {
             clip_id,
             transition,
@@ -882,6 +915,9 @@ pub enum ApplyError {
 
     #[error("Invalid speed: {0}")]
     InvalidSpeed(f64),
+
+    #[error("Invalid command: {0}")]
+    InvalidCommand(&'static str),
 
     #[error(transparent)]
     Overlap(#[from] miniter_domain::track::TrackOverlapError),
