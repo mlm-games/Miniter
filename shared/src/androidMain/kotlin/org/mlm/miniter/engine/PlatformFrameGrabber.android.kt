@@ -247,21 +247,27 @@ private fun applyTransformRgba(src: ByteArray, w: Int, h: Int, scale: Float, tx:
     val cosR = kotlin.math.cos(rad.toDouble()).toFloat()
     val sinR = kotlin.math.sin(rad.toDouble()).toFloat()
     val dst = ByteArray(src.size)
+    val cx = 0.5f
+    val cy = 0.5f
 
     for (yd in 0 until h) {
         for (xd in 0 until w) {
-            var u = (xd.toFloat() / w) - 0.5f
-            var v = (yd.toFloat() / h) - 0.5f
-            val rx = u * cosR - v * sinR
-            val ry = u * sinR + v * cosR
-            u = rx - tx
-            v = ry - ty
-            u *= zoom
-            v *= zoom
+            var u = (xd.toFloat() + 0.5f) / w
+            var v = (yd.toFloat() + 0.5f) / h
+            val px = (u - cx) * w
+            val py = (v - cy) * h
+            val rx = px * cosR + py * sinR
+            val ry = -px * sinR + py * cosR
+            u = rx / w + cx
+            v = ry / h + cy
+            u = u - 0.5f - tx
+            v = v - 0.5f - ty
+            u = (u + 0.5f) * zoom
+            v = (v + 0.5f) * zoom
             u += 0.5f
             v += 0.5f
-            val sx = (u * w).toInt().coerceIn(0, w - 1)
-            val sy = (v * h).toInt().coerceIn(0, h - 1)
+            val sx = (u * w - 0.5f).toInt().coerceIn(0, w - 1)
+            val sy = (v * h - 0.5f).toInt().coerceIn(0, h - 1)
             val si = sy * w * 4 + sx * 4
             val di = yd * w * 4 + xd * 4
             dst[di] = src[si]; dst[di + 1] = src[si + 1]; dst[di + 2] = src[si + 2]; dst[di + 3] = src[si + 3]

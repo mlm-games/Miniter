@@ -1035,21 +1035,30 @@ fn transform_rgba(src: &[u8], width: usize, height: usize, scale: f32, tx: f32, 
     let mut dst = vec![0u8; width * height * 4];
     let wf = width as f32;
     let hf = height as f32;
+    let cx = 0.5;
+    let cy = 0.5;
 
     for yd in 0..height {
         for xd in 0..width {
-            let mut u = (xd as f32 / wf) - 0.5;
-            let mut v = (yd as f32 / hf) - 0.5;
-            let rx = u * cos_r - v * sin_r;
-            let ry = u * sin_r + v * cos_r;
-            u = rx - tx;
-            v = ry - ty;
-            u *= zoom;
-            v *= zoom;
+            let mut u = (xd as f32 + 0.5) / wf;
+            let mut v = (yd as f32 + 0.5) / hf;
+
+            let px = (u - cx) * wf;
+            let py = (v - cy) * hf;
+            let rx = px * cos_r + py * sin_r;
+            let ry = -px * sin_r + py * cos_r;
+            u = rx / wf + cx;
+            v = ry / hf + cy;
+
+            u = u - 0.5 - tx;
+            v = v - 0.5 - ty;
+            u = (u + 0.5) * zoom;
+            v = (v + 0.5) * zoom;
+
             u += 0.5;
             v += 0.5;
-            let sx = (u * wf).round().clamp(0.0, wf - 1.0) as usize;
-            let sy = (v * hf).round().clamp(0.0, hf - 1.0) as usize;
+            let sx = (u * wf - 0.5).round().clamp(0.0, wf - 1.0) as usize;
+            let sy = (v * hf - 0.5).round().clamp(0.0, hf - 1.0) as usize;
             let si = sy * width * 4 + sx * 4;
             let di = yd * width * 4 + xd * 4;
             dst[di..di + 4].copy_from_slice(&src[si..si + 4]);
