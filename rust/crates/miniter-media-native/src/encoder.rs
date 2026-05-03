@@ -1,4 +1,6 @@
-//! Encode RGBA frames -> H.264 NAL units via less-avc.
+//! H.264 video encoder.
+//!
+//! Uses less-avc only for now ( since it works on all platforms including wasm, but the output size is questionable).
 
 use crate::frame::RgbaFrame;
 use crate::yuv::rgba_to_yuv420;
@@ -19,6 +21,7 @@ pub enum EncodeError {
     EmptyFrame { frame_index: u32 },
 }
 
+#[derive(Debug)]
 pub enum EncodedVideoOutput {
     Sample { bytes: Vec<u8>, is_keyframe: bool },
     Skipped,
@@ -35,17 +38,19 @@ pub struct VideoEncodeSession {
     frame_index: u32,
 }
 
+fn next_multiple(value: usize, base: usize) -> usize {
+    value.div_ceil(base) * base
+}
+
 impl VideoEncodeSession {
     pub fn new(width: u32, height: u32, _bitrate_bps: u32, _fps: f32) -> Result<Self, EncodeError> {
         if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
             return Err(EncodeError::InvalidDimensions);
         }
-
         let y_stride = next_multiple(width as usize, 16);
         let uv_stride = next_multiple((width as usize) / 2, 8);
         let y_rows = next_multiple(height as usize, 16);
         let uv_rows = next_multiple((height as usize) / 2, 8);
-
         Ok(Self {
             encoder: None,
             width,
@@ -61,12 +66,11 @@ impl VideoEncodeSession {
     pub fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<EncodedVideoOutput, EncodeError> {
         let idx = self.frame_index;
         self.frame_index += 1;
-
         if frame.width != self.width || frame.height != self.height {
             return Err(EncodeError::InvalidDimensions);
         }
 
-        let (y_plane, u_plane, v_plane) = self.to_less_avc_planes(frame)?;
+        let (y_plane, u_plane, v_plane) = self.to_planes(frame)?;
         let image = YCbCrImage {
             planes: Planes::YCbCr((
                 DataPlane {
@@ -89,27 +93,22 @@ impl VideoEncodeSession {
             height: self.height,
         };
 
-        let bytes = if let Some(encoder) = &mut self.encoder {
-            let nal = encoder
-                .encode(&image)
-                .map_err(|e| EncodeError::LessAvc(e.to_string()))?;
-            nal.to_annex_b_data()
+        let bytes = if let Some(enc) = &mut self.encoder {
+            enc.encode(&image)
+                .map_err(|e| EncodeError::LessAvc(e.to_string()))?
+                .to_annex_b_data()
         } else {
-            let (initial, encoder) =
+            let (init, enc) =
                 LessEncoder::new(&image).map_err(|e| EncodeError::LessAvc(e.to_string()))?;
-            self.encoder = Some(encoder);
-
-            let mut out = Vec::new();
-            for nal in initial.into_iter() {
-                out.extend(nal.to_annex_b_data());
-            }
-            out
+            self.encoder = Some(enc);
+            init.into_iter()
+                .flat_map(|nal| nal.to_annex_b_data())
+                .collect()
         };
 
         if bytes.is_empty() {
             return Err(EncodeError::EmptyFrame { frame_index: idx });
         }
-
         Ok(EncodedVideoOutput::Sample {
             bytes,
             is_keyframe: true,
@@ -119,18 +118,13 @@ impl VideoEncodeSession {
     pub fn width(&self) -> u32 {
         self.width
     }
-
     pub fn height(&self) -> u32 {
         self.height
     }
 
-    fn to_less_avc_planes(
-        &self,
-        frame: &RgbaFrame,
-    ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), EncodeError> {
+    fn to_planes(&self, frame: &RgbaFrame) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), EncodeError> {
         let (y_src, u_src, v_src) =
             rgba_to_yuv420(&frame.data, self.width as usize, self.height as usize);
-
         let y_sz = self
             .y_stride
             .checked_mul(self.y_rows)
@@ -139,34 +133,23 @@ impl VideoEncodeSession {
             .uv_stride
             .checked_mul(self.uv_rows)
             .ok_or(EncodeError::InvalidDimensions)?;
-
-        let mut y_plane = vec![0u8; y_sz];
-        let mut u_plane = vec![128u8; uv_sz];
-        let mut v_plane = vec![128u8; uv_sz];
-
-        let width = self.width as usize;
-        let height = self.height as usize;
-        let chroma_w = width / 2;
-        let chroma_h = height / 2;
-
-        for row in 0..height {
-            let src = &y_src[row * width..(row + 1) * width];
-            let dst = &mut y_plane[row * self.y_stride..row * self.y_stride + width];
-            dst.copy_from_slice(src);
+        let mut y = vec![0u8; y_sz];
+        let mut u = vec![128u8; uv_sz];
+        let mut v = vec![128u8; uv_sz];
+        let w = self.width as usize;
+        let h = self.height as usize;
+        let cw = w / 2;
+        let ch = h / 2;
+        for row in 0..h {
+            y[row * self.y_stride..row * self.y_stride + w]
+                .copy_from_slice(&y_src[row * w..(row + 1) * w]);
         }
-        for row in 0..chroma_h {
-            let src_u = &u_src[row * chroma_w..(row + 1) * chroma_w];
-            let src_v = &v_src[row * chroma_w..(row + 1) * chroma_w];
-            let dst_u = &mut u_plane[row * self.uv_stride..row * self.uv_stride + chroma_w];
-            let dst_v = &mut v_plane[row * self.uv_stride..row * self.uv_stride + chroma_w];
-            dst_u.copy_from_slice(src_u);
-            dst_v.copy_from_slice(src_v);
+        for row in 0..ch {
+            u[row * self.uv_stride..row * self.uv_stride + cw]
+                .copy_from_slice(&u_src[row * cw..(row + 1) * cw]);
+            v[row * self.uv_stride..row * self.uv_stride + cw]
+                .copy_from_slice(&v_src[row * cw..(row + 1) * cw]);
         }
-
-        Ok((y_plane, u_plane, v_plane))
+        Ok((y, u, v))
     }
-}
-
-fn next_multiple(value: usize, base: usize) -> usize {
-    value.div_ceil(base) * base
 }

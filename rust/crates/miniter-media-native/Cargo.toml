@@ -19,7 +19,8 @@ mp4 = "0.14"
 muxide = "0.2"
 
 # H.264 encoder
-less-avc = "0.1.5"
+less-avc = { version = "0.1.5" }
+# openh264 = { version = "0.9", optional = true }  # TODO: only if requested / av1 is not preferred
 
 # AV1
 rav1e = { version = "0.8", default-features = false }
@@ -60,6 +61,7 @@ baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2ba
 web-sys = { version = "0.3.91", features = ["Window", "Document", "Storage"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen-futures = "0.4"
+less-avc = { version = "0.1.5", optional = true }
 
 [features]
 default = ["oxideav", "videoson", "av1"]
