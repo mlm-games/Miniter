@@ -321,25 +321,6 @@ data class RustFadeOutAudioFilterSnapshot(
 data object RustNormalizeAudioFilterSnapshot : RustAudioFilterSnapshot
 
 @Serializable
-@SerialName("Equalizer")
-data class RustEqualizerAudioFilterSnapshot(
-    val bands: List<RustEqBandSnapshot>,
-) : RustAudioFilterSnapshot
-
-@Serializable
-@SerialName("NoiseReduction")
-data class RustNoiseReductionAudioFilterSnapshot(
-    val strength: Float,
-) : RustAudioFilterSnapshot
-
-@Serializable
-data class RustEqBandSnapshot(
-    val frequency: Float,
-    val gain: Float,
-    val q: Float,
-)
-
-@Serializable
 data class RustExportProfileSnapshot(
     val format: RustExportFormat = RustExportFormat.Av1Mp4,
     val resolution: RustExportResolution = RustExportResolution.Source,

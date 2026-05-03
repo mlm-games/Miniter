@@ -106,13 +106,4 @@ pub enum AudioFilter {
     FadeIn { duration_us: i64 },
     FadeOut { duration_us: i64 },
     Normalize,
-    Equalizer { bands: Vec<EqBand> },
-    NoiseReduction { strength: f32 },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EqBand {
-    pub frequency: f32,
-    pub gain: f32,
-    pub q: f32,
 }
