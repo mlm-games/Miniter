@@ -19,6 +19,10 @@ import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustCropFilterSnapshot
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.rust.RustCoreSession
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.abs
+import kotlin.math.toRadians
 
 actual class PlatformFrameGrabber actual constructor() {
     private val mutex = Mutex()
@@ -163,9 +167,9 @@ private fun applyFiltersToRgba(
 
             is RustBlurFilterSnapshot, is RustSharpenFilterSnapshot -> { }
             is RustHueFilterSnapshot -> {
-                val angle = ((filter.degrees % 360f) * kotlin.math.PI.toFloat() / 180f)
-                val cosA = kotlin.math.cos(angle.toDouble()).toFloat()
-                val sinA = kotlin.math.sin(angle.toDouble()).toFloat()
+                val angle = (toRadians(deg.toFloat()) * PI / 180f)
+                val cosA = cos(angle.toDouble()).toFloat()
+                val sinA = sin(angle.toDouble()).toFloat()
                 for (i in 0 until total) {
                     val b = i * 4
                     val r = pixels[b].toInt().and(0xFF) / 255f
@@ -201,12 +205,12 @@ private fun applyFiltersToRgba(
                 }
             }
             is RustRotateFilterSnapshot -> {
-                if (kotlin.math.abs(filter.degrees) >= 0.5f) {
+                if (abs(filter.degrees) >= 0.5f) {
                     pixels = applyRotateRgba(pixels, width, height, filter.degrees)
                 }
             }
             is RustTransformFilterSnapshot -> {
-                if (kotlin.math.abs(filter.scale - 1f) >= 1e-6f || kotlin.math.abs(filter.translateX) >= 1e-6f || kotlin.math.abs(filter.translateY) >= 1e-6f || kotlin.math.abs(filter.rotate) >= 1e-6f) {
+                if (abs(filter.scale - 1f) >= 1e-6f || abs(filter.translateX) >= 1e-6f || abs(filter.translateY) >= 1e-6f || abs(filter.rotate) >= 1e-6f) {
                     pixels = applyTransformRgba(pixels, width, height, filter.scale, filter.translateX, filter.translateY, filter.rotate)
                 }
             }
@@ -231,9 +235,9 @@ private fun applyFiltersToRgba(
 
 private fun applyRotateRgba(src: ByteArray, w: Int, h: Int, deg: Float): ByteArray {
     if (w == 0 || h == 0) return src
-    val rad = Math.toRadians(deg.toDouble()).toFloat()
-    val sin = kotlin.math.sin(rad.toDouble()).toFloat()
-    val cos = kotlin.math.cos(rad.toDouble()).toFloat()
+    val rad = toRadians(deg.toDouble()).toFloat()
+    val sin = sin(rad.toDouble()).toFloat()
+    val cos = cos(rad.toDouble()).toFloat()
     val dst = ByteArray(src.size)
     val cx = w / 2f
     val cy = h / 2f
@@ -255,9 +259,9 @@ private fun applyRotateRgba(src: ByteArray, w: Int, h: Int, deg: Float): ByteArr
 private fun applyTransformRgba(src: ByteArray, w: Int, h: Int, scale: Float, tx: Float, ty: Float, rotate: Float): ByteArray {
     if (w == 0 || h == 0) return src
     val zoom = scale.coerceIn(0.05f, 50f)
-    val rad = Math.toRadians(rotate.toDouble()).toFloat()
-    val cosR = kotlin.math.cos(rad.toDouble()).toFloat()
-    val sinR = kotlin.math.sin(rad.toDouble()).toFloat()
+    val rad = toRadians(rotate.toDouble()).toFloat()
+    val cosR = cos(rad.toDouble()).toFloat()
+    val sinR = sin(rad.toDouble()).toFloat()
     val dst = ByteArray(src.size)
     val cx = 0.5f
     val cy = 0.5f
