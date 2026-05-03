@@ -22,7 +22,7 @@ import org.mlm.miniter.rust.RustCoreSession
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.abs
-import kotlin.math.toRadians
+import kotlin.math.PI
 
 actual class PlatformFrameGrabber actual constructor() {
     private val mutex = Mutex()
@@ -167,7 +167,7 @@ private fun applyFiltersToRgba(
 
             is RustBlurFilterSnapshot, is RustSharpenFilterSnapshot -> { }
             is RustHueFilterSnapshot -> {
-                val angle = (toRadians(deg.toFloat()) * PI / 180f)
+                val angle = (((filter.degrees % 360f) * PI.toFloat() / 180f))
                 val cosA = cos(angle.toDouble()).toFloat()
                 val sinA = sin(angle.toDouble()).toFloat()
                 for (i in 0 until total) {
@@ -235,7 +235,7 @@ private fun applyFiltersToRgba(
 
 private fun applyRotateRgba(src: ByteArray, w: Int, h: Int, deg: Float): ByteArray {
     if (w == 0 || h == 0) return src
-    val rad = toRadians(deg.toDouble()).toFloat()
+    val rad = (deg.toDouble() * PI / 180.0).toFloat()
     val sin = sin(rad.toDouble()).toFloat()
     val cos = cos(rad.toDouble()).toFloat()
     val dst = ByteArray(src.size)
@@ -259,7 +259,7 @@ private fun applyRotateRgba(src: ByteArray, w: Int, h: Int, deg: Float): ByteArr
 private fun applyTransformRgba(src: ByteArray, w: Int, h: Int, scale: Float, tx: Float, ty: Float, rotate: Float): ByteArray {
     if (w == 0 || h == 0) return src
     val zoom = scale.coerceIn(0.05f, 50f)
-    val rad = toRadians(rotate.toDouble()).toFloat()
+    val rad = (rotate.toDouble() * PI / 180.0).toFloat()
     val cosR = cos(rad.toDouble()).toFloat()
     val sinR = sin(rad.toDouble()).toFloat()
     val dst = ByteArray(src.size)
