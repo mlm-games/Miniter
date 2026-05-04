@@ -110,20 +110,17 @@ class ProjectViewModel(
                 val stagedVideoPath = PlatformFileSystem.stageForNativeAccess(initialVideoPath)
                 val info = engine.probeVideo(stagedVideoPath)
                 if (!info.hasVideo) {
-                    _state.update { it.copy(isLoading = false) }
-                    snackbarManager.showError("Selected file has no video stream")
+                    handleError("Selected file has no video stream")
                     return@launch
                 }
                 try {
                     val decodable = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90) != null
                     if (!decodable) {
-                        _state.update { it.copy(isLoading = false) }
-                        snackbarManager.showError("Selected video cannot be decoded. Try H.264 MP4 or MOV.")
+                        handleError("Selected video cannot be decoded. Try H.264 MP4 or MOV.")
                         return@launch
                     }
                 } catch (e: Exception) {
-                    _state.update { it.copy(isLoading = false) }
-                    snackbarManager.showError("Decode error: ${e.message}")
+                    handleError(e, "Decode error")
                     return@launch
                 }
                 sourceDurationMs = info.durationMs
@@ -206,8 +203,7 @@ class ProjectViewModel(
                     recentProjectsRepository.addRecent(savePath, name)
                 }
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false) }
-                snackbarManager.showError("Failed to open video: ${e.message}")
+                handleError(e, "Failed to open video")
             }
         }
     }
@@ -218,8 +214,7 @@ class ProjectViewModel(
             try {
                 val projectJson = PlatformFileSystem.readText(path)
                 if (projectJson.isBlank()) {
-                    _state.update { it.copy(isLoading = false) }
-                    snackbarManager.showError("Selected project file is empty")
+                    handleError("Selected project file is empty")
                     return@launch
                 }
 
@@ -267,8 +262,7 @@ class ProjectViewModel(
 
                 recentProjectsRepository.addRecent(path, snapshot.meta.name)
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false) }
-                snackbarManager.showError("Failed to load project: ${e.message}")
+                handleError(e, "Failed to load project")
             }
         }
     }
@@ -642,8 +636,7 @@ class ProjectViewModel(
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.show("Imported ${items.size} file(s)")
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false) }
-                snackbarManager.showError("Failed to import: ${e.message}")
+                handleError(e, "Failed to import")
             }
         }
     }
@@ -695,8 +688,7 @@ class ProjectViewModel(
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.show("Imported ${files.size} subtitle file(s)")
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false) }
-                snackbarManager.showError("Failed to import subtitles: ${e.message}")
+                handleError(e, "Failed to import subtitles")
             }
         }
     }
@@ -1349,5 +1341,14 @@ class ProjectViewModel(
                 canRedo = rustStore.canRedo(),
             )
         }
+    }
+
+    private fun handleError(message: String) {
+        _state.update { it.copy(isLoading = false) }
+        snackbarManager.showError(message)
+    }
+
+    private fun handleError(e: Exception, prefix: String) {
+        handleError("$prefix: ${e.message}")
     }
 }
