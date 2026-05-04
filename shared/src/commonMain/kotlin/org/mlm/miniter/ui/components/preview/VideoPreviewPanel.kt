@@ -48,6 +48,26 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.time.TimeSource
 
+private suspend fun seekToPosition(
+    playerState: io.github.kdroidfilter.composemediaplayer.VideoPlayerState,
+    sourceTimeMs: Long,
+    durationMs: Long,
+    maxValue: Float = 1000f,
+    postDelayMs: Long = 0
+) {
+    if (durationMs <= 0L) return
+    val sliderTarget = (sourceTimeMs.toFloat() / durationMs * 1000f)
+        .coerceIn(0f, maxValue)
+    if (!sliderTarget.isNaN() && !sliderTarget.isInfinite()) {
+        playerState.sliderPos = sliderTarget
+        playerState.userDragging = true
+        delay(50)
+        playerState.userDragging = false
+        playerState.seekTo(playerState.sliderPos)
+        if (postDelayMs > 0) delay(postDelayMs)
+    }
+}
+
 @Composable
 fun EditorVideoPreview(
     snapshot: RustProjectSnapshot?,
@@ -290,15 +310,7 @@ fun EditorVideoPreview(
         }
 
         if (playerReady && fullFileDurationMs > 0L && sourceTimeMs in 0..fullFileDurationMs) {
-            val sliderTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
-                .coerceIn(0f, 1000f)
-            if (!sliderTarget.isNaN() && !sliderTarget.isInfinite()) {
-                playerState.sliderPos = sliderTarget
-                playerState.userDragging = true
-                delay(50)
-                playerState.userDragging = false
-                playerState.seekTo(playerState.sliderPos)
-            }
+            seekToPosition(playerState, sourceTimeMs, fullFileDurationMs)
         }
     }
 
@@ -338,16 +350,7 @@ fun EditorVideoPreview(
 
             val audioOffset = playheadMs - audioStartMs
             val audioSourceTimeMs = audioClip.sourceStartMs + (audioOffset * audioClip.speed).toLong()
-            val audioSeekTarget = (audioSourceTimeMs.toFloat() / audioFileDurationMs * 1000f)
-                .coerceIn(0f, 999f)
-            if (!audioSeekTarget.isNaN() && !audioSeekTarget.isInfinite()) {
-                audioPlayerState.sliderPos = audioSeekTarget
-                audioPlayerState.userDragging = true
-                delay(50)
-                audioPlayerState.userDragging = false
-                audioPlayerState.seekTo(audioPlayerState.sliderPos)
-                delay(100)
-            }
+            seekToPosition(audioPlayerState, audioSourceTimeMs, audioFileDurationMs, 999f, 100)
             audioPlayerState.play()
 
             val startMark = TimeSource.Monotonic.markNow()
@@ -388,17 +391,7 @@ fun EditorVideoPreview(
         val clipEndMs = currentClip.startMs + currentClip.durationMs
         val offsetInClip = playheadMs - currentClip.startMs
         val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
-        val seekTarget = (sourceTimeMs.toFloat() / fullFileDurationMs * 1000f)
-            .coerceIn(0f, 999f)
-
-        if (!seekTarget.isNaN() && !seekTarget.isInfinite()) {
-            playerState.sliderPos = seekTarget
-            playerState.userDragging = true
-            delay(50)
-            playerState.userDragging = false
-            playerState.seekTo(playerState.sliderPos)
-            delay(100)
-        }
+        seekToPosition(playerState, sourceTimeMs, fullFileDurationMs, 999f, 100)
 
         playerState.play()
 
@@ -411,16 +404,7 @@ fun EditorVideoPreview(
             if (playheadMs in audioStartMs until audioEndMs) {
                 val audioOffset = playheadMs - audioStartMs
                 val audioSourceTimeMs = audioSourceStartMs + (audioOffset * audioSpeed).toLong()
-                val audioSeekTarget = (audioSourceTimeMs.toFloat() / audioFileDurationMs * 1000f)
-                    .coerceIn(0f, 999f)
-                if (!audioSeekTarget.isNaN() && !audioSeekTarget.isInfinite()) {
-                    audioPlayerState.sliderPos = audioSeekTarget
-                    audioPlayerState.userDragging = true
-                    delay(50)
-                    audioPlayerState.userDragging = false
-                    audioPlayerState.seekTo(audioPlayerState.sliderPos)
-                    delay(100)
-                }
+                seekToPosition(audioPlayerState, audioSourceTimeMs, audioFileDurationMs, 999f, 100)
                 audioPlayerState.play()
             } else {
                 audioPlayerState.pause()
