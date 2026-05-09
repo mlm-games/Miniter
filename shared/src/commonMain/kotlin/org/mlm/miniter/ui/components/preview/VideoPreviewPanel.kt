@@ -1,9 +1,10 @@
 package org.mlm.miniter.ui.components.preview
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusStrong
@@ -16,10 +17,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
 import kotlinx.coroutines.CoroutineScope
@@ -27,24 +36,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.mlm.miniter.editor.model.RustTrackKind
-import org.mlm.miniter.editor.model.RustVideoClipKind
-import org.mlm.miniter.editor.model.RustAudioClipKind
-import org.mlm.miniter.editor.model.RustProjectSnapshot
-import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
-import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
-import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
-import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
-import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
-import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
-import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
-import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
-import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.editor.model.*
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
-import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.time.TimeSource
@@ -69,6 +65,107 @@ private suspend fun seekToPosition(
     }
 }
 
+sealed interface VisibleMedia {
+    val id: String
+    val trackIndex: Int
+    val trackId: String
+    val startMs: Long
+    val durationMs: Long
+    val sourceStartMs: Long
+    val opacity: Float
+
+    data class Video(
+        override val id: String,
+        override val trackIndex: Int,
+        override val trackId: String,
+        override val startMs: Long,
+        override val durationMs: Long,
+        override val sourceStartMs: Long,
+        override val opacity: Float,
+        val sourcePath: String,
+        val sourceEndMs: Long,
+        val sourceTotalDurationMs: Long,
+        val speed: Float,
+        val volume: Float,
+        val filters: List<RustVideoEffectSnapshot>,
+    ) : VisibleMedia
+
+    data class Text(
+        override val id: String,
+        override val trackIndex: Int,
+        override val trackId: String,
+        override val startMs: Long,
+        override val durationMs: Long,
+        override val sourceStartMs: Long,
+        override val opacity: Float,
+        val text: String,
+        val style: RustTextStyleSnapshot,
+    ) : VisibleMedia
+}
+
+private fun collectVisibleMedia(
+    snapshot: RustProjectSnapshot?,
+    playheadMs: Long,
+): List<VisibleMedia> {
+    if (snapshot == null) return emptyList()
+
+    val playheadUs = playheadMs * 1000L
+    val tracks = snapshot.timeline.tracks
+
+    val visibleMedia = mutableListOf<VisibleMedia>()
+
+    tracks.forEachIndexed { trackIndex, track ->
+        if (track.muted) return@forEachIndexed
+
+        track.clips.forEach { clip ->
+            val clipStartUs = clip.timelineStartUs
+            val clipEndUs = clipStartUs + clip.timelineDurationUs
+
+            if (playheadUs < clipStartUs || playheadUs >= clipEndUs) return@forEach
+
+            when (val kind = clip.kind) {
+                is RustVideoClipKind -> {
+                    visibleMedia.add(
+                        VisibleMedia.Video(
+                            id = clip.id,
+                            trackIndex = trackIndex,
+                            trackId = track.id,
+                            startMs = clip.timelineStartUs / 1000L,
+                            durationMs = clip.timelineDurationUs / 1000L,
+                            sourceStartMs = clip.sourceStartUs / 1000L,
+                            opacity = clip.opacity,
+                            sourcePath = kind.sourcePath,
+                            sourceEndMs = clip.sourceEndUs / 1000L,
+                            sourceTotalDurationMs = clip.sourceTotalDurationUs / 1000L,
+                            speed = clip.speed.toFloat(),
+                            volume = clip.volume,
+                            filters = kind.filters,
+                        )
+                    )
+                }
+                is RustTextClipKind -> {
+                    visibleMedia.add(
+                        VisibleMedia.Text(
+                            id = clip.id,
+                            trackIndex = trackIndex,
+                            trackId = track.id,
+                            startMs = clip.timelineStartUs / 1000L,
+                            durationMs = clip.timelineDurationUs / 1000L,
+                            sourceStartMs = clip.sourceStartUs / 1000L,
+                            opacity = clip.opacity,
+                            text = kind.text,
+                            style = kind.style,
+                        )
+                    )
+                }
+                else -> {}
+            }
+        }
+    }
+
+    return visibleMedia.sortedBy { it.trackIndex }
+}
+
 @Composable
 fun EditorVideoPreview(
     snapshot: RustProjectSnapshot?,
@@ -90,32 +187,23 @@ fun EditorVideoPreview(
         onDispose { frameGrabber.release() }
     }
 
-    val currentClip = remember(snapshot, playheadMs) {
-        val playheadUs = playheadMs * 1000L
-        snapshot?.timeline?.tracks
-            ?.filter { it.kind == RustTrackKind.Video && !it.muted }
-            ?.flatMap { it.clips }
-            ?.mapNotNull { clip ->
-                if (clip.muted) return@mapNotNull null
-                val video = clip.kind as? RustVideoClipKind ?: return@mapNotNull null
-                ClipPreview(
-                    id = clip.id,
-                    startMs = clip.timelineStartUs / 1000L,
-                    durationMs = clip.timelineDurationUs / 1000L,
-                    sourcePath = video.sourcePath,
-                    sourceStartMs = clip.sourceStartUs / 1000L,
-                    sourceEndMs = clip.sourceEndUs / 1000L,
-                    sourceTotalDurationMs = clip.sourceTotalDurationUs / 1000L,
-                    speed = clip.speed.toFloat(),
-                    volume = clip.volume,
-                    opacity = clip.opacity,
-                    filters = video.filters,
-                )
-            }
-            ?.find { clip -> playheadUs >= clip.startMs * 1000L && playheadUs < (clip.startMs + clip.durationMs) * 1000L }
+    val visibleMedia = remember(snapshot, playheadMs) {
+        collectVisibleMedia(snapshot, playheadMs)
     }
 
-    val currentAudioClip = remember(snapshot, playheadMs) {
+    val primaryVideo = visibleMedia.filterIsInstance<VisibleMedia.Video>().firstOrNull()
+    val backgroundVideos = visibleMedia.filterIsInstance<VisibleMedia.Video>().drop(1)
+    val textOverlays = visibleMedia.filterIsInstance<VisibleMedia.Text>()
+
+    val primaryVideoPath = primaryVideo?.sourcePath
+    val primaryVideoUri = primaryVideoPath?.let { normalizeMediaUriForPlayback(it) }
+    val canPlayPrimary = !primaryVideoUri.isNullOrBlank()
+    val primarySpeed = primaryVideo?.speed ?: 1f
+    val primaryVolume = primaryVideo?.volume ?: 1f
+    val primaryFilters = primaryVideo?.filters ?: emptyList()
+    val primaryOpacity = primaryVideo?.opacity ?: 1f
+
+    val audioMedia = remember(snapshot, playheadMs) {
         val playheadUs = playheadMs * 1000L
         snapshot?.timeline?.tracks
             ?.filter { it.kind == RustTrackKind.Audio && !it.muted }
@@ -123,34 +211,22 @@ fun EditorVideoPreview(
             ?.mapNotNull { clip ->
                 if (clip.muted || clip.volume <= 0f) return@mapNotNull null
                 val audio = clip.kind as? RustAudioClipKind ?: return@mapNotNull null
-                AudioClipPreview(
-                    id = clip.id,
-                    startMs = clip.timelineStartUs / 1000L,
-                    durationMs = clip.timelineDurationUs / 1000L,
-                    sourcePath = audio.sourcePath,
-                    sourceStartMs = clip.sourceStartUs / 1000L,
-                    sourceEndMs = clip.sourceEndUs / 1000L,
-                    sourceTotalDurationMs = clip.sourceTotalDurationUs / 1000L,
-                    speed = clip.speed.toFloat(),
-                    volume = clip.volume,
-                )
+                Triple(clip.id, audio.sourcePath, clip.volume)
             }
-            ?.find { clip -> playheadUs >= clip.startMs * 1000L && playheadUs < (clip.startMs + clip.durationMs) * 1000L }
+            ?.find { (id, _, _) ->
+                val track = snapshot.timeline.tracks.find { t -> t.clips.any { it.id == id } }
+                track?.clips?.any { c ->
+                    c.id == id &&
+                            playheadUs >= c.timelineStartUs &&
+                            playheadUs < c.timelineStartUs + c.timelineDurationUs
+                } ?: false
+            }
     }
 
-    val clipSourcePath = currentClip?.sourcePath
-    val clipPlaybackUri = clipSourcePath?.let(::normalizeMediaUriForPlayback)
-    val canPlayClip = !clipPlaybackUri.isNullOrBlank()
-    val clipSpeed = currentClip?.speed ?: 1f
-    val clipVolume = currentClip?.volume ?: 1f
-    val clipFilters = currentClip?.filters ?: emptyList()
-    val clipOpacity = currentClip?.opacity ?: 1f
-
-    val audioClipSourcePath = currentAudioClip?.sourcePath
-    val audioPlaybackUri = audioClipSourcePath?.let(::normalizeMediaUriForPlayback)
-    val canPlayAudioClip = !audioPlaybackUri.isNullOrBlank()
-    val audioClipVolume = currentAudioClip?.volume ?: 1f
-    val audioClipSpeed = currentAudioClip?.speed ?: 1f
+    val audioSourcePath = audioMedia?.second
+    val audioPlaybackUri = audioSourcePath?.let { normalizeMediaUriForPlayback(it) }
+    val canPlayAudio = !audioPlaybackUri.isNullOrBlank()
+    val audioVolume = audioMedia?.third ?: 1f
 
     var fullFileDurationMs by remember { mutableLongStateOf(0L) }
     var lastLoadedPath by remember { mutableStateOf<String?>(null) }
@@ -160,6 +236,7 @@ fun EditorVideoPreview(
     var audioFileDurationMs by remember { mutableLongStateOf(0L) }
     var lastLoadedAudioPath by remember { mutableStateOf<String?>(null) }
     var audioPlayerReady by remember { mutableStateOf(false) }
+    var backgroundFrames by remember { mutableStateOf<Map<String, ImageData>>(emptyMap()) }
 
     val audioPlayerState = rememberVideoPlayerState()
 
@@ -181,14 +258,13 @@ fun EditorVideoPreview(
         }
     }
 
-    LaunchedEffect(audioClipSourcePath, audioPlaybackUri) {
-        if (audioClipSourcePath != null && canPlayAudioClip && audioClipSourcePath != lastLoadedAudioPath) {
-            val playbackUri = audioPlaybackUri
+    LaunchedEffect(audioSourcePath, audioPlaybackUri) {
+        if (audioSourcePath != null && canPlayAudio && audioSourcePath != lastLoadedAudioPath) {
             audioPlayerReady = false
             audioFileDurationMs = 0L
-            lastLoadedAudioPath = audioClipSourcePath
+            lastLoadedAudioPath = audioSourcePath
 
-            audioPlayerState.openUri(playbackUri)
+            audioPlayerState.openUri(audioPlaybackUri)
             delay(200)
             audioPlayerState.pause()
 
@@ -203,24 +279,10 @@ fun EditorVideoPreview(
                 attempts++
             }
 
-            if (audioFileDurationMs <= 0L) {
-                audioFileDurationMs = maxOf(
-                    currentAudioClip.sourceTotalDurationMs,
-                    currentAudioClip.sourceEndMs,
-                )
-            }
-
             audioPlayerReady = true
         }
 
-        if (audioClipSourcePath == null) {
-            audioPlayerReady = false
-            audioFileDurationMs = 0L
-            lastLoadedAudioPath = null
-            audioPlayerState.pause()
-        }
-
-        if (!canPlayAudioClip) {
+        if (audioSourcePath == null || !canPlayAudio) {
             audioPlayerReady = false
             audioFileDurationMs = 0L
             lastLoadedAudioPath = null
@@ -228,29 +290,24 @@ fun EditorVideoPreview(
         }
     }
 
-    LaunchedEffect(audioClipVolume) {
-        audioPlayerState.volume = audioClipVolume.coerceIn(0f, 1f)
+    LaunchedEffect(audioVolume) {
+        audioPlayerState.volume = audioVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(audioClipSpeed) {
-        audioPlayerState.playbackSpeed = audioClipSpeed.coerceIn(0.25f, 4f)
-    }
-
-    LaunchedEffect(clipSourcePath, clipPlaybackUri) {
-        if (clipSourcePath != null && canPlayClip && clipSourcePath != lastLoadedPath) {
-            val playbackUri = clipPlaybackUri
+    LaunchedEffect(primaryVideoPath, primaryVideoUri) {
+        if (primaryVideoPath != null && canPlayPrimary && primaryVideoPath != lastLoadedPath) {
             playerReady = false
             grabberReady = false
             scrubbedFrame = null
             fullFileDurationMs = 0L
-            lastLoadedPath = clipSourcePath
+            lastLoadedPath = primaryVideoPath
 
-            playerState.openUri(playbackUri)
+            playerState.openUri(primaryVideoUri)
             delay(200)
             playerState.pause()
 
             try {
-                frameGrabber.open(clipSourcePath)
+                frameGrabber.open(primaryVideoPath)
                 grabberReady = true
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -268,14 +325,14 @@ fun EditorVideoPreview(
                 attempts++
             }
 
-            if (fullFileDurationMs <= 0L) {
-                fullFileDurationMs = maxOf(currentClip.sourceTotalDurationMs, currentClip.sourceEndMs)
+            if (fullFileDurationMs <= 0L && primaryVideo != null) {
+                fullFileDurationMs = maxOf(primaryVideo.sourceTotalDurationMs, primaryVideo.sourceEndMs)
             }
 
             playerReady = true
         }
 
-        if (!canPlayClip) {
+        if (!canPlayPrimary) {
             playerReady = false
             fullFileDurationMs = 0L
             lastLoadedPath = null
@@ -283,29 +340,37 @@ fun EditorVideoPreview(
         }
     }
 
-    LaunchedEffect(clipSpeed) {
-        playerState.playbackSpeed = clipSpeed.coerceIn(0.25f, 4f)
+    LaunchedEffect(primarySpeed) {
+        playerState.playbackSpeed = primarySpeed.coerceIn(0.25f, 4f)
     }
-    LaunchedEffect(clipVolume) {
-        playerState.volume = clipVolume.coerceIn(0f, 1f)
+    LaunchedEffect(primaryVolume) {
+        playerState.volume = primaryVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, clipFilters, clipOpacity) {
+    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, primaryOpacity) {
         if (isPlaying) return@LaunchedEffect
-        if (currentClip == null || clipSourcePath == null) return@LaunchedEffect
+        if (primaryVideo == null || primaryVideoPath == null) return@LaunchedEffect
 
-        val offsetInClip = playheadMs - currentClip.startMs
-        val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
+        val offsetInClip = playheadMs - primaryVideo.startMs
+        val sourceTimeMs = primaryVideo.sourceStartMs + (offsetInClip * primaryVideo.speed).toLong()
         if (sourceTimeMs < 0) return@LaunchedEffect
 
         delay(80)
 
-        if (grabberReady && (clipFilters.any { it.enabled } || clipOpacity < 1f)) {
+        if (grabberReady && (primaryFilters.any { it.enabled } || primaryOpacity < 1f)) {
             try {
                 scrubbedFrame = frameGrabber.grabFrame(
                     timestampMs = sourceTimeMs,
-                    filters = clipFilters.map { it.filter }.filterIsInstance<RustVideoFilterSnapshot>(),
-                    opacity = clipOpacity,
+                    filters = primaryFilters.map { it.filter }.filterIsInstance<RustVideoFilterSnapshot>(),
+                    opacity = primaryOpacity,
+                )
+            } catch (_: Exception) {}
+        } else if (grabberReady) {
+            try {
+                scrubbedFrame = frameGrabber.grabFrame(
+                    timestampMs = sourceTimeMs,
+                    filters = emptyList(),
+                    opacity = 1f,
                 )
             } catch (_: Exception) {}
         }
@@ -315,10 +380,27 @@ fun EditorVideoPreview(
         }
     }
 
+    val audioClip = audioMedia?.let { (id, _, vol) ->
+        val playheadUs = playheadMs * 1000L
+        snapshot?.timeline?.tracks
+            ?.filter { it.kind == RustTrackKind.Audio && !it.muted }
+            ?.flatMap { it.clips }
+            ?.filter { playheadUs >= it.timelineStartUs && playheadUs < it.timelineStartUs + it.timelineDurationUs }
+            ?.mapNotNull { clip ->
+                if (clip.muted || clip.volume <= 0f) return@mapNotNull null
+                val audio = clip.kind as? RustAudioClipKind ?: return@mapNotNull null
+                Triple(clip.id, audio, clip)
+            }
+            ?.firstOrNull()
+            ?.let { (_, audio, clip) ->
+                AudioClipInfo(clip.id, clip.timelineStartUs / 1000L, clip.timelineDurationUs / 1000L, clip.sourceStartUs / 1000L, clip.speed.toFloat())
+            }
+    }
+
     LaunchedEffect(
         isPlaying,
-        currentClip?.id,
-        currentAudioClip?.id,
+        primaryVideo?.id,
+        audioClip?.id,
         playerReady,
         audioPlayerReady,
         fullFileDurationMs,
@@ -330,18 +412,18 @@ fun EditorVideoPreview(
             return@LaunchedEffect
         }
 
-        if (currentClip == null) {
+        if (primaryVideo == null) {
             playerState.pause()
-            val audioClip = currentAudioClip
-            if (audioClip == null || !canPlayAudioClip || !audioPlayerReady || audioFileDurationMs <= 0L) {
+            val audioC = audioClip
+            if (audioC == null || !canPlayAudio || !audioPlayerReady || audioFileDurationMs <= 0L) {
                 onPlayingChange(false)
                 playerState.pause()
                 audioPlayerState.pause()
                 return@LaunchedEffect
             }
 
-            val audioStartMs = audioClip.startMs
-            val audioEndMs = audioClip.startMs + audioClip.durationMs
+            val audioStartMs = audioC.startMs
+            val audioEndMs = audioC.startMs + audioC.durationMs
             if (playheadMs < audioStartMs || playheadMs >= audioEndMs) {
                 onPlayingChange(false)
                 playerState.pause()
@@ -350,7 +432,7 @@ fun EditorVideoPreview(
             }
 
             val audioOffset = playheadMs - audioStartMs
-            val audioSourceTimeMs = audioClip.sourceStartMs + (audioOffset * audioClip.speed).toLong()
+            val audioSourceTimeMs = audioC.sourceStartMs + (audioOffset * audioC.speed).toLong()
             seekToPosition(audioPlayerState, audioSourceTimeMs, audioFileDurationMs, 999f, 100)
             audioPlayerState.play()
 
@@ -374,7 +456,7 @@ fun EditorVideoPreview(
             return@LaunchedEffect
         }
 
-        if (!canPlayClip || !playerReady) {
+        if (!canPlayPrimary || !playerReady) {
             onPlayingChange(false)
             playerState.pause()
             audioPlayerState.pause()
@@ -389,19 +471,19 @@ fun EditorVideoPreview(
 
         scrubbedFrame = null
 
-        val clipEndMs = currentClip.startMs + currentClip.durationMs
-        val offsetInClip = playheadMs - currentClip.startMs
-        val sourceTimeMs = currentClip.sourceStartMs + (offsetInClip * currentClip.speed).toLong()
+        val clipEndMs = primaryVideo.startMs + primaryVideo.durationMs
+        val offsetInClip = playheadMs - primaryVideo.startMs
+        val sourceTimeMs = primaryVideo.sourceStartMs + (offsetInClip * primaryVideo.speed).toLong()
         seekToPosition(playerState, sourceTimeMs, fullFileDurationMs, 999f, 100)
 
         playerState.play()
 
-        val audioStartMs = currentAudioClip?.startMs
-        val audioEndMs = currentAudioClip?.let { it.startMs + it.durationMs }
-        val audioSpeed = currentAudioClip?.speed ?: 1f
-        val audioSourceStartMs = currentAudioClip?.sourceStartMs ?: 0L
+        val audioStartMs = audioClip?.startMs
+        val audioEndMs = audioClip?.let { it.startMs + it.durationMs }
+        val audioSpeed = audioClip?.speed ?: 1f
+        val audioSourceStartMs = audioClip?.sourceStartMs ?: 0L
 
-        if (audioClipSourcePath != null && canPlayAudioClip && audioStartMs != null && audioEndMs != null && audioPlayerReady && audioFileDurationMs > 0L) {
+        if (audioSourcePath != null && canPlayAudio && audioStartMs != null && audioEndMs != null && audioPlayerReady && audioFileDurationMs > 0L) {
             if (playheadMs in audioStartMs until audioEndMs) {
                 val audioOffset = playheadMs - audioStartMs
                 val audioSourceTimeMs = audioSourceStartMs + (audioOffset * audioSpeed).toLong()
@@ -477,34 +559,7 @@ fun EditorVideoPreview(
             }
 
         when {
-            !isPlaying && scrubbedFrame != null -> {
-                val bitmap = remember(scrubbedFrame) { scrubbedFrame!!.toImageBitmap() }
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = "Preview",
-                    modifier = transformModifier,
-                    contentScale = ContentScale.Fit,
-                )
-            }
-
-            canPlayClip && lastLoadedPath == clipSourcePath -> {
-                VideoPlayerSurface(
-                    playerState = playerState,
-                    modifier = transformModifier,
-                )
-            }
-
-            thumbnailFallback != null -> {
-                val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = "Preview",
-                    modifier = transformModifier,
-                    contentScale = ContentScale.Fit,
-                )
-            }
-
-            else -> {
+            visibleMedia.isEmpty() && thumbnailFallback == null -> {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
@@ -516,97 +571,113 @@ fun EditorVideoPreview(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "No video at playhead",
+                        "No content at playhead",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.4f),
                     )
                 }
             }
-        }
 
-        if (currentClip != null) {
-            val enabledCount = clipFilters.count { it.enabled }
-            if (enabledCount > 0) {
-                Surface(
-                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
-                    shape = MaterialTheme.shapes.small,
-                ) {
-                    Text(
-                        "$enabledCount filter${if (enabledCount > 1) "s" else ""}",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
+            else -> {
+                Box(modifier = transformModifier) {
+                    when {
+                        !isPlaying && scrubbedFrame != null -> {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                val bitmap = remember(scrubbedFrame) { scrubbedFrame!!.toImageBitmap() }
+                                Image(
+                                    bitmap = bitmap,
+                                    contentDescription = "Preview",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit,
+                                )
+                            }
+                        }
+
+                        canPlayPrimary && lastLoadedPath == primaryVideoPath -> {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                VideoPlayerSurface(
+                                    playerState = playerState,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+
+                        thumbnailFallback != null -> {
+                            val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = "Thumbnail",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+
+                        else -> {
+                            Icon(
+                                Icons.Default.VideoFile, null,
+                                modifier = Modifier.size(48.dp),
+                                tint = Color.White.copy(alpha = 0.3f),
+                            )
+                        }
+                    }
+
+                    backgroundVideos.forEach { bgVideo ->
+                        val bgOffset = playheadMs - bgVideo.startMs
+                        val bgSourceTime = bgVideo.sourceStartMs + (bgOffset * bgVideo.speed).toLong()
+                        BackgroundVideoFrame(
+                            sourcePath = bgVideo.sourcePath,
+                            sourceTimeMs = bgSourceTime,
+                            opacity = bgVideo.opacity,
+                            frameGrabber = frameGrabber,
+                            onFrameLoaded = { frame ->
+                                backgroundFrames = backgroundFrames + (bgVideo.id to frame)
+                            }
+                        )
+
+                        backgroundFrames[bgVideo.id]?.let { frame ->
+                            val bgBitmap = remember(frame) { frame.toImageBitmap() }
+                            Image(
+                                bitmap = bgBitmap,
+                                contentDescription = "Background video",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { alpha = bgVideo.opacity },
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                    }
                 }
             }
-            if (clipSpeed != 1f) {
-                Surface(
-                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
-                    shape = MaterialTheme.shapes.small,
-                ) {
-                    Text(
-                        "${clipSpeed}x",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-            }
-            if (visualScale != 1f) {
-                Surface(
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(4.dp),
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
-                    shape = MaterialTheme.shapes.small,
-                ) {
-                    val zoomPercent = (visualScale * 100).toInt()
-                    Text(
-                        "$zoomPercent%",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
-                }
-            }
-        }
-
-        LaunchedEffect(showZoomIndicator) {
-            if (showZoomIndicator) {
-                delay(800)
-                showZoomIndicator = false
-            }
-        }
-
-        LaunchedEffect(visualScale, visualTranslateX, visualTranslateY) {
-            delay(300)
-            syncVisualTransform()
         }
     }
 }
 
-private data class ClipPreview(
+private data class AudioClipInfo(
     val id: String,
     val startMs: Long,
     val durationMs: Long,
-    val sourcePath: String,
     val sourceStartMs: Long,
-    val sourceEndMs: Long,
-    val sourceTotalDurationMs: Long,
     val speed: Float,
-    val volume: Float,
-    val opacity: Float,
-    val filters: List<RustVideoEffectSnapshot>,
 )
 
-private data class AudioClipPreview(
-    val id: String,
-    val startMs: Long,
-    val durationMs: Long,
-    val sourcePath: String,
-    val sourceStartMs: Long,
-    val sourceEndMs: Long,
-    val sourceTotalDurationMs: Long,
-    val speed: Float,
-    val volume: Float,
-)
+@Composable
+private fun BackgroundVideoFrame(
+    sourcePath: String,
+    sourceTimeMs: Long,
+    opacity: Float,
+    frameGrabber: PlatformFrameGrabber,
+    onFrameLoaded: (ImageData) -> Unit,
+) {
+    LaunchedEffect(sourcePath, sourceTimeMs) {
+        try {
+            val frame = frameGrabber.grabFrame(
+                timestampMs = sourceTimeMs,
+                filters = emptyList(),
+                opacity = opacity,
+            )
+            if (frame != null) {
+                onFrameLoaded(frame)
+            }
+        } catch (_: Exception) {}
+    }
+}
