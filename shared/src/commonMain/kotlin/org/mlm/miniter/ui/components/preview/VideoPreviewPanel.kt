@@ -668,16 +668,22 @@ private fun BackgroundVideoFrame(
     frameGrabber: PlatformFrameGrabber,
     onFrameLoaded: (ImageData) -> Unit,
 ) {
+    val frameGrabberOpen = remember { frameGrabber }
+    LaunchedEffect(sourcePath) {
+        frameGrabberOpen.open(sourcePath)
+    }
     LaunchedEffect(sourcePath, sourceTimeMs) {
         try {
             val frame = frameGrabber.grabFrame(
                 timestampMs = sourceTimeMs,
                 filters = emptyList(),
                 opacity = opacity,
+                width = 0,
+                height = 0,
             )
             if (frame != null) {
                 onFrameLoaded(frame)
             }
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
     }
 }

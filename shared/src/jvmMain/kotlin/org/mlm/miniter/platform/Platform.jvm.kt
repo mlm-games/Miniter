@@ -8,3 +8,7 @@ actual fun getDynamicColorScheme(
     darkTheme: Boolean,
     useDynamicColors: Boolean
 ): ColorScheme? {return null}
+
+actual fun isHardwareAccelerationAvailable(): Boolean = false
+
+actual fun getHardwareAccelerationName(): String = "Software (less-avc)"

@@ -16,7 +16,10 @@ import androidx.navigation3.runtime.NavKey
 import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.mlmgames.settings.core.SettingsRepository
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.mlm.miniter.platform.getHardwareAccelerationName
+import org.mlm.miniter.platform.isHardwareAccelerationAvailable
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.isProjectExportSupported
 import org.mlm.miniter.platform.requiresExplicitExportPathSelection
@@ -230,6 +233,37 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             }
 
             HorizontalDivider()
+
+            if (isHardwareAccelerationAvailable()) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column {
+                        Text("Hardware acceleration", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            getHardwareAccelerationName(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    var hwEnabled by remember { mutableStateOf(settings.hardwareAccelerationEnabled) }
+                    LaunchedEffect(settings.hardwareAccelerationEnabled) {
+                        hwEnabled = settings.hardwareAccelerationEnabled
+                    }
+                    val scope = rememberCoroutineScope()
+                    Switch(
+                        checked = hwEnabled,
+                        onCheckedChange = { enabled ->
+                            scope.launch {
+                                settingsRepository.update { it.copy(hardwareAccelerationEnabled = enabled) }
+                            }
+                        },
+                        enabled = !isExporting,
+                    )
+                }
+            }
 
             if (!exportSupported) {
                 Card(

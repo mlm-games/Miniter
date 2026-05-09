@@ -20,3 +20,7 @@ actual fun getDynamicColorScheme(darkTheme: Boolean, useDynamicColors: Boolean):
         null
     }
 }
+
+actual fun isHardwareAccelerationAvailable(): Boolean = true
+
+actual fun getHardwareAccelerationName(): String = "MediaCodec (HW)"

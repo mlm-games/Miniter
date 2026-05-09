@@ -8,6 +8,7 @@ import org.mlm.miniter.editor.model.RustExportFormat
 @CategoryDefinition(order = 0) object Appearance
 @CategoryDefinition(order = 1) object Editor
 @CategoryDefinition(order = 2) object Export
+@CategoryDefinition(order = 3) object Performance
 
 @Serializable
 enum class ThemeMode { System, Light, Dark }
@@ -73,6 +74,14 @@ data class AppSettings(
         dependsOn = "autoSaveProject"
     )
     val autoSaveIntervalSeconds: Float = 60f,
+
+    @Setting(
+        title = "Hardware acceleration",
+        description = "Use GPU for video decode/encode (faster, uses more power)",
+        category = Performance::class,
+        type = Toggle::class
+    )
+    val hardwareAccelerationEnabled: Boolean = true,
 
     @Persisted
     val lastProjectPath: String? = null,

@@ -7,3 +7,7 @@ import androidx.compose.runtime.Composable
 
 @Composable
 expect fun getDynamicColorScheme(darkTheme: Boolean, useDynamicColors: Boolean): ColorScheme?
+
+expect fun isHardwareAccelerationAvailable(): Boolean
+
+expect fun getHardwareAccelerationName(): String

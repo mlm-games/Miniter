@@ -8,3 +8,7 @@ actual fun getDynamicColorScheme(
     darkTheme: Boolean,
     useDynamicColors: Boolean,
 ): ColorScheme? = null
+
+actual fun isHardwareAccelerationAvailable(): Boolean = true
+
+actual fun getHardwareAccelerationName(): String = "WebCodecs (HW)"
