@@ -216,3 +216,33 @@ actual class RustCoreSession private constructor(
         actual fun exportProgress(): UInt = wasmExportProgress().toUInt()
     }
 }
+
+actual val isWebCodecsHardwareAccelerated: Boolean = wasmIsWebCodecsHardwareAccelerated()
+
+actual val supportedHwCodecs: List<String> = wasmGetSupportedHwCodecs().toList()
+
+@JsFun("typeof VideoDecoder !== 'undefined'")
+private external fun wasmIsWebCodecsHardwareAccelerated(): Boolean
+
+@JsFun("""
+(function() {
+    if (typeof VideoDecoder === 'undefined') return [];
+    var codecs = [];
+    var tests = [
+        { codec: 'video/avc', desc: { width: 64, height: 64 } },
+        { codec: 'video/hevc', desc: { width: 64, height: 64 } },
+        { codec: 'video/vp8', desc: { width: 64, height: 64 } },
+        { codec: 'video/vp9', desc: { width: 64, height: 64 } },
+        { codec: 'video/av01', desc: { width: 64, height: 64 } }
+    ];
+    tests.forEach(function(t) {
+        try {
+            VideoDecoder.isConfigSupported({ codec: t.codec, ...t.desc }).then(function(r) {
+                if (r.supported) codecs.push(t.codec);
+            });
+        } catch(e) {}
+    });
+    return codecs;
+})()
+""")
+private external fun wasmGetSupportedHwCodecs(): Array<String>

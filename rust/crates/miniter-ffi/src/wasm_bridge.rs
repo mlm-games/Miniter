@@ -565,3 +565,8 @@ pub fn media_blob_url(path: String) -> Result<String, JsValue> {
 pub fn revoke_blob_url(url: String) -> Result<(), JsValue> {
     Url::revoke_object_url(&url).map_err(|e| JsValue::from(e))
 }
+
+#[wasm_bindgen(js_name = isWebCodecsHardwareAccelerated)]
+pub fn is_web_codecs_hardware_accelerated() -> bool {
+    false
+}

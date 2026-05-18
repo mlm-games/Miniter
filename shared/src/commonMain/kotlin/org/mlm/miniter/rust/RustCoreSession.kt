@@ -3,6 +3,10 @@ package org.mlm.miniter.rust
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.VideoInfo
 
+expect val isWebCodecsHardwareAccelerated: Boolean
+
+expect val supportedHwCodecs: List<String>
+
 expect class RustCoreSession {
     constructor(projectName: String)
 

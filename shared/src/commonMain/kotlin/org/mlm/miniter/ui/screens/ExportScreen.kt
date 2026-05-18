@@ -19,6 +19,8 @@ import io.github.mlmgames.settings.core.SettingsRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.mlm.miniter.platform.getHardwareAccelerationName
+import org.mlm.miniter.platform.getHardwareDecoderStatus
+import org.mlm.miniter.platform.getSupportedHwCodecs
 import org.mlm.miniter.platform.isHardwareAccelerationAvailable
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.isProjectExportSupported
@@ -243,10 +245,18 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     Column {
                         Text("Hardware acceleration", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                         Text(
-                            getHardwareAccelerationName(),
+                            getHardwareDecoderStatus(),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
+                        val codecs = getSupportedHwCodecs()
+                        if (codecs.isNotEmpty()) {
+                            Text(
+                                codecs.joinToString(", "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     var hwEnabled by remember { mutableStateOf(settings.hardwareAccelerationEnabled) }
                     LaunchedEffect(settings.hardwareAccelerationEnabled) {

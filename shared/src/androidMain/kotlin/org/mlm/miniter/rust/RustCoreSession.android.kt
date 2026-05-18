@@ -101,3 +101,7 @@ actual class RustCoreSession private constructor(
             nativeExportProgress()
     }
 }
+
+actual val isWebCodecsHardwareAccelerated: Boolean = false
+
+actual val supportedHwCodecs: List<String> = emptyList()
