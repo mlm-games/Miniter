@@ -1043,7 +1043,7 @@ fn transform_rgba(
 ) -> Vec<u8> {
     let zoom = scale.clamp(0.05, 50.0);
     let rad = rotate.to_radians();
-    let (cos_r, sin_r) = rad.sin_cos();
+    let (sin_r, cos_r) = rad.sin_cos();
     let mut dst = vec![0u8; width * height * 4];
     let wf = width as f32;
     let hf = height as f32;
@@ -1377,44 +1377,27 @@ fn flip_rgba(src: &[u8], width: usize, height: usize, horizontal: bool, vertical
 }
 
 fn rotate_rgba(src: &[u8], width: usize, height: usize, degrees: f32) -> Vec<u8> {
-    let normalized = ((degrees % 360.0) + 360.0) % 360.0;
+    if width == 0 || height == 0 { return src.to_vec(); }
+    let rad = degrees.to_radians();
+    let (sin_r, cos_r) = rad.sin_cos();
+    let mut dst = vec![0u8; width * height * 4];
+    let wf = width as f32;
+    let hf = height as f32;
+    let cx = wf / 2.0;
+    let cy = hf / 2.0;
 
-    match normalized {
-        d if (d - 90.0).abs() < 0.5 => {
-            let mut out = vec![0u8; width * height * 4];
-            for row in 0..height {
-                for col in 0..width {
-                    let si = (row * width + col) * 4;
-                    let di = (col * height + (height - 1 - row)) * 4;
-                    out[di..di + 4].copy_from_slice(&src[si..si + 4]);
-                }
-            }
-            out
+    for y in 0..height {
+        for x in 0..width {
+            let px = (x as f32 - cx) * cos_r - (y as f32 - cy) * sin_r;
+            let py = (x as f32 - cx) * sin_r + (y as f32 - cy) * cos_r;
+            let sx = (px + cx).round().clamp(0.0, wf - 1.0) as usize;
+            let sy = (py + cy).round().clamp(0.0, hf - 1.0) as usize;
+            let si = sy * width * 4 + sx * 4;
+            let di = y * width * 4 + x * 4;
+            dst[di..di + 4].copy_from_slice(&src[si..si + 4]);
         }
-        d if (d - 180.0).abs() < 0.5 || (d + 180.0).abs() < 0.5 => {
-            let mut out = vec![0u8; width * height * 4];
-            for row in 0..height {
-                for col in 0..width {
-                    let si = (row * width + col) * 4;
-                    let di = (row * width + (width - 1 - col)) * 4;
-                    out[di..di + 4].copy_from_slice(&src[si..si + 4]);
-                }
-            }
-            out
-        }
-        d if (d - 270.0).abs() < 0.5 => {
-            let mut out = vec![0u8; width * height * 4];
-            for row in 0..height {
-                for col in 0..width {
-                    let si = (row * width + col) * 4;
-                    let di = ((width - 1 - col) * height + row) * 4;
-                    out[di..di + 4].copy_from_slice(&src[si..si + 4]);
-                }
-            }
-            out
-        }
-        _ => src.to_vec(),
     }
+    dst
 }
 
 fn crop_rgba(
