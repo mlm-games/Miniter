@@ -27,6 +27,8 @@ use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
 use std::io::BufWriter;
 use std::path::Path;
+use fast_image_resize::images::{Image, ImageRef};
+use fast_image_resize::{PixelType, Resizer};
 use std::sync::atomic::{AtomicI64, Ordering};
 
 #[derive(Debug, thiserror::Error)]
@@ -1021,17 +1023,17 @@ fn fit_rgba_into_canvas(
 }
 
 fn scale_rgba(src: &[u8], src_w: usize, src_h: usize, dst_w: usize, dst_h: usize) -> Vec<u8> {
-    let mut out = vec![0u8; dst_w * dst_h * 4];
-    for y in 0..dst_h {
-        let sy = y * src_h / dst_h;
-        for x in 0..dst_w {
-            let sx = x * src_w / dst_w;
-            let si = (sy * src_w + sx) * 4;
-            let di = (y * dst_w + x) * 4;
-            out[di..di + 4].copy_from_slice(&src[si..si + 4]);
-        }
+    let src_ref = match ImageRef::new(src_w as u32, src_h as u32, src, PixelType::U8x4) {
+        Ok(r) => r,
+        Err(_) => return vec![0u8; dst_w * dst_h * 4],
+    };
+    let mut dst_image = Image::new(dst_w as u32, dst_h as u32, PixelType::U8x4);
+    let mut resizer = Resizer::new();
+    if resizer.resize(&src_ref, &mut dst_image, None).is_ok() {
+        dst_image.into_vec()
+    } else {
+        vec![0u8; dst_w * dst_h * 4]
     }
-    out
 }
 
 fn transform_rgba(

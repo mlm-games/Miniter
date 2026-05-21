@@ -112,7 +112,9 @@ impl EditorHandle {
             height,
             state.project.export_profile.subtitle_mode,
         );
-        Ok(format!("{plan:#?}"))
+        serde_json::to_string(&plan).map_err(|e| MiniterError::Serialize {
+            detail: e.to_string(),
+        })
     }
 
     pub fn duration_us(&self) -> i64 {

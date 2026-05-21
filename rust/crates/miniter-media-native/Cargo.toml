@@ -33,6 +33,8 @@ symphonia = { version = "0.5.5", features = ["isomp4", "mkv", "pcm", "ogg"] }
 # Opus encoding
 mousiki = "0.2.1"
 
+fast_image_resize = "6.0"
+
 # Text rendering for export
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 
