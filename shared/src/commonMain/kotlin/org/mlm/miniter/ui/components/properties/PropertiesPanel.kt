@@ -8,11 +8,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Animation
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -40,7 +35,6 @@ import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
-import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
@@ -361,7 +355,6 @@ private fun VideoClipProperties(
                         range = 0f..3f
                         steps = 29
                     }
-                    else -> return@forEachIndexed
                 }
 
                 var paramVal by remember(filter) { mutableFloatStateOf(currentVal) }
@@ -377,7 +370,7 @@ private fun VideoClipProperties(
                     steps = steps,
                 )
             }
-            else -> { }
+            else -> Unit
         }
     }
 
@@ -385,265 +378,23 @@ private fun VideoClipProperties(
     HorizontalDivider()
     Spacer(Modifier.height(16.dp))
 
-    Text("Transition In", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    Text(
-        "Controls how this clip enters. Adds a fade effect to the start of this clip and the end of the previous clip.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    TransitionSelector(
+        label = "Transition In",
+        description = "Controls how this clip enters. Adds a fade effect to the start of this clip and the end of the previous clip.",
+        currentTransition = clip.transitionIn,
+        options = videoTransitionOptions,
+        onSetTransition = { onSetTransitionIn(clip.id, it) },
     )
-    Spacer(Modifier.height(8.dp))
-
-    var transInExpanded by remember { mutableStateOf(false) }
-    val currentTransitionIn = clip.transitionIn
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box {
-            OutlinedButton(onClick = { transInExpanded = true }) {
-                Icon(
-                    when (currentTransitionIn?.kind) {
-                        RustTransitionKind.CrossFade -> Icons.Default.Animation
-                        RustTransitionKind.Dissolve -> Icons.Default.BlurOn
-                        RustTransitionKind.SlideLeft -> Icons.AutoMirrored.Filled.ArrowBack
-                        RustTransitionKind.SlideRight -> Icons.AutoMirrored.Filled.ArrowForward
-                        null -> Icons.Default.Block
-                    },
-                    null,
-                    Modifier.size(16.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(currentTransitionIn?.kind?.name ?: "None")
-            }
-            DropdownMenu(expanded = transInExpanded, onDismissRequest = { transInExpanded = false }) {
-                DropdownMenuItem(
-                    text = { Text("None") },
-                    leadingIcon = { Icon(Icons.Default.Block, null, Modifier.size(18.dp)) },
-                    onClick = { onSetTransitionIn(clip.id, null); transInExpanded = false },
-                )
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text("Cross Fade")
-                            Text("Fades to/from black between clips",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    leadingIcon = { Icon(Icons.Default.Animation, null, Modifier.size(18.dp)) },
-                    onClick = {
-                        onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
-                        transInExpanded = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text("Dissolve")
-                            Text("Smooth dissolve between clips",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    leadingIcon = { Icon(Icons.Default.BlurOn, null, Modifier.size(18.dp)) },
-                    onClick = {
-                        onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.Dissolve, 500_000L))
-                        transInExpanded = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text("Slide Left")
-                            Text("Previous slides out left, this enters from right",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(18.dp)) },
-                    onClick = {
-                        onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
-                        transInExpanded = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text("Slide Right")
-                            Text("Previous slides out right, this enters from left",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp)) },
-                    onClick = {
-                        onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
-                        transInExpanded = false
-                    },
-                )
-            }
-        }
-    }
-
-    if (currentTransitionIn != null) {
-        Spacer(Modifier.height(8.dp))
-        Text("Duration", style = MaterialTheme.typography.labelSmall)
-        var transInDuration by remember(currentTransitionIn.duration) {
-            mutableFloatStateOf(currentTransitionIn.duration / 1_000_000f)
-        }
-        Slider(
-            value = transInDuration,
-            onValueChange = { transInDuration = it },
-            onValueChangeFinished = {
-                onSetTransitionIn(
-                    clip.id,
-                    RustTransitionSnapshot(
-                        kind = currentTransitionIn.kind,
-                        duration = (transInDuration * 1_000_000L).toLong(),
-                    )
-                )
-            },
-            valueRange = 0.1f..2f,
-            steps = 18,
-        )
-        Text("${formatFixed(transInDuration, 1)}s", style = MaterialTheme.typography.labelSmall)
-
-        Spacer(Modifier.height(4.dp))
-    }
 
     Spacer(Modifier.height(16.dp))
 
-    Text("Transition Out", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    Text(
-        "Controls how this clip exits. Adds a fade effect to the end of this clip and the start of the next clip.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    TransitionSelector(
+        label = "Transition Out",
+        description = "Controls how this clip exits. Adds a fade effect to the end of this clip and the start of the next clip.",
+        currentTransition = clip.transitionOut,
+        options = videoTransitionOptions,
+        onSetTransition = { onSetTransitionOut(clip.id, it) },
     )
-    Spacer(Modifier.height(8.dp))
-
-    var transOutExpanded by remember { mutableStateOf(false) }
-    val currentTransitionOut = clip.transitionOut
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box {
-            OutlinedButton(onClick = { transOutExpanded = true }) {
-                Icon(
-                    when (currentTransitionOut?.kind) {
-                        RustTransitionKind.CrossFade -> Icons.Default.Animation
-                        RustTransitionKind.Dissolve -> Icons.Default.BlurOn
-                        RustTransitionKind.SlideLeft -> Icons.AutoMirrored.Filled.ArrowBack
-                        RustTransitionKind.SlideRight -> Icons.AutoMirrored.Filled.ArrowForward
-                        null -> Icons.Default.Block
-                    },
-                    null,
-                    Modifier.size(16.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(currentTransitionOut?.kind?.name ?: "None")
-            }
-            DropdownMenu(expanded = transOutExpanded, onDismissRequest = { transOutExpanded = false }) {
-                DropdownMenuItem(
-                    text = { Text("None") },
-                    leadingIcon = { Icon(Icons.Default.Block, null, Modifier.size(18.dp)) },
-                    onClick = { onSetTransitionOut(clip.id, null); transOutExpanded = false },
-                )
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text("Cross Fade")
-                            Text("Fades to/from black between clips",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    leadingIcon = { Icon(Icons.Default.Animation, null, Modifier.size(18.dp)) },
-                    onClick = {
-                        onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
-                        transOutExpanded = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text("Dissolve")
-                            Text("Smooth dissolve between clips",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    leadingIcon = { Icon(Icons.Default.BlurOn, null, Modifier.size(18.dp)) },
-                    onClick = {
-                        onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.Dissolve, 500_000L))
-                        transOutExpanded = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text("Slide Left")
-                            Text("Previous slides out left, this enters from right",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(18.dp)) },
-                    onClick = {
-                        onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
-                        transOutExpanded = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text("Slide Right")
-                            Text("Previous slides out right, this enters from left",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(18.dp)) },
-                    onClick = {
-                        onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
-                        transOutExpanded = false
-                    },
-                )
-            }
-        }
-    }
-
-    if (currentTransitionOut != null) {
-        Spacer(Modifier.height(8.dp))
-        Text("Duration", style = MaterialTheme.typography.labelSmall)
-        var transOutDuration by remember(currentTransitionOut.duration) {
-            mutableFloatStateOf(currentTransitionOut.duration / 1_000_000f)
-        }
-        Slider(
-            value = transOutDuration,
-            onValueChange = { transOutDuration = it },
-            onValueChangeFinished = {
-                onSetTransitionOut(
-                    clip.id,
-                    RustTransitionSnapshot(
-                        kind = currentTransitionOut.kind,
-                        duration = (transOutDuration * 1_000_000L).toLong(),
-                    )
-                )
-            },
-            valueRange = 0.1f..2f,
-            steps = 18,
-        )
-        Text("${formatFixed(transOutDuration, 1)}s", style = MaterialTheme.typography.labelSmall)
-
-        Spacer(Modifier.height(4.dp))
-    }
 }
 
 @Composable
@@ -951,77 +702,25 @@ private fun TextClipProperties(
     HorizontalDivider()
     Spacer(Modifier.height(12.dp))
 
-    Text("Fade In", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    var fadeInExpanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { fadeInExpanded = true }) {
-            Text(if (transitionIn == null) "None" else "Fade (${transitionIn.duration / 1_000_000f}s)")
-        }
-        DropdownMenu(expanded = fadeInExpanded, onDismissRequest = { fadeInExpanded = false }) {
-            DropdownMenuItem(
-                text = { Text("None") },
-                onClick = { onSetTextTransitionIn(clip.id, null); fadeInExpanded = false },
-            )
-            DropdownMenuItem(
-                text = { Text("Fade In") },
-                onClick = {
-                    onSetTextTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
-                    fadeInExpanded = false
-                },
-            )
-        }
-    }
-
-    if (transitionIn != null) {
-        Spacer(Modifier.height(4.dp))
-        var dur by remember(transitionIn.duration) { mutableFloatStateOf(transitionIn.duration / 1_000_000f) }
-        Text("Duration: ${formatFixed(dur, 1)}s", style = MaterialTheme.typography.labelSmall)
-        Slider(
-            value = dur, onValueChange = { dur = it },
-            onValueChangeFinished = {
-                onSetTextTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, (dur * 1_000_000L).toLong()))
-            },
-            valueRange = 0.1f..3f, steps = 28,
-        )
-    }
+    TransitionSelector(
+        label = "Fade In",
+        currentTransition = transitionIn,
+        options = fadeTransitionOptions,
+        durationRange = 0.1f..3f,
+        durationSteps = 28,
+        onSetTransition = { onSetTextTransitionIn(clip.id, it) },
+    )
 
     Spacer(Modifier.height(12.dp))
 
-    Text("Fade Out", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    var fadeOutExpanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { fadeOutExpanded = true }) {
-            Text(if (transitionOut == null) "None" else "Fade (${transitionOut.duration / 1_000_000f}s)")
-        }
-        DropdownMenu(expanded = fadeOutExpanded, onDismissRequest = { fadeOutExpanded = false }) {
-            DropdownMenuItem(
-                text = { Text("None") },
-                onClick = { onSetTextTransitionOut(clip.id, null); fadeOutExpanded = false },
-            )
-            DropdownMenuItem(
-                text = { Text("Fade Out") },
-                onClick = {
-                    onSetTextTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
-                    fadeOutExpanded = false
-                },
-            )
-        }
-    }
-
-    if (transitionOut != null) {
-        Spacer(Modifier.height(4.dp))
-        var dur by remember(transitionOut.duration) { mutableFloatStateOf(transitionOut.duration / 1_000_000f) }
-        Text("Duration: ${formatFixed(dur, 1)}s", style = MaterialTheme.typography.labelSmall)
-        Slider(
-            value = dur, onValueChange = { dur = it },
-            onValueChangeFinished = {
-                onSetTextTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, (dur * 1_000_000L).toLong()))
-            },
-            valueRange = 0.1f..3f, steps = 28,
-        )
-    }
+    TransitionSelector(
+        label = "Fade Out",
+        currentTransition = transitionOut,
+        options = fadeTransitionOptions,
+        durationRange = 0.1f..3f,
+        durationSteps = 28,
+        onSetTransition = { onSetTextTransitionOut(clip.id, it) },
+    )
 }
 
 private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
@@ -1104,89 +803,21 @@ private fun SubtitleClipProperties(
 
     Spacer(Modifier.height(12.dp))
 
-    Text("Fade In", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    var fadeInExpanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { fadeInExpanded = true }) {
-            val label = if (transitionIn == null) {
-                "None"
-            } else {
-                "${transitionIn.kind.name} (${transitionIn.duration / 1_000_000f}s)"
-            }
-            Text(label)
-        }
-        DropdownMenu(expanded = fadeInExpanded, onDismissRequest = { fadeInExpanded = false }) {
-            DropdownMenuItem(
-                text = { Text("None") },
-                onClick = { onSetTransitionIn(clip.id, null); fadeInExpanded = false },
-            )
-            DropdownMenuItem(
-                text = { Text("Fade") },
-                onClick = {
-                    onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
-                    fadeInExpanded = false
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Slide Left") },
-                onClick = {
-                    onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
-                    fadeInExpanded = false
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Slide Right") },
-                onClick = {
-                    onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
-                    fadeInExpanded = false
-                },
-            )
-        }
-    }
+    TransitionSelector(
+        label = "Fade In",
+        currentTransition = transitionIn,
+        options = subtitleTransitionOptions,
+        onSetTransition = { onSetTransitionIn(clip.id, it) },
+    )
 
     Spacer(Modifier.height(8.dp))
 
-    Text("Fade Out", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    var fadeOutExpanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { fadeOutExpanded = true }) {
-            val label = if (transitionOut == null) {
-                "None"
-            } else {
-                "${transitionOut.kind.name} (${transitionOut.duration / 1_000_000f}s)"
-            }
-            Text(label)
-        }
-        DropdownMenu(expanded = fadeOutExpanded, onDismissRequest = { fadeOutExpanded = false }) {
-            DropdownMenuItem(
-                text = { Text("None") },
-                onClick = { onSetTransitionOut(clip.id, null); fadeOutExpanded = false },
-            )
-            DropdownMenuItem(
-                text = { Text("Fade") },
-                onClick = {
-                    onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
-                    fadeOutExpanded = false
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Slide Left") },
-                onClick = {
-                    onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideLeft, 500_000L))
-                    fadeOutExpanded = false
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Slide Right") },
-                onClick = {
-                    onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.SlideRight, 500_000L))
-                    fadeOutExpanded = false
-                },
-            )
-        }
-    }
+    TransitionSelector(
+        label = "Fade Out",
+        currentTransition = transitionOut,
+        options = subtitleTransitionOptions,
+        onSetTransition = { onSetTransitionOut(clip.id, it) },
+    )
 
     Spacer(Modifier.height(16.dp))
 
@@ -1302,7 +933,7 @@ private fun RustVideoFilterSnapshot.displayName(): String = when (this) {
 
 private fun RustVideoEffectSnapshot.displayName(): String = filter.displayName()
 
-private fun formatFixed(value: Float, decimals: Int): String {
+internal fun formatFixed(value: Float, decimals: Int): String {
     val safeDecimals = decimals.coerceAtLeast(0)
     var scale = 1
     repeat(safeDecimals) { scale *= 10 }
