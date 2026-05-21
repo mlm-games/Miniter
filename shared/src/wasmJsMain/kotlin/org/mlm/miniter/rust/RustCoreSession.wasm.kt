@@ -3,6 +3,9 @@ package org.mlm.miniter.rust
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.js.JsArray
+import kotlin.js.JsString
+import kotlin.js.ExperimentalWasmJsInterop
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.VideoInfo
 import kotlin.io.encoding.Base64
@@ -219,13 +222,13 @@ actual class RustCoreSession private constructor(
 
 actual val isWebCodecsHardwareAccelerated: Boolean = wasmIsWebCodecsHardwareAccelerated()
 
-actual val supportedHwCodecs: List<String> = wasmGetSupportedHwCodecs().toList()
+actual val supportedHwCodecs: List<String> = wasmGetSupportedHwCodecs().toList().map { it.toString() }
 
-@JsFun("typeof VideoDecoder !== 'undefined'")
+@JsFun("() => typeof VideoDecoder !== 'undefined'")
 private external fun wasmIsWebCodecsHardwareAccelerated(): Boolean
 
 @JsFun("""
-(function() {
+() => {
     if (typeof VideoDecoder === 'undefined') return [];
     var codecs = [];
     var tests = [
@@ -243,6 +246,6 @@ private external fun wasmIsWebCodecsHardwareAccelerated(): Boolean
         } catch(e) {}
     });
     return codecs;
-})()
+}
 """)
-private external fun wasmGetSupportedHwCodecs(): Array<String>
+private external fun wasmGetSupportedHwCodecs(): JsArray<JsString>

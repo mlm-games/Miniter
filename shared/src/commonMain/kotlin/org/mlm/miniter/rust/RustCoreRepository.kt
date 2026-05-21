@@ -1,5 +1,7 @@
 package org.mlm.miniter.rust
 
+import org.mlm.miniter.platform.synchronized
+
 class RustCoreRepository {
     private var current: RustCoreSession? = null
     private val lock = Any()

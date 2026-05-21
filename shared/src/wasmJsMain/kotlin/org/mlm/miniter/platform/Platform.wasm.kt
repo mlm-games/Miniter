@@ -12,15 +12,15 @@ actual fun getDynamicColorScheme(
 ): ColorScheme? = null
 
 actual fun isHardwareAccelerationAvailable(): Boolean =
-    isWebCodecsHardwareAccelerated() && supportedHwCodecs.isNotEmpty()
+    isWebCodecsHardwareAccelerated && supportedHwCodecs.isNotEmpty()
 
 actual fun getHardwareAccelerationName(): String = "WebCodecs"
 
-actual fun isHardwareDecoderGuaranteed(): Boolean = isWebCodecsHardwareAccelerated()
+actual fun isHardwareDecoderGuaranteed(): Boolean = isWebCodecsHardwareAccelerated
 
 actual fun getHardwareDecoderStatus(): String {
     val codecs = supportedHwCodecs
-    return if (isWebCodecsHardwareAccelerated()) {
+    return if (isWebCodecsHardwareAccelerated) {
         if (codecs.isNotEmpty()) {
             "WebCodecs (${codecs.size} HW codecs)"
         } else {

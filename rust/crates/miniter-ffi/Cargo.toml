@@ -32,6 +32,7 @@ font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 web-sys = { version = "0.3.91", features = [
     "Blob",
     "BlobPropertyBag",
+    "CssStyleDeclaration",
     "Document",
     "Element",
     "HtmlAnchorElement",
