@@ -38,6 +38,7 @@ import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 
@@ -45,6 +46,7 @@ import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 fun PropertiesPanel(
     snapshot: RustProjectSnapshot?,
     selectedClipId: String?,
+    playheadMs: Long = 0L,
     onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
@@ -63,6 +65,9 @@ fun PropertiesPanel(
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
     onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
     onUpdateAudioFilterDuration: (String, Int, Long) -> Unit = { _, _, _ -> },
+    onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
+    onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
+    onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
 ) {
     val clip = snapshot?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -100,6 +105,7 @@ fun PropertiesPanel(
             is RustVideoClipKind -> VideoClipProperties(
                 clip = clip,
                 kind = kind,
+                playheadMs = playheadMs,
                 onAddFilter = onAddFilter,
                 onRemoveFilter = onRemoveFilter,
                 onUpdateFilterParams = onUpdateFilterParams,
@@ -110,6 +116,9 @@ fun PropertiesPanel(
                 onSetTransitionIn = onSetTransitionIn,
                 onSetTransitionOut = onSetTransitionOut,
                 onSetOpacity = onSetOpacity,
+                onAddKeyframe = onAddKeyframe,
+                onRemoveKeyframe = onRemoveKeyframe,
+                onUpdateKeyframe = onUpdateKeyframe,
             )
             is RustAudioClipKind -> AudioClipProperties(clip, kind, onSetVolume, onAddAudioFilter, onRemoveAudioFilter, onUpdateAudioFilterDuration)
             is RustTextClipKind -> TextClipProperties(
@@ -137,6 +146,7 @@ fun PropertiesPanel(
 private fun VideoClipProperties(
     clip: RustClipSnapshot,
     kind: RustVideoClipKind,
+    playheadMs: Long = 0L,
     onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
@@ -147,6 +157,9 @@ private fun VideoClipProperties(
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
+    onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
+    onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
+    onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
 ) {
     val fileName = kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
     val clipDurationMs = clip.timelineDurationUs / 1000L
@@ -373,6 +386,16 @@ private fun VideoClipProperties(
             else -> Unit
         }
     }
+
+    Spacer(Modifier.height(16.dp))
+
+    KeyframeEditor(
+        clip = clip,
+        playheadMs = playheadMs,
+        onAddKeyframe = { kf -> onAddKeyframe(clip.id, kf) },
+        onRemoveKeyframe = { index -> onRemoveKeyframe(clip.id, index) },
+        onUpdateKeyframe = { index, kf -> onUpdateKeyframe(clip.id, index, kf) },
+    )
 
     Spacer(Modifier.height(16.dp))
     HorizontalDivider()

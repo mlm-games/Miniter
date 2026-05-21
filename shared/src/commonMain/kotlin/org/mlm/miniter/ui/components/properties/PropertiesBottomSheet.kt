@@ -6,9 +6,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
+import org.mlm.miniter.editor.model.RustKeyframe
+import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
-import org.mlm.miniter.editor.model.RustProjectSnapshot
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -16,6 +17,7 @@ fun PropertiesBottomSheet(
     sheetState: SheetState,
     snapshot: RustProjectSnapshot?,
     selectedClipId: String?,
+    playheadMs: Long = 0L,
     onDismiss: () -> Unit,
     onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
@@ -35,6 +37,9 @@ fun PropertiesBottomSheet(
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
     onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
     onUpdateAudioFilterDuration: (String, Int, Long) -> Unit = { _, _, _ -> },
+    onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
+    onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
+    onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -50,6 +55,7 @@ fun PropertiesBottomSheet(
             PropertiesPanel(
                 snapshot = snapshot,
                 selectedClipId = selectedClipId,
+                playheadMs = playheadMs,
                 onAddFilter = onAddFilter,
                 onRemoveFilter = onRemoveFilter,
                 onUpdateFilterParams = onUpdateFilterParams,
@@ -68,6 +74,9 @@ fun PropertiesBottomSheet(
                 onAddAudioFilter = onAddAudioFilter,
                 onRemoveAudioFilter = onRemoveAudioFilter,
                 onUpdateAudioFilterDuration = onUpdateAudioFilterDuration,
+                onAddKeyframe = onAddKeyframe,
+                onRemoveKeyframe = onRemoveKeyframe,
+                onUpdateKeyframe = onUpdateKeyframe,
             )
         }
     }

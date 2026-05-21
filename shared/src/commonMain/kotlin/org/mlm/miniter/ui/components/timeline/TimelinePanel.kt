@@ -573,6 +573,30 @@ private fun ClipBlock(
             onDelete = onDelete,
             onSetAsPlayhead = onSetPlayhead,
         )
+
+        val kfs = clip.keyframes.keyframes
+        if (kfs.isNotEmpty() && clip.timelineDurationUs > 0L) {
+            val kfColor = MaterialTheme.colorScheme.primary
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+                val diamondSize = 5f
+                val clipDurationUs = clip.timelineDurationUs
+                val allOffsets = kfs.map { it.offset.coerceIn(0L, clipDurationUs) }.distinct()
+                for (offset in allOffsets) {
+                    val x = (offset.toFloat() / clipDurationUs.toFloat()) * w
+                    val cx = x.coerceIn(diamondSize, w - diamondSize)
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(cx, h - diamondSize * 2)
+                        lineTo(cx + diamondSize, h - diamondSize)
+                        lineTo(cx, h)
+                        lineTo(cx - diamondSize, h - diamondSize)
+                        close()
+                    }
+                    drawPath(path, kfColor)
+                }
+            }
+        }
     }
 }
 

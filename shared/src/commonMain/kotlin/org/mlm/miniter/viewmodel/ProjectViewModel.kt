@@ -18,6 +18,7 @@ import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
+import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustExportResolution
@@ -25,6 +26,7 @@ import org.mlm.miniter.editor.model.RustFadeInAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
+import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
@@ -1112,6 +1114,27 @@ class ProjectViewModel(
     fun setTransitionOut(clipId: String, transition: RustTransitionSnapshot?) {
         dispatchAndSync(
             rustStore.commands.setTransitionOut(clipId, transition),
+            isDirty = true,
+        )
+    }
+
+    fun addKeyframe(clipId: String, keyframe: RustKeyframe) {
+        dispatchAndSync(
+            rustStore.commands.addKeyframe(clipId, keyframe),
+            isDirty = true,
+        )
+    }
+
+    fun removeKeyframe(clipId: String, index: Int) {
+        dispatchAndSync(
+            rustStore.commands.removeKeyframe(clipId, index),
+            isDirty = true,
+        )
+    }
+
+    fun updateKeyframe(clipId: String, index: Int, keyframe: RustKeyframe) {
+        dispatchAndSync(
+            rustStore.commands.updateKeyframe(clipId, index, keyframe),
             isDirty = true,
         )
     }

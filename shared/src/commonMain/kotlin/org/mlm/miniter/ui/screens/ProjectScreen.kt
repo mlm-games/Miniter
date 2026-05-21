@@ -184,6 +184,7 @@ fun ProjectScreen(
                 sheetState = sheetState,
                 snapshot = snapshot,
                 selectedClipId = selectedClipId,
+                playheadMs = playheadMs,
                 onDismiss = {
                     scope.launch { sheetState.hide() }
                     showPropertiesSheet = false
@@ -208,6 +209,9 @@ fun ProjectScreen(
                 onAddAudioFilter = { clipId, filter -> vm.addAudioFilter(clipId, filter) },
                 onRemoveAudioFilter = { clipId, index -> vm.removeAudioFilter(clipId, index) },
                 onUpdateAudioFilterDuration = { clipId, index, duration -> vm.updateAudioFilterDuration(clipId, index, duration) },
+                onAddKeyframe = vm::addKeyframe,
+                onRemoveKeyframe = vm::removeKeyframe,
+                onUpdateKeyframe = vm::updateKeyframe,
             )
 
     }
