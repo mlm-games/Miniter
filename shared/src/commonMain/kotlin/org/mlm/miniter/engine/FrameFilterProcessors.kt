@@ -78,7 +78,16 @@ object FrameFilterProcessors {
                         pixels[b + 2] = (0.272f * r + 0.534f * g + 0.131f * bl).toInt().coerceIn(0, 255).toByte()
                     }
                 }
-                is RustBlurFilterSnapshot, is RustSharpenFilterSnapshot -> { }
+                is RustBlurFilterSnapshot -> {
+                    val radius = filter.radius.coerceAtLeast(1f).toInt()
+                    pixels = applyBoxBlur(pixels, width, height, radius)
+                }
+                is RustSharpenFilterSnapshot -> {
+                    val amount = filter.amount.coerceAtLeast(0f)
+                    if (amount > 0f) {
+                        pixels = applySharpen(pixels, width, height, amount)
+                    }
+                }
                 is RustHueFilterSnapshot -> {
                     val angle = (filter.degrees % 360f * PI.toFloat() / 180f)
                     val cosA = cos(angle.toDouble()).toFloat()
@@ -201,6 +210,81 @@ object FrameFilterProcessors {
                 val si = sy * w * 4 + sx * 4
                 val di = yd * w * 4 + xd * 4
                 dst[di] = src[si]; dst[di + 1] = src[si + 1]; dst[di + 2] = src[si + 2]; dst[di + 3] = src[si + 3]
+            }
+        }
+        return dst
+    }
+
+    private fun applyBoxBlur(src: ByteArray, w: Int, h: Int, radius: Int): ByteArray {
+        if (w == 0 || h == 0 || radius <= 0) return src
+        val size = radius * 2 + 1
+        val temp = ByteArray(src.size)
+        val dst = ByteArray(src.size)
+
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                var r = 0; var g = 0; var b = 0; var a = 0
+                var count = 0
+                for (kx in -radius..radius) {
+                    val sx = (x + kx).coerceIn(0, w - 1)
+                    val si = (y * w + sx) * 4
+                    r += src[si].toInt().and(0xFF)
+                    g += src[si + 1].toInt().and(0xFF)
+                    b += src[si + 2].toInt().and(0xFF)
+                    a += src[si + 3].toInt().and(0xFF)
+                    count++
+                }
+                val di = (y * w + x) * 4
+                temp[di] = (r / count).toByte()
+                temp[di + 1] = (g / count).toByte()
+                temp[di + 2] = (b / count).toByte()
+                temp[di + 3] = (a / count).toByte()
+            }
+        }
+
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                var r = 0; var g = 0; var b = 0; var a = 0
+                var count = 0
+                for (ky in -radius..radius) {
+                    val sy = (y + ky).coerceIn(0, h - 1)
+                    val si = (sy * w + x) * 4
+                    r += temp[si].toInt().and(0xFF)
+                    g += temp[si + 1].toInt().and(0xFF)
+                    b += temp[si + 2].toInt().and(0xFF)
+                    a += temp[si + 3].toInt().and(0xFF)
+                    count++
+                }
+                val di = (y * w + x) * 4
+                dst[di] = (r / count).toByte()
+                dst[di + 1] = (g / count).toByte()
+                dst[di + 2] = (b / count).toByte()
+                dst[di + 3] = (a / count).toByte()
+            }
+        }
+        return dst
+    }
+
+    private fun applySharpen(src: ByteArray, w: Int, h: Int, amount: Float): ByteArray {
+        if (w < 3 || h < 3 || amount <= 0f) return src
+        val dst = src.copyOf()
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                val di = (y * w + x) * 4
+                for (c in 0..2) {
+                    val center = src[di + c].toInt().and(0xFF)
+                    var sum = 0
+                    for (ky in -1..1) {
+                        for (kx in -1..1) {
+                            if (ky == 0 && kx == 0) continue
+                            val si = ((y + ky) * w + (x + kx)) * 4 + c
+                            sum += src[si].toInt().and(0xFF)
+                        }
+                    }
+                    val neighbors = sum / 8
+                    val result = (center + ((center - neighbors) * amount).toInt()).coerceIn(0, 255)
+                    dst[di + c] = result.toByte()
+                }
             }
         }
         return dst
