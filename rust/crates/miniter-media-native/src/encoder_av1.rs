@@ -50,8 +50,8 @@ impl Av1EncodeSession {
         enc.chroma_sampling = ChromaSampling::Cs420;
         enc.time_base = Rational::new(1, fps_u32 as u64);
         enc.bitrate = bitrate_kbps as i32;
-        enc.min_key_frame_interval = 1;
-        enc.max_key_frame_interval = 1;
+        enc.min_key_frame_interval = 0;
+        enc.max_key_frame_interval = 60;
 
         let cfg = Config::new().with_encoder_config(enc);
         let ctx: Context<u8> = cfg
