@@ -14,6 +14,7 @@ use miniter_domain::track::TrackKind;
 use miniter_media_native::decoder::{DecodeError, VideoDecodeSession};
 use miniter_media_native::encoder::{EncodedVideoOutput, VideoEncodeSession};
 use miniter_media_native::encoder_av1::{Av1EncodeSession, Av1Packet};
+use miniter_media_native::filters;
 use miniter_media_native::frame::RgbaFrame;
 use miniter_media_native::image_cache::ImageCache;
 use miniter_media_native::mux::{
@@ -1757,173 +1758,35 @@ fn flatten_on_black(img: &mut [u8]) {
     }
 }
 
-fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: usize, filters: &[VideoFilter]) {
-    for filter in filters {
+fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: usize, filter_list: &[VideoFilter]) {
+    let w = width;
+    let h = height;
+    for filter in filter_list {
         match filter {
-            VideoFilter::Brightness { value } => {
-                let offset = (*value / 100.0 * 255.0) as i32;
-                for px in pixels.chunks_exact_mut(4) {
-                    px[0] = (px[0] as i32 + offset).clamp(0, 255) as u8;
-                    px[1] = (px[1] as i32 + offset).clamp(0, 255) as u8;
-                    px[2] = (px[2] as i32 + offset).clamp(0, 255) as u8;
-                }
-            }
-            VideoFilter::Contrast { value } => {
-                let factor = *value;
-                for px in pixels.chunks_exact_mut(4) {
-                    px[0] = (((px[0] as f32 - 128.0) * factor) + 128.0)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
-                    px[1] = (((px[1] as f32 - 128.0) * factor) + 128.0)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
-                    px[2] = (((px[2] as f32 - 128.0) * factor) + 128.0)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
-                }
-            }
-            VideoFilter::Saturation { value } => {
-                let factor = *value;
-                for px in pixels.chunks_exact_mut(4) {
-                    let r = px[0] as f32;
-                    let g = px[1] as f32;
-                    let b = px[2] as f32;
-                    let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-                    px[0] = (gray + (r - gray) * factor).round().clamp(0.0, 255.0) as u8;
-                    px[1] = (gray + (g - gray) * factor).round().clamp(0.0, 255.0) as u8;
-                    px[2] = (gray + (b - gray) * factor).round().clamp(0.0, 255.0) as u8;
-                }
-            }
-            VideoFilter::Grayscale => {
-                for px in pixels.chunks_exact_mut(4) {
-                    let gray = (0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
-                    px[0] = gray;
-                    px[1] = gray;
-                    px[2] = gray;
-                }
-            }
-            VideoFilter::Sepia => {
-                for px in pixels.chunks_exact_mut(4) {
-                    let r = px[0] as f32;
-                    let g = px[1] as f32;
-                    let b = px[2] as f32;
-                    px[0] = (0.393 * r + 0.769 * g + 0.189 * b)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
-                    px[1] = (0.349 * r + 0.686 * g + 0.168 * b)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
-                    px[2] = (0.272 * r + 0.534 * g + 0.131 * b)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
-                }
-            }
-            VideoFilter::Blur { radius } => {
-                *pixels = box_blur_rgba(pixels, width, height, (*radius).round().max(1.0) as usize);
-            }
-            VideoFilter::Sharpen { amount } => {
-                *pixels = sharpen_rgba(pixels, width, height, *amount);
-            }
-            VideoFilter::Opacity { value } => apply_global_alpha(pixels, *value),
-            VideoFilter::Hue { degrees } => {
-                *pixels = hue_shift_rgba(pixels, *degrees);
-            }
+            VideoFilter::Brightness { value } => filters::adjust_brightness(pixels, *value),
+            VideoFilter::Contrast { value } => filters::adjust_contrast(pixels, *value),
+            VideoFilter::Saturation { value } => filters::adjust_saturation(pixels, *value),
+            VideoFilter::Grayscale => filters::apply_grayscale(pixels),
+            VideoFilter::Sepia => filters::apply_sepia(pixels),
+            VideoFilter::Blur { radius } => filters::blur_rgba(pixels, w, h, *radius),
+            VideoFilter::Sharpen { amount } => filters::sharpen_rgba(pixels, w, h, *amount),
+            VideoFilter::Opacity { value } => filters::scale_alpha(pixels, *value),
+            VideoFilter::Hue { degrees } => filters::adjust_hue(pixels, *degrees),
             VideoFilter::Flip { horizontal, vertical } => {
-                *pixels = flip_rgba(pixels, width, height, *horizontal, *vertical);
+                *pixels = flip_rgba(pixels, w, h, *horizontal, *vertical);
             }
             VideoFilter::Rotate { degrees } => {
-                *pixels = rotate_rgba(pixels, width, height, *degrees);
+                *pixels = rotate_rgba(pixels, w, h, *degrees);
             }
             VideoFilter::Crop { left, top, right, bottom } => {
-                *pixels = crop_rgba(pixels, width, height, *left, *top, *right, *bottom);
+                *pixels = crop_rgba(pixels, w, h, *left, *top, *right, *bottom);
             }
             VideoFilter::Transform { scale, translate_x, translate_y, rotate } => {
-                *pixels = transform_rgba(pixels, width, height, *scale, *translate_x, *translate_y, *rotate);
+                *pixels = transform_rgba(pixels, w, h, *scale, *translate_x, *translate_y, *rotate);
             }
-            VideoFilter::Speed { factor: _ } => {}
+            VideoFilter::Speed { .. } => {}
         }
     }
-}
-
-fn box_blur_rgba(src: &[u8], width: usize, height: usize, radius: usize) -> Vec<u8> {
-    let mut out = src.to_vec();
-    let r = radius.max(1) as i32;
-
-    for y in 0..height as i32 {
-        for x in 0..width as i32 {
-            let mut sums = [0u32; 4];
-            let mut count = 0u32;
-
-            for ky in -r..=r {
-                let sy = (y + ky).clamp(0, height as i32 - 1) as usize;
-                for kx in -r..=r {
-                    let sx = (x + kx).clamp(0, width as i32 - 1) as usize;
-                    let i = (sy * width + sx) * 4;
-                    sums[0] += src[i] as u32;
-                    sums[1] += src[i + 1] as u32;
-                    sums[2] += src[i + 2] as u32;
-                    sums[3] += src[i + 3] as u32;
-                    count += 1;
-                }
-            }
-
-            let o = ((y as usize) * width + x as usize) * 4;
-            out[o] = (sums[0] / count) as u8;
-            out[o + 1] = (sums[1] / count) as u8;
-            out[o + 2] = (sums[2] / count) as u8;
-            out[o + 3] = (sums[3] / count) as u8;
-        }
-    }
-
-    out
-}
-
-fn sharpen_rgba(src: &[u8], width: usize, height: usize, amount: f32) -> Vec<u8> {
-    let blurred = box_blur_rgba(src, width, height, 1);
-    let mut out = src.to_vec();
-
-    for i in (0..src.len()).step_by(4) {
-        for c in 0..3 {
-            let orig = src[i + c] as f32;
-            let blur = blurred[i + c] as f32;
-            let val = orig + (orig - blur) * amount.max(0.0);
-            out[i + c] = val.round().clamp(0.0, 255.0) as u8;
-        }
-        out[i + 3] = src[i + 3];
-    }
-
-    out
-}
-
-fn hue_shift_rgba(src: &[u8], degrees: f32) -> Vec<u8> {
-    let angle = (degrees % 360.0) * std::f32::consts::PI / 180.0;
-    let cos_a = angle.cos();
-    let sin_a = angle.sin();
-    let mut out = src.to_vec();
-
-    for px in out.chunks_exact_mut(4) {
-        let r = px[0] as f32 / 255.0;
-        let g = px[1] as f32 / 255.0;
-        let b = px[2] as f32 / 255.0;
-
-        let nr = (0.299 + 0.701 * cos_a + 0.168 * sin_a) * r
-            + (0.587 - 0.587 * cos_a + 0.330 * sin_a) * g
-            + (0.114 - 0.114 * cos_a - 0.497 * sin_a) * b;
-        let ng = (0.299 - 0.299 * cos_a - 0.328 * sin_a) * r
-            + (0.587 + 0.413 * cos_a + 0.035 * sin_a) * g
-            + (0.114 - 0.114 * cos_a + 0.292 * sin_a) * b;
-        let nb = (0.299 - 0.300 * cos_a + 1.250 * sin_a) * r
-            + (0.587 - 0.588 * cos_a - 1.050 * sin_a) * g
-            + (0.114 + 0.886 * cos_a - 0.203 * sin_a) * b;
-
-        px[0] = (nr.clamp(0.0, 1.0) * 255.0).round().clamp(0.0, 255.0) as u8;
-        px[1] = (ng.clamp(0.0, 1.0) * 255.0).round().clamp(0.0, 255.0) as u8;
-        px[2] = (nb.clamp(0.0, 1.0) * 255.0).round().clamp(0.0, 255.0) as u8;
-    }
-
-    out
 }
 
 fn flip_rgba(src: &[u8], width: usize, height: usize, horizontal: bool, vertical: bool) -> Vec<u8> {

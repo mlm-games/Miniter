@@ -10,13 +10,10 @@ object SettingsProvider {
    private var repository: SettingsRepository<AppSettings>? = null
 
    fun get(): SettingsRepository<AppSettings> {
-       repository?.let { return it }
-       synchronized(this) {
-           repository?.let { return it }
-           val dataStore = createSettingsDataStore("miniter_settings")
-           val repo = SettingsRepository(dataStore, AppSettingsSchema)
-           repository = repo
-           return repo
+       return repository ?: synchronized(this) {
+           repository ?: createSettingsDataStore("miniter_settings")
+               .let { SettingsRepository(it, AppSettingsSchema) }
+               .also { repository = it }
        }
    }
 }
