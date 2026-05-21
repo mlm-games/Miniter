@@ -155,12 +155,12 @@ impl<'a> ExportDecodeCache<'a> {
                 let size = bytes.len() as u64;
                 let reader = Cursor::new(bytes.clone());
                 DecodeSession::Memory(
-                    VideoDecodeSession::from_reader(reader, size)
+                    VideoDecodeSession::from_reader(reader, size, false)
                         .map_err(|e| format!("decode init failed for '{path}': {e}"))?,
                 )
             } else {
                 DecodeSession::File(
-                    VideoDecodeSession::open(Path::new(path))
+                    VideoDecodeSession::open(Path::new(path), false)
                         .map_err(|e| format!("decode init failed for '{path}': {e}"))?,
                 )
             };

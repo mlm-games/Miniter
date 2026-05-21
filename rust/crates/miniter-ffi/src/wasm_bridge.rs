@@ -430,7 +430,7 @@ pub fn extract_thumbnail(path: String, target_us: f64) -> Result<String, JsValue
         let size = file.bytes.len() as u64;
         let reader = Cursor::new(file.bytes);
         let mut session =
-            miniter_media_native::decoder::VideoDecodeSession::from_reader(reader, size)
+            miniter_media_native::decoder::VideoDecodeSession::from_reader(reader, size, false)
                 .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
         let mut last_frame: Option<RgbaFrame> = None;
 
@@ -472,7 +472,7 @@ pub fn extract_thumbnails(path: String, count: u32, duration_us: f64) -> Result<
             let size = file.bytes.len() as u64;
             let reader = Cursor::new(file.bytes);
             let mut session =
-                miniter_media_native::decoder::VideoDecodeSession::from_reader(reader, size)
+                miniter_media_native::decoder::VideoDecodeSession::from_reader(reader, size, false)
                     .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
 
             let duration = duration_us as i64;
