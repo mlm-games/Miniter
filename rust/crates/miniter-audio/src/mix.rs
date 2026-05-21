@@ -145,7 +145,7 @@ fn mix_project_audio_internal(
             }
 
             let fade_gain =
-                calculate_fade_gain(dst_offset, clip.timeline_len_frames, &clip.audio_filters);
+                calculate_fade_gain(dst_offset, clip.timeline_len_frames, config.sample_rate, &clip.audio_filters);
             let effective_gain = clip.gain * fade_gain;
 
             if effective_gain > 0.0 {
@@ -264,20 +264,20 @@ fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<Schedule
     scheduled
 }
 
-fn calculate_fade_gain(current_frame: usize, total_frames: usize, filters: &[AudioFilter]) -> f32 {
+fn calculate_fade_gain(current_frame: usize, total_frames: usize, sample_rate: u32, filters: &[AudioFilter]) -> f32 {
     let mut fade_in_gain = 1.0f32;
     let mut fade_out_gain = 1.0f32;
 
     for filter in filters {
         match filter {
             AudioFilter::FadeIn { duration_us } => {
-                let fade_frames = micros_to_frames(*duration_us, 48_000);
+                let fade_frames = micros_to_frames(*duration_us, sample_rate);
                 if current_frame < fade_frames {
                     fade_in_gain *= current_frame as f32 / fade_frames as f32;
                 }
             }
             AudioFilter::FadeOut { duration_us } => {
-                let fade_frames = micros_to_frames(*duration_us, 48_000);
+                let fade_frames = micros_to_frames(*duration_us, sample_rate);
                 let remaining = total_frames.saturating_sub(current_frame);
                 if remaining < fade_frames {
                     fade_out_gain *= remaining as f32 / fade_frames as f32;

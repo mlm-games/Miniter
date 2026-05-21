@@ -62,6 +62,8 @@ class RecentProjectsRepository(private val json: Json) {
         try {
             val content = json.encodeToString<List<RecentProject>>(_recents.value)
             PlatformFileSystem.writeText(recentsFilePath(), content)
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            println("Failed to save recent projects: ${e.message}")
+        }
     }
 }

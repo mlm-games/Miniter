@@ -313,7 +313,7 @@ impl WasmEditorHandle {
             state.project.export_profile.subtitle_mode,
         );
 
-        Ok(format!("{plan:#?}"))
+        serde_json::to_string_pretty(&plan).map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))
     }
 
     #[wasm_bindgen(js_name = durationUs)]

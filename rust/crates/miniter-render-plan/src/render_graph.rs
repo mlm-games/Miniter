@@ -7,7 +7,8 @@ use miniter_domain::time::Timestamp;
 use miniter_domain::timeline::Timeline;
 use miniter_domain::transition::{Transition, TransitionKind};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type")]
 pub enum RenderNode {
     VideoFrame {
         clip_id: ClipId,
@@ -34,7 +35,7 @@ pub enum RenderNode {
     Stack(Vec<RenderNode>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RenderPlan {
     pub timestamp: Timestamp,
     pub width: u32,
