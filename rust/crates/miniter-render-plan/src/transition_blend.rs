@@ -15,6 +15,18 @@ pub fn slide_offset(kind: TransitionKind, progress: f32) -> f32 {
     }
 }
 
+pub fn ease_linear(t: f32) -> f32 {
+    t
+}
+
+pub fn ease_in(t: f32) -> f32 {
+    t * t * t
+}
+
+pub fn ease_out(t: f32) -> f32 {
+    1.0 - (1.0 - t).powi(3)
+}
+
 pub fn ease_in_out(t: f32) -> f32 {
     if t < 0.5 {
         4.0 * t * t * t

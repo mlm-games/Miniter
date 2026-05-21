@@ -1,6 +1,7 @@
 use miniter_domain::clip::{Clip, ClipId};
 use miniter_domain::export::ExportProfile;
-use miniter_domain::filter::{AudioFilter, VideoEffect, VideoFilter};
+use miniter_domain::filter::{AudioFilter, VideoEffect};
+use miniter_domain::Keyframe;
 use miniter_domain::text_overlay::TextStyle;
 use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::track::{TrackId, TrackKind};
@@ -133,6 +134,19 @@ pub enum EditCommand {
     },
     SetExportProfile {
         profile: ExportProfile,
+    },
+    AddKeyframe {
+        clip_id: ClipId,
+        keyframe: Keyframe,
+    },
+    RemoveKeyframe {
+        clip_id: ClipId,
+        index: usize,
+    },
+    UpdateKeyframe {
+        clip_id: ClipId,
+        index: usize,
+        keyframe: Keyframe,
     },
     Batch {
         label: String,

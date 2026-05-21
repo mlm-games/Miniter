@@ -14,6 +14,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
+import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTextStyleSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
@@ -226,6 +227,25 @@ class RustCommandJson(
             put("profile", json.encodeToJsonElement(RustExportProfileSnapshot.serializer(), profile))
         }
 
+    fun addKeyframe(clipId: String, keyframe: RustKeyframe): String =
+        wrap("AddKeyframe") {
+            put("clip_id", uuid(clipId))
+            put("keyframe", encodeKeyframe(keyframe))
+        }
+
+    fun removeKeyframe(clipId: String, index: Int): String =
+        wrap("RemoveKeyframe") {
+            put("clip_id", uuid(clipId))
+            put("index", JsonPrimitive(index))
+        }
+
+    fun updateKeyframe(clipId: String, index: Int, keyframe: RustKeyframe): String =
+        wrap("UpdateKeyframe") {
+            put("clip_id", uuid(clipId))
+            put("index", JsonPrimitive(index))
+            put("keyframe", encodeKeyframe(keyframe))
+        }
+
     fun batch(label: String, commands: List<String>): String =
         wrap("Batch") {
             put("label", JsonPrimitive(label))
@@ -234,6 +254,13 @@ class RustCommandJson(
                 JsonArray(commands.map { json.parseToJsonElement(it) })
             )
         }
+
+    private fun encodeKeyframe(kf: RustKeyframe): JsonElement = buildJsonObject {
+        put("param", JsonPrimitive(kf.param))
+        put("offset", JsonPrimitive(kf.offset))
+        put("value", JsonPrimitive(kf.value))
+        put("easing", JsonPrimitive(kf.easing.name))
+    }
 
     private fun wrap(
         variant: String,

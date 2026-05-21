@@ -1,4 +1,5 @@
 use crate::filter::{AudioFilter, VideoEffect};
+use crate::keyframe::KeyframeCurve;
 use crate::text_overlay::TextOverlay;
 use crate::time::{MediaDuration, Timestamp};
 use crate::transition::Transition;
@@ -56,6 +57,9 @@ pub struct Clip {
     pub transition_in: Option<Transition>,
     pub transition_out: Option<Transition>,
     pub kind: ClipKind,
+
+    #[serde(default)]
+    pub keyframes: KeyframeCurve,
 }
 
 impl Clip {

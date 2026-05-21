@@ -2,7 +2,7 @@ use crate::commands::EditCommand;
 use crate::history::History;
 use crate::selection::Selection;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
-use miniter_domain::filter::{AudioFilter, VideoEffect};
+use miniter_domain::filter::AudioFilter;
 use miniter_domain::project::Project;
 use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::track::{Track, TrackId};
@@ -672,6 +672,41 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             }
         }
 
+        EditCommand::AddKeyframe { clip_id, keyframe } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            let idx = clip.keyframes.insert_sorted(keyframe);
+            Ok(EditCommand::RemoveKeyframe { clip_id, index: idx })
+        }
+
+        EditCommand::RemoveKeyframe { clip_id, index } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            if index >= clip.keyframes.keyframes.len() {
+                return Err(ApplyError::IndexOutOfBounds);
+            }
+            let removed = clip.keyframes.keyframes.remove(index);
+            Ok(EditCommand::AddKeyframe {
+                clip_id,
+                keyframe: removed,
+            })
+        }
+
+        EditCommand::UpdateKeyframe {
+            clip_id,
+            index,
+            keyframe,
+        } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            if index >= clip.keyframes.keyframes.len() {
+                return Err(ApplyError::IndexOutOfBounds);
+            }
+            let old = std::mem::replace(&mut clip.keyframes.keyframes[index], keyframe);
+            Ok(EditCommand::UpdateKeyframe {
+                clip_id,
+                index,
+                keyframe: old,
+            })
+        }
+
         EditCommand::SetExportProfile { profile } => {
             let old = std::mem::replace(&mut state.project.export_profile, profile);
             Ok(EditCommand::SetExportProfile { profile: old })
@@ -949,6 +984,7 @@ pub fn redo(state: &mut EditorState) -> Result<(), ApplyError> {
 mod tests {
     use super::*;
     use miniter_domain::clip::{ClipKind, VideoClip};
+    use miniter_domain::filter::VideoEffect;
     use miniter_domain::project::Project;
     use miniter_domain::time::{MediaDuration, Timestamp};
     use miniter_domain::track::{Track, TrackKind};
@@ -977,6 +1013,7 @@ mod tests {
                 filters: Vec::<VideoEffect>::new(),
                 audio_filters: Vec::<AudioFilter>::new(),
             }),
+            keyframes: Default::default(),
         }
     }
 

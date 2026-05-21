@@ -65,6 +65,27 @@ enum class RustTrackKind {
 }
 
 @Serializable
+data class RustKeyframe(
+    val param: String,
+    val offset: Long,
+    val value: Float,
+    val easing: RustEasing = RustEasing.Linear,
+)
+
+@Serializable
+enum class RustEasing {
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+}
+
+@Serializable
+data class RustKeyframeCurve(
+    val keyframes: List<RustKeyframe> = emptyList(),
+)
+
+@Serializable
 data class RustClipSnapshot(
     val id: String,
     @SerialName("timeline_start")
@@ -86,6 +107,8 @@ data class RustClipSnapshot(
     @SerialName("transition_out")
     val transitionOut: RustTransitionSnapshot? = null,
     val kind: RustClipKindPayload,
+    @SerialName("keyframes")
+    val keyframes: RustKeyframeCurve = RustKeyframeCurve(),
 )
 
 @Serializable

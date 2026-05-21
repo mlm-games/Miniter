@@ -2,8 +2,10 @@ use crate::transition_blend::{ease_in_out, opacity_pair};
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
 use miniter_domain::export::SubtitleMode;
 use miniter_domain::filter::{VideoEffect, VideoFilter};
+use miniter_domain::keyframe::KeyframeCurve;
+use miniter_domain::param;
 use miniter_domain::text_overlay::TextOverlay;
-use miniter_domain::time::Timestamp;
+use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::timeline::Timeline;
 use miniter_domain::transition::{Transition, TransitionKind};
 
@@ -77,6 +79,54 @@ pub fn plan_frame(
     }
 }
 
+fn clip_opacity_at(clip: &Clip, local_time: MediaDuration) -> f32 {
+    clip.keyframes
+        .evaluate(param::OPACITY, local_time)
+        .unwrap_or(clip.opacity)
+}
+
+fn apply_transform_keyframes(
+    filters: &mut Vec<VideoFilter>,
+    curve: &KeyframeCurve,
+    local_time: MediaDuration,
+) {
+    let scale = curve.evaluate(param::TRANSFORM_SCALE, local_time);
+    let tx = curve.evaluate(param::TRANSFORM_TRANSLATE_X, local_time);
+    let ty = curve.evaluate(param::TRANSFORM_TRANSLATE_Y, local_time);
+    let rotate = curve.evaluate(param::TRANSFORM_ROTATE, local_time);
+
+    if scale.is_none() && tx.is_none() && ty.is_none() && rotate.is_none() {
+        return;
+    }
+
+    let scale = scale.unwrap_or(1.0);
+    let tx = tx.unwrap_or(0.0);
+    let ty = ty.unwrap_or(0.0);
+    let rotate = rotate.unwrap_or(0.0);
+
+    for filter in filters.iter_mut() {
+        if let VideoFilter::Transform {
+            scale: s,
+            translate_x: t_x,
+            translate_y: t_y,
+            rotate: r,
+        } = filter
+        {
+            *s = scale;
+            *t_x = tx;
+            *t_y = ty;
+            *r = rotate;
+            return;
+        }
+    }
+    filters.push(VideoFilter::Transform {
+        scale,
+        translate_x: tx,
+        translate_y: ty,
+        rotate,
+    });
+}
+
 fn node_for_clip(
     clip: &Clip,
     t: Timestamp,
@@ -94,12 +144,15 @@ fn node_for_clip(
 
     match &clip.kind {
         ClipKind::Video(v) => {
+            let opacity = clip_opacity_at(clip, local_offset);
+            let mut filters = active_filters(&v.filters);
+            apply_transform_keyframes(&mut filters, &clip.keyframes, local_offset);
             let base = RenderNode::VideoFrame {
                 clip_id: clip.id,
                 source_path: v.source_path.clone(),
                 source_pts,
-                filters: active_filters(&v.filters),
-                opacity: clip.opacity,
+                filters,
+                opacity,
             };
 
             if let Some(ref trans) = clip.transition_in {
@@ -110,12 +163,13 @@ fn node_for_clip(
                             + ((t - prev.timeline_start).as_micros() as f64 * prev.speed) as i64,
                     );
                     if let ClipKind::Video(pv) = &prev.kind {
+                        let prev_opacity = clip_opacity_at(prev, t - prev.timeline_start);
                         let prev_node = RenderNode::VideoFrame {
                             clip_id: prev.id,
                             source_path: pv.source_path.clone(),
                             source_pts: prev_pts,
                             filters: active_filters(&pv.filters),
-                            opacity: prev.opacity,
+                            opacity: prev_opacity,
                         };
                         return Some(RenderNode::TransitionBlend {
                             bottom: Box::new(prev_node),
@@ -141,12 +195,13 @@ fn node_for_clip(
                                 next.source_start.as_micros()
                                     + ((next_t - next.timeline_start).as_micros() as f64 * next.speed) as i64,
                             );
+                            let next_opacity = clip_opacity_at(next, next_t - next.timeline_start);
                             let next_node = RenderNode::VideoFrame {
                                 clip_id: next.id,
                                 source_path: nv.source_path.clone(),
                                 source_pts: next_pts,
                                 filters: active_filters(&nv.filters),
-                                opacity: next.opacity,
+                                opacity: next_opacity,
                             };
                             return Some(RenderNode::TransitionBlend {
                                 bottom: Box::new(base),
@@ -162,7 +217,7 @@ fn node_for_clip(
         }
         ClipKind::Audio(_) => None,
         ClipKind::Text(overlay) => {
-            let mut opacity = clip.opacity;
+            let mut opacity = clip_opacity_at(clip, local_offset);
 
             if let Some(ref trans) = clip.transition_in {
                 let progress = transition_progress(clip, trans, t);
@@ -204,7 +259,7 @@ fn node_for_clip(
         }
         ClipKind::Subtitle(sub) => match subtitle_mode {
             SubtitleMode::Hard => {
-                let mut opacity = clip.opacity;
+                let mut opacity = clip_opacity_at(clip, local_offset);
 
                 if let Some(ref trans) = clip.transition_in {
                     let progress = transition_progress(clip, trans, t);
