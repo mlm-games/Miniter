@@ -11,7 +11,8 @@ actual fun getDynamicColorScheme(
     useDynamicColors: Boolean,
 ): ColorScheme? = null
 
-actual fun isHardwareAccelerationAvailable(): Boolean = true
+actual fun isHardwareAccelerationAvailable(): Boolean =
+    isWebCodecsHardwareAccelerated() && supportedHwCodecs.isNotEmpty()
 
 actual fun getHardwareAccelerationName(): String = "WebCodecs"
 

@@ -534,6 +534,7 @@ pub struct VideoDecodeSession<R: std::io::Read + Seek> {
     total_samples: u32,
     video_track_id: u32,
     pending_frame: Option<RgbaFrame>,
+    hardware_acceleration: bool,
 
     #[cfg(feature = "videoson")]
     videoson: Option<videoson_decoder::VideosonDecoder>,
@@ -552,16 +553,16 @@ pub struct VideoDecodeSession<R: std::io::Read + Seek> {
 }
 
 impl VideoDecodeSession<BufReader<std::fs::File>> {
-    pub fn open(path: &Path) -> Result<Self, DecodeError> {
+    pub fn open(path: &Path, hardware_acceleration: bool) -> Result<Self, DecodeError> {
         let file = std::fs::File::open(path)?;
         let size = file.metadata()?.len();
         let reader = BufReader::new(file);
-        Self::from_reader(reader, size)
+        Self::from_reader(reader, size, hardware_acceleration)
     }
 }
 
 impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
-    pub fn from_reader(reader: R, size: u64) -> Result<Self, DecodeError> {
+    pub fn from_reader(reader: R, size: u64, hardware_acceleration: bool) -> Result<Self, DecodeError> {
         let mp4 = Mp4Reader::read_header(reader, size)?;
 
         let video_track = mp4
@@ -614,7 +615,11 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
                 target_arch = "wasm32"
             )
         ))]
-        let baaba = baaba_decoder::BaabaDecoder::new(width, height).ok();
+        let baaba = if hardware_acceleration {
+            baaba_decoder::BaabaDecoder::new(width, height).ok()
+        } else {
+            None
+        };
 
         Ok(Self {
             mp4,
@@ -629,6 +634,7 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             total_samples,
             video_track_id,
             pending_frame: None,
+            hardware_acceleration,
             #[cfg(feature = "videoson")]
             videoson,
             #[cfg(feature = "oxideav")]

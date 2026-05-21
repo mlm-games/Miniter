@@ -24,12 +24,12 @@ actual fun getDynamicColorScheme(darkTheme: Boolean, useDynamicColors: Boolean):
     }
 }
 
-actual fun isHardwareAccelerationAvailable(): Boolean = true
+actual fun isHardwareAccelerationAvailable(): Boolean = getSupportedHwCodecs().isNotEmpty()
 
 actual fun getHardwareAccelerationName(): String = "MediaCodec"
 
 actual fun isHardwareDecoderGuaranteed(): Boolean {
-    return hasHardwareDecoderForMime("video/avc")
+    return getSupportedHwCodecs().any { it.contains("video/avc", ignoreCase = true) }
 }
 
 actual fun getHardwareDecoderStatus(): String {

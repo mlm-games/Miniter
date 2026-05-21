@@ -7,7 +7,7 @@ pub fn extract_thumbnail(path: &Path, target_us: i64) -> Result<RgbaFrame, Decod
     if is_image_file(path) {
         return load_image_as_frame(path);
     }
-    let mut session = VideoDecodeSession::open(path)?;
+    let mut session = VideoDecodeSession::open(path, true)?;
     let mut last_frame: Option<RgbaFrame> = None;
 
     loop {
@@ -43,7 +43,7 @@ pub fn extract_thumbnails(
     let targets: Vec<i64> = (0..count as i64).map(|i| i * interval_us).collect();
     let mut results = Vec::with_capacity(count);
 
-    let mut session = VideoDecodeSession::open(path)?;
+    let mut session = VideoDecodeSession::open(path, true)?;
     let mut target_idx = 0;
     let mut last_frame: Option<RgbaFrame> = None;
 

@@ -60,10 +60,16 @@ private fun probeVaapiCodecsViaVainfo(): List<String> {
         reader.close()
         process.waitFor()
 
+        val failed = output.contains("failed", ignoreCase = true) ||
+            output.contains("error", ignoreCase = true) ||
+            output.contains("not supported", ignoreCase = true)
+
+        if (failed) return emptyList()
+
         codecMap.entries.filter { (name, _) ->
             output.contains(name, ignoreCase = true)
         }.map { it.value }
     } catch (_: Throwable) {
-        codecMap.values.toList()
+        emptyList()
     }
 }

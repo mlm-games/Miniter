@@ -523,6 +523,7 @@ struct ExportDecodeCache {
     sessions: HashMap<ClipId, ExportSession>,
     subtitle_renderers: HashMap<String, SubtitleRenderer>,
     image_cache: ImageCache,
+    hardware_acceleration: bool,
 }
 
 fn is_image_file(path: &Path) -> bool {
@@ -536,11 +537,12 @@ fn is_image_file(path: &Path) -> bool {
 }
 
 impl ExportDecodeCache {
-    fn new() -> Self {
+    fn new(hardware_acceleration: bool) -> Self {
         Self {
             sessions: HashMap::new(),
             subtitle_renderers: HashMap::new(),
             image_cache: ImageCache::new(),
+            hardware_acceleration,
         }
     }
 
@@ -559,7 +561,7 @@ impl ExportDecodeCache {
                 let entry = ImageSession { frame };
                 self.sessions.insert(clip_id, ExportSession::Image(entry));
             } else {
-                let mut session = VideoDecodeSession::open(path)?;
+                let mut session = VideoDecodeSession::open(path, self.hardware_acceleration)?;
                 let first_frame = session.next_frame()?;
                 let entry = ExportDecodeSession {
                     session,
@@ -680,7 +682,7 @@ where
         })
     };
 
-    let mut decode_cache = ExportDecodeCache::new();
+    let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
     let config = MixConfig::default();
@@ -1684,7 +1686,7 @@ where
         })
     };
 
-    let mut decode_cache = ExportDecodeCache::new();
+    let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
 

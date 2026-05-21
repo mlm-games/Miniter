@@ -90,6 +90,11 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
 
     var outputFile by remember { mutableStateOf<PlatformFile?>(null) }
     var showCancelConfirm by remember { mutableStateOf(false) }
+    var hwEnabled by remember { mutableStateOf(settings.hardwareAccelerationEnabled) }
+    LaunchedEffect(settings.hardwareAccelerationEnabled) {
+        hwEnabled = settings.hardwareAccelerationEnabled
+    }
+    val scope = rememberCoroutineScope()
 
     val isExporting = progress.progress > 0f &&
             !progress.isComplete &&
@@ -236,43 +241,47 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
 
             HorizontalDivider()
 
-            if (isHardwareAccelerationAvailable()) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column {
-                        Text("Hardware acceleration", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            getHardwareDecoderStatus(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        val codecs = getSupportedHwCodecs()
-                        if (codecs.isNotEmpty()) {
-                            Text(
-                                codecs.joinToString(", "),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    var hwEnabled by remember { mutableStateOf(settings.hardwareAccelerationEnabled) }
-                    LaunchedEffect(settings.hardwareAccelerationEnabled) {
-                        hwEnabled = settings.hardwareAccelerationEnabled
-                    }
-                    val scope = rememberCoroutineScope()
-                    Switch(
-                        checked = hwEnabled,
-                        onCheckedChange = { enabled ->
-                            scope.launch {
-                                settingsRepository.update { it.copy(hardwareAccelerationEnabled = enabled) }
-                            }
-                        },
-                        enabled = !isExporting,
+            val hwAvailable = isHardwareAccelerationAvailable()
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column {
+                    Text(
+                        "Hardware acceleration",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
                     )
+                    val statusText = if (hwAvailable) {
+                        getHardwareDecoderStatus()
+                    } else {
+                        "Not available on this device"
+                    }
+                    Text(
+                        statusText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (hwAvailable) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    val codecs = getSupportedHwCodecs()
+                    if (codecs.isNotEmpty()) {
+                        Text(
+                            codecs.joinToString(", "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+                Switch(
+                    checked = hwEnabled && hwAvailable,
+                    onCheckedChange = { enabled ->
+                        scope.launch {
+                            settingsRepository.update { it.copy(hardwareAccelerationEnabled = enabled) }
+                        }
+                    },
+                    enabled = !isExporting && hwAvailable,
+                )
             }
 
             if (!exportSupported) {
@@ -491,6 +500,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                             audioSampleRate = 48_000,
                                             outputPath = "",
                                             subtitleMode = subtitleMode,
+                                            hardwareAcceleration = hwEnabled && hwAvailable,
                                         )
                                     )
                                     vm.startExport(outputPath)

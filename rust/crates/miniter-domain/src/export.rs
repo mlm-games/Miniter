@@ -75,6 +75,12 @@ pub struct ExportProfile {
     pub output_path: String,
     #[serde(default)]
     pub subtitle_mode: SubtitleMode,
+    #[serde(default = "default_hardware_acceleration")]
+    pub hardware_acceleration: bool,
+}
+
+fn default_hardware_acceleration() -> bool {
+    true
 }
 
 impl Default for ExportProfile {
@@ -88,6 +94,7 @@ impl Default for ExportProfile {
             audio_sample_rate: 48_000,
             output_path: String::new(),
             subtitle_mode: SubtitleMode::Soft,
+            hardware_acceleration: true,
         }
     }
 }
