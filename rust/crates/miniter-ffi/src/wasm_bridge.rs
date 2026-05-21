@@ -26,7 +26,7 @@ struct WasmExportPayload {
 fn run_wasm_export(
     project_json: String,
     output_path: String,
-) -> Result<WasmExportPayload, JsValue> {
+) -> Result<crate::wasm_export::WasmExportArtifact, JsValue> {
     EXPORT_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
     EXPORT_PROGRESS.store(0, std::sync::atomic::Ordering::SeqCst);
 
@@ -50,29 +50,7 @@ fn run_wasm_export(
     )
     .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
 
-    Ok(WasmExportPayload {
-        ok: true,
-        bytes_base64: base64::engine::general_purpose::STANDARD.encode(artifact.bytes),
-        file_name: artifact.file_name,
-        mime_type: artifact.mime_type,
-    })
-}
-
-fn payload_to_blob_url(payload: &WasmExportPayload) -> Result<String, JsValue> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(&payload.bytes_base64)
-        .map_err(|e| JsValue::from_str(&format!("Base64 decode failed: {e}")))?;
-
-    let data = Uint8Array::from(bytes.as_slice());
-    let parts = Array::new();
-    parts.push(&data);
-
-    let bag = BlobPropertyBag::new();
-    bag.set_type(&payload.mime_type);
-    let blob =
-        Blob::new_with_u8_array_sequence_and_options(&parts, &bag).map_err(|e| JsValue::from(e))?;
-
-    Url::create_object_url_with_blob(&blob).map_err(|e| JsValue::from(e))
+    Ok(artifact)
 }
 
 fn trigger_download(blob_url: &str, file_name: &str) -> Result<(), JsValue> {
@@ -80,25 +58,47 @@ fn trigger_download(blob_url: &str, file_name: &str) -> Result<(), JsValue> {
     let document = window
         .document()
         .ok_or_else(|| JsValue::from_str("Missing document"))?;
-
-    let anchor = document
-        .create_element("a")
-        .map_err(|e| JsValue::from(e))?
-        .dyn_into::<HtmlAnchorElement>()
-        .map_err(|_| JsValue::from_str("Failed to create anchor element"))?;
-
-    anchor.set_href(blob_url);
-    anchor.set_download(file_name);
-
     let body = document
         .body()
-        .ok_or_else(|| JsValue::from_str("Missing document body"))?;
+        .ok_or_else(|| JsValue::from_str("Missing body"))?;
 
-    body.append_child(&anchor).map_err(|e| JsValue::from(e))?;
-    anchor.click();
-    let _ = body.remove_child(&anchor);
+    let a = document
+        .create_element("a")
+        .map_err(|e| JsValue::from(e))?;
+    let a = a.dyn_into::<web_sys::HtmlAnchorElement>()?;
+
+    a.set_href(blob_url);
+    a.set_download(file_name);
+
+    a.style().set_property("display", "none")?;
+    body.append_child(&a)?;
+    a.click();
+    body.remove_child(&a)?;
 
     Ok(())
+}
+
+#[wasm_bindgen(js_name = exportProjectJson)]
+pub fn export_project_json(project_json: String, output_path: String) -> Result<bool, JsValue> {
+    let artifact = run_wasm_export(project_json, output_path)?;
+
+    let data = js_sys::Uint8Array::from(artifact.bytes.as_slice());
+    let parts = js_sys::Array::new();
+    parts.push(&data);
+
+    let bag = web_sys::BlobPropertyBag::new();
+    bag.set_type(&artifact.mime_type);
+    let blob =
+        web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &bag).map_err(|e| JsValue::from(e))?;
+
+    let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(|e| JsValue::from(e))?;
+
+    let download_result = trigger_download(&url, &artifact.file_name);
+    let revoke_result = web_sys::Url::revoke_object_url(&url).map_err(|e| JsValue::from(e));
+
+    download_result?;
+    revoke_result?;
+    Ok(true)
 }
 
 fn registered_file_to_blob_url(path: &str) -> Result<String, JsValue> {
@@ -526,19 +526,6 @@ pub fn extract_thumbnails(path: String, count: u32, duration_us: f64) -> Result<
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
 }
 
-#[wasm_bindgen(js_name = exportProjectJson)]
-pub fn export_project_json(project_json: String, output_path: String) -> Result<bool, JsValue> {
-    let payload = run_wasm_export(project_json, output_path)?;
-    let url = payload_to_blob_url(&payload)?;
-
-    let download_result = trigger_download(&url, &payload.file_name);
-    let revoke_result = Url::revoke_object_url(&url).map_err(|e| JsValue::from(e));
-
-    download_result?;
-    revoke_result?;
-    Ok(true)
-}
-
 #[wasm_bindgen(js_name = exportProgress)]
 pub fn export_progress() -> u32 {
     EXPORT_PROGRESS.load(std::sync::atomic::Ordering::SeqCst)
@@ -551,7 +538,14 @@ pub fn cancel_export() {
 
 #[wasm_bindgen(js_name = exportProjectBlob)]
 pub fn export_project_blob(project_json: String, output_path: String) -> Result<String, JsValue> {
-    let payload = run_wasm_export(project_json, output_path)?;
+    use base64::Engine;
+    let artifact = run_wasm_export(project_json, output_path)?;
+    let payload = WasmExportPayload {
+        ok: true,
+        bytes_base64: base64::engine::general_purpose::STANDARD.encode(&artifact.bytes),
+        file_name: artifact.file_name,
+        mime_type: artifact.mime_type,
+    };
     serde_json::to_string(&payload)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
 }
