@@ -23,7 +23,8 @@ use miniter_media_native::mux::{
 };
 use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
-use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
+use miniter_domain::ease_in_out;
+use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
 
 fn is_image_path(path: &str) -> bool {
     matches!(
@@ -307,6 +308,7 @@ pub fn export_project_to_bytes(
         ExportFormat::Av1Mkv | ExportFormat::Av1WebM => {
             return Err("MKV/WebM AV1 export is not supported on web yet".to_string());
         }
+        _ => return Err("Unsupported export format on web".to_string()),
     };
 
     Ok(WasmExportArtifact {
@@ -323,6 +325,7 @@ fn export_target_info(format: ExportFormat) -> Result<(&'static str, &'static st
         ExportFormat::Av1Ivf => Ok(("ivf", "video/ivf")),
         ExportFormat::Mov => Err("MOV export is not supported on web yet".to_string()),
         ExportFormat::Av1Mkv | ExportFormat::Av1WebM => Err("MKV/WebM AV1 export is not supported on web yet".to_string()),
+        _ => Err("Unsupported export format on web".to_string()),
     }
 }
 
@@ -1247,6 +1250,7 @@ fn render_text_overlay(overlay: &TextOverlay, width: usize, height: usize) -> Ve
             TextAlignment::Left => anchor_x,
             TextAlignment::Center => anchor_x - max_w / 2,
             TextAlignment::Right => anchor_x - max_w,
+            _ => anchor_x,
         };
         draw_rect(
             &mut canvas,
@@ -1266,6 +1270,7 @@ fn render_text_overlay(overlay: &TextOverlay, width: usize, height: usize) -> Ve
             TextAlignment::Left => anchor_x,
             TextAlignment::Center => anchor_x - line_w / 2,
             TextAlignment::Right => anchor_x - line_w,
+            _ => anchor_x,
         };
         let y = start_y + (line_idx as i32 * line_h);
 
@@ -1596,6 +1601,7 @@ fn render_node(
                     );
                     Ok(canvas)
                 }
+                _ => Ok(bottom_img),
             }
         }
     }
@@ -1785,6 +1791,7 @@ fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: usize, filter
                 *pixels = transform_rgba(pixels, w, h, *scale, *translate_x, *translate_y, *rotate);
             }
             VideoFilter::Speed { .. } => {}
+            _ => {}
         }
     }
 }
