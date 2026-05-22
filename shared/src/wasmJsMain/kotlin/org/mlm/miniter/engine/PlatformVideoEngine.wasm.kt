@@ -8,8 +8,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.js.ExperimentalWasmJsInterop
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.rust.RustCoreSession
+import org.mlm.miniter.rust.WasmExportPayload
 
 actual class PlatformVideoEngine actual constructor() {
 
@@ -49,18 +51,19 @@ actual class PlatformVideoEngine actual constructor() {
                     }
 
                     try {
-                        val ok = RustCoreSession.exportProjectJson(projectJson, outputPath)
+                        val payload = RustCoreSession.exportProjectBlob(projectJson, outputPath)
                         progressJob.cancel()
                         ensureActive()
 
-                        _exportProgress.value = if (ok && !exportCancelled) {
-                            ExportProgress(
+                        if (payload.ok && !exportCancelled) {
+                            wasmDownloadBlob(payload.fileName, payload.mimeType, payload.bytesBase64)
+                            _exportProgress.value = ExportProgress(
                                 phase = "Export complete",
                                 progress = 1f,
                                 isComplete = true,
                             )
                         } else {
-                            ExportProgress(
+                            _exportProgress.value = ExportProgress(
                                 phase = "Export cancelled",
                                 isCancelled = true,
                             )
@@ -148,6 +151,22 @@ actual class PlatformVideoEngine actual constructor() {
         _exportProgress.value = ExportProgress()
     }
 }
+
+@JsFun("""(fileName, mimeType, bytesBase64) => {
+    const byteChars = atob(bytesBase64);
+    const byteNums = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+        byteNums[i] = byteChars.charCodeAt(i);
+    }
+    const blob = new Blob([byteNums], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+}""")
+private external fun wasmDownloadBlob(fileName: String, mimeType: String, bytesBase64: String)
 
 private fun scaleRgba(
     src: ByteArray,

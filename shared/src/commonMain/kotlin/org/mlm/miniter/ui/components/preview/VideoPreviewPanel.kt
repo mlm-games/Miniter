@@ -196,7 +196,7 @@ fun EditorVideoPreview(
     val textOverlays = visibleMedia.filterIsInstance<VisibleMedia.Text>()
 
     val primaryVideoPath = primaryVideo?.sourcePath
-    val primaryVideoUri = primaryVideoPath?.let { normalizeMediaUriForPlayback(it) }
+    var primaryVideoUri by remember(primaryVideoPath) { mutableStateOf<String?>(null) }
     val canPlayPrimary = !primaryVideoUri.isNullOrBlank()
     val primarySpeed = primaryVideo?.speed ?: 1f
     val primaryVolume = primaryVideo?.volume ?: 1f
@@ -294,17 +294,14 @@ fun EditorVideoPreview(
         audioPlayerState.volume = audioVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(primaryVideoPath, primaryVideoUri) {
-        if (primaryVideoPath != null && canPlayPrimary && primaryVideoPath != lastLoadedPath) {
+    LaunchedEffect(primaryVideoPath) {
+        if (primaryVideoPath != null && primaryVideoPath != lastLoadedPath) {
             playerReady = false
             grabberReady = false
             scrubbedFrame = null
             fullFileDurationMs = 0L
             lastLoadedPath = primaryVideoPath
-
-            playerState.openUri(primaryVideoUri)
-            delay(200)
-            playerState.pause()
+            primaryVideoUri = null
 
             try {
                 frameGrabber.open(primaryVideoPath)
@@ -314,28 +311,41 @@ fun EditorVideoPreview(
                 grabberReady = false
             }
 
-            var attempts = 0
-            while (attempts < 40) {
-                val dur = playerState.metadata.duration
-                if (dur != null && dur > 0L) {
-                    fullFileDurationMs = dur
-                    break
+            val uri = normalizeMediaUriForPlayback(primaryVideoPath)
+            primaryVideoUri = uri
+
+            if (!uri.isNullOrBlank()) {
+                playerState.openUri(uri)
+                delay(200)
+                playerState.pause()
+
+                var attempts = 0
+                while (attempts < 40) {
+                    val dur = playerState.metadata.duration
+                    if (dur != null && dur > 0L) {
+                        fullFileDurationMs = dur
+                        break
+                    }
+                    delay(100)
+                    attempts++
                 }
-                delay(100)
-                attempts++
-            }
 
-            if (fullFileDurationMs <= 0L && primaryVideo != null) {
-                fullFileDurationMs = maxOf(primaryVideo.sourceTotalDurationMs, primaryVideo.sourceEndMs)
-            }
+                if (fullFileDurationMs <= 0L && primaryVideo != null) {
+                    fullFileDurationMs = maxOf(primaryVideo.sourceTotalDurationMs, primaryVideo.sourceEndMs)
+                }
 
-            playerReady = true
+                playerReady = true
+            } else {
+                playerReady = false
+            }
         }
 
-        if (!canPlayPrimary) {
+        if (primaryVideoPath == null) {
             playerReady = false
+            grabberReady = false
             fullFileDurationMs = 0L
             lastLoadedPath = null
+            primaryVideoUri = null
             playerState.pause()
         }
     }
