@@ -23,6 +23,7 @@ pub struct TextStyle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum TextAlignment {
     Left,
     Center,

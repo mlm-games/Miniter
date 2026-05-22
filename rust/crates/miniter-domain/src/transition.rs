@@ -2,6 +2,7 @@ use crate::time::MediaDuration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum TransitionKind {
     CrossFade,
     SlideLeft,

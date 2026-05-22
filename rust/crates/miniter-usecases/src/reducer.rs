@@ -592,6 +592,52 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
 
         EditCommand::UpdateAudioFilterDuration { clip_id, index, duration_us } => {
             let clip = find_clip_mut(state, clip_id)?;
+            let old_duration_us = match &mut clip.kind {
+                ClipKind::Video(v) => {
+                    if index >= v.audio_filters.len() {
+                        return Err(ApplyError::IndexOutOfBounds);
+                    }
+                    let filter = &mut v.audio_filters[index];
+                    let old = match filter {
+                        AudioFilter::FadeIn { duration_us: d } => *d,
+                        AudioFilter::FadeOut { duration_us: d } => *d,
+                        _ => return Err(ApplyError::InvalidCommand("Only fade filters have duration")),
+                    };
+                    *match filter {
+                        AudioFilter::FadeIn { duration_us: d } => d,
+                        AudioFilter::FadeOut { duration_us: d } => d,
+                        _ => unreachable!(),
+                    } = duration_us;
+                    old
+                }
+                ClipKind::Audio(a) => {
+                    if index >= a.filters.len() {
+                        return Err(ApplyError::IndexOutOfBounds);
+                    }
+                    let filter = &mut a.filters[index];
+                    let old = match filter {
+                        AudioFilter::FadeIn { duration_us: d } => *d,
+                        AudioFilter::FadeOut { duration_us: d } => *d,
+                        _ => return Err(ApplyError::InvalidCommand("Only fade filters have duration")),
+                    };
+                    *match filter {
+                        AudioFilter::FadeIn { duration_us: d } => d,
+                        AudioFilter::FadeOut { duration_us: d } => d,
+                        _ => unreachable!(),
+                    } = duration_us;
+                    old
+                }
+                _ => return Err(ApplyError::WrongClipKind(clip_id)),
+            };
+            Ok(EditCommand::UpdateAudioFilterDurationInverse {
+                clip_id,
+                index,
+                old_duration_us,
+            })
+        }
+
+        EditCommand::UpdateAudioFilterDurationInverse { clip_id, index, old_duration_us } => {
+            let clip = find_clip_mut(state, clip_id)?;
             match &mut clip.kind {
                 ClipKind::Video(v) => {
                     if index >= v.audio_filters.len() {
@@ -599,11 +645,15 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                     }
                     let filter = &mut v.audio_filters[index];
                     match filter {
-                        AudioFilter::FadeIn { duration_us: d } => *d = duration_us,
-                        AudioFilter::FadeOut { duration_us: d } => *d = duration_us,
+                        AudioFilter::FadeIn { duration_us: d } => *d = old_duration_us,
+                        AudioFilter::FadeOut { duration_us: d } => *d = old_duration_us,
                         _ => return Err(ApplyError::InvalidCommand("Only fade filters have duration")),
                     }
-                    Ok(EditCommand::Nop)
+                    Ok(EditCommand::UpdateAudioFilterDuration {
+                        clip_id,
+                        index,
+                        duration_us: old_duration_us,
+                    })
                 }
                 ClipKind::Audio(a) => {
                     if index >= a.filters.len() {
@@ -611,11 +661,15 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                     }
                     let filter = &mut a.filters[index];
                     match filter {
-                        AudioFilter::FadeIn { duration_us: d } => *d = duration_us,
-                        AudioFilter::FadeOut { duration_us: d } => *d = duration_us,
+                        AudioFilter::FadeIn { duration_us: d } => *d = old_duration_us,
+                        AudioFilter::FadeOut { duration_us: d } => *d = old_duration_us,
                         _ => return Err(ApplyError::InvalidCommand("Only fade filters have duration")),
                     }
-                    Ok(EditCommand::Nop)
+                    Ok(EditCommand::UpdateAudioFilterDuration {
+                        clip_id,
+                        index,
+                        duration_us: old_duration_us,
+                    })
                 }
                 _ => Err(ApplyError::WrongClipKind(clip_id)),
             }

@@ -486,7 +486,7 @@ class ProjectViewModel(
                     val hasAudio = info.hasAudio
                     val durationUs = info.durationMs.msToUs
 
-                    val snapshotNow = rustStore.snapshot.value ?: initialSnapshot
+                    fun currentSnapshot() = rustStore.snapshot.value
 
                     if (hasVideo) {
                         val startUs = cursorVideoUs
@@ -497,8 +497,9 @@ class ProjectViewModel(
                         }
 
                         val currentVideoTrackId = videoTrackId
-                        val currentVideoTrack = snapshotNow.timeline.tracks
-                            .firstOrNull { it.id == currentVideoTrackId && it.kind == RustTrackKind.Video }
+                        val currentVideoTrack = currentSnapshot()
+                            ?.timeline?.tracks
+                            ?.firstOrNull { it.id == currentVideoTrackId && it.kind == RustTrackKind.Video }
 
                         val currentConflicts = currentVideoTrack?.clips?.any { clip ->
                             val cs = clip.timelineStartUs
@@ -509,7 +510,8 @@ class ProjectViewModel(
                         val targetVideoTrackId = if (!currentConflicts) {
                             currentVideoTrackId
                         } else {
-                            val alternate = snapshotNow.timeline.tracks
+                            val snap = currentSnapshot() ?: continue
+                            val alternate = snap.timeline.tracks
                                 .filter { it.kind == RustTrackKind.Video && it.id != currentVideoTrackId }
                                 .firstOrNull { track ->
                                     track.clips.none { clip ->
@@ -522,11 +524,12 @@ class ProjectViewModel(
                             if (alternate != null) {
                                 alternate.id
                             } else {
-                                val videoCount = snapshotNow.timeline.tracks.count { it.kind == RustTrackKind.Video }
+                                val videoCount = snap.timeline.tracks.count { it.kind == RustTrackKind.Video }
                                 val label = "Video ${videoCount + 1}"
                                 rustStore.dispatch(rustStore.commands.addTrack(RustTrackKind.Video, label))
-                                val updated = rustStore.snapshot.value ?: snapshotNow
-                                updated.timeline.tracks.last { it.kind == RustTrackKind.Video }.id
+                                currentSnapshot()
+                                    ?.timeline?.tracks?.last { it.kind == RustTrackKind.Video }?.id
+                                    ?: continue
                             }
                         }
 
@@ -534,7 +537,7 @@ class ProjectViewModel(
 
                         val videoVolume = if (hasAudio) 0.0f else 1.0f
 
-                        dispatchNoSync(
+                        dispatchSilent(
                             rustStore.commands.addClip(
                                 targetVideoTrackId,
                                 RustClipSnapshot(
@@ -575,9 +578,8 @@ class ProjectViewModel(
                             audioTrackId = currentAudioTrackId
                         }
 
-                        val snapshotNow2 = rustStore.snapshot.value ?: snapshotNow
-
-                        val currentAudioTrack = snapshotNow2.timeline.tracks
+                        val snap = currentSnapshot() ?: continue
+                        val currentAudioTrack = snap.timeline.tracks
                             .firstOrNull { it.id == currentAudioTrackId && it.kind == RustTrackKind.Audio }
 
                         val currentConflicts = currentAudioTrack?.clips?.any { clip ->
@@ -589,7 +591,7 @@ class ProjectViewModel(
                         val targetAudioTrackId = if (!currentConflicts) {
                             currentAudioTrackId
                         } else {
-                            val alternate = snapshotNow2.timeline.tracks
+                            val alt = snap.timeline.tracks
                                 .filter { it.kind == RustTrackKind.Audio && it.id != currentAudioTrackId }
                                 .firstOrNull { track ->
                                     track.clips.none { clip ->
@@ -599,20 +601,21 @@ class ProjectViewModel(
                                     }
                                 }
 
-                            if (alternate != null) {
-                                alternate.id
+                            if (alt != null) {
+                                alt.id
                             } else {
-                                val audioCount = snapshotNow2.timeline.tracks.count { it.kind == RustTrackKind.Audio }
+                                val audioCount = snap.timeline.tracks.count { it.kind == RustTrackKind.Audio }
                                 val label = "Audio ${audioCount + 1}"
                                 rustStore.dispatch(rustStore.commands.addTrack(RustTrackKind.Audio, label))
-                                val updated = rustStore.snapshot.value ?: snapshotNow2
-                                updated.timeline.tracks.last { it.kind == RustTrackKind.Audio }.id
+                                currentSnapshot()
+                                    ?.timeline?.tracks?.last { it.kind == RustTrackKind.Audio }?.id
+                                    ?: continue
                             }
                         }
 
                         audioTrackId = targetAudioTrackId
 
-                        dispatchNoSync(
+                        dispatchSilent(
                             rustStore.commands.addClip(
                                 targetAudioTrackId,
                                 RustClipSnapshot(
@@ -672,7 +675,7 @@ class ProjectViewModel(
                     val startUs = cursorMs.msToUs
                     val durationUs = durationMs.msToUs
 
-                    dispatchNoSync(
+                    dispatchSilent(
                         rustStore.commands.addClip(
                             subtitleTrackId,
                             RustClipSnapshot(
@@ -1333,7 +1336,8 @@ class ProjectViewModel(
             ?.firstOrNull { it.id == clipId }
     }
 
-    private fun dispatchNoSync(commandJson: String) {
+    /** skips ui state sync (should call syncFromRust too) */
+    private fun dispatchSilent(commandJson: String) {
         rustStore.dispatch(commandJson)
     }
 

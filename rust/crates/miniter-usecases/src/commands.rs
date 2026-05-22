@@ -116,6 +116,11 @@ pub enum EditCommand {
         index: usize,
         duration_us: i64,
     },
+    UpdateAudioFilterDurationInverse {
+        clip_id: ClipId,
+        index: usize,
+        old_duration_us: i64,
+    },
     SetTransitionIn {
         clip_id: ClipId,
         transition: Option<Transition>,

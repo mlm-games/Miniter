@@ -1,4 +1,5 @@
-use crate::transition_blend::{ease_in_out, opacity_pair};
+use crate::transition_blend::opacity_pair;
+use miniter_domain::ease_in_out;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
 use miniter_domain::export::SubtitleMode;
 use miniter_domain::filter::{VideoEffect, VideoFilter};
@@ -257,36 +258,38 @@ fn node_for_clip(
                 opacity,
             })
         }
-        ClipKind::Subtitle(sub) => match subtitle_mode {
-            SubtitleMode::Hard => {
-                let mut opacity = clip_opacity_at(clip, local_offset);
+        ClipKind::Subtitle(sub) => {
+            let mut opacity = clip_opacity_at(clip, local_offset);
 
-                if let Some(ref trans) = clip.transition_in {
-                    let progress = transition_progress(clip, trans, t);
-                    if progress < 1.0 {
-                        let eased = ease_in_out(progress);
-                        let (_, text_a) = opacity_pair(trans.kind, eased);
-                        opacity *= text_a;
-                    }
+            if let Some(ref trans) = clip.transition_in {
+                let progress = transition_progress(clip, trans, t);
+                if progress < 1.0 {
+                    let eased = ease_in_out(progress);
+                    let (_, text_a) = opacity_pair(trans.kind, eased);
+                    opacity *= text_a;
                 }
+            }
 
-                if let Some(ref trans) = clip.transition_out {
-                    let out_progress = transition_out_progress(clip, trans, t);
-                    if out_progress < 1.0 {
-                        let eased = ease_in_out(out_progress);
-                        let (fade_a, _) = opacity_pair(trans.kind, eased);
-                        opacity *= fade_a;
-                    }
+            if let Some(ref trans) = clip.transition_out {
+                let out_progress = transition_out_progress(clip, trans, t);
+                if out_progress < 1.0 {
+                    let eased = ease_in_out(out_progress);
+                    let (fade_a, _) = opacity_pair(trans.kind, eased);
+                    opacity *= fade_a;
                 }
+            }
 
-                Some(RenderNode::Subtitle {
+            match subtitle_mode {
+                SubtitleMode::Hard => Some(RenderNode::Subtitle {
                     source_path: sub.source_path.clone(),
                     source_pts,
                     opacity,
-                })
+                }),
+                SubtitleMode::Soft => None,
+                _ => None,
             }
-            SubtitleMode::Soft => None,
-        },
+        }
+        _ => None,
     }
 }
 
@@ -334,10 +337,11 @@ fn transition_progress(clip: &Clip, trans: &Transition, t: Timestamp) -> f32 {
 
 fn transition_out_progress(clip: &Clip, trans: &Transition, t: Timestamp) -> f32 {
     let clip_end = clip.timeline_end();
-    let fade_start_us = clip_end.as_micros() - trans.duration.as_micros();
+    let dur = trans.duration.as_micros().min(clip_end.as_micros());
+    let fade_start_us = clip_end.as_micros() - dur;
     let fade_start = Timestamp::from_micros(fade_start_us);
     let elapsed = (t - fade_start).as_micros() as f64;
-    let total = trans.duration.as_micros() as f64;
+    let total = dur as f64;
     if total <= 0.0 {
         1.0
     } else {

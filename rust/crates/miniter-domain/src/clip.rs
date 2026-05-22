@@ -27,6 +27,7 @@ impl Default for ClipId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum ClipKind {
     Video(VideoClip),
     Audio(AudioClip),

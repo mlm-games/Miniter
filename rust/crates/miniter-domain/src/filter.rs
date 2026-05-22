@@ -50,6 +50,7 @@ impl<'de> Deserialize<'de> for VideoEffect {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum VideoFilter {
     Brightness {
         value: f32,
@@ -101,6 +102,7 @@ pub enum VideoFilter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum AudioFilter {
     Volume { value: f32 },
     FadeIn { duration_us: i64 },

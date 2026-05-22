@@ -23,7 +23,8 @@ use miniter_domain::time::Timestamp;
 use miniter_domain::track::TrackKind;
 use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
-use miniter_render_plan::transition_blend::{ease_in_out, opacity_pair, slide_offset};
+use miniter_domain::ease_in_out;
+use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
 use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
 use std::io::BufWriter;
@@ -54,6 +55,8 @@ pub enum ExportError {
     Cancelled,
     #[error("{format} export is not yet available")]
     MkvNotAvailable { format: String },
+    #[error("Unsupported export format")]
+    UnsupportedFormat,
 }
 
 pub fn export_project<F>(
@@ -142,6 +145,7 @@ where
             &is_cancelled,
             &on_progress,
         ),
+        _ => return Err(ExportError::UnsupportedFormat),
     };
     clear_session_cache();
     result
@@ -981,6 +985,7 @@ fn render_node(
                     );
                     Ok(canvas)
                 }
+                _ => Ok(bottom_img),
             }
         }
     }
@@ -1201,6 +1206,7 @@ fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: usize, filter
                 *pixels = transform_rgba(pixels, w, h, *scale, *translate_x, *translate_y, *rotate);
             }
             VideoFilter::Speed { .. } => {}
+            _ => {}
         }
     }
 }
@@ -1325,6 +1331,7 @@ fn render_text_overlay(overlay: &TextOverlay, width: usize, height: usize) -> Ve
             TextAlignment::Left => anchor_x,
             TextAlignment::Center => anchor_x - max_w / 2,
             TextAlignment::Right => anchor_x - max_w,
+            _ => anchor_x,
         };
         draw_rect(
             &mut canvas,
@@ -1344,6 +1351,7 @@ fn render_text_overlay(overlay: &TextOverlay, width: usize, height: usize) -> Ve
             TextAlignment::Left => anchor_x,
             TextAlignment::Center => anchor_x - line_w / 2,
             TextAlignment::Right => anchor_x - line_w,
+            _ => anchor_x,
         };
         let y = start_y + (line_idx as i32 * line_h);
 

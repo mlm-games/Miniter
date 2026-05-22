@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ExportFormat {
     Mp4,
     Mov,
@@ -35,6 +36,7 @@ impl ExportFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ExportResolution {
     Source,
     Sd480,
@@ -58,6 +60,7 @@ impl ExportResolution {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
 pub enum SubtitleMode {
     #[default]
     Hard,
