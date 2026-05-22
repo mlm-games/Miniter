@@ -1,6 +1,6 @@
 //! Unified demuxer trait for most video container formats.
 
-use std::io::{Read, Seek};
+use std::io::Read;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoContainer {

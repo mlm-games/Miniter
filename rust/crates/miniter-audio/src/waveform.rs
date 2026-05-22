@@ -1,12 +1,11 @@
 use std::fs::File;
 use std::io::Cursor;
 use std::path::Path;
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 #[derive(Debug, Clone)]
 pub struct WaveformData {
@@ -64,38 +63,46 @@ fn extract_waveform_stream(
         hint.with_extension(ext);
     }
 
-    let probed = symphonia::default::get_probe().format(
+    let mut reader = symphonia::default::get_probe().probe(
         &hint,
         mss,
-        &FormatOptions::default(),
-        &MetadataOptions::default(),
+        FormatOptions::default(),
+        MetadataOptions::default(),
     )?;
-
-    let mut reader = probed.format;
 
     let track = reader
         .tracks()
         .iter()
-        .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+        .find(|t| {
+            t.codec_params
+                .as_ref()
+                .and_then(|p| p.audio())
+                .is_some()
+        })
         .ok_or(WaveformError::NoAudioTrack)?;
 
     let track_id = track.id;
-    let sample_rate = track.codec_params.sample_rate.unwrap_or(44_100);
-    let channels = track
+    let audio_params = track
         .codec_params
+        .as_ref()
+        .and_then(|p| p.audio())
+        .cloned()
+        .ok_or(WaveformError::NoAudioTrack)?;
+    let sample_rate = audio_params.sample_rate.unwrap_or(44_100);
+    let channels = audio_params
         .channels
+        .as_ref()
         .map(|c| c.count() as u16)
         .unwrap_or(1);
 
     let channels_usize = channels.max(1) as usize;
     let total_samples = track
-        .codec_params
-        .n_frames
+        .num_frames
         .unwrap_or(sample_rate as u64 * 300);
     let samples_per_bucket = (total_samples / target_buckets as u64).max(1);
 
-    let mut decoder =
-        symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
+    let mut decoder = symphonia::default::get_codecs()
+        .make_audio_decoder(&audio_params, &AudioDecoderOptions::default())?;
 
     let mut peaks: Vec<(f32, f32)> = Vec::with_capacity(target_buckets);
     let mut bucket_min: f32 = 0.0;
@@ -105,27 +112,21 @@ fn extract_waveform_stream(
 
     loop {
         let packet = match reader.next_packet() {
-            Ok(p) => p,
-            Err(symphonia::core::errors::Error::IoError(ref e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
-                break;
-            }
+            Ok(Some(p)) => p,
+            Ok(None) => break,
             Err(e) => return Err(e.into()),
         };
 
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
 
         let decoded = decoder.decode(&packet)?;
-        let spec = *decoded.spec();
-        let num_frames = decoded.frames();
 
-        let mut sample_buf = SampleBuffer::<f32>::new(num_frames as u64, spec);
-        sample_buf.copy_interleaved_ref(decoded);
+        let mut interleaved: Vec<f32> = Vec::new();
+        decoded.copy_to_vec_interleaved(&mut interleaved);
 
-        for frame in sample_buf.samples().chunks(channels_usize) {
+        for frame in interleaved.chunks(channels_usize) {
             let mut mono = 0.0f32;
             let mut n = 0usize;
             for &sample in frame {

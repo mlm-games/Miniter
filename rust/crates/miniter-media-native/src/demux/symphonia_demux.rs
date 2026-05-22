@@ -2,11 +2,11 @@
 
 use std::io::{BufReader, Read, Seek};
 
-use symphonia::core::codecs::CODEC_TYPE_NULL;
+use symphonia::core::codecs::video::VideoCodecId;
 use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoContainer {
@@ -139,30 +139,24 @@ impl SymphoniaDemuxer {
     pub fn from_file(file: std::fs::File, _size: u64) -> DemuxResult<Self> {
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-        let probed = symphonia::default::get_probe().format(
+        let mut format = symphonia::default::get_probe().probe(
             &Hint::new(),
             mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
+            FormatOptions::default(),
+            MetadataOptions::default(),
         )?;
 
-        let mut format = probed.format;
         let ext = format
             .tracks()
             .iter()
             .find_map(|t| {
-                let params = &t.codec_params;
-                if params.codec != CODEC_TYPE_NULL {
-                    let fourcc_str = format!("{}", params.codec);
-                    let fourcc =
-                        u32::from_str_radix(fourcc_str.trim_start_matches("0x"), 16).unwrap_or(0);
-                    let codec_name = format_codec_name(params.codec);
-                    let ts = params.time_base.map(|_| 1000u32).unwrap_or(1000);
-                    let samples = params.n_frames.unwrap_or(0) as u32;
-                    Some((t.id, fourcc, codec_name, ts, samples))
-                } else {
-                    None
-                }
+                let video_params = t.codec_params.as_ref().and_then(|p| p.video())?;
+                let codec = video_params.codec;
+                let fourcc = codec_to_fourcc(codec);
+                let codec_name = format_codec_name(codec);
+                let ts = t.time_base.map(|_| 1000u32).unwrap_or(1000);
+                let samples = t.num_frames.unwrap_or(0) as u32;
+                Some((t.id, fourcc, codec_name, ts, samples))
             })
             .ok_or(DemuxError::NoVideoTrack)?;
 
@@ -227,21 +221,17 @@ impl Demuxer for SymphoniaDemuxer {
     fn next_sample(&mut self) -> DemuxResult<Option<DemuxedSample>> {
         loop {
             let packet = match self.format.next_packet() {
-                Ok(p) => p,
-                Err(symphonia::core::errors::Error::IoError(ref e))
-                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-                {
-                    return Ok(Some(DemuxedSample::eos()));
-                }
+                Ok(Some(p)) => p,
+                Ok(None) => return Ok(Some(DemuxedSample::eos())),
                 Err(e) => return Err(e.into()),
             };
 
-            if packet.track_id() != self.track_id {
+            if packet.track_id != self.track_id {
                 continue;
             }
 
-            let pts = (packet.ts() / 1_000_000) as i64;
-            let data: Vec<u8> = packet.buf().to_vec();
+            let pts = (packet.pts.get() / 1_000_000) as i64;
+            let data: Vec<u8> = packet.data.to_vec();
             let is_sync = false;
 
             self.last_pts_us = pts;
@@ -295,32 +285,61 @@ impl SymphoniaDemuxer {
     }
 }
 
-fn format_codec_name(codec: symphonia::core::codecs::CodecType) -> String {
-    let id_str = format!("{}", codec);
-    let id = u32::from_str_radix(id_str.trim_start_matches("0x"), 16).unwrap_or(0);
-    if id == 0x31475661 {
-        "VP8".into()
-    } else if id == 0x31475639 {
-        "VP9".into()
-    } else if id == 0x31305641 {
-        "AV1".into()
-    } else if id == 0x31637661 {
-        "H.264".into()
-    } else if id == 0x68657631 {
-        "H.265".into()
-    } else if id == 0x316854 {
-        "Theora".into()
-    } else if id == 0x31676d {
-        "MPEG-1".into()
-    } else if id == 0x32676d {
-        "MPEG-2".into()
-    } else if id == 0x33475034 {
-        "MPEG-4".into()
-    } else if id == 0x676d696d {
-        "MJPEG".into()
-    } else if id == 0x33363248 {
-        "H.263".into()
+fn codec_to_fourcc(codec: VideoCodecId) -> u32 {
+    use symphonia::core::codecs::video::well_known::*;
+    if codec == CODEC_ID_VP8 {
+        0x31475661
+    } else if codec == CODEC_ID_VP9 {
+        0x31475639
+    } else if codec == CODEC_ID_AV1 {
+        0x31305641
+    } else if codec == CODEC_ID_H264 {
+        0x31637661
+    } else if codec == CODEC_ID_HEVC {
+        0x68657631
+    } else if codec == CODEC_ID_THEORA {
+        0x316854
+    } else if codec == CODEC_ID_MPEG1 {
+        0x31676d
+    } else if codec == CODEC_ID_MPEG2 {
+        0x32676d
+    } else if codec == CODEC_ID_MPEG4 {
+        0x33475034
+    } else if codec == CODEC_ID_MJPEG {
+        0x676d696d
+    } else if codec == CODEC_ID_H263 {
+        0x33363248
     } else {
-        format!("Unknown({})", id_str)
+        0
     }
+}
+
+fn format_codec_name(codec: VideoCodecId) -> String {
+    use symphonia::core::codecs::video::well_known::*;
+    if codec == CODEC_ID_VP8 {
+        "VP8"
+    } else if codec == CODEC_ID_VP9 {
+        "VP9"
+    } else if codec == CODEC_ID_AV1 {
+        "AV1"
+    } else if codec == CODEC_ID_H264 {
+        "H.264"
+    } else if codec == CODEC_ID_HEVC {
+        "H.265"
+    } else if codec == CODEC_ID_THEORA {
+        "Theora"
+    } else if codec == CODEC_ID_MPEG1 {
+        "MPEG-1"
+    } else if codec == CODEC_ID_MPEG2 {
+        "MPEG-2"
+    } else if codec == CODEC_ID_MPEG4 {
+        "MPEG-4"
+    } else if codec == CODEC_ID_MJPEG {
+        "MJPEG"
+    } else if codec == CODEC_ID_H263 {
+        "H.263"
+    } else {
+        "Unknown"
+    }
+    .into()
 }

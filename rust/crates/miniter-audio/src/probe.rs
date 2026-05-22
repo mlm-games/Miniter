@@ -2,9 +2,9 @@ use std::fs::File;
 use std::io::Cursor;
 use std::path::Path;
 use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 #[derive(Debug, Clone)]
 pub struct AudioMeta {
@@ -56,32 +56,44 @@ fn probe_audio_stream(
         hint.with_extension(ext);
     }
 
-    let probed = symphonia::default::get_probe().format(
+    let reader = symphonia::default::get_probe().probe(
         &hint,
         mss,
-        &FormatOptions::default(),
-        &MetadataOptions::default(),
+        FormatOptions::default(),
+        MetadataOptions::default(),
     )?;
 
-    let reader = probed.format;
     let track = reader
         .tracks()
         .iter()
-        .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+        .find(|t| {
+            t.codec_params
+                .as_ref()
+                .and_then(|p| p.audio())
+                .is_some()
+        })
         .ok_or(ProbeError::NoAudioTrack)?;
 
-    let params = &track.codec_params;
+    let audio_params = track
+        .codec_params
+        .as_ref()
+        .and_then(|p| p.audio())
+        .ok_or(ProbeError::NoAudioTrack)?;
 
-    let duration_us = params.n_frames.and_then(|frames| {
-        params
+    let duration_us = track.num_frames.and_then(|frames| {
+        audio_params
             .sample_rate
             .map(|sr| (frames as f64 / sr as f64 * 1_000_000.0) as i64)
     });
 
     Ok(AudioMeta {
-        codec: format!("{:?}", params.codec),
-        sample_rate: params.sample_rate.unwrap_or(0),
-        channels: params.channels.map(|c| c.count() as u16).unwrap_or(0),
+        codec: format!("{:?}", audio_params.codec),
+        sample_rate: audio_params.sample_rate.unwrap_or(0),
+        channels: audio_params
+            .channels
+            .as_ref()
+            .map(|c| c.count() as u16)
+            .unwrap_or(0),
         duration_us,
     })
 }

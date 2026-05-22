@@ -28,7 +28,7 @@ ivf = "0.1"
 av-ivf = "0.5"
 
 # symphonia: video demux via MKV/WebM (VP8/VP9/AV1/etc.) + audio
-symphonia = { version = "0.5.5", features = ["isomp4", "mkv", "pcm", "ogg"] }
+symphonia = { version = "0.6", features = ["isomp4", "mkv", "pcm", "ogg"] }
 
 # Opus encoding
 mousiki = "0.2.1"

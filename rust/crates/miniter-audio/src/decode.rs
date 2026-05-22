@@ -2,12 +2,11 @@ use std::fs::File;
 use std::io::Cursor;
 use std::path::Path;
 
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 #[derive(Debug, Clone)]
 pub struct DecodedAudio {
@@ -45,14 +44,12 @@ pub fn probe_has_audio_track(path: &Path) -> Result<bool, DecodeAudioError> {
         hint.with_extension(ext);
     }
 
-    let probed = symphonia::default::get_probe().format(
+    let reader = symphonia::default::get_probe().probe(
         &hint,
         mss,
-        &FormatOptions::default(),
-        &MetadataOptions::default(),
+        FormatOptions::default(),
+        MetadataOptions::default(),
     )?;
-
-    let reader = probed.format;
 
     Ok(reader
         .tracks()
@@ -92,63 +89,55 @@ fn decode_audio_stream(
         hint.with_extension(ext);
     }
 
-    let probed = symphonia::default::get_probe().format(
+    let mut reader = symphonia::default::get_probe().probe(
         &hint,
         mss,
-        &FormatOptions::default(),
-        &MetadataOptions::default(),
+        FormatOptions::default(),
+        MetadataOptions::default(),
     )?;
-
-    let mut reader = probed.format;
 
     let track = reader
         .tracks()
         .iter()
         .find(|t| is_likely_audio_params(&t.codec_params))
-        .or_else(|| {
-            reader
-                .tracks()
-                .iter()
-                .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-        })
+        .or_else(|| reader.tracks().iter().find(|t| is_any_codec(&t.codec_params)))
         .ok_or(DecodeAudioError::NoAudioTrack)?;
 
     let track_id = track.id;
-    let sample_rate = track.codec_params.sample_rate.unwrap_or(44_100);
-    let channels = track
+    let audio_params = track
         .codec_params
+        .as_ref()
+        .and_then(|p| p.audio())
+        .cloned()
+        .ok_or(DecodeAudioError::NoAudioTrack)?;
+    let sample_rate = audio_params.sample_rate.unwrap_or(44_100);
+    let channels = audio_params
         .channels
+        .as_ref()
         .map(|c| c.count() as u16)
         .unwrap_or(1)
         .max(1);
 
-    let mut decoder =
-        symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
+    let mut decoder = symphonia::default::get_codecs()
+        .make_audio_decoder(&audio_params, &AudioDecoderOptions::default())?;
 
     let mut samples = Vec::<f32>::new();
 
     loop {
         let packet = match reader.next_packet() {
-            Ok(packet) => packet,
-            Err(symphonia::core::errors::Error::IoError(ref e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
-                break;
-            }
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             Err(e) => return Err(e.into()),
         };
 
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
 
         let decoded = decoder.decode(&packet)?;
-        let spec = *decoded.spec();
-        let frames = decoded.frames();
-
-        let mut sample_buf = SampleBuffer::<f32>::new(frames as u64, spec);
-        sample_buf.copy_interleaved_ref(decoded);
-        samples.extend_from_slice(sample_buf.samples());
+        let mut packet_samples = Vec::new();
+        decoded.copy_to_vec_interleaved(&mut packet_samples);
+        samples.extend_from_slice(&packet_samples);
     }
 
     Ok(DecodedAudio {
@@ -158,11 +147,17 @@ fn decode_audio_stream(
     })
 }
 
-fn is_likely_audio_params(params: &symphonia::core::codecs::CodecParameters) -> bool {
-    params.codec != CODEC_TYPE_NULL
-        && (params.channels.is_some()
-            || params.bits_per_sample.is_some()
-            || params.sample_rate.is_some())
+fn is_likely_audio_params(params: &Option<symphonia::core::codecs::CodecParameters>) -> bool {
+    match params {
+        Some(symphonia::core::codecs::CodecParameters::Audio(a)) => {
+            a.channels.is_some() || a.bits_per_sample.is_some() || a.sample_rate.is_some()
+        }
+        _ => false,
+    }
+}
+
+fn is_any_codec(params: &Option<symphonia::core::codecs::CodecParameters>) -> bool {
+    params.is_some()
 }
 
 fn is_image_file(path: &Path) -> bool {
