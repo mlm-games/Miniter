@@ -15,13 +15,13 @@ use font8x8::{BASIC_FONTS, UnicodeFonts};
 use miniter_audio::mix::{AudioMixError, MixConfig, MixedAudio, mix_project_audio};
 use miniter_domain::Project;
 use miniter_domain::clip::ClipId;
-use miniter_domain::clip::{ClipKind, VideoClip};
+use miniter_domain::clip::ClipKind;
 use miniter_domain::export::{ExportFormat, SubtitleMode};
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use miniter_domain::time::Timestamp;
 use miniter_domain::track::TrackKind;
-use miniter_render_plan::compositor::FramePlanIterator;
+use miniter_render_plan::compositor::{first_video_dimensions, FramePlanIterator};
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
 use miniter_domain::ease_in_out;
 use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
@@ -168,7 +168,7 @@ enum Av1Container {
 
 fn resolve_render_settings(project: &Project) -> RenderSettings {
     let (profile_w, profile_h) = project.export_profile.resolution.dimensions();
-    let (source_w, source_h) = first_video_dimensions(project);
+    let (source_w, source_h) = first_video_dimensions(&project.timeline).unwrap_or((1920, 1080));
 
     if profile_w > 0 && profile_h > 0 {
         log::info!(
@@ -202,19 +202,6 @@ fn resolve_render_settings(project: &Project) -> RenderSettings {
     );
 
     RenderSettings { width, height, fps }
-}
-
-fn first_video_dimensions(project: &Project) -> (u32, u32) {
-    for track in &project.timeline.tracks {
-        for clip in &track.clips {
-            if let ClipKind::Video(VideoClip { width, height, .. }) = &clip.kind {
-                if *width > 0 && *height > 0 {
-                    return (*width, *height);
-                }
-            }
-        }
-    }
-    (1920, 1080)
 }
 
 fn normalize_even_dimension(value: u32, fallback: u32) -> u32 {
@@ -580,7 +567,7 @@ impl ExportDecodeCache {
             }
         }
 
-        match self.sessions.get_mut(&clip_id).unwrap() {
+        match self.sessions.get_mut(&clip_id).ok_or(DecodeError::Other("clip_id missing from decode cache".into()))? {
             ExportSession::Image(entry) => Ok(entry.frame.clone()),
             ExportSession::Video(entry) => {
                 if let Some(ref last) = entry.last_frame {

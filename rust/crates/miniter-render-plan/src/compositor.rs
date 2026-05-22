@@ -102,7 +102,7 @@ fn frame_duration_us(fps: f64) -> i64 {
     (1_000_000.0 / safe_fps).round().max(1.0) as i64
 }
 
-fn first_video_dimensions(timeline: &Timeline) -> Option<(u32, u32)> {
+pub fn first_video_dimensions(timeline: &Timeline) -> Option<(u32, u32)> {
     for track in &timeline.tracks {
         for clip in &track.clips {
             if let ClipKind::Video(video) = &clip.kind {

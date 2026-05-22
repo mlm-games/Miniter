@@ -264,7 +264,7 @@ pub fn export_project_json(
         match miniter_media_native::export::export_project(
             &project,
             std::path::Path::new(&output_path),
-            || EXPORT_CANCELLED.load(Ordering::Relaxed),
+            || EXPORT_CANCELLED.load(Ordering::SeqCst),
             |pct| EXPORT_PROGRESS.store(pct, Ordering::SeqCst),
         ) {
             Ok(()) => Ok(true),

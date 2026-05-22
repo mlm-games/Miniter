@@ -46,6 +46,7 @@ private val PLAYHEAD_HEAD_SIZE = 10.dp
 private val ADD_TRACK_ROW_HEIGHT = 36.dp
 private const val MIN_CLIP_WIDTH_DP = 12f
 private const val MIN_TIMELINE_DURATION_MS = 30_000L
+private const val TIMELINE_PADDING_MS = 5000L
 
 @Composable
 fun TimelinePanel(
@@ -89,7 +90,7 @@ fun TimelinePanel(
         snapshotTimelineDurationMs(snapshot),
         MIN_TIMELINE_DURATION_MS,
         tracks.flatMap { it.clips }.maxOfOrNull { clipEndMs(it) } ?: 0L,
-    ) + 5000L
+    ) + TIMELINE_PADDING_MS
     val totalContentWidthDp = (timelineDurationMs * dpPerMs).dp
 
     val horizontalScrollState = rememberScrollState()

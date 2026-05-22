@@ -42,6 +42,7 @@ import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
+import org.mlm.miniter.editor.model.overlapsRange
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.VideoInfo
@@ -102,6 +103,14 @@ class ProjectViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val previewFrame: StateFlow<ImageData?> = _state.map { it.thumbnails.firstOrNull() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    companion object {
+        private const val DEFAULT_TEXT_CLIP_DURATION_US = 3_000_000L
+        private const val DEFAULT_SUBTITLE_DURATION_MS = 60_000L
+        private const val MIN_SAMPLE_RATE = 44_100
+        private const val MIN_TRIM_DURATION_US = 100_000L
+        private const val SNAP_THRESHOLD_BASE = 200
+    }
 
     private var sourceDurationMs: Long = 0L
     private var autoSaveJob: Job? = null
@@ -187,7 +196,7 @@ class ProjectViewModel(
                                 transitionOut = null,
                                 kind = RustAudioClipKind(
                                     sourcePath = stagedVideoPath,
-                                    sampleRate = info.audioSampleRate.coerceAtLeast(44_100),
+                                        sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
                                     channels = info.audioChannels.coerceAtLeast(1),
                                     filters = emptyList(),
                                 ),
@@ -583,9 +592,7 @@ class ProjectViewModel(
                             .firstOrNull { it.id == currentAudioTrackId && it.kind == RustTrackKind.Audio }
 
                         val currentConflicts = currentAudioTrack?.clips?.any { clip ->
-                            val cs = clip.timelineStartUs
-                            val ce = clip.timelineStartUs + clip.timelineDurationUs
-                            cs < endUs && ce > startUs
+                            clip.overlapsRange(startUs, endUs)
                         } ?: false
 
                         val targetAudioTrackId = if (!currentConflicts) {
@@ -595,9 +602,7 @@ class ProjectViewModel(
                                 .filter { it.kind == RustTrackKind.Audio && it.id != currentAudioTrackId }
                                 .firstOrNull { track ->
                                     track.clips.none { clip ->
-                                        val cs = clip.timelineStartUs
-                                        val ce = clip.timelineStartUs + clip.timelineDurationUs
-                                        cs < endUs && ce > startUs
+                                        clip.overlapsRange(startUs, endUs)
                                     }
                                 }
 
@@ -633,7 +638,7 @@ class ProjectViewModel(
                                     transitionOut = null,
                                     kind = RustAudioClipKind(
                                         sourcePath = item.stagedPath,
-                                        sampleRate = info.audioSampleRate.coerceAtLeast(44_100),
+                                                    sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
                                         channels = info.audioChannels.coerceAtLeast(1),
                                         filters = emptyList(),
                                     ),
@@ -671,7 +676,7 @@ class ProjectViewModel(
 
                 for (file in files) {
                     val stagedPath = PlatformFileSystem.stageForNativeAccess(file.platformPath())
-                    val durationMs = 60000L
+                    val durationMs = DEFAULT_SUBTITLE_DURATION_MS
                     val startUs = cursorMs.msToUs
                     val durationUs = durationMs.msToUs
 
@@ -846,7 +851,7 @@ class ProjectViewModel(
     fun trimClipStartAbsolute(clipId: String, newStartMs: Long) {
         val clip = findRustClip(clipId) ?: return
         val requestedStartUs = newStartMs.coerceAtLeast(0).msToUs
-        val maxStartUs = (clip.timelineStartUs + clip.timelineDurationUs - 100_000L).coerceAtLeast(0L)
+        val maxStartUs = (clip.timelineStartUs + clip.timelineDurationUs - MIN_TRIM_DURATION_US).coerceAtLeast(0L)
         val newStartUs = requestedStartUs.coerceIn(0L, maxStartUs)
         val deltaTimelineUs = newStartUs - clip.timelineStartUs
         val newSourceStartUs = (clip.sourceStartUs + (deltaTimelineUs * clip.speed).toLong()).coerceAtLeast(0L)
@@ -867,14 +872,14 @@ class ProjectViewModel(
         val track = snapshot.timeline.tracks.firstOrNull { t -> t.clips.any { it.id == clipId } } ?: return
         val clip = track.clips.firstOrNull { it.id == clipId } ?: return
 
-        val requestedDurationUs = (newEndMs.msToUs - clip.timelineStartUs).coerceAtLeast(100_000L)
+        val requestedDurationUs = (newEndMs.msToUs - clip.timelineStartUs).coerceAtLeast(MIN_TRIM_DURATION_US)
         val maxBySourceUs =
-            (((clip.sourceTotalDurationUs - clip.sourceStartUs).coerceAtLeast(100_000L).toDouble() / clip.speed)
-                .toLong()).coerceAtLeast(100_000L)
+            (((clip.sourceTotalDurationUs - clip.sourceStartUs).coerceAtLeast(MIN_TRIM_DURATION_US).toDouble() / clip.speed)
+                .toLong()).coerceAtLeast(MIN_TRIM_DURATION_US)
         val maxByNeighborUs =
-            nextClipStartUs(track, clipId)?.let { (it - clip.timelineStartUs).coerceAtLeast(100_000L) }
+            nextClipStartUs(track, clipId)?.let { (it - clip.timelineStartUs).coerceAtLeast(MIN_TRIM_DURATION_US) }
         val maxDurationUs = listOfNotNull(maxByNeighborUs, maxBySourceUs).minOrNull() ?: maxBySourceUs
-        val newDurationUs = requestedDurationUs.coerceIn(100_000L, maxDurationUs)
+        val newDurationUs = requestedDurationUs.coerceIn(MIN_TRIM_DURATION_US, maxDurationUs)
 
         dispatchAndSync(
             rustStore.commands.trimClipEnd(
@@ -886,7 +891,7 @@ class ProjectViewModel(
         if (preDragSnapshot != null) continuousEditCommandCount++
     }
 
-    fun addTextClip(trackId: String, text: String, startMs: Long, durationMs: Long = 3000) {
+    fun addTextClip(trackId: String, text: String, startMs: Long, durationMs: Long = DEFAULT_TEXT_CLIP_DURATION_US / 1000L) {
         dispatchAndSync(
             rustStore.commands.addClip(
                 trackId,
@@ -941,7 +946,7 @@ class ProjectViewModel(
         dispatchAndSync(
             rustStore.commands.splitClip(
                 clipId = clipId,
-                atUs = _state.value.playheadMs * 1000L,
+                atUs = _state.value.playheadMs.msToUs,
                 newClipId = randomUuid(),
             ),
             isDirty = true,
@@ -1010,8 +1015,8 @@ class ProjectViewModel(
         val clip = findRustClip(clipId)?.kind as? RustTextClipKind ?: return
         val style = clip.style.copy(
             fontSize = fontSizeSp ?: clip.style.fontSize,
-            color = colorHex?.removePrefix("#")?.let { "FF$it" } ?: clip.style.color,
-            backgroundColor = backgroundColorHex?.removePrefix("#")?.let { "FF$it" } ?: clip.style.backgroundColor,
+            color = colorHex?.toArgbHex() ?: clip.style.color,
+            backgroundColor = backgroundColorHex?.toArgbHex() ?: clip.style.backgroundColor,
             positionX = positionX ?: clip.style.positionX,
             positionY = positionY ?: clip.style.positionY,
             bold = isBold ?: clip.style.bold,
@@ -1028,7 +1033,7 @@ class ProjectViewModel(
         dispatchAndSync(
             rustStore.commands.trimClipEnd(
                 clipId = clipId,
-                newDurationUs = durationMs.coerceAtLeast(100L) * 1000L,
+                newDurationUs = durationMs.coerceAtLeast(100L).msToUs,
             ),
             isDirty = true,
         )
@@ -1167,7 +1172,7 @@ class ProjectViewModel(
     }
 
     fun snapPosition(ms: Long, excludeClipId: String? = null): Long {
-        val snapThresholdMs = (200 / _state.value.zoomLevel).toLong().coerceAtLeast(50)
+        val snapThresholdMs = (SNAP_THRESHOLD_BASE / _state.value.zoomLevel).toLong().coerceAtLeast(50)
         val snapshot = rustStore.snapshot.value ?: return ms
         val playhead = _state.value.playheadMs
 
@@ -1182,8 +1187,8 @@ class ProjectViewModel(
 
         for (clip in snapshot.timeline.tracks.flatMap { it.clips }) {
             if (clip.id == excludeClipId) continue
-            val startMs = clip.timelineStartUs / 1000L
-            val endMs = (clip.timelineStartUs + clip.timelineDurationUs) / 1000L
+            val startMs = clip.timelineStartUs.usToMs
+            val endMs = (clip.timelineStartUs + clip.timelineDurationUs).usToMs
 
             val ds = kotlin.math.abs(ms - startMs)
             if (ds < minDist) {
@@ -1299,11 +1304,7 @@ class ProjectViewModel(
 
     private fun fitsWithoutOverlap(clips: List<RustClipSnapshot>, startUs: Long, durationUs: Long): Boolean {
         val endUs = startUs + durationUs
-        return clips.none { existing ->
-            val existingStart = existing.timelineStartUs
-            val existingEnd = existing.timelineStartUs + existing.timelineDurationUs
-            startUs < existingEnd && existingStart < endUs
-        }
+        return clips.none { existing -> existing.overlapsRange(startUs, endUs) }
     }
 
     private fun nextClipStartUs(track: RustTrackSnapshot, clipId: String): Long? {
@@ -1379,6 +1380,15 @@ class ProjectViewModel(
                 canUndo = rustStore.canUndo(),
                 canRedo = rustStore.canRedo(),
             )
+        }
+    }
+
+    private fun String.toArgbHex(): String {
+        val stripped = removePrefix("#")
+        return when (stripped.length) {
+            6 -> "FF$stripped"
+            8 -> stripped
+            else -> stripped.padStart(8, 'F')
         }
     }
 

@@ -123,64 +123,8 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
 
-        EditCommand::MoveClip {
-            clip_id,
-            new_track_id,
-            new_start,
-        } => {
-            let (src_track_idx, clip_idx) = find_clip_location(state, clip_id)?;
-            let dst_track_idx = find_track_index(state, new_track_id)?;
-
-            let original = state.project.timeline.tracks[src_track_idx].clips[clip_idx].clone();
-            let old_track_id = state.project.timeline.tracks[src_track_idx].id;
-            let old_start = original.timeline_start;
-
-            let mut moved = original.clone();
-            moved.timeline_start = new_start.clamp_non_negative();
-
-            let clamped_start = if src_track_idx == dst_track_idx {
-                let track = &state.project.timeline.tracks[src_track_idx];
-                clamp_non_overlapping_start(
-                    track,
-                    Some(clip_id),
-                    moved.timeline_start,
-                    moved.timeline_duration,
-                    old_start,
-                )
-            } else {
-                let track = &state.project.timeline.tracks[dst_track_idx];
-                clamp_non_overlapping_start(
-                    track,
-                    None,
-                    moved.timeline_start,
-                    moved.timeline_duration,
-                    old_start,
-                )
-            };
-            moved.timeline_start = clamped_start;
-
-            if src_track_idx == dst_track_idx {
-                let track = &mut state.project.timeline.tracks[src_track_idx];
-                track.clips[clip_idx] = moved;
-                track.sort_clips();
-            } else {
-                let removed = state.project.timeline.tracks[src_track_idx]
-                    .remove_clip(clip_id)
-                    .ok_or(ApplyError::ClipNotFound(clip_id))?;
-
-                let mut removed = removed;
-                removed.timeline_start = clamped_start;
-
-                state.project.timeline.tracks[dst_track_idx]
-                    .insert_clip(removed)
-                    .map_err(ApplyError::Overlap)?;
-            }
-
-            Ok(EditCommand::MoveClip {
-                clip_id,
-                new_track_id: old_track_id,
-                new_start: old_start,
-            })
+        EditCommand::MoveClip { clip_id, new_track_id, new_start } => {
+            apply_move_clip(state, clip_id, new_track_id, new_start)
         }
 
         EditCommand::DuplicateClip {
@@ -214,182 +158,16 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
 
-        EditCommand::TrimClipStart {
-            clip_id,
-            new_start,
-            new_source_start: _,
-        } => {
-            let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
-            let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
-
-            let min_start = previous_clip_end_before(
-                &state.project.timeline.tracks[track_idx],
-                clip_id,
-                original.timeline_start,
-            )
-            .unwrap_or(Timestamp::ZERO);
-            let clamped_start = new_start.clamp_non_negative().max(min_start);
-            if clamped_start >= original.timeline_end() {
-                return Err(ApplyError::InvalidDuration);
-            }
-
-            let delta_timeline_us = clamped_start.as_micros() - original.timeline_start.as_micros();
-            let mut recalculated_source_start = original.source_start.as_micros()
-                + (delta_timeline_us as f64 * original.speed) as i64;
-            if recalculated_source_start < 0 {
-                recalculated_source_start = 0;
-            }
-            if recalculated_source_start >= original.source_end.as_micros() {
-                recalculated_source_start = original.source_end.as_micros().saturating_sub(1);
-            }
-
-            let mut updated = original.clone();
-            updated.timeline_start = clamped_start;
-            updated.source_start = MediaDuration::from_micros(recalculated_source_start);
-            updated.timeline_duration = timeline_duration_from_source_bounds(
-                updated.speed,
-                updated.source_start,
-                updated.source_end,
-            )?;
-            ensure_positive_duration(updated.timeline_duration)?;
-            ensure_clip_source_bounds(&updated)?;
-
-            let track = &state.project.timeline.tracks[track_idx];
-            track
-                .can_insert_clip(&updated, Some(clip_id))
-                .map_err(ApplyError::Overlap)?;
-
-            let track = &mut state.project.timeline.tracks[track_idx];
-            track.clips[clip_idx] = updated;
-            track.sort_clips();
-
-            Ok(EditCommand::TrimClipStart {
-                clip_id,
-                new_start: original.timeline_start,
-                new_source_start: original.source_start,
-            })
+        EditCommand::TrimClipStart { clip_id, new_start, .. } => {
+            apply_trim_clip_start(state, clip_id, new_start)
         }
 
-        EditCommand::TrimClipEnd {
-            clip_id,
-            new_duration,
-        } => {
-            ensure_positive_duration(new_duration)?;
-
-            let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
-            let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
-
-            let max_source_end = original.source_total_duration;
-            let max_duration = MediaDuration::from_micros(
-                ((max_source_end.as_micros() as f64 - original.source_start.as_micros() as f64)
-                    / original.speed) as i64,
-            );
-            let max_by_neighbor = next_clip_start_after(
-                &state.project.timeline.tracks[track_idx],
-                clip_id,
-                original.timeline_start,
-            )
-            .map(|next_start| {
-                MediaDuration::from_micros(
-                    (next_start.as_micros() - original.timeline_start.as_micros()).max(1),
-                )
-            });
-
-            let mut clamped_duration = new_duration.min(max_duration);
-            if let Some(max_neighbor_duration) = max_by_neighbor {
-                clamped_duration = clamped_duration.min(max_neighbor_duration);
-            }
-
-            let new_source_end = MediaDuration::from_micros(
-                original.source_start.as_micros()
-                    + (clamped_duration.as_micros() as f64 * original.speed) as i64,
-            );
-
-            let mut updated = original.clone();
-            updated.timeline_duration = clamped_duration;
-            updated.source_end = new_source_end;
-
-            if !matches!(original.kind, ClipKind::Text(_)) {
-                ensure_clip_source_bounds(&updated)?;
-            }
-
-            let track = &state.project.timeline.tracks[track_idx];
-            track
-                .can_insert_clip(&updated, Some(clip_id))
-                .map_err(ApplyError::Overlap)?;
-
-            let track = &mut state.project.timeline.tracks[track_idx];
-            track.clips[clip_idx] = updated;
-
-            Ok(EditCommand::TrimClipEnd {
-                clip_id,
-                new_duration: original.timeline_duration,
-            })
+        EditCommand::TrimClipEnd { clip_id, new_duration } => {
+            apply_trim_clip_end(state, clip_id, new_duration)
         }
 
-        EditCommand::SplitClip {
-            clip_id,
-            at,
-            new_clip_id,
-        } => {
-            let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
-            let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
-
-            if at <= original.timeline_start || at >= original.timeline_end() {
-                return Err(ApplyError::SplitOutOfRange { clip_id, at });
-            }
-
-            let left_dur = at - original.timeline_start;
-            let right_dur = MediaDuration::from_micros(
-                original.timeline_duration.as_micros() - left_dur.as_micros(),
-            );
-
-            ensure_positive_duration(left_dur)?;
-            ensure_positive_duration(right_dur)?;
-
-            let split_source_start = MediaDuration::from_micros(
-                original.source_start.as_micros()
-                    + (left_dur.as_micros() as f64 * original.speed) as i64,
-            );
-
-            let mut left = original.clone();
-            left.timeline_duration = left_dur;
-            left.source_end = split_source_start;
-
-            let mut right = original.clone();
-            right.id = new_clip_id;
-            right.timeline_start = at;
-            right.timeline_duration = right_dur;
-            right.source_start = split_source_start;
-            right.transition_in = None;
-
-            ensure_clip_source_bounds(&left)?;
-            ensure_clip_source_bounds(&right)?;
-
-            let track = &state.project.timeline.tracks[track_idx];
-            track
-                .can_insert_clip(&left, Some(clip_id))
-                .map_err(ApplyError::Overlap)?;
-            track
-                .can_insert_clip(&right, Some(clip_id))
-                .map_err(ApplyError::Overlap)?;
-
-            let track = &mut state.project.timeline.tracks[track_idx];
-            track.clips[clip_idx] = left;
-            track.insert_clip(right).map_err(ApplyError::Overlap)?;
-
-            Ok(EditCommand::Batch {
-                label: "Split clip".into(),
-                commands: vec![
-                    EditCommand::RemoveClip {
-                        clip_id: new_clip_id,
-                    },
-                    EditCommand::TrimClipEnd {
-                        clip_id,
-                        new_duration: original.timeline_duration,
-                    },
-                ],
-            })
+        EditCommand::SplitClip { clip_id, at, new_clip_id } => {
+            apply_split_clip(state, clip_id, at, new_clip_id)
         }
 
         EditCommand::SetClipSpeed { clip_id, speed } => {
@@ -787,6 +565,247 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
     }
+}
+
+fn apply_move_clip(
+    state: &mut EditorState,
+    clip_id: ClipId,
+    new_track_id: TrackId,
+    new_start: Timestamp,
+) -> Result<EditCommand, ApplyError> {
+    let (src_track_idx, clip_idx) = find_clip_location(state, clip_id)?;
+    let dst_track_idx = find_track_index(state, new_track_id)?;
+
+    let original = state.project.timeline.tracks[src_track_idx].clips[clip_idx].clone();
+    let old_track_id = state.project.timeline.tracks[src_track_idx].id;
+    let old_start = original.timeline_start;
+
+    let mut moved = original.clone();
+    moved.timeline_start = new_start.clamp_non_negative();
+
+    let clamped_start = if src_track_idx == dst_track_idx {
+        let track = &state.project.timeline.tracks[src_track_idx];
+        clamp_non_overlapping_start(
+            track,
+            Some(clip_id),
+            moved.timeline_start,
+            moved.timeline_duration,
+            old_start,
+        )
+    } else {
+        let track = &state.project.timeline.tracks[dst_track_idx];
+        clamp_non_overlapping_start(
+            track,
+            None,
+            moved.timeline_start,
+            moved.timeline_duration,
+            old_start,
+        )
+    };
+    moved.timeline_start = clamped_start;
+
+    if src_track_idx == dst_track_idx {
+        let track = &mut state.project.timeline.tracks[src_track_idx];
+        track.clips[clip_idx] = moved;
+        track.sort_clips();
+    } else {
+        let removed = state.project.timeline.tracks[src_track_idx]
+            .remove_clip(clip_id)
+            .ok_or(ApplyError::ClipNotFound(clip_id))?;
+
+        let mut removed = removed;
+        removed.timeline_start = clamped_start;
+
+        state.project.timeline.tracks[dst_track_idx]
+            .insert_clip(removed)
+            .map_err(ApplyError::Overlap)?;
+    }
+
+    Ok(EditCommand::MoveClip {
+        clip_id,
+        new_track_id: old_track_id,
+        new_start: old_start,
+    })
+}
+
+fn apply_trim_clip_start(
+    state: &mut EditorState,
+    clip_id: ClipId,
+    new_start: Timestamp,
+) -> Result<EditCommand, ApplyError> {
+    let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
+    let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
+
+    let min_start = previous_clip_end_before(
+        &state.project.timeline.tracks[track_idx],
+        clip_id,
+        original.timeline_start,
+    )
+    .unwrap_or(Timestamp::ZERO);
+    let clamped_start = new_start.clamp_non_negative().max(min_start);
+    if clamped_start >= original.timeline_end() {
+        return Err(ApplyError::InvalidDuration);
+    }
+
+    let delta_timeline_us = clamped_start.as_micros() - original.timeline_start.as_micros();
+    let mut recalculated_source_start = original.source_start.as_micros()
+        + (delta_timeline_us as f64 * original.speed) as i64;
+    if recalculated_source_start < 0 {
+        recalculated_source_start = 0;
+    }
+    if recalculated_source_start >= original.source_end.as_micros() {
+        recalculated_source_start = original.source_end.as_micros().saturating_sub(1);
+    }
+
+    let mut updated = original.clone();
+    updated.timeline_start = clamped_start;
+    updated.source_start = MediaDuration::from_micros(recalculated_source_start);
+    updated.timeline_duration = timeline_duration_from_source_bounds(
+        updated.speed,
+        updated.source_start,
+        updated.source_end,
+    )?;
+    ensure_positive_duration(updated.timeline_duration)?;
+    ensure_clip_source_bounds(&updated)?;
+
+    let track = &state.project.timeline.tracks[track_idx];
+    track
+        .can_insert_clip(&updated, Some(clip_id))
+        .map_err(ApplyError::Overlap)?;
+
+    let track = &mut state.project.timeline.tracks[track_idx];
+    track.clips[clip_idx] = updated;
+    track.sort_clips();
+
+    Ok(EditCommand::TrimClipStart {
+        clip_id,
+        new_start: original.timeline_start,
+        new_source_start: original.source_start,
+    })
+}
+
+fn apply_trim_clip_end(
+    state: &mut EditorState,
+    clip_id: ClipId,
+    new_duration: MediaDuration,
+) -> Result<EditCommand, ApplyError> {
+    ensure_positive_duration(new_duration)?;
+
+    let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
+    let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
+
+    let max_source_end = original.source_total_duration;
+    let max_duration = MediaDuration::from_micros(
+        ((max_source_end.as_micros() as f64 - original.source_start.as_micros() as f64)
+            / original.speed) as i64,
+    );
+    let max_by_neighbor = next_clip_start_after(
+        &state.project.timeline.tracks[track_idx],
+        clip_id,
+        original.timeline_start,
+    )
+    .map(|next_start| {
+        MediaDuration::from_micros(
+            (next_start.as_micros() - original.timeline_start.as_micros()).max(1),
+        )
+    });
+
+    let mut clamped_duration = new_duration.min(max_duration);
+    if let Some(max_neighbor_duration) = max_by_neighbor {
+        clamped_duration = clamped_duration.min(max_neighbor_duration);
+    }
+
+    let new_source_end = MediaDuration::from_micros(
+        original.source_start.as_micros()
+            + (clamped_duration.as_micros() as f64 * original.speed) as i64,
+    );
+
+    let mut updated = original.clone();
+    updated.timeline_duration = clamped_duration;
+    updated.source_end = new_source_end;
+
+    if !matches!(original.kind, ClipKind::Text(_)) {
+        ensure_clip_source_bounds(&updated)?;
+    }
+
+    let track = &state.project.timeline.tracks[track_idx];
+    track
+        .can_insert_clip(&updated, Some(clip_id))
+        .map_err(ApplyError::Overlap)?;
+
+    let track = &mut state.project.timeline.tracks[track_idx];
+    track.clips[clip_idx] = updated;
+
+    Ok(EditCommand::TrimClipEnd {
+        clip_id,
+        new_duration: original.timeline_duration,
+    })
+}
+
+fn apply_split_clip(
+    state: &mut EditorState,
+    clip_id: ClipId,
+    at: Timestamp,
+    new_clip_id: ClipId,
+) -> Result<EditCommand, ApplyError> {
+    let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
+    let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
+
+    if at <= original.timeline_start || at >= original.timeline_end() {
+        return Err(ApplyError::SplitOutOfRange { clip_id, at });
+    }
+
+    let left_dur = at - original.timeline_start;
+    let right_dur = MediaDuration::from_micros(
+        original.timeline_duration.as_micros() - left_dur.as_micros(),
+    );
+
+    ensure_positive_duration(left_dur)?;
+    ensure_positive_duration(right_dur)?;
+
+    let split_source_start = MediaDuration::from_micros(
+        original.source_start.as_micros()
+            + (left_dur.as_micros() as f64 * original.speed) as i64,
+    );
+
+    let mut left = original.clone();
+    left.timeline_duration = left_dur;
+    left.source_end = split_source_start;
+
+    let mut right = original.clone();
+    right.id = new_clip_id;
+    right.timeline_start = at;
+    right.timeline_duration = right_dur;
+    right.source_start = split_source_start;
+    right.transition_in = None;
+
+    ensure_clip_source_bounds(&left)?;
+    ensure_clip_source_bounds(&right)?;
+
+    let track = &state.project.timeline.tracks[track_idx];
+    track
+        .can_insert_clip(&left, Some(clip_id))
+        .map_err(ApplyError::Overlap)?;
+    track
+        .can_insert_clip(&right, Some(clip_id))
+        .map_err(ApplyError::Overlap)?;
+
+    let track = &mut state.project.timeline.tracks[track_idx];
+    track.clips[clip_idx] = left;
+    track.insert_clip(right).map_err(ApplyError::Overlap)?;
+
+    Ok(EditCommand::Batch {
+        label: "Split clip".into(),
+        commands: vec![
+            EditCommand::RemoveClip {
+                clip_id: new_clip_id,
+            },
+            EditCommand::TrimClipEnd {
+                clip_id,
+                new_duration: original.timeline_duration,
+            },
+        ],
+    })
 }
 
 fn find_track_index(state: &EditorState, track_id: TrackId) -> Result<usize, ApplyError> {

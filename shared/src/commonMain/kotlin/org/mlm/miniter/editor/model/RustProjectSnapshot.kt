@@ -109,7 +109,17 @@ data class RustClipSnapshot(
     val kind: RustClipKindPayload,
     @SerialName("keyframes")
     val keyframes: RustKeyframeCurve = RustKeyframeCurve(),
-)
+) {
+    val endUs: Long get() = timelineStartUs + timelineDurationUs
+
+    fun overlaps(other: RustClipSnapshot): Boolean {
+        return timelineStartUs < other.endUs && other.timelineStartUs < endUs
+    }
+}
+
+fun RustClipSnapshot.overlapsRange(startUs: Long, endUs: Long): Boolean {
+    return timelineStartUs < endUs && startUs < timelineStartUs + timelineDurationUs
+}
 
 @Serializable
 sealed interface RustClipKindPayload
