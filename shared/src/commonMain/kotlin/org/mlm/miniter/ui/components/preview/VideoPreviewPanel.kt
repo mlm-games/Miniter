@@ -265,8 +265,6 @@ fun EditorVideoPreview(
             lastLoadedAudioPath = audioSourcePath
 
             audioPlayerState.openUri(audioPlaybackUri)
-            delay(200)
-            audioPlayerState.pause()
 
             var attempts = 0
             while (attempts < 40) {
@@ -316,8 +314,6 @@ fun EditorVideoPreview(
 
             if (!uri.isNullOrBlank()) {
                 playerState.openUri(uri)
-                delay(200)
-                playerState.pause()
 
                 var attempts = 0
                 while (attempts < 40) {
@@ -568,6 +564,16 @@ fun EditorVideoPreview(
                 translationY = visualTranslateY
             }
 
+        // Always render VideoPlayerSurface so <video> element exists for openUri
+        if (primaryVideoPath != null) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                VideoPlayerSurface(
+                    playerState = playerState,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+
         when {
             visibleMedia.isEmpty() && thumbnailFallback == null -> {
                 Column(
@@ -603,16 +609,7 @@ fun EditorVideoPreview(
                             }
                         }
 
-                        canPlayPrimary && lastLoadedPath == primaryVideoPath -> {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                VideoPlayerSurface(
-                                    playerState = playerState,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
-                        }
-
-                        thumbnailFallback != null -> {
+                        thumbnailFallback != null && (!canPlayPrimary || lastLoadedPath != primaryVideoPath) -> {
                             val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
                             Image(
                                 bitmap = bitmap,
@@ -622,7 +619,7 @@ fun EditorVideoPreview(
                             )
                         }
 
-                        else -> {
+                        !canPlayPrimary && visibleMedia.isNotEmpty() -> {
                             Icon(
                                 Icons.Default.VideoFile, null,
                                 modifier = Modifier.size(48.dp),

@@ -1,6 +1,7 @@
 package org.mlm.miniter.ui.components.dialogs
 
 import androidx.compose.foundation.layout.*
+import org.mlm.miniter.platform.openSaveFileDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.*
@@ -8,8 +9,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.vinceglb.filekit.FileKit
 import io.github.vinceglb.filekit.PlatformFile
-import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
+import kotlinx.coroutines.launch
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.PlatformFileSystem
 
@@ -53,21 +55,7 @@ fun NewProjectDialog(
 ) {
     var projectName by remember { mutableStateOf(videoName.substringBeforeLast(".")) }
     var saveFile by remember { mutableStateOf<PlatformFile?>(null) }
-
-    // Native "Save As" dialog - returns a writable PlatformFile
-    val fileSaverLauncher = rememberFileSaverLauncher { file: PlatformFile? ->
-        saveFile = file
-        // Update project name to match chosen file name (without extension)
-        if (file != null) {
-            val nameWithoutExt = file.platformPath()
-                .substringAfterLast("/")
-                .substringAfterLast("\\")
-                .substringBeforeLast(".")
-            if (nameWithoutExt.isNotBlank()) {
-                projectName = nameWithoutExt
-            }
-        }
-    }
+    val scope = rememberCoroutineScope()
 
     val savePath = saveFile?.platformPath() ?: defaultProjectSavePath(projectName.ifBlank { "project" })
 
@@ -100,10 +88,22 @@ fun NewProjectDialog(
                     )
                     IconButton(
                         onClick = {
-                            fileSaverLauncher.launch(
-                                suggestedName = projectName.ifBlank { "project" },
-                                extension = "mntr",
-                            )
+                            scope.launch {
+                                val file = openSaveFileDialog(
+                                    suggestedName = projectName.ifBlank { "project" },
+                                    extension = "mntr",
+                                )
+                                saveFile = file
+                                if (file != null) {
+                                    val nameWithoutExt = file.platformPath()
+                                        .substringAfterLast("/")
+                                        .substringAfterLast("\\")
+                                        .substringBeforeLast(".")
+                                    if (nameWithoutExt.isNotBlank()) {
+                                        projectName = nameWithoutExt
+                                    }
+                                }
+                            }
                         },
                     ) {
                         Icon(Icons.Default.FolderOpen, "Choose location")
@@ -139,19 +139,7 @@ fun SaveProjectDialog(
 ) {
     var projectName by remember { mutableStateOf(defaultName) }
     var saveFile by remember { mutableStateOf<PlatformFile?>(null) }
-
-    val fileSaverLauncher = rememberFileSaverLauncher { file: PlatformFile? ->
-        saveFile = file
-        if (file != null) {
-            val nameWithoutExt = file.platformPath()
-                .substringAfterLast("/")
-                .substringAfterLast("\\")
-                .substringBeforeLast(".")
-            if (nameWithoutExt.isNotBlank()) {
-                projectName = nameWithoutExt
-            }
-        }
-    }
+    val scope = rememberCoroutineScope()
 
     val savePath = saveFile?.platformPath() ?: defaultProjectSavePath(projectName.ifBlank { "project" })
 
@@ -183,10 +171,22 @@ fun SaveProjectDialog(
                     )
                     IconButton(
                         onClick = {
-                            fileSaverLauncher.launch(
-                                suggestedName = projectName.ifBlank { "project" },
-                                extension = "mntr",
-                            )
+                            scope.launch {
+                                val file = openSaveFileDialog(
+                                    suggestedName = projectName.ifBlank { "project" },
+                                    extension = "mntr",
+                                )
+                                saveFile = file
+                                if (file != null) {
+                                    val nameWithoutExt = file.platformPath()
+                                        .substringAfterLast("/")
+                                        .substringAfterLast("\\")
+                                        .substringBeforeLast(".")
+                                    if (nameWithoutExt.isNotBlank()) {
+                                        projectName = nameWithoutExt
+                                    }
+                                }
+                            }
                         },
                     ) {
                         Icon(Icons.Default.FolderOpen, "Choose location")

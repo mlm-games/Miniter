@@ -13,8 +13,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import io.github.vinceglb.filekit.FileKit
 import io.github.vinceglb.filekit.PlatformFile
-import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.mlmgames.settings.core.SettingsRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -25,6 +25,7 @@ import org.mlm.miniter.platform.isHardwareAccelerationAvailable
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.isProjectExportSupported
 import org.mlm.miniter.platform.requiresExplicitExportPathSelection
+import org.mlm.miniter.platform.openSaveFileDialog
 import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustExportResolution
@@ -108,8 +109,13 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         onDispose { vm.resetExport() }
     }
 
-    val fileSaverLauncher = rememberFileSaverLauncher { file: PlatformFile? ->
-        outputFile = file
+    fun launchFileSaver(suggestedName: String, extension: String) {
+        scope.launch {
+            outputFile = openSaveFileDialog(
+                suggestedName = suggestedName,
+                extension = extension,
+            )
+        }
     }
 
     Scaffold(
@@ -325,7 +331,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     )
                     FilledTonalButton(
                         onClick = {
-                            fileSaverLauncher.launch(
+                            launchFileSaver(
                                 suggestedName = snapshot?.meta?.name ?: "export",
                                 extension = format.extension,
                             )

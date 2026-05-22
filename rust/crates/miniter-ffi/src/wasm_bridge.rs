@@ -106,7 +106,7 @@ fn registered_file_to_blob_url(path: &str) -> Result<String, JsValue> {
         .lock()
         .map_err(|_| JsValue::from_str("Lock poisoned"))?;
     let Some(file) = files.get(path) else {
-        return Ok(path.to_string());
+        return Err(JsValue::from_str("File not registered"));
     };
 
     let data = Uint8Array::from(file.bytes.as_slice());
