@@ -19,6 +19,15 @@ fun <T : NavKey> NavBackStack<T>.replaceTop(key: T) {
     if (isEmpty()) add(key) else set(lastIndex, key)
 }
 
+fun String.toArgbHex(): String {
+    val stripped = removePrefix("#")
+    return when (stripped.length) {
+        6 -> "FF$stripped"
+        8 -> stripped
+        else -> stripped.padStart(8, 'F')
+    }
+}
+
 fun formatTimestamp(ms: Long): String {
     val normalizedMs = ms.coerceAtLeast(0L)
     val totalSeconds = normalizedMs / 1000

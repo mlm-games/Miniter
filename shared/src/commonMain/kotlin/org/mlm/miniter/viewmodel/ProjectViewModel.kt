@@ -53,6 +53,7 @@ import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
+import org.mlm.miniter.ui.util.toArgbHex
 import kotlin.time.Clock
 
 data class ProjectUiState(
@@ -134,7 +135,7 @@ class ProjectViewModel(
                         return@launch
                     }
                 } catch (e: Exception) {
-                    handleError(e, "Decode error")
+                    handleError("Decode error: ${e.message}")
                     return@launch
                 }
                 sourceDurationMs = info.durationMs
@@ -205,10 +206,12 @@ class ProjectViewModel(
                     )
                 }
 
-                dispatchAndSync(
-                    rustStore.commands.batch("NewProjectInitialClips", commands),
+                rustStore.dispatch(rustStore.commands.batch("NewProjectInitialClips", commands))
+                syncFromRust(
                     projectPath = savePath,
                     selectedTrackId = videoTrackId,
+                    selectedClipId = null,
+                    playheadMs = 0L,
                     isDirty = true,
                 )
 
@@ -217,7 +220,7 @@ class ProjectViewModel(
                     recentProjectsRepository.addRecent(savePath, name)
                 }
             } catch (e: Exception) {
-                handleError(e, "Failed to open video")
+                handleError("Failed to open video: ${e.message}")
             }
         }
     }
@@ -255,6 +258,8 @@ class ProjectViewModel(
 
                 syncFromRust(
                     projectPath = path,
+                    selectedTrackId = null,
+                    selectedClipId = null,
                     playheadMs = 0L,
                     isDirty = false,
                 )
@@ -276,7 +281,7 @@ class ProjectViewModel(
 
                 recentProjectsRepository.addRecent(path, snapshot.meta.name)
             } catch (e: Exception) {
-                handleError(e, "Failed to load project")
+                handleError("Failed to load project: ${e.message}")
             }
         }
     }
@@ -308,7 +313,7 @@ class ProjectViewModel(
                 )
             )
         )
-        syncFromRust(isDirty = true)
+        syncFromRust()
     }
 
     fun startAutoSave(enabled: Boolean, intervalSeconds: Float) {
@@ -333,12 +338,12 @@ class ProjectViewModel(
 
     fun undo() {
         rustStore.undo() ?: return
-        syncFromRust(isDirty = true)
+        syncFromRust()
     }
 
     fun redo() {
         rustStore.redo() ?: return
-        syncFromRust(isDirty = true)
+        syncFromRust()
     }
 
     fun beginContinuousEdit() {
@@ -349,7 +354,7 @@ class ProjectViewModel(
     fun commitContinuousEdit() {
         preDragSnapshot = null
         continuousEditCommandCount = 0
-        syncFromRust(isDirty = true)
+        syncFromRust()
     }
 
     fun cancelContinuousEdit() {
@@ -359,7 +364,7 @@ class ProjectViewModel(
         }
         preDragSnapshot = null
         continuousEditCommandCount = 0
-        syncFromRust(isDirty = true)
+        syncFromRust()
     }
 
     fun beginEdit() = beginContinuousEdit()
@@ -411,7 +416,7 @@ class ProjectViewModel(
         val playheadUs = _state.value.playheadMs.msToUs
         val clipId = randomUuid()
 
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.addClip(
                 textTrackId,
                 RustClipSnapshot(
@@ -432,9 +437,11 @@ class ProjectViewModel(
                     ),
                 ),
             ),
+        )
+        syncFromRust(
+            projectPath = _state.value.projectPath,
             selectedTrackId = textTrackId,
             selectedClipId = clipId,
-            isDirty = true,
         )
     }
 
@@ -489,69 +496,75 @@ class ProjectViewModel(
                     rustStore.snapshot.value?.timeline?.tracks
                         ?.firstOrNull { it.kind == RustTrackKind.Audio }?.id
 
+                data class ImportTarget(
+                    val trackId: String,
+                    val cursor: Long,
+                )
+
+                fun resolveTrack(
+                    kind: RustTrackKind,
+                    cursorUs: Long,
+                    durationUs: Long,
+                    currentTrackId: String?,
+                    labelPrefix: String,
+                ): ImportTarget {
+                    val startUs = cursorUs
+                    val endUs = startUs + durationUs
+
+                    var trackId = currentTrackId
+                    if (trackId == null) {
+                        trackId = ensureTrack(kind, "$labelPrefix 1")
+                    }
+
+                    val snap = rustStore.snapshot.value ?: return ImportTarget(trackId, cursorUs)
+                    val currentTrack = snap.timeline.tracks
+                        .firstOrNull { it.id == trackId && it.kind == kind }
+
+                    val hasConflict = currentTrack?.clips?.any { clip ->
+                        clip.overlapsRange(startUs, endUs)
+                    } ?: false
+
+                    val resolvedId = if (!hasConflict) {
+                        trackId
+                    } else {
+                        val alternate = snap.timeline.tracks
+                            .filter { it.kind == kind && it.id != trackId }
+                            .firstOrNull { track ->
+                                track.clips.none { clip -> clip.overlapsRange(startUs, endUs) }
+                            }
+
+                        if (alternate != null) {
+                            alternate.id
+                        } else {
+                            val count = snap.timeline.tracks.count { it.kind == kind }
+                            val label = "$labelPrefix ${count + 1}"
+                            rustStore.dispatch(rustStore.commands.addTrack(kind, label))
+                            rustStore.snapshot.value
+                                ?.timeline?.tracks?.last { it.kind == kind }?.id
+                                ?: trackId
+                        }
+                    }
+
+                    return ImportTarget(resolvedId, cursorUs + durationUs)
+                }
+
                 for (item in items) {
                     val info = item.info
                     val hasVideo = info.hasVideo
                     val hasAudio = info.hasAudio
                     val durationUs = info.durationMs.msToUs
 
-                    fun currentSnapshot() = rustStore.snapshot.value
-
                     if (hasVideo) {
-                        val startUs = cursorVideoUs
-                        val endUs = startUs + durationUs
-
-                        if (videoTrackId == null) {
-                            videoTrackId = ensureTrack(RustTrackKind.Video, "Video 1")
-                        }
-
-                        val currentVideoTrackId = videoTrackId
-                        val currentVideoTrack = currentSnapshot()
-                            ?.timeline?.tracks
-                            ?.firstOrNull { it.id == currentVideoTrackId && it.kind == RustTrackKind.Video }
-
-                        val currentConflicts = currentVideoTrack?.clips?.any { clip ->
-                            val cs = clip.timelineStartUs
-                            val ce = clip.timelineStartUs + clip.timelineDurationUs
-                            cs < endUs && ce > startUs
-                        } ?: false
-
-                        val targetVideoTrackId = if (!currentConflicts) {
-                            currentVideoTrackId
-                        } else {
-                            val snap = currentSnapshot() ?: continue
-                            val alternate = snap.timeline.tracks
-                                .filter { it.kind == RustTrackKind.Video && it.id != currentVideoTrackId }
-                                .firstOrNull { track ->
-                                    track.clips.none { clip ->
-                                        val cs = clip.timelineStartUs
-                                        val ce = clip.timelineStartUs + clip.timelineDurationUs
-                                        cs < endUs && ce > startUs
-                                    }
-                                }
-
-                            if (alternate != null) {
-                                alternate.id
-                            } else {
-                                val videoCount = snap.timeline.tracks.count { it.kind == RustTrackKind.Video }
-                                val label = "Video ${videoCount + 1}"
-                                rustStore.dispatch(rustStore.commands.addTrack(RustTrackKind.Video, label))
-                                currentSnapshot()
-                                    ?.timeline?.tracks?.last { it.kind == RustTrackKind.Video }?.id
-                                    ?: continue
-                            }
-                        }
-
-                        videoTrackId = targetVideoTrackId
+                        val target = resolveTrack(RustTrackKind.Video, cursorVideoUs, durationUs, videoTrackId, "Video")
+                        videoTrackId = target.trackId
 
                         val videoVolume = if (hasAudio) 0.0f else 1.0f
-
                         dispatchSilent(
                             rustStore.commands.addClip(
-                                targetVideoTrackId,
+                                target.trackId,
                                 RustClipSnapshot(
                                     id = randomUuid(),
-                                    timelineStartUs = startUs,
+                                    timelineStartUs = cursorVideoUs,
                                     timelineDurationUs = durationUs,
                                     sourceStartUs = 0L,
                                     sourceEndUs = durationUs,
@@ -573,59 +586,19 @@ class ProjectViewModel(
                                 ),
                             )
                         )
-
-                        cursorVideoUs += durationUs
+                        cursorVideoUs = target.cursor
                     }
 
                     if (hasAudio) {
-                        val startUs = cursorAudioUs
-                        val endUs = startUs + durationUs
-
-                        var currentAudioTrackId = audioTrackId
-                        if (currentAudioTrackId == null) {
-                            currentAudioTrackId = ensureTrack(RustTrackKind.Audio, "Audio 1")
-                            audioTrackId = currentAudioTrackId
-                        }
-
-                        val snap = currentSnapshot() ?: continue
-                        val currentAudioTrack = snap.timeline.tracks
-                            .firstOrNull { it.id == currentAudioTrackId && it.kind == RustTrackKind.Audio }
-
-                        val currentConflicts = currentAudioTrack?.clips?.any { clip ->
-                            clip.overlapsRange(startUs, endUs)
-                        } ?: false
-
-                        val targetAudioTrackId = if (!currentConflicts) {
-                            currentAudioTrackId
-                        } else {
-                            val alt = snap.timeline.tracks
-                                .filter { it.kind == RustTrackKind.Audio && it.id != currentAudioTrackId }
-                                .firstOrNull { track ->
-                                    track.clips.none { clip ->
-                                        clip.overlapsRange(startUs, endUs)
-                                    }
-                                }
-
-                            if (alt != null) {
-                                alt.id
-                            } else {
-                                val audioCount = snap.timeline.tracks.count { it.kind == RustTrackKind.Audio }
-                                val label = "Audio ${audioCount + 1}"
-                                rustStore.dispatch(rustStore.commands.addTrack(RustTrackKind.Audio, label))
-                                currentSnapshot()
-                                    ?.timeline?.tracks?.last { it.kind == RustTrackKind.Audio }?.id
-                                    ?: continue
-                            }
-                        }
-
-                        audioTrackId = targetAudioTrackId
+                        val target = resolveTrack(RustTrackKind.Audio, cursorAudioUs, durationUs, audioTrackId, "Audio")
+                        audioTrackId = target.trackId
 
                         dispatchSilent(
                             rustStore.commands.addClip(
-                                targetAudioTrackId,
+                                target.trackId,
                                 RustClipSnapshot(
                                     id = randomUuid(),
-                                    timelineStartUs = startUs,
+                                    timelineStartUs = cursorAudioUs,
                                     timelineDurationUs = durationUs,
                                     sourceStartUs = 0L,
                                     sourceEndUs = durationUs,
@@ -638,23 +611,22 @@ class ProjectViewModel(
                                     transitionOut = null,
                                     kind = RustAudioClipKind(
                                         sourcePath = item.stagedPath,
-                                                    sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
+                                        sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
                                         channels = info.audioChannels.coerceAtLeast(1),
                                         filters = emptyList(),
                                     ),
                                 ),
                             )
                         )
-
-                        cursorAudioUs += durationUs
+                        cursorAudioUs = target.cursor
                     }
                 }
 
-                syncFromRust(isDirty = true)
+                syncFromRust()
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.show("Imported ${items.size} file(s)")
             } catch (e: Exception) {
-                handleError(e, "Failed to import")
+                handleError("Failed to import: ${e.message}")
             }
         }
     }
@@ -702,11 +674,11 @@ class ProjectViewModel(
                     )
                 }
 
-                syncFromRust(isDirty = true)
+                syncFromRust()
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.show("Imported ${files.size} subtitle file(s)")
             } catch (e: Exception) {
-                handleError(e, "Failed to import subtitles")
+                handleError("Failed to import subtitles: ${e.message}")
             }
         }
     }
@@ -760,10 +732,10 @@ class ProjectViewModel(
     fun resetExport() = engine.reset()
 
     fun updateExportProfile(profile: RustExportProfileSnapshot) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setExportProfile(profile),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun startExport(outputPath: String) {
@@ -779,10 +751,10 @@ class ProjectViewModel(
 
     fun addTrack(kind: RustTrackKind, label: String? = null) {
         val count = rustStore.snapshot.value?.timeline?.tracks?.count { it.kind == kind } ?: 0
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.addTrack(kind, label ?: "${kind.name} ${count + 1}"),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun removeTrack(trackId: String) {
@@ -792,7 +764,8 @@ class ProjectViewModel(
             snackbarManager.showError("Cannot remove the only video track")
             return
         }
-        dispatchAndSync(rustStore.commands.removeTrack(trackId), isDirty = true)
+        rustStore.dispatch(rustStore.commands.removeTrack(trackId))
+        syncFromRust()
     }
 
     fun moveClipAbsolute(clipId: String, absoluteStartMs: Long) {
@@ -809,14 +782,14 @@ class ProjectViewModel(
             durationUs = durationUs,
         )
 
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.moveClip(
                 clipId = clipId,
                 trackId = track.id,
                 newStartUs = clampedStartUs,
             ),
-            isDirty = true,
         )
+        syncFromRust()
         if (preDragSnapshot != null) continuousEditCommandCount++
     }
 
@@ -831,20 +804,21 @@ class ProjectViewModel(
             .firstOrNull { it.id == toTrackId }
             ?: return
 
-        val targetStartUs = findNearestOpenStartUs(
+        val targetStartUs = findNearestNonOverlappingStartUs(
             track = targetTrack,
+            clipId = null,
             requestedStartUs = clip.timelineStartUs,
             durationUs = clip.timelineDurationUs.coerceAtLeast(1L),
         )
 
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.moveClip(
                 clipId = clipId,
                 trackId = toTrackId,
                 newStartUs = targetStartUs,
             ),
-            isDirty = true,
         )
+        syncFromRust()
         if (preDragSnapshot != null) continuousEditCommandCount++
     }
 
@@ -856,14 +830,14 @@ class ProjectViewModel(
         val deltaTimelineUs = newStartUs - clip.timelineStartUs
         val newSourceStartUs = (clip.sourceStartUs + (deltaTimelineUs * clip.speed).toLong()).coerceAtLeast(0L)
 
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.trimClipStart(
                 clipId = clipId,
                 newStartUs = newStartUs,
                 newSourceStartUs = newSourceStartUs,
             ),
-            isDirty = true,
         )
+        syncFromRust()
         if (preDragSnapshot != null) continuousEditCommandCount++
     }
 
@@ -881,18 +855,18 @@ class ProjectViewModel(
         val maxDurationUs = listOfNotNull(maxByNeighborUs, maxBySourceUs).minOrNull() ?: maxBySourceUs
         val newDurationUs = requestedDurationUs.coerceIn(MIN_TRIM_DURATION_US, maxDurationUs)
 
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.trimClipEnd(
                 clipId = clipId,
                 newDurationUs = newDurationUs,
             ),
-            isDirty = true,
         )
+        syncFromRust()
         if (preDragSnapshot != null) continuousEditCommandCount++
     }
 
     fun addTextClip(trackId: String, text: String, startMs: Long, durationMs: Long = DEFAULT_TEXT_CLIP_DURATION_US / 1000L) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.addClip(
                 trackId,
                 RustClipSnapshot(
@@ -914,12 +888,13 @@ class ProjectViewModel(
                     ),
                 ),
             ),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun removeClip(clipId: String) {
-        dispatchAndSync(rustStore.commands.removeClip(clipId), isDirty = true)
+        rustStore.dispatch(rustStore.commands.removeClip(clipId))
+        syncFromRust()
     }
 
     fun duplicateClip(clipId: String) {
@@ -931,75 +906,75 @@ class ProjectViewModel(
 
         val endUs = track.clips.maxOfOrNull { it.timelineStartUs + it.timelineDurationUs } ?: 0L
 
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.duplicateClip(
                 sourceClipId = clipId,
                 newClipId = randomUuid(),
                 targetTrackId = track.id,
                 targetStartUs = endUs,
             ),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun splitClipAtPlayhead(clipId: String) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.splitClip(
                 clipId = clipId,
                 atUs = _state.value.playheadMs.msToUs,
                 newClipId = randomUuid(),
             ),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun setClipSpeed(clipId: String, speed: Float) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setClipSpeed(clipId, speed.toDouble()),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun setClipVolume(clipId: String, volume: Float) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setClipVolume(clipId, volume),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun setClipOpacity(clipId: String, opacity: Float) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setClipOpacity(clipId, opacity),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun addAudioFilter(clipId: String, filter: RustAudioFilterSnapshot) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.addAudioFilter(clipId = clipId, filter = filter),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun removeAudioFilter(clipId: String, filterIndex: Int) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.removeAudioFilter(clipId, filterIndex),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun updateAudioFilterDuration(clipId: String, filterIndex: Int, durationUs: Long) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.updateAudioFilterDuration(clipId, filterIndex, durationUs),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun updateTextClip(clipId: String, newText: String) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.updateTextContent(clipId, newText),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun updateTextClipStyle(
@@ -1023,34 +998,34 @@ class ProjectViewModel(
             italic = isItalic ?: clip.style.italic,
         )
 
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.updateTextStyle(clipId, style),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun setTextClipDuration(clipId: String, durationMs: Long) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.trimClipEnd(
                 clipId = clipId,
                 newDurationUs = durationMs.coerceAtLeast(100L).msToUs,
             ),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun setTextTransitionIn(clipId: String, transition: RustTransitionSnapshot?) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setTransitionIn(clipId, transition),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun setTextTransitionOut(clipId: String, transition: RustTransitionSnapshot?) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setTransitionOut(clipId, transition),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {
@@ -1071,96 +1046,96 @@ class ProjectViewModel(
             else -> filter
         }
 
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.updateVideoFilter(
                 clipId = clipId,
                 index = filterIndex,
                 filter = current.copy(filter = updatedFilter),
             ),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun addFilter(clipId: String, filter: RustVideoEffectSnapshot) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.addVideoFilter(
                 clipId = clipId,
                 filter = filter,
             ),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun removeFilter(clipId: String, filterIndex: Int) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.removeVideoFilter(clipId, filterIndex),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun setFilterEnabled(clipId: String, filterIndex: Int, enabled: Boolean) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setVideoFilterEnabled(clipId, filterIndex, enabled),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun moveFilter(clipId: String, fromIndex: Int, toIndex: Int) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.moveVideoFilter(clipId, fromIndex, toIndex),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun setTransitionIn(clipId: String, transition: RustTransitionSnapshot?) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setTransitionIn(clipId, transition),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun setTransitionOut(clipId: String, transition: RustTransitionSnapshot?) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setTransitionOut(clipId, transition),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun addKeyframe(clipId: String, keyframe: RustKeyframe) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.addKeyframe(clipId, keyframe),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun removeKeyframe(clipId: String, index: Int) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.removeKeyframe(clipId, index),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun updateKeyframe(clipId: String, index: Int, keyframe: RustKeyframe) {
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.updateKeyframe(clipId, index, keyframe),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun toggleTrackMute(trackId: String) {
         val muted = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { it.id == trackId }?.muted ?: return
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setTrackMuted(trackId, !muted),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun toggleTrackLock(trackId: String) {
         val locked = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { it.id == trackId }?.locked ?: return
-        dispatchAndSync(
+        rustStore.dispatch(
             rustStore.commands.setTrackLocked(trackId, !locked),
-            isDirty = true,
         )
+        syncFromRust()
     }
 
     fun selectClip(clipId: String?) {
@@ -1172,6 +1147,12 @@ class ProjectViewModel(
     }
 
     fun snapPosition(ms: Long, excludeClipId: String? = null): Long {
+        val nearest = computeSnapPosition(ms, excludeClipId)
+        _state.update { it.copy(snapIndicatorMs = if (nearest != ms) nearest else null) }
+        return nearest
+    }
+
+    private fun computeSnapPosition(ms: Long, excludeClipId: String? = null): Long {
         val snapThresholdMs = (SNAP_THRESHOLD_BASE / _state.value.zoomLevel).toLong().coerceAtLeast(50)
         val snapshot = rustStore.snapshot.value ?: return ms
         val playhead = _state.value.playheadMs
@@ -1204,7 +1185,6 @@ class ProjectViewModel(
 
         if (ms < snapThresholdMs) nearest = 0
 
-        _state.update { it.copy(snapIndicatorMs = if (nearest != ms) nearest else null) }
         return nearest
     }
 
@@ -1214,58 +1194,16 @@ class ProjectViewModel(
 
     private fun findNearestNonOverlappingStartUs(
         track: RustTrackSnapshot,
-        clipId: String,
+        clipId: String?,
         requestedStartUs: Long,
         durationUs: Long,
     ): Long {
-        val others = track.clips
+        val clips = track.clips
             .asSequence()
-            .filter { it.id != clipId }
+            .filter { clipId == null || it.id != clipId }
             .sortedBy { it.timelineStartUs }
             .toList()
 
-        if (others.isEmpty()) {
-            return requestedStartUs.coerceAtLeast(0L)
-        }
-
-        val reqStart = requestedStartUs.coerceAtLeast(0L)
-        val reqEnd = reqStart + durationUs
-
-        for (other in others) {
-            val otherStart = other.timelineStartUs
-            val otherEnd = other.timelineStartUs + other.timelineDurationUs
-            if (reqStart < otherEnd && otherStart < reqEnd) {
-                val leftEnd = otherStart - durationUs
-                val rightStart = otherEnd
-
-                val leftValid = leftEnd >= 0L && fitsWithoutOverlap(others, leftEnd, durationUs)
-                val rightValid = fitsWithoutOverlap(others, rightStart, durationUs)
-
-                return when {
-                    leftValid && rightValid -> {
-                        if (kotlin.math.abs(reqStart - leftEnd) <= kotlin.math.abs(rightStart - reqStart)) {
-                            leftEnd
-                        } else {
-                            rightStart
-                        }
-                    }
-
-                    leftValid -> leftEnd
-                    rightValid -> rightStart
-                    else -> reqStart
-                }
-            }
-        }
-
-        return reqStart
-    }
-
-    private fun findNearestOpenStartUs(
-        track: RustTrackSnapshot,
-        requestedStartUs: Long,
-        durationUs: Long,
-    ): Long {
-        val clips = track.clips.sortedBy { it.timelineStartUs }
         if (clips.isEmpty()) {
             return requestedStartUs.coerceAtLeast(0L)
         }
@@ -1342,30 +1280,12 @@ class ProjectViewModel(
         rustStore.dispatch(commandJson)
     }
 
-    private fun dispatchAndSync(
-        commandJson: String,
-        projectPath: String? = _state.value.projectPath,
-        selectedTrackId: String? = _state.value.selectedTrackId,
-        selectedClipId: String? = _state.value.selectedClipId,
-        playheadMs: Long = _state.value.playheadMs,
-        isDirty: Boolean = _state.value.isDirty,
-    ) {
-        rustStore.dispatch(commandJson)
-        syncFromRust(
-            projectPath = projectPath,
-            selectedTrackId = selectedTrackId,
-            selectedClipId = selectedClipId,
-            playheadMs = playheadMs,
-            isDirty = isDirty,
-        )
-    }
-
     private fun syncFromRust(
         projectPath: String? = _state.value.projectPath,
         selectedTrackId: String? = _state.value.selectedTrackId,
         selectedClipId: String? = _state.value.selectedClipId,
         playheadMs: Long = _state.value.playheadMs,
-        isDirty: Boolean = _state.value.isDirty,
+        isDirty: Boolean = true,
     ) {
         val snapshot = rustStore.snapshot.value
         _state.update {
@@ -1383,21 +1303,8 @@ class ProjectViewModel(
         }
     }
 
-    private fun String.toArgbHex(): String {
-        val stripped = removePrefix("#")
-        return when (stripped.length) {
-            6 -> "FF$stripped"
-            8 -> stripped
-            else -> stripped.padStart(8, 'F')
-        }
-    }
-
     private fun handleError(message: String) {
         _state.update { it.copy(isLoading = false) }
         snackbarManager.showError(message)
-    }
-
-    private fun handleError(e: Exception, prefix: String) {
-        handleError("$prefix: ${e.message}")
     }
 }
