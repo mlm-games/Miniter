@@ -34,5 +34,6 @@ expect class RustCoreSession {
         fun exportProjectJson(projectJson: String, outputPath: String): Boolean
         fun cancelExport()
         fun exportProgress(): UInt
+        fun wasExportHardwareAccelerated(): Boolean
     }
 }

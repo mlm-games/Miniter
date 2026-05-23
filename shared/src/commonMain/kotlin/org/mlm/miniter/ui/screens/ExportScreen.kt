@@ -95,6 +95,12 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     LaunchedEffect(settings.hardwareAccelerationEnabled) {
         hwEnabled = settings.hardwareAccelerationEnabled
     }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(progress.hardwareFallback) {
+        if (progress.hardwareFallback) {
+            snackbarHostState.showSnackbar("Hardware accel. wasn't available, fell back to software (larger in size)")
+        }
+    }
     val scope = rememberCoroutineScope()
 
     val isExporting = progress.progress > 0f &&
@@ -119,6 +125,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Export") },

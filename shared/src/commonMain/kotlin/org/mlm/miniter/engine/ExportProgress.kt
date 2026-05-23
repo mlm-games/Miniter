@@ -6,4 +6,5 @@ data class ExportProgress(
     val isComplete: Boolean = false,
     val isCancelled: Boolean = false,
     val error: String? = null,
+    val hardwareFallback: Boolean = false,
 )

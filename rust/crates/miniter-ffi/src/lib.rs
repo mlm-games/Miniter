@@ -310,6 +310,11 @@ mod native_ffi {
     pub fn cancel_export() {
         EXPORT_CANCELLED.store(true, Ordering::SeqCst);
     }
+
+    #[uniffi::export]
+    pub fn was_export_hardware_accelerated() -> bool {
+        !miniter_media_native::export::was_hardware_fallback()
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

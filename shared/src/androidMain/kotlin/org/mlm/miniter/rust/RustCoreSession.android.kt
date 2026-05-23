@@ -11,6 +11,7 @@ import org.mlm.miniter.ffi.extractThumbnails as nativeExtractThumbnails
 import org.mlm.miniter.ffi.extractWaveform as nativeExtractWaveform
 import org.mlm.miniter.ffi.probeAudio as nativeProbeAudio
 import org.mlm.miniter.ffi.probeVideo as nativeProbeVideo
+import org.mlm.miniter.ffi.wasExportHardwareAccelerated as nativeWasExportHardwareAccelerated
 
 actual class RustCoreSession private constructor(
     private val handle: NativeEditorHandle,
@@ -99,6 +100,9 @@ actual class RustCoreSession private constructor(
 
         actual fun exportProgress(): UInt =
             nativeExportProgress()
+
+        actual fun wasExportHardwareAccelerated(): Boolean =
+            nativeWasExportHardwareAccelerated()
     }
 }
 

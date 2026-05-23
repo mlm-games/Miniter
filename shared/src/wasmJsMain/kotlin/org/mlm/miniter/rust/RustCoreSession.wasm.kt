@@ -217,6 +217,8 @@ actual class RustCoreSession private constructor(
         }
 
         actual fun exportProgress(): UInt = wasmExportProgress().toUInt()
+
+        actual fun wasExportHardwareAccelerated(): Boolean = true
     }
 }
 

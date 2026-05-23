@@ -3,6 +3,7 @@
 use crate::frame::RgbaFrame;
 use mp4::{Mp4Reader, TrackType};
 use std::io::{BufReader, Seek, Write};
+use std::sync::atomic::Ordering;
 use std::path::Path;
 
 #[derive(Debug, thiserror::Error)]
@@ -712,6 +713,7 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
                         Ok(None) => continue,
                         Err(e) => {
                             log::warn!("Baaba decoder failed, falling back to videoson: {}", e);
+                            crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
                             self.baaba = None;
                             #[cfg(feature = "videoson")]
                             {
