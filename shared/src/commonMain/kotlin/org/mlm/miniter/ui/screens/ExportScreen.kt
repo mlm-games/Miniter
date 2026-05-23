@@ -2,6 +2,8 @@ package org.mlm.miniter.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -98,9 +100,10 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(progress.hardwareFallback) {
         if (progress.hardwareFallback) {
-            snackbarHostState.showSnackbar("Hardware accel. wasn't available, fell back to software (larger in size)")
+            snackbarHostState.showSnackbar("Hardware accel. wasn't available, fell back to software (slower & larger in size)")
         }
     }
+    val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
 
     val isExporting = progress.progress > 0f &&
@@ -146,6 +149,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
