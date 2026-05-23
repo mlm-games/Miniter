@@ -41,6 +41,40 @@ pub fn yuv420_to_rgba(
     rgba
 }
 
+/// Convert a packed NV12 frame to RGBA.
+///
+/// NV12 layout: Y plane (width*height bytes) followed by interleaved U/V
+/// plane (width*height/2 bytes). Chroma is subsampled 2x in both directions.
+pub fn nv12_to_rgba(data: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let mut rgba = vec![0u8; width * height * 4];
+    let y_size = width * height;
+
+    for row in 0..height {
+        for col in 0..width {
+            let yi = row * width + col;
+            let uv_row = row / 2;
+            let uv_col = col / 2;
+            let uvi = y_size + uv_row * width + uv_col * 2;
+
+            let yy = data[yi] as f32;
+            let uu = data[uvi] as f32 - 128.0;
+            let vv = data[uvi + 1] as f32 - 128.0;
+
+            let r = (yy + 1.402 * vv).clamp(0.0, 255.0) as u8;
+            let g = (yy - 0.344136 * uu - 0.714136 * vv).clamp(0.0, 255.0) as u8;
+            let b = (yy + 1.772 * uu).clamp(0.0, 255.0) as u8;
+
+            let base = (row * width + col) * 4;
+            rgba[base] = r;
+            rgba[base + 1] = g;
+            rgba[base + 2] = b;
+            rgba[base + 3] = 255;
+        }
+    }
+
+    rgba
+}
+
 /// Convert packed RGBA pixels to planar I420 (YUV 4:2:0).
 ///
 /// Returns `(y_plane, u_plane, v_plane)`.

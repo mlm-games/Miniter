@@ -179,8 +179,8 @@ mod videoson_decoder {
 mod baaba_decoder {
     use super::*;
     use baabaabaabaabababbababbaa::{
-        Dimensions, EncodedVideoPacket, VideoCodecId, VideoDecoderConfig, VideoFrame as BaabaFrame,
-        VideoPlanes,
+        Dimensions, EncodedVideoPacket, PixelFormat, VideoCodecId, VideoDecoderConfig,
+        VideoFrame as BaabaFrame, VideoPlanes,
     };
 
     use baabaabaabaabababbababbaa::VideoDecoderInput as _;
@@ -282,26 +282,31 @@ mod baaba_decoder {
 
     fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeError> {
         let pts_us = frame.timestamp.as_micros().min(i64::MAX as u128) as i64;
+        let w = frame.dimensions.width as usize;
+        let h = frame.dimensions.height as usize;
 
         match frame.planes {
             VideoPlanes::Cpu(data) => {
-                let w = frame.dimensions.width as usize;
-                let h = frame.dimensions.height as usize;
-                let luma = w * h;
-                let chroma = (w / 2) * (h / 2);
-
-                if data.len() >= luma + 2 * chroma {
-                    let (y, rest) = data.split_at(luma);
-                    let (u, v) = rest.split_at(chroma);
-                    let rgba = crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, w / 2, w / 2);
-                    Ok(RgbaFrame {
-                        width: frame.dimensions.width,
-                        height: frame.dimensions.height,
-                        data: rgba,
-                        pts_us,
-                    })
-                } else {
-                    Err(DecodeError::Other("Invalid plane data".to_string()))
+                match frame.format {
+                    PixelFormat::Yuv420p => {
+                        let luma = w * h;
+                        let chroma = (w / 2) * (h / 2);
+                        if data.len() >= luma + 2 * chroma {
+                            let (y, rest) = data.split_at(luma);
+                            let (u, v) = rest.split_at(chroma);
+                            let rgba = crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, w / 2, w / 2);
+                            Ok(RgbaFrame { width: frame.dimensions.width, height: frame.dimensions.height, data: rgba, pts_us })
+                        } else {
+                            Err(DecodeError::Other("Invalid Yuv420p plane data".to_string()))
+                        }
+                    }
+                    PixelFormat::Nv12 => {
+                        let rgba = crate::yuv::nv12_to_rgba(&data, w, h);
+                        Ok(RgbaFrame { width: frame.dimensions.width, height: frame.dimensions.height, data: rgba, pts_us })
+                    }
+                    _ => Err(DecodeError::Other(
+                        format!("Unsupported pixel format: {:?}", frame.format),
+                    )),
                 }
             }
             VideoPlanes::Hardware => Err(DecodeError::Other(

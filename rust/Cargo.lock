@@ -1383,6 +1383,7 @@ dependencies = [
  "rav1e",
  "symphonia",
  "thiserror 2.0.18",
+ "tokio",
  "videoson-codec-h264",
  "videoson-core",
  "wasm-bindgen-futures",
