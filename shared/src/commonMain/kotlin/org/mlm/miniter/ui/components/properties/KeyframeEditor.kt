@@ -28,7 +28,59 @@ import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
-import org.mlm.miniter.project.AnimatableParam
+import org.mlm.miniter.project.KeyframeParams
+
+private val keyframeDisplayNames: Map<String, String> = mapOf(
+    KeyframeParams.OPACITY to "Opacity",
+    KeyframeParams.VOLUME to "Volume",
+    KeyframeParams.TRANSFORM_SCALE to "Scale",
+    KeyframeParams.TRANSFORM_TRANSLATE_X to "Pan X",
+    KeyframeParams.TRANSFORM_TRANSLATE_Y to "Pan Y",
+    KeyframeParams.TRANSFORM_ROTATE to "Rotate",
+)
+
+private val keyframeParamRanges: Map<String, ClosedFloatingPointRange<Float>> = mapOf(
+    KeyframeParams.OPACITY to 0f..1f,
+    KeyframeParams.VOLUME to 0f..2f,
+    KeyframeParams.TRANSFORM_SCALE to 0.5f..3f,
+    KeyframeParams.TRANSFORM_TRANSLATE_X to -1f..1f,
+    KeyframeParams.TRANSFORM_TRANSLATE_Y to -1f..1f,
+    KeyframeParams.TRANSFORM_ROTATE to -180f..180f,
+)
+
+private val keyframeParamSteps: Map<String, Int> = mapOf(
+    KeyframeParams.VOLUME to 19,
+    KeyframeParams.TRANSFORM_SCALE to 24,
+)
+
+private fun paramDisplayName(param: String): String {
+    return keyframeDisplayNames[param] ?: when {
+        param.startsWith("filter.") -> {
+            val parts = param.split(".")
+            if (parts.size >= 3) parts.drop(2).joinToString(" ").replaceFirstChar { it.uppercase() }
+            else "Filter"
+        }
+        else -> param
+    }
+}
+
+private fun paramFormatValue(param: String, value: Float): String = when (param) {
+    KeyframeParams.OPACITY -> "${(value * 100).toInt()}%"
+    KeyframeParams.VOLUME -> "${(value * 100).toInt()}%"
+    KeyframeParams.TRANSFORM_SCALE -> "${formatFixed(value, 1)}x"
+    KeyframeParams.TRANSFORM_TRANSLATE_X -> "${(value * 100).toInt()}%"
+    KeyframeParams.TRANSFORM_TRANSLATE_Y -> "${(value * 100).toInt()}%"
+    KeyframeParams.TRANSFORM_ROTATE -> "${value.toInt()}°"
+    else -> "${formatFixed(value, 2)}"
+}
+
+private fun paramRange(param: String): ClosedFloatingPointRange<Float> {
+    return keyframeParamRanges[param] ?: 0f..1f
+}
+
+private fun paramSteps(param: String): Int {
+    return keyframeParamSteps[param] ?: 0
+}
 
 private val easingLabels = mapOf(
     RustEasing.Linear to "Linear",
@@ -37,120 +89,53 @@ private val easingLabels = mapOf(
     RustEasing.EaseInOut to "Ease In Out",
 )
 
-private fun discoverAnimatableParams(clip: RustClipSnapshot): List<AnimatableParam> {
-    val params = mutableListOf<AnimatableParam>()
-
-    params.add(AnimatableParam("opacity", "Opacity", 0f..1f, format = { "${(it * 100).toInt()}%" }))
-    params.add(AnimatableParam("volume", "Volume", 0f..2f, 19, format = { "${(it * 100).toInt()}%" }))
-
-    when (val kind = clip.kind) {
-        is RustVideoClipKind -> {
-            val transformKfs = clip.keyframes.keyframes.filter { it.param.startsWith("transform.") }
-            val hasTransform = transformKfs.isNotEmpty()
-            params.add(AnimatableParam("transform.scale", "Scale", 0.5f..3f, 24, format = { "${formatFixed(it, 1)}x" }))
-            params.add(AnimatableParam("transform.translate_x", "Pan X", -1f..1f, format = { "${(it * 100).toInt()}%" }))
-            params.add(AnimatableParam("transform.translate_y", "Pan Y", -1f..1f, format = { "${(it * 100).toInt()}%" }))
-            params.add(AnimatableParam("transform.rotate", "Rotate", -180f..180f, format = { "${it.toInt()}°" }))
-
-            kind.filters.forEachIndexed { index, effect ->
-                when (effect.filter) {
-                    is RustBrightnessFilterSnapshot -> params.add(
-                        AnimatableParam("filter:brightness:$index", "Brightness", -100f..100f, 39, format = { "${it.toInt()}" })
-                    )
-                    is RustContrastFilterSnapshot -> params.add(
-                        AnimatableParam("filter:contrast:$index", "Contrast", 0f..3f, 29, format = { "${formatFixed(it, 1)}x" })
-                    )
-                    is RustSaturationFilterSnapshot -> params.add(
-                        AnimatableParam("filter:saturation:$index", "Saturation", 0f..3f, 29, format = { "${formatFixed(it, 1)}x" })
-                    )
-                    is RustBlurFilterSnapshot -> params.add(
-                        AnimatableParam("filter:blur:$index", "Blur radius", 1f..20f, 18, format = { "${it.toInt()}px" })
-                    )
-                    is RustSharpenFilterSnapshot -> params.add(
-                        AnimatableParam("filter:sharpen:$index", "Sharpen", 0f..3f, 29, format = { "${formatFixed(it, 1)}x" })
-                    )
-                    else -> { }
-                }
-            }
-        }
-        is RustAudioClipKind -> { }
-        is RustTextClipKind -> {
-            params.add(AnimatableParam("text.position_x", "Text X", 0f..1f, format = { "${(it * 100).toInt()}%" }))
-            params.add(AnimatableParam("text.position_y", "Text Y", 0f..1f, format = { "${(it * 100).toInt()}%" }))
-            params.add(AnimatableParam("text.font_size", "Font Size", 12f..120f, 26, format = { "${it.toInt()}sp" }))
-        }
-        is RustSubtitleClipKind -> { }
-    }
-
-    return params
-}
-
-private fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
-    return when {
-        paramKey == "opacity" -> clip.opacity
-        paramKey == "volume" -> clip.volume
-        paramKey == "transform.scale" -> {
+fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
+    return when (paramKey) {
+        KeyframeParams.OPACITY -> clip.opacity
+        KeyframeParams.VOLUME -> clip.volume
+        KeyframeParams.TRANSFORM_SCALE -> {
             val kind = clip.kind
             if (kind is RustVideoClipKind) {
                 kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.scale ?: 1f
             } else 1f
         }
-        paramKey == "transform.translate_x" -> {
+        KeyframeParams.TRANSFORM_TRANSLATE_X -> {
             val kind = clip.kind
             if (kind is RustVideoClipKind) {
                 kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.translateX ?: 0.5f
             } else 0.5f
         }
-        paramKey == "transform.translate_y" -> {
+        KeyframeParams.TRANSFORM_TRANSLATE_Y -> {
             val kind = clip.kind
             if (kind is RustVideoClipKind) {
                 kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.translateY ?: 0.5f
             } else 0.5f
         }
-        paramKey == "transform.rotate" -> {
+        KeyframeParams.TRANSFORM_ROTATE -> {
             val kind = clip.kind
             if (kind is RustVideoClipKind) {
                 kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.rotate ?: 0f
             } else 0f
         }
-        paramKey.startsWith("filter:brightness:") -> {
-            val idx = paramKey.removePrefix("filter:brightness:").toIntOrNull() ?: return 0f
-            val kind = clip.kind as? RustVideoClipKind ?: return 0f
-            (kind.filters.getOrNull(idx)?.filter as? RustBrightnessFilterSnapshot)?.value ?: 0f
+        else -> {
+            if (paramKey.startsWith("filter.")) {
+                val parts = paramKey.split(".")
+                if (parts.size >= 3) {
+                    val idx = parts[1].toIntOrNull() ?: return 0f
+                    val prop = parts[2]
+                    val kind = clip.kind as? RustVideoClipKind ?: return 0f
+                    val filter = kind.filters.getOrNull(idx)?.filter ?: return 0f
+                    when {
+                        prop == "brightness" && filter is RustBrightnessFilterSnapshot -> filter.value
+                        prop == "contrast" && filter is RustContrastFilterSnapshot -> filter.value
+                        prop == "saturation" && filter is RustSaturationFilterSnapshot -> filter.value
+                        prop == "blur_radius" && filter is RustBlurFilterSnapshot -> filter.radius
+                        prop == "sharpen_amount" && filter is RustSharpenFilterSnapshot -> filter.amount
+                        else -> 0f
+                    }
+                } else 0f
+            } else 0f
         }
-        paramKey.startsWith("filter:contrast:") -> {
-            val idx = paramKey.removePrefix("filter:contrast:").toIntOrNull() ?: return 0f
-            val kind = clip.kind as? RustVideoClipKind ?: return 0f
-            (kind.filters.getOrNull(idx)?.filter as? RustContrastFilterSnapshot)?.value ?: 1f
-        }
-        paramKey.startsWith("filter:saturation:") -> {
-            val idx = paramKey.removePrefix("filter:saturation:").toIntOrNull() ?: return 0f
-            val kind = clip.kind as? RustVideoClipKind ?: return 0f
-            (kind.filters.getOrNull(idx)?.filter as? RustSaturationFilterSnapshot)?.value ?: 1f
-        }
-        paramKey.startsWith("filter:blur:") -> {
-            val idx = paramKey.removePrefix("filter:blur:").toIntOrNull() ?: return 0f
-            val kind = clip.kind as? RustVideoClipKind ?: return 0f
-            (kind.filters.getOrNull(idx)?.filter as? RustBlurFilterSnapshot)?.radius ?: 5f
-        }
-        paramKey.startsWith("filter:sharpen:") -> {
-            val idx = paramKey.removePrefix("filter:sharpen:").toIntOrNull() ?: return 0f
-            val kind = clip.kind as? RustVideoClipKind ?: return 0f
-            (kind.filters.getOrNull(idx)?.filter as? RustSharpenFilterSnapshot)?.amount ?: 1f
-        }
-        paramKey == "text.position_x" -> {
-            val kind = clip.kind as? RustTextClipKind
-            kind?.style?.positionX ?: 0.5f
-        }
-        paramKey == "text.position_y" -> {
-            val kind = clip.kind as? RustTextClipKind
-            kind?.style?.positionY ?: 0.9f
-        }
-        paramKey == "text.font_size" -> {
-            val kind = clip.kind as? RustTextClipKind
-            kind?.style?.fontSize ?: 24f
-        }
-        else -> 0f
     }
 }
 
@@ -165,7 +150,6 @@ fun KeyframeEditor(
     val clipStartUs = clip.timelineStartUs
     val clipDurationUs = clip.timelineDurationUs
     val clipOffsetMs = (playheadMs * 1000L - clipStartUs).coerceIn(0L, clipDurationUs) / 1000L
-    val params = remember(clip.id, clip.kind) { discoverAnimatableParams(clip) }
 
     Column {
         HorizontalDivider()
@@ -178,45 +162,48 @@ fun KeyframeEditor(
         )
         Spacer(Modifier.height(8.dp))
 
-        if (params.isEmpty()) {
+        val curve = clip.keyframes
+        val grouped = curve.keyframes.groupBy { it.param }.toList()
+            .sortedBy { (param, _) ->
+                val order = listOf(
+                    KeyframeParams.OPACITY,
+                    KeyframeParams.VOLUME,
+                    KeyframeParams.TRANSFORM_SCALE,
+                    KeyframeParams.TRANSFORM_TRANSLATE_X,
+                    KeyframeParams.TRANSFORM_TRANSLATE_Y,
+                    KeyframeParams.TRANSFORM_ROTATE,
+                )
+                order.indexOf(param).let { if (it < 0) Int.MAX_VALUE else it }
+            }
+
+        if (grouped.isEmpty()) {
             Text(
-                "No keyframeable properties for this clip type.",
+                "No keyframes. Click the diamond icon next to any property to add one.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        val curve = clip.keyframes
-        var expandedParam by remember { mutableStateOf<String?>(null) }
-
-        params.forEach { param ->
-            val paramKfs = curve.keyframes
-                .filter { it.param == param.key }
-                .sortedBy { it.offset }
-
+        grouped.forEach { (param, kfs) ->
             KeyframeTrackRow(
                 param = param,
-                keyframes = paramKfs,
+                keyframes = kfs,
                 clipDurationUs = clipDurationUs,
                 clipOffsetUs = clipOffsetMs * 1000L,
-                isExpanded = expandedParam == param.key,
-                onToggleExpand = {
-                    expandedParam = if (expandedParam == param.key) null else param.key
-                },
                 onAddKeyframe = { offsetUs ->
                     onAddKeyframe(RustKeyframe(
-                        param = param.key,
+                        param = param,
                         offset = offsetUs,
-                        value = currentValueForParam(clip, param.key),
+                        value = currentValueForParam(clip, param),
                         easing = RustEasing.EaseInOut,
                     ))
                 },
                 onRemoveKeyframe = { indexInParam ->
-                    val allIndex = curve.keyframes.indexOf(paramKfs[indexInParam])
+                    val allIndex = curve.keyframes.indexOf(kfs[indexInParam])
                     onRemoveKeyframe(allIndex)
                 },
                 onUpdateKeyframe = { indexInParam, updated ->
-                    val allIndex = curve.keyframes.indexOf(paramKfs[indexInParam])
+                    val allIndex = curve.keyframes.indexOf(kfs[indexInParam])
                     onUpdateKeyframe(allIndex, updated)
                 },
             )
@@ -227,53 +214,47 @@ fun KeyframeEditor(
 
 @Composable
 private fun KeyframeTrackRow(
-    param: AnimatableParam,
+    param: String,
     keyframes: List<RustKeyframe>,
     clipDurationUs: Long,
     clipOffsetUs: Long,
-    isExpanded: Boolean,
-    onToggleExpand: () -> Unit,
     onAddKeyframe: (offsetUs: Long) -> Unit,
     onRemoveKeyframe: (Int) -> Unit,
     onUpdateKeyframe: (Int, RustKeyframe) -> Unit,
 ) {
-    val hasKfs = keyframes.isNotEmpty()
+    val displayName = paramDisplayName(param)
     val primary = MaterialTheme.colorScheme.primary
+    var expanded by remember { mutableStateOf(false) }
 
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small),
-        color = if (isExpanded) MaterialTheme.colorScheme.surfaceContainerHigh
+        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small),
+        color = if (expanded) MaterialTheme.colorScheme.surfaceContainerHigh
                 else MaterialTheme.colorScheme.surface,
     ) {
         Column {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onToggleExpand() }
+                modifier = Modifier.fillMaxWidth()
+                    .clickable { expanded = !expanded }
                     .padding(start = 4.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 IconButton(
-                    onClick = {
-                        onAddKeyframe(clipOffsetUs.coerceAtLeast(0L))
-                    },
+                    onClick = { onAddKeyframe(clipOffsetUs.coerceAtLeast(0L)) },
                     modifier = Modifier.size(28.dp),
                 ) {
                     Icon(
                         Icons.Default.Diamond,
                         contentDescription = "Add keyframe at playhead",
                         modifier = Modifier.size(16.dp),
-                        tint = if (hasKfs) primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        tint = primary,
                     )
                 }
 
                 Text(
-                    param.displayName,
+                    displayName,
                     style = MaterialTheme.typography.bodySmall,
-                    fontWeight = if (hasKfs) FontWeight.Medium else FontWeight.Normal,
+                    fontWeight = FontWeight.Medium,
                     modifier = Modifier.width(48.dp),
                 )
 
@@ -283,14 +264,7 @@ private fun KeyframeTrackRow(
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val w = size.width
                             val h = size.height
-
-                            drawLine(
-                                lineColor,
-                                Offset(0f, h / 2),
-                                Offset(w, h / 2),
-                                strokeWidth = 1.5f,
-                            )
-
+                            drawLine(lineColor, Offset(0f, h / 2), Offset(w, h / 2), strokeWidth = 1.5f)
                             val dotR = 3f
                             for (kf in keyframes) {
                                 val x = (kf.offset.toFloat() / clipDurationUs.toFloat() * w)
@@ -301,42 +275,31 @@ private fun KeyframeTrackRow(
                     }
                 }
 
-                if (hasKfs) {
-                    Surface(
-                        shape = CircleShape,
-                        color = primary.copy(alpha = 0.15f),
-                        modifier = Modifier.size(18.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                "${keyframes.size}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = primary,
-                                fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.85f,
-                            )
-                        }
+                Surface(
+                    shape = CircleShape,
+                    color = primary.copy(alpha = 0.15f),
+                    modifier = Modifier.size(18.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            "${keyframes.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = primary,
+                            fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.85f,
+                        )
                     }
                 }
             }
 
-            if (isExpanded) {
-                if (keyframes.isEmpty()) {
-                    Text(
-                        "No keyframes. Tap the diamond to add one at the playhead position.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
-                    )
-                } else {
-                    Column(modifier = Modifier.padding(start = 8.dp, end = 4.dp, bottom = 4.dp)) {
-                        keyframes.forEachIndexed { index, kf ->
-                            KeyframeRow(
-                                keyframe = kf,
-                                param = param,
-                                onRemove = { onRemoveKeyframe(index) },
-                                onUpdate = { updated -> onUpdateKeyframe(index, updated) },
-                            )
-                        }
+            if (expanded) {
+                Column(modifier = Modifier.padding(start = 8.dp, end = 4.dp, bottom = 4.dp)) {
+                    keyframes.sortedBy { it.offset }.forEachIndexed { index, kf ->
+                        KeyframeRow(
+                            keyframe = kf,
+                            param = param,
+                            onRemove = { onRemoveKeyframe(index) },
+                            onUpdate = { updated -> onUpdateKeyframe(index, updated) },
+                        )
                     }
                 }
             }
@@ -347,15 +310,14 @@ private fun KeyframeTrackRow(
 @Composable
 private fun KeyframeRow(
     keyframe: RustKeyframe,
-    param: AnimatableParam,
+    param: String,
     onRemove: () -> Unit,
     onUpdate: (RustKeyframe) -> Unit,
 ) {
     var editing by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = Modifier.fillMaxWidth()
             .clip(MaterialTheme.shapes.small)
             .clickable { editing = !editing }
             .padding(horizontal = 4.dp, vertical = 2.dp),
@@ -376,7 +338,7 @@ private fun KeyframeRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "= ${param.format(keyframe.value)}",
+                "= ${paramFormatValue(param, keyframe.value)}",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium,
             )
@@ -404,9 +366,11 @@ private fun KeyframeRow(
 @Composable
 private fun KeyframeEditorForm(
     keyframe: RustKeyframe,
-    param: AnimatableParam,
+    param: String,
     onUpdate: (RustKeyframe) -> Unit,
 ) {
+    val range = paramRange(param)
+    val steps = paramSteps(param)
     var editingKf by remember(keyframe) { mutableStateOf(keyframe) }
 
     Column(modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 6.dp)) {
@@ -421,13 +385,13 @@ private fun KeyframeEditorForm(
 
         Spacer(Modifier.height(4.dp))
 
-        Text("Value: ${param.format(editingKf.value)}", style = MaterialTheme.typography.labelSmall)
+        Text("Value: ${paramFormatValue(param, editingKf.value)}", style = MaterialTheme.typography.labelSmall)
         Slider(
-            value = editingKf.value.coerceIn(param.valueRange),
+            value = editingKf.value.coerceIn(range),
             onValueChange = { editingKf = editingKf.copy(value = it) },
             onValueChangeFinished = { onUpdate(editingKf) },
-            valueRange = param.valueRange,
-            steps = param.steps,
+            valueRange = range,
+            steps = steps,
             modifier = Modifier.height(24.dp),
         )
 

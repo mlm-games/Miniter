@@ -69,6 +69,20 @@ private fun applyEasing(easing: Easing, t: Float): Float = when (easing) {
     Easing.EaseInOut -> if (t < 0.5f) 4f * t * t * t else 1f - (-2f * t + 2f) * (-2f * t + 2f) * (-2f * t + 2f) / 2f
 }
 
+object KeyframeParams {
+    const val OPACITY = "opacity"
+    const val VOLUME = "volume"
+    const val TRANSFORM_SCALE = "transform.scale"
+    const val TRANSFORM_TRANSLATE_X = "transform.translate_x"
+    const val TRANSFORM_TRANSLATE_Y = "transform.translate_y"
+    const val TRANSFORM_ROTATE = "transform.rotate"
+    const val TEXT_POSITION_X = "text.position_x"
+    const val TEXT_POSITION_Y = "text.position_y"
+    const val TEXT_FONT_SIZE = "text.font_size"
+
+    fun filterParam(index: Int, name: String) = "filter.$index.$name"
+}
+
 data class AnimatableParam(
     val key: String,
     val displayName: String,

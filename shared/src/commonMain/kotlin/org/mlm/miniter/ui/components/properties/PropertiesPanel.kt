@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
@@ -38,9 +39,11 @@ import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.project.KeyframeParams
 
 @Composable
 fun PropertiesPanel(
@@ -120,7 +123,7 @@ fun PropertiesPanel(
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
             )
-            is RustAudioClipKind -> AudioClipProperties(clip, kind, onSetVolume, onAddAudioFilter, onRemoveAudioFilter, onUpdateAudioFilterDuration)
+            is RustAudioClipKind -> AudioClipProperties(clip, kind, playheadMs, onSetVolume, onAddAudioFilter, onRemoveAudioFilter, onUpdateAudioFilterDuration, onAddKeyframe)
             is RustTextClipKind -> TextClipProperties(
                 clip,
                 kind,
@@ -133,10 +136,12 @@ fun PropertiesPanel(
             is RustSubtitleClipKind -> SubtitleClipProperties(
                 clip = clip,
                 kind = kind,
+                playheadMs = playheadMs,
                 onSetOpacity = onSetOpacity,
                 onSetDuration = onSetTextDuration,
                 onSetTransitionIn = onSetTextTransitionIn,
                 onSetTransitionOut = onSetTextTransitionOut,
+                onAddKeyframe = onAddKeyframe,
             )
         }
     }
@@ -161,6 +166,7 @@ private fun VideoClipProperties(
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
 ) {
+    val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
     val fileName = kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
     val clipDurationMs = clip.timelineDurationUs / 1000L
     val clipSpeed = clip.speed.toFloat()
@@ -192,7 +198,10 @@ private fun VideoClipProperties(
 
     Spacer(Modifier.height(16.dp))
 
-    Text("Volume", style = MaterialTheme.typography.labelMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Volume", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        KeyframeToggle(KeyframeParams.VOLUME, clip, clipOffsetUs, onAddKeyframe)
+    }
     var volumeValue by remember(clipVolume) { mutableFloatStateOf(clipVolume) }
     Slider(
         value = volumeValue,
@@ -205,7 +214,10 @@ private fun VideoClipProperties(
 
     Spacer(Modifier.height(16.dp))
 
-    Text("Opacity", style = MaterialTheme.typography.labelMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Opacity", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        KeyframeToggle(KeyframeParams.OPACITY, clip, clipOffsetUs, onAddKeyframe)
+    }
     var opacityValue by remember(clipOpacity) { mutableFloatStateOf(clipOpacity) }
     Slider(
         value = opacityValue,
@@ -276,7 +288,10 @@ private fun VideoClipProperties(
         when (filter) {
             is RustTransformFilterSnapshot -> {
                 Spacer(Modifier.height(12.dp))
-                Text("Scale: ${formatFixed(filter.scale, 1)}x", style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Scale: ${formatFixed(filter.scale, 1)}x", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    KeyframeToggle(KeyframeParams.TRANSFORM_SCALE, clip, clipOffsetUs, onAddKeyframe)
+                }
                 var scaleVal by remember(filter) { mutableFloatStateOf(filter.scale) }
                 Slider(
                     value = scaleVal,
@@ -288,7 +303,10 @@ private fun VideoClipProperties(
                     steps = 24,
                 )
                 Spacer(Modifier.height(8.dp))
-                Text("Pan X: ${(filter.translateX * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Pan X: ${(filter.translateX * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    KeyframeToggle(KeyframeParams.TRANSFORM_TRANSLATE_X, clip, clipOffsetUs, onAddKeyframe)
+                }
                 var translateXVal by remember(filter) { mutableFloatStateOf(filter.translateX) }
                 Slider(
                     value = translateXVal,
@@ -299,7 +317,10 @@ private fun VideoClipProperties(
                     valueRange = -1f..1f,
                 )
                 Spacer(Modifier.height(8.dp))
-                Text("Pan Y: ${(filter.translateY * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Pan Y: ${(filter.translateY * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    KeyframeToggle(KeyframeParams.TRANSFORM_TRANSLATE_Y, clip, clipOffsetUs, onAddKeyframe)
+                }
                 var translateYVal by remember(filter) { mutableFloatStateOf(filter.translateY) }
                 Slider(
                     value = translateYVal,
@@ -310,7 +331,10 @@ private fun VideoClipProperties(
                     valueRange = -1f..1f,
                 )
                 Spacer(Modifier.height(8.dp))
-                Text("Rotate: ${filter.rotate.toInt()}°", style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Rotate: ${filter.rotate.toInt()}°", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    KeyframeToggle(KeyframeParams.TRANSFORM_ROTATE, clip, clipOffsetUs, onAddKeyframe)
+                }
                 var rotateVal by remember(filter) { mutableFloatStateOf(filter.rotate) }
                 Slider(
                     value = rotateVal,
@@ -332,6 +356,7 @@ private fun VideoClipProperties(
                 val paramKey: String
                 val range: ClosedFloatingPointRange<Float>
                 val steps: Int
+                val animParamKey: String
                 when (filter) {
                     is RustBrightnessFilterSnapshot -> {
                         label = "Brightness"
@@ -339,6 +364,7 @@ private fun VideoClipProperties(
                         paramKey = "value"
                         range = -100f..100f
                         steps = 39
+                        animParamKey = KeyframeParams.filterParam(index, "brightness")
                     }
                     is RustContrastFilterSnapshot -> {
                         label = "Contrast"
@@ -346,6 +372,7 @@ private fun VideoClipProperties(
                         paramKey = "value"
                         range = 0f..3f
                         steps = 29
+                        animParamKey = KeyframeParams.filterParam(index, "contrast")
                     }
                     is RustSaturationFilterSnapshot -> {
                         label = "Saturation"
@@ -353,6 +380,7 @@ private fun VideoClipProperties(
                         paramKey = "value"
                         range = 0f..3f
                         steps = 29
+                        animParamKey = KeyframeParams.filterParam(index, "saturation")
                     }
                     is RustBlurFilterSnapshot -> {
                         label = "Blur radius"
@@ -360,6 +388,7 @@ private fun VideoClipProperties(
                         paramKey = "radius"
                         range = 1f..20f
                         steps = 18
+                        animParamKey = KeyframeParams.filterParam(index, "blur_radius")
                     }
                     is RustSharpenFilterSnapshot -> {
                         label = "Sharpen amount"
@@ -367,12 +396,16 @@ private fun VideoClipProperties(
                         paramKey = "amount"
                         range = 0f..3f
                         steps = 29
+                        animParamKey = KeyframeParams.filterParam(index, "sharpen_amount")
                     }
                 }
 
                 var paramVal by remember(filter) { mutableFloatStateOf(currentVal) }
                 Spacer(Modifier.height(8.dp))
-                Text("$label: ${formatFixed(paramVal, 1)}", style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("$label: ${formatFixed(paramVal, 1)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    KeyframeToggle(animParamKey, clip, clipOffsetUs, onAddKeyframe)
+                }
                 Slider(
                     value = paramVal,
                     onValueChange = { paramVal = it },
@@ -424,18 +457,24 @@ private fun VideoClipProperties(
 private fun AudioClipProperties(
     clip: RustClipSnapshot,
     kind: RustAudioClipKind,
+    playheadMs: Long = 0L,
     onSetVolume: (String, Float) -> Unit,
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit,
     onRemoveAudioFilter: (String, Int) -> Unit,
     onUpdateAudioFilterDuration: (String, Int, Long) -> Unit,
+    onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
 ) {
+    val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
     val clipVolume = clip.volume
     val audioFilters = kind.filters
 
     Text("Audio Clip", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(8.dp))
 
-    Text("Volume", style = MaterialTheme.typography.labelMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Volume", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        KeyframeToggle(KeyframeParams.VOLUME, clip, clipOffsetUs, onAddKeyframe)
+    }
     var volumeValue by remember(clipVolume) { mutableFloatStateOf(clipVolume) }
     Slider(
         value = volumeValue,
@@ -761,11 +800,14 @@ private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
 private fun SubtitleClipProperties(
     clip: RustClipSnapshot,
     kind: RustSubtitleClipKind,
+    playheadMs: Long = 0L,
     onSetOpacity: (String, Float) -> Unit,
     onSetDuration: (String, Long) -> Unit,
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
+    onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
 ) {
+    val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
     var opacityValue by remember(clip.opacity) { mutableFloatStateOf(clip.opacity) }
     var durationSec by remember(clip.timelineDurationUs) {
         mutableFloatStateOf((clip.timelineDurationUs / 1_000_000f).coerceAtLeast(0.5f))
@@ -803,7 +845,10 @@ private fun SubtitleClipProperties(
 
     Spacer(Modifier.height(12.dp))
 
-    Text("Opacity", style = MaterialTheme.typography.labelMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Opacity", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        KeyframeToggle(KeyframeParams.OPACITY, clip, clipOffsetUs, onAddKeyframe)
+    }
     Slider(
         value = opacityValue,
         onValueChange = { opacityValue = it },
@@ -955,6 +1000,36 @@ private fun RustVideoFilterSnapshot.displayName(): String = when (this) {
 }
 
 private fun RustVideoEffectSnapshot.displayName(): String = filter.displayName()
+
+@Composable
+private fun KeyframeToggle(
+    paramKey: String,
+    clip: RustClipSnapshot,
+    clipOffsetUs: Long,
+    onAddKeyframe: (String, RustKeyframe) -> Unit,
+) {
+    val hasKeyframes = clip.keyframes.keyframes.any { it.param == paramKey }
+    val primary = MaterialTheme.colorScheme.primary
+
+    IconButton(
+        onClick = {
+            onAddKeyframe(clip.id, RustKeyframe(
+                param = paramKey,
+                offset = clipOffsetUs.coerceAtLeast(0L),
+                value = currentValueForParam(clip, paramKey),
+                easing = RustEasing.EaseInOut,
+            ))
+        },
+        modifier = Modifier.size(24.dp),
+    ) {
+        Icon(
+            Icons.Default.Diamond,
+            contentDescription = "Toggle keyframe",
+            modifier = Modifier.size(14.dp),
+            tint = if (hasKeyframes) primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+        )
+    }
+}
 
 internal fun formatFixed(value: Float, decimals: Int): String {
     val safeDecimals = decimals.coerceAtLeast(0)
