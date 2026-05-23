@@ -24,21 +24,22 @@ import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
-import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
+import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
+import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
+import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
+import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustFadeInAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
 import org.mlm.miniter.editor.model.RustNormalizeAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
-import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
-import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
-import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
+import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
-import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
+
 import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
@@ -286,138 +287,29 @@ private fun VideoClipProperties(
 
     clipFilters.forEachIndexed { index, effect ->
         val filter = effect.filter
-        when (filter) {
-            is RustTransformFilterSnapshot -> {
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Scale: ${paramDefOrUnknown(KeyframeParams.TRANSFORM_SCALE).format(filter.scale)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    KeyframeToggle(KeyframeParams.TRANSFORM_SCALE, clip, clipOffsetUs, onAddKeyframe)
-                }
-                var scaleVal by remember(filter) { mutableFloatStateOf(filter.scale) }
-                Slider(
-                    value = scaleVal,
-                    onValueChange = { scaleVal = it },
-                    onValueChangeFinished = {
-                        onUpdateFilterParams(clip.id, index, mapOf("scale" to scaleVal))
-                    },
-                    valueRange = 0.5f..3f,
-                    steps = 24,
+        val def = filterDefByType(filter) ?: return@forEachIndexed
+        def.properties.forEach { prop ->
+            val animParamKey = KeyframeParams.filterParam(index, prop.keyframeSuffix)
+            val currentVal = readFilterProperty(filter, prop.paramKey)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${prop.displayName}: ${prop.format(currentVal)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Pan X: ${paramDefOrUnknown(KeyframeParams.TRANSFORM_TRANSLATE_X).format(filter.translateX)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    KeyframeToggle(KeyframeParams.TRANSFORM_TRANSLATE_X, clip, clipOffsetUs, onAddKeyframe)
-                }
-                var translateXVal by remember(filter) { mutableFloatStateOf(filter.translateX) }
-                Slider(
-                    value = translateXVal,
-                    onValueChange = { translateXVal = it },
-                    onValueChangeFinished = {
-                        onUpdateFilterParams(clip.id, index, mapOf("translate_x" to translateXVal))
-                    },
-                    valueRange = -1f..1f,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Pan Y: ${paramDefOrUnknown(KeyframeParams.TRANSFORM_TRANSLATE_Y).format(filter.translateY)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    KeyframeToggle(KeyframeParams.TRANSFORM_TRANSLATE_Y, clip, clipOffsetUs, onAddKeyframe)
-                }
-                var translateYVal by remember(filter) { mutableFloatStateOf(filter.translateY) }
-                Slider(
-                    value = translateYVal,
-                    onValueChange = { translateYVal = it },
-                    onValueChangeFinished = {
-                        onUpdateFilterParams(clip.id, index, mapOf("translate_y" to translateYVal))
-                    },
-                    valueRange = -1f..1f,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Rotate: ${paramDefOrUnknown(KeyframeParams.TRANSFORM_ROTATE).format(filter.rotate)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    KeyframeToggle(KeyframeParams.TRANSFORM_ROTATE, clip, clipOffsetUs, onAddKeyframe)
-                }
-                var rotateVal by remember(filter) { mutableFloatStateOf(filter.rotate) }
-                Slider(
-                    value = rotateVal,
-                    onValueChange = { rotateVal = it },
-                    onValueChangeFinished = {
-                        onUpdateFilterParams(clip.id, index, mapOf("rotate" to rotateVal))
-                    },
-                    valueRange = -180f..180f,
-                )
+                KeyframeToggle(animParamKey, clip, clipOffsetUs, onAddKeyframe)
             }
-            is RustBrightnessFilterSnapshot,
-            is RustContrastFilterSnapshot,
-            is RustSaturationFilterSnapshot,
-            is RustBlurFilterSnapshot,
-            is RustSharpenFilterSnapshot,
-            -> {
-                val label: String
-                val currentVal: Float
-                val paramKey: String
-                val range: ClosedFloatingPointRange<Float>
-                val steps: Int
-                val animParamKey: String
-                when (filter) {
-                    is RustBrightnessFilterSnapshot -> {
-                        label = "Brightness"
-                        currentVal = filter.value
-                        paramKey = "value"
-                        range = -100f..100f
-                        steps = 39
-                        animParamKey = KeyframeParams.filterParam(index, "brightness")
-                    }
-                    is RustContrastFilterSnapshot -> {
-                        label = "Contrast"
-                        currentVal = filter.value
-                        paramKey = "value"
-                        range = 0f..3f
-                        steps = 29
-                        animParamKey = KeyframeParams.filterParam(index, "contrast")
-                    }
-                    is RustSaturationFilterSnapshot -> {
-                        label = "Saturation"
-                        currentVal = filter.value
-                        paramKey = "value"
-                        range = 0f..3f
-                        steps = 29
-                        animParamKey = KeyframeParams.filterParam(index, "saturation")
-                    }
-                    is RustBlurFilterSnapshot -> {
-                        label = "Blur radius"
-                        currentVal = filter.radius
-                        paramKey = "radius"
-                        range = 1f..20f
-                        steps = 18
-                        animParamKey = KeyframeParams.filterParam(index, "blur_radius")
-                    }
-                    is RustSharpenFilterSnapshot -> {
-                        label = "Sharpen amount"
-                        currentVal = filter.amount
-                        paramKey = "amount"
-                        range = 0f..3f
-                        steps = 29
-                        animParamKey = KeyframeParams.filterParam(index, "sharpen_amount")
-                    }
-                }
-
-                var paramVal by remember(filter) { mutableFloatStateOf(currentVal) }
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("$label: ${formatFixed(paramVal, 1)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    KeyframeToggle(animParamKey, clip, clipOffsetUs, onAddKeyframe)
-                }
-                Slider(
-                    value = paramVal,
-                    onValueChange = { paramVal = it },
-                    onValueChangeFinished = {
-                        onUpdateFilterParams(clip.id, index, mapOf(paramKey to paramVal))
-                    },
-                    valueRange = range,
-                    steps = steps,
-                )
-            }
-            else -> Unit
+            var paramVal by remember(filter, prop.paramKey) { mutableFloatStateOf(currentVal) }
+            Slider(
+                value = paramVal,
+                onValueChange = { paramVal = it },
+                onValueChangeFinished = {
+                    onUpdateFilterParams(clip.id, index, mapOf(prop.paramKey to paramVal))
+                },
+                valueRange = prop.range,
+                steps = prop.steps,
+            )
         }
     }
 
@@ -988,17 +880,12 @@ private fun parseAssFeatureSummary(content: String): AssFeatureSummary {
     )
 }
 
-private fun RustVideoFilterSnapshot.displayName(): String = when (this) {
-    is RustBrightnessFilterSnapshot -> "Brightness"
-    is RustContrastFilterSnapshot -> "Contrast"
-    is RustSaturationFilterSnapshot -> "Saturation"
-    RustGrayscaleFilterSnapshot -> "Grayscale"
-    is RustBlurFilterSnapshot -> "Blur"
-    is RustSharpenFilterSnapshot -> "Sharpen"
-    RustSepiaFilterSnapshot -> "Sepia"
-    is RustTransformFilterSnapshot -> "Transform"
-    else -> "Filter"
-}
+private fun RustVideoFilterSnapshot.displayName(): String =
+    filterDefByType(this)?.displayName ?: when (this) {
+        RustGrayscaleFilterSnapshot -> "Grayscale"
+        RustSepiaFilterSnapshot -> "Sepia"
+        else -> "Filter"
+    }
 
 private fun RustVideoEffectSnapshot.displayName(): String = filter.displayName()
 

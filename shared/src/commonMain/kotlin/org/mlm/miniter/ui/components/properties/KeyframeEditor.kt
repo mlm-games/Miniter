@@ -15,15 +15,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
-import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
-import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
 import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
-import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
-import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
-import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.paramDefOrUnknown
@@ -39,46 +33,15 @@ fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
     return when (paramKey) {
         KeyframeParams.OPACITY -> clip.opacity
         KeyframeParams.VOLUME -> clip.volume
-        KeyframeParams.TRANSFORM_SCALE -> {
-            val kind = clip.kind
-            if (kind is RustVideoClipKind) {
-                kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.scale ?: 1f
-            } else 1f
-        }
-        KeyframeParams.TRANSFORM_TRANSLATE_X -> {
-            val kind = clip.kind
-            if (kind is RustVideoClipKind) {
-                kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.translateX ?: 0.5f
-            } else 0.5f
-        }
-        KeyframeParams.TRANSFORM_TRANSLATE_Y -> {
-            val kind = clip.kind
-            if (kind is RustVideoClipKind) {
-                kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.translateY ?: 0.5f
-            } else 0.5f
-        }
-        KeyframeParams.TRANSFORM_ROTATE -> {
-            val kind = clip.kind
-            if (kind is RustVideoClipKind) {
-                kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.rotate ?: 0f
-            } else 0f
-        }
         else -> {
             if (paramKey.startsWith("filter.")) {
                 val parts = paramKey.split(".")
                 if (parts.size >= 3) {
                     val idx = parts[1].toIntOrNull() ?: return 0f
-                    val prop = parts[2]
+                    val propKey = parts[2]
                     val kind = clip.kind as? RustVideoClipKind ?: return 0f
                     val filter = kind.filters.getOrNull(idx)?.filter ?: return 0f
-                    when {
-                        prop == "brightness" && filter is RustBrightnessFilterSnapshot -> filter.value
-                        prop == "contrast" && filter is RustContrastFilterSnapshot -> filter.value
-                        prop == "saturation" && filter is RustSaturationFilterSnapshot -> filter.value
-                        prop == "blur_radius" && filter is RustBlurFilterSnapshot -> filter.radius
-                        prop == "sharpen_amount" && filter is RustSharpenFilterSnapshot -> filter.amount
-                        else -> 0f
-                    }
+                    readFilterProperty(filter, propKey)
                 } else 0f
             } else 0f
         }
