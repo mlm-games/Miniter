@@ -118,8 +118,8 @@ pub fn apply_affine_transforms(pixels: &mut Vec<u8>, width: usize, height: usize
 
             u = u - 0.5 - translate_x;
             v = v - 0.5 - translate_y;
-            u = (u + 0.5) * zoom;
-            v = (v + 0.5) * zoom;
+            u = (u + 0.5) / zoom;
+            v = (v + 0.5) / zoom;
 
             u = crop_l + u * roi_w;
             v = crop_t + v * roi_h;
