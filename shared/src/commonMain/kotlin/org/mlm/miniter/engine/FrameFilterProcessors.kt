@@ -201,8 +201,8 @@ object FrameFilterProcessors {
                 v = ry / h + cy
                 u = u - 0.5f - tx
                 v = v - 0.5f - ty
-                u = (u + 0.5f) * zoom
-                v = (v + 0.5f) * zoom
+                u = (u + 0.5f) / zoom
+                v = (v + 0.5f) / zoom
                 u += 0.5f
                 v += 0.5f
                 val sx = (u * w - 0.5f).toInt().coerceIn(0, w - 1)

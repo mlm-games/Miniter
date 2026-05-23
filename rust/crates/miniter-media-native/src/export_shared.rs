@@ -203,8 +203,8 @@ pub(crate) fn transform_rgba(src: &[u8], width: usize, height: usize, scale: f32
 
             u = u - 0.5 - tx;
             v = v - 0.5 - ty;
-            u = (u + 0.5) * zoom;
-            v = (v + 0.5) * zoom;
+            u = (u + 0.5) / zoom;
+            v = (v + 0.5) / zoom;
 
             u += 0.5;
             v += 0.5;
