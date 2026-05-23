@@ -1,6 +1,7 @@
 use crate::clear_session_cache;
 use crate::decoder::{DecodeError, VideoDecodeSession};
 use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
+use crate::encoder_hw::HwEncodeSession;
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
 use crate::frame::RgbaFrame;
 use crate::image_cache::ImageCache;
@@ -576,6 +577,34 @@ impl ExportDecodeCache {
     }
 }
 
+enum AnyEncoder {
+    Sw(VideoEncodeSession),
+    Hw(HwEncodeSession),
+}
+
+impl AnyEncoder {
+    fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<EncodedVideoOutput, EncodeError> {
+        match self {
+            AnyEncoder::Sw(e) => e.encode_frame(frame),
+            AnyEncoder::Hw(e) => e.encode_frame(frame),
+        }
+    }
+
+    fn width(&self) -> u32 {
+        match self {
+            AnyEncoder::Sw(e) => e.width(),
+            AnyEncoder::Hw(e) => e.width(),
+        }
+    }
+
+    fn height(&self) -> u32 {
+        match self {
+            AnyEncoder::Sw(e) => e.height(),
+            AnyEncoder::Hw(e) => e.height(),
+        }
+    }
+}
+
 fn export_h264<F>(
     project: &Project,
     output_path: &Path,
@@ -626,7 +655,13 @@ where
         channels: oe.channels,
     });
 
-    let mut encoder = VideoEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32)?;
+    let mut encoder = if project.export_profile.hardware_acceleration {
+        AnyEncoder::Hw(HwEncodeSession::new(
+            width, height, bitrate_kbps * 1000, fps as f32, "video/avc",
+        )?)
+    } else {
+        AnyEncoder::Sw(VideoEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32)?)
+    };
 
     let mut iter = FramePlanIterator::with_render_settings(
         &project.timeline,

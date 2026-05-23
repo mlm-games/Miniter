@@ -4,6 +4,7 @@ pub mod decoder;
 pub mod demux;
 pub mod encoder;
 pub mod encoder_av1;
+pub mod encoder_hw;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod export;
 pub mod export_shared;
