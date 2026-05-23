@@ -216,9 +216,9 @@ mod baaba_decoder {
     }
 
     impl BaabaDecoder {
-        pub fn new(width: u32, height: u32) -> Result<Self, DecodeError> {
+        pub fn new(width: u32, height: u32, mime: &str) -> Result<Self, DecodeError> {
             let config = VideoDecoderConfig {
-                codec: VideoCodecId("video/avc".to_string()),
+                codec: VideoCodecId(mime.to_string()),
                 resolution: Some(Dimensions::new(width, height)),
                 description: None,
                 hardware_acceleration: None,
@@ -580,32 +580,30 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             .media_type()
             .map_err(|_| DecodeError::UnsupportedCodec)?;
 
-        if !matches!(media_type, mp4::MediaType::H264) {
-            return Err(DecodeError::UnsupportedCodec);
-        }
+        let (codec_mime, nalu_length_size, sps, pps) = match media_type {
+            mp4::MediaType::H264 => {
+                if let Some(ref avc1) = video_track.trak.mdia.minf.stbl.stsd.avc1 {
+                    (
+                        "video/avc",
+                        (avc1.avcc.length_size_minus_one & 0x03) + 1,
+                        avc1.avcc.sequence_parameter_sets.first().map(|nal| nal.bytes.clone()),
+                        avc1.avcc.picture_parameter_sets.first().map(|nal| nal.bytes.clone()),
+                    )
+                } else {
+                    ("video/avc", 4, None, None)
+                }
+            }
+            mp4::MediaType::H265 => {
+                ("video/hevc", 4, None, None)
+            }
+            _ => return Err(DecodeError::UnsupportedCodec),
+        };
 
         let video_track_id = video_track.track_id();
         let total_samples = video_track.sample_count();
         let width = video_track.width() as u32;
         let height = video_track.height() as u32;
         let timescale = video_track.timescale();
-
-        let (nalu_length_size, sps, pps) =
-            if let Some(ref avc1) = video_track.trak.mdia.minf.stbl.stsd.avc1 {
-                (
-                    (avc1.avcc.length_size_minus_one & 0x03) + 1,
-                    avc1.avcc
-                        .sequence_parameter_sets
-                        .first()
-                        .map(|nal| nal.bytes.clone()),
-                    avc1.avcc
-                        .picture_parameter_sets
-                        .first()
-                        .map(|nal| nal.bytes.clone()),
-                )
-            } else {
-                (4, None, None)
-            };
 
         #[cfg(feature = "videoson")]
         let videoson = Some(videoson_decoder::VideosonDecoder::new(width, height)?);
@@ -621,7 +619,7 @@ impl<R: std::io::Read + Seek> VideoDecodeSession<R> {
             )
         ))]
         let baaba = if hardware_acceleration {
-            baaba_decoder::BaabaDecoder::new(width, height).ok()
+            baaba_decoder::BaabaDecoder::new(width, height, codec_mime).ok()
         } else {
             None
         };
