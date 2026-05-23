@@ -15,28 +15,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.mlm.miniter.editor.model.RustAudioClipKind
+import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
+import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
+import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
 import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
+import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
+import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
+import org.mlm.miniter.editor.model.RustSubtitleClipKind
+import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
-
-private data class AnimatableParam(
-    val key: String,
-    val displayName: String,
-    val valueRange: ClosedFloatingPointRange<Float>,
-    val steps: Int = 0,
-    val format: (Float) -> String,
-)
-
-private val animatableParams = listOf(
-    AnimatableParam("opacity", "Opacity", 0f..1f, format = { "${(it * 100).toInt()}%" }),
-    AnimatableParam("volume", "Volume", 0f..2f, 19, format = { "${(it * 100).toInt()}%" }),
-    AnimatableParam("transform.scale", "Scale", 0.5f..3f, 24, format = { "${formatFixed(it, 1)}x" }),
-    AnimatableParam("transform.translate_x", "Pan X", -1f..1f, format = { "${(it * 100).toInt()}%" }),
-    AnimatableParam("transform.translate_y", "Pan Y", -1f..1f, format = { "${(it * 100).toInt()}%" }),
-    AnimatableParam("transform.rotate", "Rotate", -180f..180f, format = { "${it.toInt()}°" }),
-)
+import org.mlm.miniter.project.AnimatableParam
 
 private val easingLabels = mapOf(
     RustEasing.Linear to "Linear",
@@ -45,33 +37,118 @@ private val easingLabels = mapOf(
     RustEasing.EaseInOut to "Ease In Out",
 )
 
+private fun discoverAnimatableParams(clip: RustClipSnapshot): List<AnimatableParam> {
+    val params = mutableListOf<AnimatableParam>()
+
+    params.add(AnimatableParam("opacity", "Opacity", 0f..1f, format = { "${(it * 100).toInt()}%" }))
+    params.add(AnimatableParam("volume", "Volume", 0f..2f, 19, format = { "${(it * 100).toInt()}%" }))
+
+    when (val kind = clip.kind) {
+        is RustVideoClipKind -> {
+            val transformKfs = clip.keyframes.keyframes.filter { it.param.startsWith("transform.") }
+            val hasTransform = transformKfs.isNotEmpty()
+            params.add(AnimatableParam("transform.scale", "Scale", 0.5f..3f, 24, format = { "${formatFixed(it, 1)}x" }))
+            params.add(AnimatableParam("transform.translate_x", "Pan X", -1f..1f, format = { "${(it * 100).toInt()}%" }))
+            params.add(AnimatableParam("transform.translate_y", "Pan Y", -1f..1f, format = { "${(it * 100).toInt()}%" }))
+            params.add(AnimatableParam("transform.rotate", "Rotate", -180f..180f, format = { "${it.toInt()}°" }))
+
+            kind.filters.forEachIndexed { index, effect ->
+                when (effect.filter) {
+                    is RustBrightnessFilterSnapshot -> params.add(
+                        AnimatableParam("filter:brightness:$index", "Brightness", -100f..100f, 39, format = { "${it.toInt()}" })
+                    )
+                    is RustContrastFilterSnapshot -> params.add(
+                        AnimatableParam("filter:contrast:$index", "Contrast", 0f..3f, 29, format = { "${formatFixed(it, 1)}x" })
+                    )
+                    is RustSaturationFilterSnapshot -> params.add(
+                        AnimatableParam("filter:saturation:$index", "Saturation", 0f..3f, 29, format = { "${formatFixed(it, 1)}x" })
+                    )
+                    is RustBlurFilterSnapshot -> params.add(
+                        AnimatableParam("filter:blur:$index", "Blur radius", 1f..20f, 18, format = { "${it.toInt()}px" })
+                    )
+                    is RustSharpenFilterSnapshot -> params.add(
+                        AnimatableParam("filter:sharpen:$index", "Sharpen", 0f..3f, 29, format = { "${formatFixed(it, 1)}x" })
+                    )
+                    else -> { }
+                }
+            }
+        }
+        is RustAudioClipKind -> { }
+        is RustTextClipKind -> {
+            params.add(AnimatableParam("text.position_x", "Text X", 0f..1f, format = { "${(it * 100).toInt()}%" }))
+            params.add(AnimatableParam("text.position_y", "Text Y", 0f..1f, format = { "${(it * 100).toInt()}%" }))
+            params.add(AnimatableParam("text.font_size", "Font Size", 12f..120f, 26, format = { "${it.toInt()}sp" }))
+        }
+        is RustSubtitleClipKind -> { }
+    }
+
+    return params
+}
+
 private fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
-    return when (paramKey) {
-        "opacity" -> clip.opacity
-        "volume" -> clip.volume
-        "transform.scale" -> {
+    return when {
+        paramKey == "opacity" -> clip.opacity
+        paramKey == "volume" -> clip.volume
+        paramKey == "transform.scale" -> {
             val kind = clip.kind
             if (kind is RustVideoClipKind) {
                 kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.scale ?: 1f
             } else 1f
         }
-        "transform.translate_x" -> {
+        paramKey == "transform.translate_x" -> {
             val kind = clip.kind
             if (kind is RustVideoClipKind) {
                 kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.translateX ?: 0.5f
             } else 0.5f
         }
-        "transform.translate_y" -> {
+        paramKey == "transform.translate_y" -> {
             val kind = clip.kind
             if (kind is RustVideoClipKind) {
                 kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.translateY ?: 0.5f
             } else 0.5f
         }
-        "transform.rotate" -> {
+        paramKey == "transform.rotate" -> {
             val kind = clip.kind
             if (kind is RustVideoClipKind) {
                 kind.filters.firstNotNullOfOrNull { (it.filter as? RustTransformFilterSnapshot) }?.rotate ?: 0f
             } else 0f
+        }
+        paramKey.startsWith("filter:brightness:") -> {
+            val idx = paramKey.removePrefix("filter:brightness:").toIntOrNull() ?: return 0f
+            val kind = clip.kind as? RustVideoClipKind ?: return 0f
+            (kind.filters.getOrNull(idx)?.filter as? RustBrightnessFilterSnapshot)?.value ?: 0f
+        }
+        paramKey.startsWith("filter:contrast:") -> {
+            val idx = paramKey.removePrefix("filter:contrast:").toIntOrNull() ?: return 0f
+            val kind = clip.kind as? RustVideoClipKind ?: return 0f
+            (kind.filters.getOrNull(idx)?.filter as? RustContrastFilterSnapshot)?.value ?: 1f
+        }
+        paramKey.startsWith("filter:saturation:") -> {
+            val idx = paramKey.removePrefix("filter:saturation:").toIntOrNull() ?: return 0f
+            val kind = clip.kind as? RustVideoClipKind ?: return 0f
+            (kind.filters.getOrNull(idx)?.filter as? RustSaturationFilterSnapshot)?.value ?: 1f
+        }
+        paramKey.startsWith("filter:blur:") -> {
+            val idx = paramKey.removePrefix("filter:blur:").toIntOrNull() ?: return 0f
+            val kind = clip.kind as? RustVideoClipKind ?: return 0f
+            (kind.filters.getOrNull(idx)?.filter as? RustBlurFilterSnapshot)?.radius ?: 5f
+        }
+        paramKey.startsWith("filter:sharpen:") -> {
+            val idx = paramKey.removePrefix("filter:sharpen:").toIntOrNull() ?: return 0f
+            val kind = clip.kind as? RustVideoClipKind ?: return 0f
+            (kind.filters.getOrNull(idx)?.filter as? RustSharpenFilterSnapshot)?.amount ?: 1f
+        }
+        paramKey == "text.position_x" -> {
+            val kind = clip.kind as? RustTextClipKind
+            kind?.style?.positionX ?: 0.5f
+        }
+        paramKey == "text.position_y" -> {
+            val kind = clip.kind as? RustTextClipKind
+            kind?.style?.positionY ?: 0.9f
+        }
+        paramKey == "text.font_size" -> {
+            val kind = clip.kind as? RustTextClipKind
+            kind?.style?.fontSize ?: 24f
         }
         else -> 0f
     }
@@ -88,6 +165,7 @@ fun KeyframeEditor(
     val clipStartUs = clip.timelineStartUs
     val clipDurationUs = clip.timelineDurationUs
     val clipOffsetMs = (playheadMs * 1000L - clipStartUs).coerceIn(0L, clipDurationUs) / 1000L
+    val params = remember(clip.id, clip.kind) { discoverAnimatableParams(clip) }
 
     Column {
         HorizontalDivider()
@@ -100,10 +178,18 @@ fun KeyframeEditor(
         )
         Spacer(Modifier.height(8.dp))
 
+        if (params.isEmpty()) {
+            Text(
+                "No keyframeable properties for this clip type.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         val curve = clip.keyframes
         var expandedParam by remember { mutableStateOf<String?>(null) }
 
-        animatableParams.forEach { param ->
+        params.forEach { param ->
             val paramKfs = curve.keyframes
                 .filter { it.param == param.key }
                 .sortedBy { it.offset }
