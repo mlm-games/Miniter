@@ -2,13 +2,11 @@ package org.mlm.miniter.project
 
 import androidx.compose.animation.core.*
 import kotlinx.serialization.Serializable
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 
 @Serializable
 data class Keyframe(
-    val param: String,          // e.g. "opacity", "transform.scale", "transform.translate_x"
-    val offsetMs: Long,         // milliseconds for easy Compose interop
+    val param: String,
+    val offsetMs: Long,
     val value: Float,
     val easing: Easing = Easing.Linear
 )
@@ -20,7 +18,6 @@ enum class Easing { Linear, EaseIn, EaseOut, EaseInOut }
 data class KeyframeCurve(
     val keyframes: List<Keyframe> = emptyList()
 ) {
-    // for previews / live UI
     fun evaluate(param: String, timeMs: Long): Float? {
         val relevant = keyframes.filter { it.param == param }.sortedBy { it.offsetMs }
         if (relevant.isEmpty()) return null
@@ -52,7 +49,7 @@ data class KeyframeCurve(
             relevant.forEach { kf ->
                 kf.value at kf.offsetMs.toInt() using when (kf.easing) {
                     Easing.Linear -> LinearEasing
-                    Easing.EaseIn -> CubicBezierEasing(0.42f, 0f, 1f, 1f) // approx EaseIn
+                    Easing.EaseIn -> CubicBezierEasing(0.42f, 0f, 1f, 1f)
                     Easing.EaseOut -> CubicBezierEasing(0f, 0f, 0.58f, 1f)
                     Easing.EaseInOut -> CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
                 }
@@ -83,10 +80,36 @@ object KeyframeParams {
     fun filterParam(index: Int, name: String) = "filter.$index.$name"
 }
 
-data class AnimatableParam(
+data class ParamDef(
     val key: String,
     val displayName: String,
-    val valueRange: ClosedFloatingPointRange<Float>,
+    val range: ClosedFloatingPointRange<Float>,
     val steps: Int = 0,
     val format: (Float) -> String,
+)
+
+private fun fmtPct(v: Float) = "${(v * 100).toInt()}%"
+private fun fmt1d(v: Float) = "${(v * 10).toInt() / 10f}x"
+private fun fmtDeg(v: Float) = "${v.toInt()}°"
+private fun fmt2d(v: Float) = "${(v * 100).toInt() / 100f}"
+
+val ALL_PARAMS: List<ParamDef> = listOf(
+    ParamDef(KeyframeParams.OPACITY, "Opacity", 0f..1f, format = ::fmtPct),
+    ParamDef(KeyframeParams.VOLUME, "Volume", 0f..2f, 19, format = ::fmtPct),
+    ParamDef(KeyframeParams.TRANSFORM_SCALE, "Scale", 0.5f..3f, 24, format = ::fmt1d),
+    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_X, "Pan X", -1f..1f, format = ::fmtPct),
+    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_Y, "Pan Y", -1f..1f, format = ::fmtPct),
+    ParamDef(KeyframeParams.TRANSFORM_ROTATE, "Rotate", -180f..180f, format = ::fmtDeg),
+    ParamDef(KeyframeParams.TEXT_POSITION_X, "Text X", 0f..1f, format = ::fmtPct),
+    ParamDef(KeyframeParams.TEXT_POSITION_Y, "Text Y", 0f..1f, format = ::fmtPct),
+    ParamDef(KeyframeParams.TEXT_FONT_SIZE, "Font Size", 12f..120f, 26, format = { "${it.toInt()}sp" }),
+)
+
+val ALL_PARAMS_BY_KEY: Map<String, ParamDef> = ALL_PARAMS.associateBy { it.key }
+
+fun paramDefOrUnknown(key: String): ParamDef = ALL_PARAMS_BY_KEY[key] ?: ParamDef(
+    key = key,
+    displayName = key,
+    range = 0f..1f,
+    format = ::fmt2d,
 )

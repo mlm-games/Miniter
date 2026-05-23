@@ -15,7 +15,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
@@ -24,63 +23,10 @@ import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
-import org.mlm.miniter.editor.model.RustSubtitleClipKind
-import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.project.KeyframeParams
-
-private val keyframeDisplayNames: Map<String, String> = mapOf(
-    KeyframeParams.OPACITY to "Opacity",
-    KeyframeParams.VOLUME to "Volume",
-    KeyframeParams.TRANSFORM_SCALE to "Scale",
-    KeyframeParams.TRANSFORM_TRANSLATE_X to "Pan X",
-    KeyframeParams.TRANSFORM_TRANSLATE_Y to "Pan Y",
-    KeyframeParams.TRANSFORM_ROTATE to "Rotate",
-)
-
-private val keyframeParamRanges: Map<String, ClosedFloatingPointRange<Float>> = mapOf(
-    KeyframeParams.OPACITY to 0f..1f,
-    KeyframeParams.VOLUME to 0f..2f,
-    KeyframeParams.TRANSFORM_SCALE to 0.5f..3f,
-    KeyframeParams.TRANSFORM_TRANSLATE_X to -1f..1f,
-    KeyframeParams.TRANSFORM_TRANSLATE_Y to -1f..1f,
-    KeyframeParams.TRANSFORM_ROTATE to -180f..180f,
-)
-
-private val keyframeParamSteps: Map<String, Int> = mapOf(
-    KeyframeParams.VOLUME to 19,
-    KeyframeParams.TRANSFORM_SCALE to 24,
-)
-
-private fun paramDisplayName(param: String): String {
-    return keyframeDisplayNames[param] ?: when {
-        param.startsWith("filter.") -> {
-            val parts = param.split(".")
-            if (parts.size >= 3) parts.drop(2).joinToString(" ").replaceFirstChar { it.uppercase() }
-            else "Filter"
-        }
-        else -> param
-    }
-}
-
-private fun paramFormatValue(param: String, value: Float): String = when (param) {
-    KeyframeParams.OPACITY -> "${(value * 100).toInt()}%"
-    KeyframeParams.VOLUME -> "${(value * 100).toInt()}%"
-    KeyframeParams.TRANSFORM_SCALE -> "${formatFixed(value, 1)}x"
-    KeyframeParams.TRANSFORM_TRANSLATE_X -> "${(value * 100).toInt()}%"
-    KeyframeParams.TRANSFORM_TRANSLATE_Y -> "${(value * 100).toInt()}%"
-    KeyframeParams.TRANSFORM_ROTATE -> "${value.toInt()}°"
-    else -> "${formatFixed(value, 2)}"
-}
-
-private fun paramRange(param: String): ClosedFloatingPointRange<Float> {
-    return keyframeParamRanges[param] ?: 0f..1f
-}
-
-private fun paramSteps(param: String): Int {
-    return keyframeParamSteps[param] ?: 0
-}
+import org.mlm.miniter.project.paramDefOrUnknown
 
 private val easingLabels = mapOf(
     RustEasing.Linear to "Linear",
@@ -222,7 +168,7 @@ private fun KeyframeTrackRow(
     onRemoveKeyframe: (Int) -> Unit,
     onUpdateKeyframe: (Int, RustKeyframe) -> Unit,
 ) {
-    val displayName = paramDisplayName(param)
+    val def = paramDefOrUnknown(param)
     val primary = MaterialTheme.colorScheme.primary
     var expanded by remember { mutableStateOf(false) }
 
@@ -252,7 +198,7 @@ private fun KeyframeTrackRow(
                 }
 
                 Text(
-                    displayName,
+                    def.displayName,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.width(48.dp),
@@ -314,6 +260,7 @@ private fun KeyframeRow(
     onRemove: () -> Unit,
     onUpdate: (RustKeyframe) -> Unit,
 ) {
+    val def = paramDefOrUnknown(param)
     var editing by remember { mutableStateOf(false) }
 
     Column(
@@ -338,7 +285,7 @@ private fun KeyframeRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "= ${paramFormatValue(param, keyframe.value)}",
+                "= ${def.format(keyframe.value)}",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium,
             )
@@ -369,8 +316,7 @@ private fun KeyframeEditorForm(
     param: String,
     onUpdate: (RustKeyframe) -> Unit,
 ) {
-    val range = paramRange(param)
-    val steps = paramSteps(param)
+    val def = paramDefOrUnknown(param)
     var editingKf by remember(keyframe) { mutableStateOf(keyframe) }
 
     Column(modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 6.dp)) {
@@ -385,13 +331,13 @@ private fun KeyframeEditorForm(
 
         Spacer(Modifier.height(4.dp))
 
-        Text("Value: ${paramFormatValue(param, editingKf.value)}", style = MaterialTheme.typography.labelSmall)
+        Text("Value: ${def.format(editingKf.value)}", style = MaterialTheme.typography.labelSmall)
         Slider(
-            value = editingKf.value.coerceIn(range),
+            value = editingKf.value.coerceIn(def.range),
             onValueChange = { editingKf = editingKf.copy(value = it) },
             onValueChangeFinished = { onUpdate(editingKf) },
-            valueRange = range,
-            steps = steps,
+            valueRange = def.range,
+            steps = def.steps,
             modifier = Modifier.height(24.dp),
         )
 

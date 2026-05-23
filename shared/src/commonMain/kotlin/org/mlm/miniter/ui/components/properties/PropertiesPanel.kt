@@ -44,6 +44,7 @@ import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.project.KeyframeParams
+import org.mlm.miniter.project.paramDefOrUnknown
 
 @Composable
 fun PropertiesPanel(
@@ -210,7 +211,7 @@ private fun VideoClipProperties(
         valueRange = 0f..2f,
         steps = 19,
     )
-    Text("${(volumeValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+    Text(paramDefOrUnknown(KeyframeParams.VOLUME).format(volumeValue), style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(16.dp))
 
@@ -225,7 +226,7 @@ private fun VideoClipProperties(
         onValueChangeFinished = { onSetOpacity(clip.id, opacityValue) },
         valueRange = 0f..1f,
     )
-    Text("${(opacityValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+    Text(paramDefOrUnknown(KeyframeParams.OPACITY).format(opacityValue), style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(16.dp))
 
@@ -289,7 +290,7 @@ private fun VideoClipProperties(
             is RustTransformFilterSnapshot -> {
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Scale: ${formatFixed(filter.scale, 1)}x", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    Text("Scale: ${paramDefOrUnknown(KeyframeParams.TRANSFORM_SCALE).format(filter.scale)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                     KeyframeToggle(KeyframeParams.TRANSFORM_SCALE, clip, clipOffsetUs, onAddKeyframe)
                 }
                 var scaleVal by remember(filter) { mutableFloatStateOf(filter.scale) }
@@ -304,7 +305,7 @@ private fun VideoClipProperties(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Pan X: ${(filter.translateX * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    Text("Pan X: ${paramDefOrUnknown(KeyframeParams.TRANSFORM_TRANSLATE_X).format(filter.translateX)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                     KeyframeToggle(KeyframeParams.TRANSFORM_TRANSLATE_X, clip, clipOffsetUs, onAddKeyframe)
                 }
                 var translateXVal by remember(filter) { mutableFloatStateOf(filter.translateX) }
@@ -318,7 +319,7 @@ private fun VideoClipProperties(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Pan Y: ${(filter.translateY * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    Text("Pan Y: ${paramDefOrUnknown(KeyframeParams.TRANSFORM_TRANSLATE_Y).format(filter.translateY)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                     KeyframeToggle(KeyframeParams.TRANSFORM_TRANSLATE_Y, clip, clipOffsetUs, onAddKeyframe)
                 }
                 var translateYVal by remember(filter) { mutableFloatStateOf(filter.translateY) }
@@ -332,7 +333,7 @@ private fun VideoClipProperties(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Rotate: ${filter.rotate.toInt()}°", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    Text("Rotate: ${paramDefOrUnknown(KeyframeParams.TRANSFORM_ROTATE).format(filter.rotate)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                     KeyframeToggle(KeyframeParams.TRANSFORM_ROTATE, clip, clipOffsetUs, onAddKeyframe)
                 }
                 var rotateVal by remember(filter) { mutableFloatStateOf(filter.rotate) }
@@ -483,7 +484,7 @@ private fun AudioClipProperties(
         valueRange = 0f..2f,
         steps = 19,
     )
-    Text("${(volumeValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+    Text(paramDefOrUnknown(KeyframeParams.VOLUME).format(volumeValue), style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(16.dp))
     Text("Audio Filters", style = MaterialTheme.typography.labelMedium)
@@ -855,7 +856,7 @@ private fun SubtitleClipProperties(
         onValueChangeFinished = { onSetOpacity(clip.id, opacityValue) },
         valueRange = 0f..1f,
     )
-    Text("${(opacityValue * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+    Text(paramDefOrUnknown(KeyframeParams.OPACITY).format(opacityValue), style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(12.dp))
 
