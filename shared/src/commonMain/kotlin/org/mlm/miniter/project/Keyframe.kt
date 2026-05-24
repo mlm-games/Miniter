@@ -1,6 +1,7 @@
 package org.mlm.miniter.project
 
 import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.Color
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -86,6 +87,7 @@ data class ParamDef(
     val range: ClosedFloatingPointRange<Float>,
     val steps: Int = 0,
     val format: (Float) -> String,
+    val color: Color = Color.Gray,
 )
 
 private fun fmtPct(v: Float) = "${(v * 100).toInt()}%"
@@ -94,15 +96,15 @@ private fun fmtDeg(v: Float) = "${v.toInt()}°"
 private fun fmt2d(v: Float) = "${(v * 100).toInt() / 100f}"
 
 val ALL_PARAMS: List<ParamDef> = listOf(
-    ParamDef(KeyframeParams.OPACITY, "Opacity", 0f..1f, format = ::fmtPct),
-    ParamDef(KeyframeParams.VOLUME, "Volume", 0f..2f, 19, format = ::fmtPct),
-    ParamDef(KeyframeParams.TRANSFORM_SCALE, "Scale", 0.5f..3f, 24, format = ::fmt1d),
-    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_X, "Pan X", -1f..1f, format = ::fmtPct),
-    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_Y, "Pan Y", -1f..1f, format = ::fmtPct),
-    ParamDef(KeyframeParams.TRANSFORM_ROTATE, "Rotate", -180f..180f, format = ::fmtDeg),
-    ParamDef(KeyframeParams.TEXT_POSITION_X, "Text X", 0f..1f, format = ::fmtPct),
-    ParamDef(KeyframeParams.TEXT_POSITION_Y, "Text Y", 0f..1f, format = ::fmtPct),
-    ParamDef(KeyframeParams.TEXT_FONT_SIZE, "Font Size", 12f..120f, 26, format = { "${it.toInt()}sp" }),
+    ParamDef(KeyframeParams.OPACITY, "Opacity", 0f..1f, format = ::fmtPct, color = Color(0xFF5B8DEF)),
+    ParamDef(KeyframeParams.VOLUME, "Volume", 0f..2f, 19, format = ::fmtPct, color = Color(0xFF4CAF50)),
+    ParamDef(KeyframeParams.TRANSFORM_SCALE, "Scale", 0.5f..3f, 24, format = ::fmt1d, color = Color(0xFFFF9800)),
+    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_X, "Pan X", -1f..1f, format = ::fmtPct, color = Color(0xFFFF9800)),
+    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_Y, "Pan Y", -1f..1f, format = ::fmtPct, color = Color(0xFFFF9800)),
+    ParamDef(KeyframeParams.TRANSFORM_ROTATE, "Rotate", -180f..180f, format = ::fmtDeg, color = Color(0xFFFF9800)),
+    ParamDef(KeyframeParams.TEXT_POSITION_X, "Text X", 0f..1f, format = ::fmtPct, color = Color(0xFF26A69A)),
+    ParamDef(KeyframeParams.TEXT_POSITION_Y, "Text Y", 0f..1f, format = ::fmtPct, color = Color(0xFF26A69A)),
+    ParamDef(KeyframeParams.TEXT_FONT_SIZE, "Font Size", 12f..120f, 26, format = { "${it.toInt()}sp" }, color = Color(0xFF26A69A)),
 )
 
 val ALL_PARAMS_BY_KEY: Map<String, ParamDef> = ALL_PARAMS.associateBy { it.key }

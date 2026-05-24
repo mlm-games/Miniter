@@ -1,5 +1,7 @@
 package org.mlm.miniter.project
 
+import androidx.compose.ui.graphics.Color
+
 data class FilterPropertyDef(
     val paramKey: String,
     val displayName: String,
@@ -7,6 +9,7 @@ data class FilterPropertyDef(
     val steps: Int = 0,
     val format: (Float) -> String,
     val keyframeSuffix: String,
+    val color: Color = Color(0xFFEF5350),
 )
 
 data class FilterDef(

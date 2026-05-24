@@ -37,6 +37,7 @@ import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTrackSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.project.ALL_PARAMS_BY_KEY
 
 private val TRACK_HEIGHT = 52.dp
 private val TRACK_HEADER_WIDTH = 48.dp
@@ -577,24 +578,38 @@ private fun ClipBlock(
 
         val kfs = clip.keyframes.keyframes
         if (kfs.isNotEmpty() && clip.timelineDurationUs > 0L) {
-            val kfColor = MaterialTheme.colorScheme.primary
+            val groupedByOffset = remember(kfs, clip.timelineDurationUs) {
+                kfs.groupBy { it.offset.coerceIn(0L, clip.timelineDurationUs) }
+                    .mapValues { (_, v) -> v.sortedBy { it.param } }
+            }
+            val clipDurationUs = clip.timelineDurationUs
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
                 val diamondSize = 5f
-                val clipDurationUs = clip.timelineDurationUs
-                val allOffsets = kfs.map { it.offset.coerceIn(0L, clipDurationUs) }.distinct()
-                for (offset in allOffsets) {
+                val stackGap = diamondSize * 2f + 1f
+                val maxVisible = 4
+                for ((offset, keysAtOffset) in groupedByOffset) {
                     val x = (offset.toFloat() / clipDurationUs.toFloat()) * w
                     val cx = x.coerceIn(diamondSize, w - diamondSize)
-                    val path = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(cx, h - diamondSize * 2)
-                        lineTo(cx + diamondSize, h - diamondSize)
-                        lineTo(cx, h)
-                        lineTo(cx - diamondSize, h - diamondSize)
-                        close()
+                    val count = keysAtOffset.size
+                    val showCount = minOf(count, maxVisible)
+                    for (i in 0 until showCount) {
+                        val color = resolveParamColor(keysAtOffset[i].param)
+                        val cy = h - diamondSize - (showCount - 1 - i) * stackGap
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(cx, cy - diamondSize)
+                            lineTo(cx + diamondSize, cy)
+                            lineTo(cx, cy + diamondSize)
+                            lineTo(cx - diamondSize, cy)
+                            close()
+                        }
+                        drawPath(path, color)
                     }
-                    drawPath(path, kfColor)
+                    if (count > maxVisible) {
+                        val dotY = h - diamondSize - showCount * stackGap
+                        drawCircle(Color.Gray, 2f, Offset(cx, dotY))
+                    }
                 }
             }
         }
@@ -616,3 +631,9 @@ private fun snapshotTimelineDurationMs(snapshot: RustProjectSnapshot): Long {
 
 private fun isTrimmableClip(clip: RustClipSnapshot): Boolean =
     clip.kind is RustVideoClipKind || clip.kind is RustAudioClipKind
+
+private fun resolveParamColor(param: String): Color {
+    ALL_PARAMS_BY_KEY[param]?.let { return it.color }
+    if (param.startsWith("filter.")) return Color(0xFFEF5350)
+    return Color.Gray
+}
