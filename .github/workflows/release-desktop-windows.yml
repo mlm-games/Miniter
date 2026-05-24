@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version_tag:
-        description: 'Version tag (e.g., 0.1.0)'
+        description: 'Version tag (e.g., 0.4.5)'
         required: true
         type: string
       mark_prerelease:
@@ -27,6 +27,7 @@ env:
 
 jobs:
   build-windows:
+    # native ARM64 runners are not yet available on Gh
     runs-on: windows-latest
     env:
       APP_VERSION: ${{ inputs.version_tag }}
@@ -42,8 +43,18 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           cache: gradle
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Rust JNI (host)
+        run: cargo build --release --manifest-path rust/Cargo.toml
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and prepare native libraries
+        run: |
+          ./gradlew :shared:cargoBuildDesktop :shared:copyNativeForJna :shared:genUniFFIJvm
 
       - name: Package desktop application
         run: |

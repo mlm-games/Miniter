@@ -1,0 +1,226 @@
+name: Create Vendored Sources Tarball
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: "Version tag (e.g., 0.4.5)"
+        required: true
+        type: string
+      mark_prerelease:
+        description: "Mark as prerelease"
+        required: true
+        default: false
+        type: boolean
+  release:
+    types: [published]
+
+jobs:
+  create-vendored-tarball:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version_tag }}"
+          else
+            VERSION="${{ github.event.release.tag_name }}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Vendor Rust dependencies
+        run: |
+          set -e
+
+          mkdir -p .cargo vendor
+
+          echo " Vendor main project"
+          cd rust
+          cargo vendor --versioned-dirs ../vendor 2>&1 | tee /tmp/vendor-main.txt
+          cd ..
+
+          echo "Main vendor: $(ls vendor | wc -l) packages"
+
+          echo ""
+          echo " Vendor uniffi-bindgen"
+          mkdir -p /tmp/vendor-uniffi
+          cd rust/uniffi-bindgen
+          cargo vendor --versioned-dirs /tmp/vendor-uniffi 2>&1 | tee /tmp/vendor-uniffi.txt
+          cd ../..
+
+          echo ""
+          echo " Merge uniffi deps"
+          cp -r /tmp/vendor-uniffi/* vendor/ 2>/dev/null || true
+
+          echo "Merged vendor: $(ls vendor | wc -l) packages"
+
+          echo ""
+          echo " Create config.toml"
+          sed -n '/^To use vendored sources/,$p' /tmp/vendor-main.txt | tail -n +3 > .cargo/config.toml
+          sed -i 's|directory = "../vendor"|directory = "vendor"|g' .cargo/config.toml
+
+          cat .cargo/config.toml
+
+      - name: Vendor Gradle Dependencies (ALL platforms)
+        run: |
+          set -e
+          sudo mkdir -p /run/build/miniter
+          sudo chown -R "$(id -u):$(id -g)" /run/build/miniter
+          export GRADLE_USER_HOME=/run/build/miniter/gradle-deps
+          mkdir -p "$GRADLE_USER_HOME"
+
+          echo "Building x86_64 distributable"
+          ./gradlew :desktopApp:createDistributable \
+            --no-daemon \
+            --no-configuration-cache
+
+          echo "Fetching JavaFX and Compose JARs"
+          mkdir -p /tmp/fetch-project
+
+          cp gradlew /tmp/fetch-project/
+          cp -r gradle /tmp/fetch-project/
+
+          cat > /tmp/fetch-project/settings.gradle.kts << 'SETTINGS'
+          rootProject.name = "fetch-project"
+          SETTINGS
+
+          cat > /tmp/fetch-project/build.gradle.kts << 'EOF'
+          plugins { id("java") }
+
+          repositories {
+              mavenCentral()
+              google()
+              maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+          }
+
+          val composeArm64 by configurations.creating
+          val composeX64 by configurations.creating
+          val javafxLinux by configurations.creating
+          val javafxLinuxArm64 by configurations.creating
+
+          dependencies {
+              val jfxVersion = "21.0.1"
+
+              composeArm64("org.jetbrains.compose.desktop:desktop-jvm-linux-arm64:1.11.0")
+              composeX64("org.jetbrains.compose.desktop:desktop-jvm-linux-x64:1.11.0")
+
+              javafxLinux("org.openjfx:javafx-base:$jfxVersion:linux")
+              javafxLinux("org.openjfx:javafx-graphics:$jfxVersion:linux")
+              javafxLinux("org.openjfx:javafx-media:$jfxVersion:linux")
+              javafxLinux("org.openjfx:javafx-swing:$jfxVersion:linux")
+
+              javafxLinuxArm64("org.openjfx:javafx-base:$jfxVersion:linux-aarch64")
+              javafxLinuxArm64("org.openjfx:javafx-graphics:$jfxVersion:linux-aarch64")
+              javafxLinuxArm64("org.openjfx:javafx-media:$jfxVersion:linux-aarch64")
+              javafxLinuxArm64("org.openjfx:javafx-swing:$jfxVersion:linux-aarch64")
+          }
+
+          tasks.register("fetch") {
+              doLast {
+                  val configs = listOf("composeArm64", "composeX64", "javafxLinux", "javafxLinuxArm64")
+                  configs.forEach { name ->
+                      val config = configurations.getByName(name)
+                      val files = config.resolve()
+                      println("Resolved $name: ${files.size} files cached")
+                  }
+              }
+          }
+          EOF
+
+          (cd /tmp/fetch-project && ./gradlew --no-daemon -g "$GRADLE_USER_HOME" fetch)
+
+          echo "Verifying BOTH Architectures are in cache"
+          x64_jfx_count=$(find "$GRADLE_USER_HOME" -name "javafx-*-linux.jar" | wc -l)
+          arm64_jfx_count=$(find "$GRADLE_USER_HOME" -name "javafx-*-linux-aarch64.jar" | wc -l)
+
+          echo "Found $x64_jfx_count x64 JavaFX JARs"
+          echo "Found $arm64_jfx_count aarch64 JavaFX JARs"
+
+          echo "Removing repository metadata and checksums"
+          find "$GRADLE_USER_HOME/caches/modules-2" -name "_remote.repositories" -delete
+          find "$GRADLE_USER_HOME/caches/modules-2" -name "m2-repository-proxy.-*.properties" -delete
+          find "$GRADLE_USER_HOME/caches/modules-2" -name "*.sha1" -delete
+          find "$GRADLE_USER_HOME/caches/modules-2" -name "*.md5" -delete
+          find "$GRADLE_USER_HOME/caches/modules-2" -name "*.lastUpdated" -delete
+
+          cp -r "$GRADLE_USER_HOME" gradle-deps
+
+          echo "Cleaning build artifacts"
+          ./gradlew clean --no-daemon
+          rm -rf rust/target desktopApp/build shared/build
+
+          find gradle-deps -name "*.lock" -delete
+          rm -rf gradle-deps/daemon gradle-deps/.tmp gradle-deps/kotlin-profile
+
+          echo "Final cache size"
+          du -sh gradle-deps
+
+      - name: Verify aarch64 JavaFX JARs are cached
+        run: |
+          export GRADLE_USER_HOME=/run/build/miniter/gradle-deps
+          cache="$GRADLE_USER_HOME/caches/modules-2/files-2.1/org.openjfx"
+          for mod in javafx-base javafx-graphics javafx-media javafx-swing; do
+            jar=$(find "$cache/$mod" -name "*linux-aarch64.jar" 2>/dev/null | head -1)
+            if [ -z "$jar" ]; then
+              echo "MISSING: $mod linux-aarch64 JAR not in cache"
+              exit 1
+            else
+              echo "OK: $jar"
+            fi
+          done
+
+      - name: Verify Metadata exists
+        run: |
+          export GRADLE_USER_HOME=/run/build/miniter/gradle-deps
+          pom_count=$(find "$GRADLE_USER_HOME/caches/modules-2" -name "javafx-base-*.pom" | wc -l)
+          if [ "$pom_count" -eq 0 ]; then
+            echo "FAILURE: No POM files found in cache. Offline build WILL fail."
+            exit 1
+          fi
+          echo "Found $pom_count JavaFX POM files."
+
+      - name: Create Fat Tarball
+        run: |
+          TARBALL_NAME="miniter-${VERSION}-vendored-sources.tar.gz"
+          mkdir -p package/miniter
+
+          git archive --format=tar HEAD | tar -C package/miniter -xf -
+          cp -r vendor package/miniter/
+          cp -r .cargo package/miniter/
+          cp -r gradle-deps package/miniter/
+
+          cd package
+          tar -czf "../${TARBALL_NAME}" miniter/
+          cd ..
+
+          sha256sum "${TARBALL_NAME}" > "${TARBALL_NAME}.sha256"
+          echo "SHA256: $(cat ${TARBALL_NAME}.sha256)"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version_tag }}
+          name: ${{ inputs.version_tag }}
+          prerelease: ${{ inputs.mark_prerelease }}
+          files: |
+            miniter-${{ inputs.version_tag }}-vendored-sources.tar.gz
+            miniter-${{ inputs.version_tag }}-vendored-sources.tar.gz.sha256

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version_tag:
-        description: 'Version tag (e.g., 0.1.0)'
+        description: 'Version tag (e.g., 0.4.5)'
         required: true
         type: string
       mark_prerelease:
@@ -27,7 +27,10 @@ env:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     env:
       APP_VERSION: ${{ inputs.version_tag }}
     steps:
@@ -41,22 +44,86 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           cache: gradle
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Rust JNI (host)
+        run: cargo build --release --manifest-path rust/Cargo.toml
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Install AppImage tools
+        run: |
+          sudo apt update
+          sudo apt install -y zsync
+
+          if [ "${{ matrix.arch }}" = "aarch64" ]; then
+            APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-aarch64.AppImage"
+          else
+            APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          fi
+          wget "$APPIMAGETOOL_URL" -O appimagetool.AppImage
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract
+          sudo mv squashfs-root /opt/appimagetool
+          sudo ln -s /opt/appimagetool/AppRun /usr/local/bin/appimagetool
+
+      - name: Build and prepare native libraries
+        run: |
+          ./gradlew :shared:cargoBuildDesktop :shared:copyNativeForJna :shared:genUniFFIJvm
+
       - name: Package desktop application
-        run: ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon
+        run: |
+          ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon
+
+      - name: Build AppImage
+        run: |
+          APPDIR=$(find desktopApp/build/compose/binaries/main/app -type d -name "Miniter" | head -n 1)
+          if [ -d "$APPDIR" ]; then
+            mkdir -p dist
+            
+            # adjust Exec and Icon for AppImage (flathub's)
+            mkdir -p "$APPDIR/usr/share/applications"
+            sed -e 's|Exec=miniter|Exec=Miniter|' \
+                -e 's|Icon=io.github.mlm_games.miniter|Icon=miniter|' \
+                packaging/io.github.mlm_games.miniter.desktop > "$APPDIR/usr/share/applications/io.github.mlm_games.miniter.desktop"
+            
+            mkdir -p "$APPDIR/usr/share/metainfo"
+            cp packaging/io.github.mlm_games.miniter.metainfo.xml "$APPDIR/usr/share/metainfo/io.github.mlm_games.miniter.metainfo.xml"
+            
+            cp "$APPDIR/usr/share/applications/io.github.mlm_games.miniter.desktop" "$APPDIR/io.github.mlm_games.miniter.desktop"
+            
+            cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/sh
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="${HERE}/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/lib:${LD_LIBRARY_PATH}"
+          cd "${HERE}"
+          exec "${HERE}/bin/Miniter" "$@"
+          EOF
+            chmod +x "$APPDIR/AppRun"
+            
+            ln -sf lib/Miniter.png "$APPDIR/miniter.png"
+            ln -sf lib/Miniter.png "$APPDIR/.DirIcon"
+            
+            ARCH=${{ matrix.arch }} appimagetool -u "gh-releases-zsync|mlm-games|miniter|latest|miniter-*-${{ matrix.arch }}.AppImage.zsync" "$APPDIR" "dist/miniter-${{ inputs.version_tag }}-${{ matrix.arch }}.AppImage"
+            
+            # Move zsync file to dist/
+            mv *.zsync dist/ 2>/dev/null || true
+          fi
 
       - name: Collect desktop artifacts
         run: |
           mkdir -p dist
-          find desktopApp/build/compose/binaries/main -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} dist/ \;
+          find desktopApp/build/compose/binaries/main -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.zsync" \) -exec cp {} dist/ \;
           ls -la dist
 
       - name: Upload artifacts (CI)
         uses: actions/upload-artifact@v4
         with:
-          name: linux-desktop
+          name: linux-desktop-${{ matrix.arch }}
           path: dist/*
 
   release:
@@ -65,7 +132,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: linux-desktop
+          pattern: linux-desktop-*
+          merge-multiple: true
           path: dist
 
       - name: Create / Update GitHub Release
@@ -75,3 +143,86 @@ jobs:
           name: ${{ inputs.version_tag }}
           prerelease: ${{ inputs.mark_prerelease }}
           files: dist/*
+
+      - name: Dispatch aur-upload.yml
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'aur-upload.yml',
+              ref: 'main',
+              inputs: {
+                version_tag: '${{ inputs.version_tag }}'
+              }
+            });
+            core.info('Triggered AUR upload for ${{ inputs.version_tag }}');
+
+      - name: Dispatch publish-snap.yml
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'publish-snap.yml',
+              ref: 'main',
+              inputs: {
+                version_tag: '${{ inputs.version_tag }}'
+              }
+            });
+            core.info('Triggered Snapcraft publish for ${{ inputs.version_tag }}');
+
+      - name: Dispatch create-vendored-tarball.yml
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'create-vendored-tarball.yml',
+              ref: 'main',
+              inputs: {
+                version_tag: '${{ inputs.version_tag }}',
+                mark_prerelease: '${{ inputs.mark_prerelease }}'
+              }
+            });
+            core.info('Triggered vendored tarball creation for ${{ inputs.version_tag }}');
+
+      - name: Dispatch release-desktop-macos.yml
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release-desktop-macos.yml',
+              ref: 'main',
+              inputs: {
+                version_tag: '${{ inputs.version_tag }}',
+                mark_prerelease: '${{ inputs.mark_prerelease }}'
+              }
+            });
+            core.info('Triggered macOS desktop release for ${{ inputs.version_tag }}');
+
+      - name: Dispatch release-desktop-windows.yml
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release-desktop-windows.yml',
+              ref: 'main',
+              inputs: {
+                version_tag: '${{ inputs.version_tag }}',
+                mark_prerelease: '${{ inputs.mark_prerelease }}'
+              }
+            });
+            core.info('Triggered Windows desktop release for ${{ inputs.version_tag }}');

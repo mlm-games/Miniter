@@ -29,7 +29,7 @@ env:
   BUILD_GRADLE_PATH: 'androidApp/build.gradle.kts'
   ANDROID_API: '36'
   ANDROID_BUILD_TOOLS: '36.0.0'
-  ANDROID_NDK_VERSION: '27.0.12077973'
+  ANDROID_NDK_VERSION: '28.2.13676358'
   CARGO_NDK_VERSION: "4.1.2"
 
 jobs:
@@ -76,7 +76,7 @@ jobs:
           version-file-path: './fastlane/metadata/android/en-US/changelogs/${{ steps.ver.outputs.version_code }}.txt'
           version-code: '${{ steps.ver.outputs.version_code }}'
           metainfo-path: './packaging/io.github.mlm_games.miniter.metainfo.xml'
-          exclude-patterns: 'chore:,ci:,docs:,build:,Bump version,Merge pull request,[skip ci], Update '
+          exclude-patterns: 'chore:,ci:,docs:,build:,Bump version,Merge pull request,[skip ci],web:,misc:,s1'
           auto-commit: 'true'
           commit-message: 'Update release notes for v{{version}}'
         env:
@@ -138,6 +138,17 @@ jobs:
             "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" \
             "ndk;${{ env.ANDROID_NDK_VERSION }}"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
+
+      - name: Install Rust + cargo-ndk + Android targets
+        run: |
+          rustup show   # rust comes preinstalled
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            x86_64-linux-android \
+            i686-linux-android
+
+          cargo install cargo-ndk@${{ env.CARGO_NDK_VERSION }} --locked
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
