@@ -564,16 +564,6 @@ fun EditorVideoPreview(
                 translationY = visualTranslateY
             }
 
-        // Always render VideoPlayerSurface so <video> element exists for openUri
-        if (primaryVideoPath != null) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                VideoPlayerSurface(
-                    playerState = playerState,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-
         when {
             visibleMedia.isEmpty() && thumbnailFallback == null -> {
                 Column(
@@ -609,7 +599,16 @@ fun EditorVideoPreview(
                             }
                         }
 
-                        thumbnailFallback != null && (!canPlayPrimary || lastLoadedPath != primaryVideoPath) -> {
+                        canPlayPrimary && lastLoadedPath == primaryVideoPath -> {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                VideoPlayerSurface(
+                                    playerState = playerState,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+
+                        thumbnailFallback != null -> {
                             val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
                             Image(
                                 bitmap = bitmap,
@@ -619,7 +618,7 @@ fun EditorVideoPreview(
                             )
                         }
 
-                        !canPlayPrimary && visibleMedia.isNotEmpty() -> {
+                        visibleMedia.isNotEmpty() -> {
                             Icon(
                                 Icons.Default.VideoFile, null,
                                 modifier = Modifier.size(48.dp),
