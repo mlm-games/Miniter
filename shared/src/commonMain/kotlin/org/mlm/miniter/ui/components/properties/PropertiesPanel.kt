@@ -491,7 +491,7 @@ private fun TextClipProperties(
     Text("Text Overlay", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(12.dp))
 
-    var textValue by remember(kind.text) { mutableStateOf(kind.text) }
+    var textValue by remember(clip.id) { mutableStateOf(kind.text) }
     OutlinedTextField(
         value = textValue,
         onValueChange = { textValue = it },
@@ -501,8 +501,12 @@ private fun TextClipProperties(
         maxLines = 3,
     )
     LaunchedEffect(textValue) {
-        kotlinx.coroutines.delay(500)
         if (textValue != kind.text) onUpdateText(clip.id, textValue)
+    }
+    DisposableEffect(clip.id) {
+        onDispose {
+            if (textValue != kind.text) onUpdateText(clip.id, textValue)
+        }
     }
 
     Spacer(Modifier.height(16.dp))
