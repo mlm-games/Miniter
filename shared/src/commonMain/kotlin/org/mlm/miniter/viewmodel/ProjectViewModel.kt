@@ -918,14 +918,18 @@ class ProjectViewModel(
     }
 
     fun splitClipAtPlayhead(clipId: String) {
-        rustStore.dispatch(
-            rustStore.commands.splitClip(
-                clipId = clipId,
-                atUs = _state.value.playheadMs.msToUs,
-                newClipId = randomUuid(),
-            ),
-        )
-        syncFromRust()
+        try {
+            rustStore.dispatch(
+                rustStore.commands.splitClip(
+                    clipId = clipId,
+                    atUs = _state.value.playheadMs.msToUs,
+                    newClipId = randomUuid(),
+                ),
+            )
+            syncFromRust()
+        } catch (e: Exception) {
+            handleError(e.message ?: "Failed to split clip")
+        }
     }
 
     fun setClipSpeed(clipId: String, speed: Float) {
