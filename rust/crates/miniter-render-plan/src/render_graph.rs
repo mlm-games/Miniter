@@ -227,21 +227,6 @@ fn node_for_clip(
                     let (_, text_a) = opacity_pair(trans.kind, eased);
                     opacity *= text_a;
                 }
-                if let Some(prev) = find_previous_clip(track, clip) {
-                    if progress < 1.0 {
-                        if let Some(prev_node) = node_for_clip(prev, t, track, subtitle_mode) {
-                            return Some(RenderNode::TransitionBlend {
-                                bottom: Box::new(prev_node),
-                                top: Box::new(RenderNode::Text {
-                                    overlay: overlay.clone(),
-                                    opacity,
-                                }),
-                                kind: trans.kind,
-                                progress,
-                            });
-                        }
-                    }
-                }
             }
 
             if let Some(ref trans) = clip.transition_out {
