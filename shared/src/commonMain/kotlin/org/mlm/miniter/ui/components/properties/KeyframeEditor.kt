@@ -20,6 +20,7 @@ import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.project.KeyframeParams
+import org.mlm.miniter.project.ParamDef
 import org.mlm.miniter.project.paramDefOrUnknown
 
 private val easingLabels = mapOf(
@@ -28,6 +29,20 @@ private val easingLabels = mapOf(
     RustEasing.EaseOut to "Ease Out",
     RustEasing.EaseInOut to "Ease In Out",
 )
+
+private fun paramDefFor(param: String): ParamDef {
+    if (param.startsWith("filter.")) {
+        val suffix = param.split(".").drop(2).joinToString(".")
+        for (filter in FILTERS) {
+            for (prop in filter.properties) {
+                if (prop.keyframeSuffix == suffix) {
+                    return ParamDef(param, prop.displayName, prop.range, prop.steps, prop.format)
+                }
+            }
+        }
+    }
+    return paramDefOrUnknown(param)
+}
 
 fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
     return when (paramKey) {
@@ -131,7 +146,7 @@ private fun KeyframeTrackRow(
     onRemoveKeyframe: (Int) -> Unit,
     onUpdateKeyframe: (Int, RustKeyframe) -> Unit,
 ) {
-    val def = paramDefOrUnknown(param)
+    val def = paramDefFor(param)
     val primary = MaterialTheme.colorScheme.primary
     var expanded by remember { mutableStateOf(false) }
 
@@ -223,7 +238,7 @@ private fun KeyframeRow(
     onRemove: () -> Unit,
     onUpdate: (RustKeyframe) -> Unit,
 ) {
-    val def = paramDefOrUnknown(param)
+    val def = paramDefFor(param)
     var editing by remember { mutableStateOf(false) }
 
     Column(
@@ -279,7 +294,7 @@ private fun KeyframeEditorForm(
     param: String,
     onUpdate: (RustKeyframe) -> Unit,
 ) {
-    val def = paramDefOrUnknown(param)
+    val def = paramDefFor(param)
     var editingKf by remember(keyframe) { mutableStateOf(keyframe) }
 
     Column(modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 6.dp)) {
