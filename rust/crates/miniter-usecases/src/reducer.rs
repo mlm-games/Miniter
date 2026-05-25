@@ -603,7 +603,9 @@ fn apply_trim_clip_start(
         updated.source_end,
     )?;
     ensure_positive_duration(updated.timeline_duration)?;
-    ensure_clip_source_bounds(&updated)?;
+    if !matches!(original.kind, ClipKind::Text(_) | ClipKind::Subtitle(_)) {
+        ensure_clip_source_bounds(&updated)?;
+    }
 
     let track = &state.project.timeline.tracks[track_idx];
     track
@@ -631,11 +633,18 @@ fn apply_trim_clip_end(
     let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
     let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
 
-    let max_source_end = original.source_total_duration;
-    let max_duration = MediaDuration::from_micros(
-        ((max_source_end.as_micros() as f64 - original.source_start.as_micros() as f64)
-            / original.speed) as i64,
-    );
+    let max_duration = match &original.kind {
+        ClipKind::Text(_) | ClipKind::Subtitle(_) => {
+            new_duration
+        }
+        _ => {
+            let max_source_end = original.source_total_duration;
+            MediaDuration::from_micros(
+                ((max_source_end.as_micros() as f64 - original.source_start.as_micros() as f64)
+                    / original.speed) as i64,
+            )
+        }
+    };
     let max_by_neighbor = next_clip_start_after(
         &state.project.timeline.tracks[track_idx],
         clip_id,
@@ -661,7 +670,7 @@ fn apply_trim_clip_end(
     updated.timeline_duration = clamped_duration;
     updated.source_end = new_source_end;
 
-    if !matches!(original.kind, ClipKind::Text(_)) {
+    if !matches!(original.kind, ClipKind::Text(_) | ClipKind::Subtitle(_)) {
         ensure_clip_source_bounds(&updated)?;
     }
 

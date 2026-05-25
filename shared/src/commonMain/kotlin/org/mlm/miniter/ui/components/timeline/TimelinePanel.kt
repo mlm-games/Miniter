@@ -631,6 +631,7 @@ private fun snapshotTimelineDurationMs(snapshot: RustProjectSnapshot): Long {
 
 private fun isTrimmableClip(clip: RustClipSnapshot): Boolean =
     clip.kind is RustVideoClipKind || clip.kind is RustAudioClipKind
+        || clip.kind is RustTextClipKind || clip.kind is RustSubtitleClipKind
 
 private fun resolveParamColor(param: String): Color {
     ALL_PARAMS_BY_KEY[param]?.let { return it.color }

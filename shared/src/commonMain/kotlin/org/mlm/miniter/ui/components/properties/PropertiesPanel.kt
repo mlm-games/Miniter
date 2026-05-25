@@ -63,7 +63,6 @@ fun PropertiesPanel(
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
-    onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
@@ -131,7 +130,6 @@ fun PropertiesPanel(
                 kind,
                 onUpdateText,
                 onUpdateTextStyle,
-                onSetTextDuration,
                 onSetTextTransitionIn,
                 onSetTextTransitionOut,
             )
@@ -140,7 +138,6 @@ fun PropertiesPanel(
                 kind = kind,
                 playheadMs = playheadMs,
                 onSetOpacity = onSetOpacity,
-                onSetDuration = onSetTextDuration,
                 onSetTransitionIn = onSetTextTransitionIn,
                 onSetTransitionOut = onSetTextTransitionOut,
                 onAddKeyframe = onAddKeyframe,
@@ -484,12 +481,10 @@ private fun TextClipProperties(
     kind: RustTextClipKind,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
-    onSetTextDuration: (String, Long) -> Unit = { _, _ -> },
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
 ) {
     val style = kind.style
-    val durationMs = clip.timelineDurationUs / 1000L
     val transitionIn = clip.transitionIn
     val transitionOut = clip.transitionOut
 
@@ -641,19 +636,6 @@ private fun TextClipProperties(
     }
 
     Spacer(Modifier.height(12.dp))
-
-    Text("Duration", style = MaterialTheme.typography.labelMedium)
-    var durationSec by remember(durationMs) { mutableFloatStateOf(durationMs / 1000f) }
-    Slider(
-        value = durationSec,
-        onValueChange = { durationSec = it },
-        onValueChangeFinished = { onSetTextDuration(clip.id, (durationSec * 1000).toLong()) },
-        valueRange = 0.5f..30f,
-        steps = 58,
-    )
-    Text("${formatFixed(durationSec, 1)}s", style = MaterialTheme.typography.labelSmall)
-
-    Spacer(Modifier.height(12.dp))
     HorizontalDivider()
     Spacer(Modifier.height(12.dp))
 
@@ -695,17 +677,12 @@ private fun SubtitleClipProperties(
     kind: RustSubtitleClipKind,
     playheadMs: Long = 0L,
     onSetOpacity: (String, Float) -> Unit,
-    onSetDuration: (String, Long) -> Unit,
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
 ) {
     val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
     var opacityValue by remember(clip.opacity) { mutableFloatStateOf(clip.opacity) }
-    var durationSec by remember(clip.timelineDurationUs) {
-        mutableFloatStateOf((clip.timelineDurationUs / 1_000_000f).coerceAtLeast(0.5f))
-    }
-
     var summary by remember(kind.sourcePath) { mutableStateOf<AssFeatureSummary?>(null) }
     var loadError by remember(kind.sourcePath) { mutableStateOf<String?>(null) }
     var loading by remember(kind.sourcePath) { mutableStateOf(true) }
@@ -749,18 +726,6 @@ private fun SubtitleClipProperties(
         valueRange = 0f..1f,
     )
     Text(paramDefOrUnknown(KeyframeParams.OPACITY).format(opacityValue), style = MaterialTheme.typography.labelSmall)
-
-    Spacer(Modifier.height(12.dp))
-
-    Text("Duration", style = MaterialTheme.typography.labelMedium)
-    Slider(
-        value = durationSec,
-        onValueChange = { durationSec = it },
-        onValueChangeFinished = { onSetDuration(clip.id, (durationSec * 1000f).toLong()) },
-        valueRange = 0.5f..120f,
-        steps = 239,
-    )
-    Text("${formatFixed(durationSec, 1)}s", style = MaterialTheme.typography.labelSmall)
 
     Spacer(Modifier.height(12.dp))
 

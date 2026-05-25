@@ -848,8 +848,12 @@ class ProjectViewModel(
 
         val requestedDurationUs = (newEndMs.msToUs - clip.timelineStartUs).coerceAtLeast(MIN_TRIM_DURATION_US)
         val maxBySourceUs =
-            (((clip.sourceTotalDurationUs - clip.sourceStartUs).coerceAtLeast(MIN_TRIM_DURATION_US).toDouble() / clip.speed)
-                .toLong()).coerceAtLeast(MIN_TRIM_DURATION_US)
+            if (clip.kind is RustTextClipKind || clip.kind is RustSubtitleClipKind) {
+                Long.MAX_VALUE
+            } else {
+                (((clip.sourceTotalDurationUs - clip.sourceStartUs).coerceAtLeast(MIN_TRIM_DURATION_US).toDouble() / clip.speed)
+                    .toLong()).coerceAtLeast(MIN_TRIM_DURATION_US)
+            }
         val maxByNeighborUs =
             nextClipStartUs(track, clipId)?.let { (it - clip.timelineStartUs).coerceAtLeast(MIN_TRIM_DURATION_US) }
         val maxDurationUs = listOfNotNull(maxByNeighborUs, maxBySourceUs).minOrNull() ?: maxBySourceUs
@@ -1004,16 +1008,6 @@ class ProjectViewModel(
 
         rustStore.dispatch(
             rustStore.commands.updateTextStyle(clipId, style),
-        )
-        syncFromRust()
-    }
-
-    fun setTextClipDuration(clipId: String, durationMs: Long) {
-        rustStore.dispatch(
-            rustStore.commands.trimClipEnd(
-                clipId = clipId,
-                newDurationUs = durationMs.coerceAtLeast(100L).msToUs,
-            ),
         )
         syncFromRust()
     }

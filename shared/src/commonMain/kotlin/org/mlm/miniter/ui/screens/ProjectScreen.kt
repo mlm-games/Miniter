@@ -203,7 +203,6 @@ fun ProjectScreen(
                     vm.updateTextClipStyle(clipId, fontSize, color, bgColor, posX, posY, bold, italic)
                 },
                 onSetOpacity = vm::setClipOpacity,
-                onSetTextDuration = vm::setTextClipDuration,
                 onSetTextTransitionIn = vm::setTextTransitionIn,
                 onSetTextTransitionOut = vm::setTextTransitionOut,
                 onAddAudioFilter = { clipId, filter -> vm.addAudioFilter(clipId, filter) },
