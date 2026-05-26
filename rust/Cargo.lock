@@ -1424,9 +1424,8 @@ dependencies = [
 
 [[package]]
 name = "mousiki"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "025feef2fc01604ee1fac4ae254b33480574b16210945d0096d665009ba9c666"
+version = "0.2.2"
+source = "git+https://github.com/mlm-games/mousiki-recovered#2ce56b6cbf498f83cac54ae6fda12de03120f906"
 dependencies = [
  "bitflags 2.11.1",
  "cfg-if",
@@ -2410,6 +2409,7 @@ dependencies = [
 [[package]]
 name = "symphonia-adapter-mousiki"
 version = "0.1.1"
+source = "git+https://github.com/mlm-games/symphonia-adapter-mousiki#078b499fd2812aeb19cd87e97ce2edcd4132f70e"
 dependencies = [
  "log",
  "mousiki",
