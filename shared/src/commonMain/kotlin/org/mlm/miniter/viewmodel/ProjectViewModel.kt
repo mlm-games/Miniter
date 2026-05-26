@@ -125,56 +125,63 @@ class ProjectViewModel(
             try {
                 val stagedVideoPath = PlatformFileSystem.stageForNativeAccess(initialVideoPath)
                 val info = engine.probeVideo(stagedVideoPath)
-                if (!info.hasVideo) {
-                    handleError("Selected file has no video stream")
+                if (!info.hasVideo && !info.hasAudio) {
+                    handleError("Selected file has no video or audio stream")
                     return@launch
                 }
-                when (val result = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90)) {
-                    is ThumbnailResult.Error -> {
-                        handleError(result.message)
-                        return@launch
+
+                val hasVideo = info.hasVideo
+                val hasAudio = info.hasAudio
+
+                if (hasVideo) {
+                    when (val result = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90)) {
+                        is ThumbnailResult.Error -> {
+                            handleError(result.message)
+                            return@launch
+                        }
+                        is ThumbnailResult.Success -> { /* decodable */ }
                     }
-                    is ThumbnailResult.Success -> { /* decodable */ }
                 }
+
                 sourceDurationMs = info.durationMs
 
                 rustStore.create(name)
-                val videoTrackId = ensureTrack(RustTrackKind.Video, "Video 1")
-
-                val hasAudio = info.hasAudio
+                val videoTrackId = if (hasVideo) ensureTrack(RustTrackKind.Video, "Video 1") else null
                 val audioTrackId = if (hasAudio) ensureTrack(RustTrackKind.Audio, "Audio 1") else null
 
                 val durationUs = info.durationMs.msToUs
 
-                val videoClipVolume = if (hasAudio) 0.0f else 1.0f
+                val commands = mutableListOf<String>()
 
-                val commands = mutableListOf(
-                    rustStore.commands.addClip(
-                        videoTrackId,
-                        RustClipSnapshot(
-                            id = randomUuid(),
-                            timelineStartUs = 0L,
-                            timelineDurationUs = durationUs,
-                            sourceStartUs = 0L,
-                            sourceEndUs = durationUs,
-                            sourceTotalDurationUs = durationUs,
-                            speed = 1.0,
-                            volume = videoClipVolume,
-                            opacity = 1.0f,
-                            muted = false,
-                            transitionIn = null,
-                            transitionOut = null,
-                            kind = RustVideoClipKind(
-                                sourcePath = stagedVideoPath,
-                                width = info.width,
-                                height = info.height,
-                                fps = if (info.frameRate > 0.0) info.frameRate else 30.0,
-                                filters = emptyList(),
-                                audioFilters = emptyList(),
+                if (hasVideo && videoTrackId != null) {
+                    commands.add(
+                        rustStore.commands.addClip(
+                            videoTrackId,
+                            RustClipSnapshot(
+                                id = randomUuid(),
+                                timelineStartUs = 0L,
+                                timelineDurationUs = durationUs,
+                                sourceStartUs = 0L,
+                                sourceEndUs = durationUs,
+                                sourceTotalDurationUs = durationUs,
+                                speed = 1.0,
+                                volume = if (hasAudio) 0.0f else 1.0f,
+                                opacity = 1.0f,
+                                muted = false,
+                                transitionIn = null,
+                                transitionOut = null,
+                                kind = RustVideoClipKind(
+                                    sourcePath = stagedVideoPath,
+                                    width = info.width,
+                                    height = info.height,
+                                    fps = if (info.frameRate > 0.0) info.frameRate else 30.0,
+                                    filters = emptyList(),
+                                    audioFilters = emptyList(),
+                                ),
                             ),
-                        ),
+                        )
                     )
-                )
+                }
 
                 if (hasAudio && audioTrackId != null) {
                     commands.add(
@@ -195,7 +202,7 @@ class ProjectViewModel(
                                 transitionOut = null,
                                 kind = RustAudioClipKind(
                                     sourcePath = stagedVideoPath,
-                                        sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
+                                    sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
                                     channels = info.audioChannels.coerceAtLeast(1),
                                     filters = emptyList(),
                                 ),
@@ -207,18 +214,20 @@ class ProjectViewModel(
                 rustStore.dispatch(rustStore.commands.batch("NewProjectInitialClips", commands))
                 syncFromRust(
                     projectPath = savePath,
-                    selectedTrackId = videoTrackId,
+                    selectedTrackId = videoTrackId ?: audioTrackId ?: "",
                     selectedClipId = null,
                     playheadMs = 0L,
                     isDirty = true,
                 )
 
-                loadThumbnails(stagedVideoPath)
+                if (hasVideo) {
+                    loadThumbnails(stagedVideoPath)
+                }
                 if (savePath != null) {
                     recentProjectsRepository.addRecent(savePath, name)
                 }
             } catch (e: Exception) {
-                handleError("Failed to open video: ${e.message}")
+                handleError("Failed to open media: ${e.message}")
             }
         }
     }

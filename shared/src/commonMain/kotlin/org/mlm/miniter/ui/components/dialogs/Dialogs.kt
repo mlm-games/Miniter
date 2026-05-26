@@ -48,12 +48,12 @@ fun ConfirmDialog(
 
 @Composable
 fun NewProjectDialog(
-    videoPath: String,
-    videoName: String,
+    mediaPath: String,
+    mediaName: String,
     onDismiss: () -> Unit,
     onCreate: (projectName: String, savePath: String) -> Unit,
 ) {
-    var projectName by remember { mutableStateOf(videoName.substringBeforeLast(".")) }
+    var projectName by remember { mutableStateOf(mediaName.substringBeforeLast(".")) }
     var saveFile by remember { mutableStateOf<PlatformFile?>(null) }
     val scope = rememberCoroutineScope()
 

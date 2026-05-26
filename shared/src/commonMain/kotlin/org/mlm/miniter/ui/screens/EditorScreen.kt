@@ -40,12 +40,12 @@ fun EditorScreen(
         projectVm.reset()
     }
 
-    var pendingVideo by remember { mutableStateOf<PlatformFile?>(null) }
+    var pendingImportFile by remember { mutableStateOf<PlatformFile?>(null) }
 
-    val videoPicker = rememberFilePickerLauncher(
-        type = FileKitType.File(extensions = SupportedFormats.videoExtensions),
+    val mediaPicker = rememberFilePickerLauncher(
+        type = FileKitType.File(extensions = SupportedFormats.videoExtensions + SupportedFormats.audioExtensions),
     ) { file: PlatformFile? ->
-        pendingVideo = file
+        pendingImportFile = file
     }
 
     val projectPicker = rememberFilePickerLauncher(
@@ -54,14 +54,14 @@ fun EditorScreen(
         file?.let { onOpenProject(it.platformPath(), it.name, null, true) }
     }
 
-    pendingVideo?.let { video ->
+    pendingImportFile?.let { file ->
         NewProjectDialog(
-            videoPath = video.platformPath(),
-            videoName = video.name,
-            onDismiss = { pendingVideo = null },
+            mediaPath = file.platformPath(),
+            mediaName = file.name,
+            onDismiss = { pendingImportFile = null },
             onCreate = { projectName, savePath ->
-                pendingVideo = null
-                onOpenProject(video.platformPath(), projectName, savePath, false)
+                pendingImportFile = null
+                onOpenProject(file.platformPath(), projectName, savePath, false)
             },
         )
     }
@@ -98,10 +98,10 @@ fun EditorScreen(
             Spacer(Modifier.height(32.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { videoPicker.launch() }, modifier = Modifier.weight(1f)) {
+                Button(onClick = { mediaPicker.launch() }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.FolderOpen, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Open Video")
+                    Text("Open Media")
                 }
 
                 OutlinedButton(onClick = { projectPicker.launch() }, modifier = Modifier.weight(1f)) {
