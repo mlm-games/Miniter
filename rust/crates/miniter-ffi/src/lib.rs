@@ -813,9 +813,10 @@ mod web_ffi {
         Url::revoke_object_url(&url).map_err(|e| JsValue::from(e))
     }
 
+    /// Specific codec support is probed on the Kotlin/JS side.
     #[wasm_bindgen(js_name = isWebCodecsHardwareAccelerated)]
     pub fn is_web_codecs_hardware_accelerated() -> bool {
-        false
+        true
     }
 }
 

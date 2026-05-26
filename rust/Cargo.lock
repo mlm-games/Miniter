@@ -377,7 +377,7 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#e1965f8f9971c8c03563abed8e972e3db1d85688"
+source = "git+https://github.com/mlm-games/baa4bababab2baa#2a2f75fcf8f5570de59bf4d7eb4eed2504e2d328"
 dependencies = [
  "bytes",
  "js-sys",
@@ -1423,7 +1423,7 @@ dependencies = [
 [[package]]
 name = "mousiki"
 version = "0.2.2"
-source = "git+https://github.com/mlm-games/mousiki-recovered#4e27e697e29dcc9dd8f25b7226d402dc2bf58611"
+source = "git+https://github.com/mlm-games/mousiki-recovered#b95b0565f9cb98a2863c9cbf54f4694a1c68fb53"
 dependencies = [
  "bitflags 2.11.1",
  "cfg-if",
@@ -2378,7 +2378,7 @@ dependencies = [
 [[package]]
 name = "symphonia-adapter-mousiki"
 version = "0.1.1"
-source = "git+https://github.com/mlm-games/symphonia-adapter-mousiki#078b499fd2812aeb19cd87e97ce2edcd4132f70e"
+source = "git+https://github.com/mlm-games/symphonia-adapter-mousiki#53ec055676641314ccea5ce49fe2863c34ea8948"
 dependencies = [
  "log",
  "mousiki",
@@ -3134,7 +3134,7 @@ dependencies = [
 [[package]]
 name = "web-codecs"
 version = "0.3.10"
-source = "git+https://github.com/mlm-games/web-rs.git?branch=main#7a8d3d1d91698df2df712cfb9ece417e24b01188"
+source = "git+https://github.com/mlm-games/web-rs.git?branch=main#25fbcbf51d15a02c4eb258f64e20df0b20dba5e2"
 dependencies = [
  "bytemuck",
  "bytes",

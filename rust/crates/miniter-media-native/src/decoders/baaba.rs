@@ -1,3 +1,6 @@
+use std::collections::VecDeque;
+use std::time::Duration;
+
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
 use crate::frame::RgbaFrame;
@@ -30,12 +33,23 @@ use baabaabaabaabababbababbaa::platform::wasm::{
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::runtime::Runtime;
 
+#[cfg(target_arch = "wasm32")]
+use std::sync::LazyLock;
+#[cfg(target_arch = "wasm32")]
+static WASM_RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("WASM tokio runtime for baaba decoder")
+});
+
 pub struct BaabaBackend {
     input: PlatformVideoDecoderInput,
     output: PlatformVideoDecoderOutput,
     #[cfg(not(target_arch = "wasm32"))]
     rt: Runtime,
     allowed_fourccs: Vec<u32>,
+    #[cfg(target_arch = "wasm32")]
+    frame_buffer: VecDeque<RgbaFrame>,
 }
 
 impl BaabaBackend {
@@ -55,14 +69,14 @@ impl BaabaBackend {
         let rt =
             Runtime::new().map_err(|e| DecodeError::Other(format!("tokio: {e}")))?;
 
-        let allowed_fourccs = Vec::new();
-
         Ok(Self {
             input,
             output,
             #[cfg(not(target_arch = "wasm32"))]
             rt,
-            allowed_fourccs,
+            allowed_fourccs: Vec::new(),
+            #[cfg(target_arch = "wasm32")]
+            frame_buffer: VecDeque::new(),
         })
     }
 }
@@ -114,6 +128,20 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn drain_frames(
+    output: &mut PlatformVideoDecoderOutput,
+    buffer: &mut VecDeque<RgbaFrame>,
+) -> Result<(), DecodeBackendError> {
+    while let Some(baaba_frame) = output
+        .try_frame()
+        .map_err(|e| DecodeBackendError::Other(format!("baaba try_frame: {e}")))?
+    {
+        buffer.push_back(convert_baaba_frame(baaba_frame)?);
+    }
+    Ok(())
+}
+
 impl VideoDecoderBackend for BaabaBackend {
     fn name(&self) -> &'static str {
         "baaba (HW)"
@@ -121,7 +149,6 @@ impl VideoDecoderBackend for BaabaBackend {
 
     fn is_supported(&self, fourcc: u32) -> bool {
         if self.allowed_fourccs.is_empty() {
-            // Accept any – the platform decoder decides internally.
             true
         } else {
             self.allowed_fourccs.contains(&fourcc)
@@ -134,8 +161,6 @@ impl VideoDecoderBackend for BaabaBackend {
         pts_us: i64,
         _is_sync: bool,
     ) -> Result<Option<RgbaFrame>, DecodeBackendError> {
-        use std::time::Duration;
-
         let packet = EncodedVideoPacket {
             payload: data.to_vec().into(),
             timestamp: Duration::from_micros(pts_us as u64),
@@ -156,9 +181,8 @@ impl VideoDecoderBackend for BaabaBackend {
 
         #[cfg(target_arch = "wasm32")]
         {
-            Err(DecodeBackendError::Other(
-                "Baaba WebCodecs output is async-only; use wasm async bridge".into(),
-            ))
+            drain_frames(&mut self.output, &mut self.frame_buffer)?;
+            Ok(self.frame_buffer.pop_front())
         }
     }
 
@@ -167,7 +191,16 @@ impl VideoDecoderBackend for BaabaBackend {
         {
             let _ = self.rt.block_on(self.input.flush());
         }
-        Ok(None)
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = WASM_RT
+                .block_on(self.input.flush())
+                .map_err(|e| DecodeBackendError::Other(format!("baaba flush: {e}")))?;
+            drain_frames(&mut self.output, &mut self.frame_buffer)?;
+        }
+
+        Ok(self.frame_buffer.pop_front())
     }
 
     fn reset(&mut self) {

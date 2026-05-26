@@ -62,6 +62,7 @@ mod hw {
                 framerate: Some(fps as f64),
                 hardware_acceleration: None,
                 latency_optimized: None,
+                level: None,
             };
 
             #[cfg(target_os = "android")]
