@@ -1,3 +1,4 @@
+pub mod codecs;
 pub mod decode;
 pub mod loudness;
 pub mod mix;

@@ -130,7 +130,7 @@ fn decode_audio_stream(
         .unwrap_or(1)
         .max(1);
 
-    let mut decoder = symphonia::default::get_codecs()
+    let mut decoder = crate::codecs::get_codecs()
         .make_audio_decoder(&audio_params, &AudioDecoderOptions::default())?;
 
     let mut samples = Vec::<f32>::new();

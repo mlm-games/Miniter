@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::path::Path;
+use miniter_audio::codecs;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::formats::probe::Hint;
@@ -68,7 +69,7 @@ impl AudioDecoder {
             .unwrap_or(2);
 
         let decoder_opts = AudioDecoderOptions::default();
-        let decoder = symphonia::default::get_codecs()
+        let decoder = codecs::get_codecs()
             .make_audio_decoder(&audio_params, &decoder_opts)
             .map_err(|e| AudioDecodeError::UnsupportedCodec(e.to_string()))?;
 
@@ -119,7 +120,7 @@ impl AudioDecoder {
             .ok_or(AudioDecodeError::NoAudioTrack)?;
 
         let decoder_opts = AudioDecoderOptions::default();
-        let mut decoder = symphonia::default::get_codecs()
+        let mut decoder = codecs::get_codecs()
             .make_audio_decoder(&audio_params, &decoder_opts)
             .map_err(|e| AudioDecodeError::UnsupportedCodec(e.to_string()))?;
 

@@ -1311,6 +1311,7 @@ dependencies = [
  "log",
  "miniter-domain",
  "symphonia",
+ "symphonia-adapter-mousiki",
  "thiserror 2.0.18",
 ]
 
@@ -2404,6 +2405,15 @@ dependencies = [
  "symphonia-format-ogg",
  "symphonia-format-riff",
  "symphonia-metadata",
+]
+
+[[package]]
+name = "symphonia-adapter-mousiki"
+version = "0.1.1"
+dependencies = [
+ "log",
+ "mousiki",
+ "symphonia-core",
 ]
 
 [[package]]

@@ -76,7 +76,7 @@ pub fn scan_loudness(
         .round()
         .max(1.0) as u64;
 
-    let mut decoder = symphonia::default::get_codecs()
+    let mut decoder = crate::codecs::get_codecs()
         .make_audio_decoder(&audio_params, &AudioDecoderOptions::default())?;
 
     let mut rms_values: Vec<f32> = Vec::new();

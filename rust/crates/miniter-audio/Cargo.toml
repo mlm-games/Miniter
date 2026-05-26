@@ -9,5 +9,6 @@ symphonia = { version = "0.6", features = [
     "aac", "alac", "flac", "mpa", "vorbis",
     "isomp4", "mkv", "ogg", "wav",
 ] }
+symphonia-adapter-mousiki.workspace = true
 thiserror.workspace = true
 log.workspace = true

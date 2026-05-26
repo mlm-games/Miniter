@@ -101,7 +101,7 @@ fn extract_waveform_stream(
         .unwrap_or(sample_rate as u64 * 300);
     let samples_per_bucket = (total_samples / target_buckets as u64).max(1);
 
-    let mut decoder = symphonia::default::get_codecs()
+    let mut decoder = crate::codecs::get_codecs()
         .make_audio_decoder(&audio_params, &AudioDecoderOptions::default())?;
 
     let mut peaks: Vec<(f32, f32)> = Vec::with_capacity(target_buckets);
