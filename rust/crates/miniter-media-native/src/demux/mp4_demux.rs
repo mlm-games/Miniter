@@ -4,6 +4,41 @@ use super::{DemuxError, DemuxResult, DemuxedSample, Demuxer, VideoContainer};
 use std::io::{BufReader, Read, Seek};
 
 const H264_FOURCC: u32 = 0x31637661;
+const H265_FOURCC: u32 = 0x31766368;
+const VP9_FOURCC: u32 = 0x33397076;
+const AV1_FOURCC: u32 = 0x31305641;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Codec {
+    H264,
+    H265,
+    Vp9,
+    Unknown,
+}
+
+impl Codec {
+    fn fourcc(self) -> u32 {
+        match self {
+            Codec::H264 => H264_FOURCC,
+            Codec::H265 => H265_FOURCC,
+            Codec::Vp9 => VP9_FOURCC,
+            Codec::Unknown => AV1_FOURCC,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Codec::H264 => "H.264",
+            Codec::H265 => "H.265",
+            Codec::Vp9 => "VP9",
+            Codec::Unknown => "AV1",
+        }
+    }
+
+    fn needs_annex_b(self) -> bool {
+        matches!(self, Codec::H264 | Codec::H265)
+    }
+}
 
 pub struct Mp4Demuxer<R: Read + Seek> {
     mp4: mp4::Mp4Reader<R>,
@@ -13,6 +48,7 @@ pub struct Mp4Demuxer<R: Read + Seek> {
     timescale: u32,
     total_samples: u32,
     current_sample: u32,
+    codec: Codec,
     nalu_length_size: u8,
     sps: Option<Vec<u8>>,
     pps: Option<Vec<u8>>,
@@ -34,6 +70,16 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
         let width = track.width() as u32;
         let height = track.height() as u32;
         let timescale = track.timescale();
+
+        let codec = if track.trak.mdia.minf.stbl.stsd.avc1.is_some() {
+            Codec::H264
+        } else if track.trak.mdia.minf.stbl.stsd.hev1.is_some() {
+            Codec::H265
+        } else if track.trak.mdia.minf.stbl.stsd.vp09.is_some() {
+            Codec::Vp9
+        } else {
+            Codec::Unknown
+        };
 
         let (nalu_length_size, sps, pps) =
             if let Some(ref avc1) = track.trak.mdia.minf.stbl.stsd.avc1 {
@@ -60,6 +106,7 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
             timescale,
             total_samples,
             current_sample: 1,
+            codec,
             nalu_length_size,
             sps,
             pps,
@@ -68,7 +115,7 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
     }
 
     pub fn codec_fourcc(&self) -> u32 {
-        H264_FOURCC
+        self.codec.fourcc()
     }
 
     fn to_annex_b(&self, data: &[u8]) -> Vec<u8> {
@@ -149,11 +196,11 @@ impl<R: Read + Seek + Send> Demuxer for Mp4Demuxer<R> {
     }
 
     fn codec_name(&self) -> &'static str {
-        "H.264"
+        self.codec.name()
     }
 
     fn fourcc(&self) -> u32 {
-        H264_FOURCC
+        self.codec_fourcc()
     }
 
     fn format_name(&self) -> &'static str {
@@ -182,7 +229,11 @@ impl<R: Read + Seek + Send> Demuxer for Mp4Demuxer<R> {
         self.last_pts_us = pts;
         self.current_sample += 1;
 
-        let data = self.to_annex_b(&sample.bytes);
+        let data = if self.codec.needs_annex_b() {
+            self.to_annex_b(&sample.bytes)
+        } else {
+            sample.bytes.to_vec()
+        };
         Ok(Some(DemuxedSample::new(data, pts, sample.is_sync)))
     }
 
