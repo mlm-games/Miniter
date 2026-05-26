@@ -31,6 +31,7 @@ ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-ren
 ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
 videoson = { git = "https://github.com/mlm-games/videoson" }
 baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
+web-codecs = { git = "https://github.com/mlm-games/web-rs.git", branch = "main" }
 cros-codecs = { git = "https://github.com/mlm-games/cros-codecs" }
 cros-libva = { git = "https://github.com/mlm-games/cros-libva" }
 mediacodec = { git = "https://github.com/mlm-games/rust_mediacodec", package = "mediacodec" }

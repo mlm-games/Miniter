@@ -54,7 +54,7 @@ baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2ba
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", optional = true, features = ["web-codecs"] }
-web-sys = { version = "0.3.91", features = ["Window", "Document", "Storage"] }
+web-sys = { version = "0.3.99", features = ["Window", "Document", "Storage"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen-futures = "0.4"
 less-avc = { version = "0.1.5", optional = true }

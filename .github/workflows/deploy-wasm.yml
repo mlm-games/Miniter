@@ -34,10 +34,10 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
-          rustflags: ""
+          rustflags: "--cfg=web_sys_unstable_apis"
 
       - name: Install wasm-bindgen CLI
-        run: cargo install wasm-bindgen-cli --version 0.2.114 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.122 --locked
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
