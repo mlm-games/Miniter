@@ -23,8 +23,8 @@ pub enum DecodeError {
     NoVideoStream,
     #[error("Unsupported codec")]
     UnsupportedCodec,
-    #[error("No decoder available")]
-    DecoderNotAvailable,
+    #[error("No decoder available for {0}")]
+    DecoderNotAvailable(String),
     #[error("Videoson: {0}")]
     Videoson(String),
     #[error("OxideAV: {0}")]
