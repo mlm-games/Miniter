@@ -1376,9 +1376,6 @@ dependencies = [
  "mousiki",
  "mp4",
  "muxide",
- "oxideav-codec",
- "oxideav-core",
- "oxideav-h265",
  "palette",
  "rav1d-safe",
  "rav1e",
@@ -1612,35 +1609,6 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
-
-[[package]]
-name = "oxideav-codec"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5968b58ef3e238640b933fa3d43659b8609e77ff0f9457cb5fa544aa3dc995fb"
-dependencies = [
- "oxideav-core",
-]
-
-[[package]]
-name = "oxideav-core"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f4672c43a9d07b9141d03260f23799e8c91faaa344b69db0c8c01ad87fc88a9"
-dependencies = [
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "oxideav-h265"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca187d85bbd051233cb8176fbf041a7c04285684e84474fb1fca7f172951d3ce"
-dependencies = [
- "oxideav-codec",
- "oxideav-core",
-]
 
 [[package]]
 name = "palette"

@@ -42,16 +42,8 @@ libblur = "0.24"
 palette = "0.7"
 bytemuck = "1"
 
-
-oxideav-core = { version = "0.1.3", optional = true }
-oxideav-codec = { version = "0.1.2", optional = true }
-oxideav-h265 = { version = "0.0.4", optional = true }
-# oxideav-vp8/mpeg4/mjpeg: incompatible with oxideav-codec API, use symphonia instead
-
-# AV1 decoder (rav1d-safe is a safe fork of rav1d)
 rav1d-safe = { version = "0.3", optional = true }
 
-# videoson for H.264 (supports B-slices)
 videoson-core = { version = "0.1", optional = true }
 videoson-codec-h264 = { version = "0.1", optional = true }
 
@@ -71,15 +63,7 @@ wasm-bindgen-futures = "0.4"
 less-avc = { version = "0.1.5", optional = true }
 
 [features]
-default = ["oxideav", "videoson", "av1", "hw-decoder"]
-
-# Use oxideav (pure-Rust) for H.265, VP8, MKV/MP4 container
-# videoson handles H.264 including B-slices
-oxideav = [
-    "dep:oxideav-core",
-    "dep:oxideav-codec",
-    "dep:oxideav-h265",
-]
+default = ["videoson", "av1", "hw-decoder"]
 
 # videoson for H.264 (supports B-slices)
 videoson = [

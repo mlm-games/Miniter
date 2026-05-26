@@ -5,9 +5,9 @@ use crate::demux::VideoDecoderBackend;
 // ---------------------------------------------------------------------------
 pub const H264_FOURCC: u32 = 0x31637661; // "avc1"
 pub const H265_FOURCC: u32 = 0x68657631; // "hev1"
-pub const AV1_FOURCC:  u32 = 0x31305641; // "av01"
-pub const VP8_FOURCC:  u32 = 0x31475661; // "vp80"
-pub const VP9_FOURCC:  u32 = 0x31475639; // "vp90"
+pub const AV1_FOURCC: u32 = 0x31305641; // "av01"
+pub const VP8_FOURCC: u32 = 0x31475661; // "vp80"
+pub const VP9_FOURCC: u32 = 0x31475639; // "vp90"
 pub const AV1_IVF_FOURCC: u32 = 0x31495641; // "AVI1" (IVF container legacy)
 
 // ---------------------------------------------------------------------------
@@ -27,8 +27,6 @@ pub enum DecodeError {
     DecoderNotAvailable(String),
     #[error("Videoson: {0}")]
     Videoson(String),
-    #[error("OxideAV: {0}")]
-    OxideAv(String),
     #[error("AV1: {0}")]
     Av1(String),
     #[error("Decoder error: {0}")]
@@ -44,12 +42,6 @@ impl From<crate::demux::DecodeBackendError> for DecodeError {
 // ---------------------------------------------------------------------------
 // Module declarations (feature-gated)
 // ---------------------------------------------------------------------------
-#[cfg(feature = "videoson")]
-pub mod videoson;
-#[cfg(feature = "oxideav")]
-pub mod oxideav;
-#[cfg(feature = "av1")]
-pub mod rav1d;
 #[cfg(all(
     feature = "hw-decoder",
     any(
@@ -58,6 +50,10 @@ pub mod rav1d;
     )
 ))]
 pub mod baaba;
+#[cfg(feature = "av1")]
+pub mod rav1d;
+#[cfg(feature = "videoson")]
+pub mod videoson;
 
 pub mod session;
 
@@ -99,12 +95,6 @@ pub fn create_backend(
     }
 
     if fourcc == H265_FOURCC {
-        #[cfg(feature = "oxideav")]
-        {
-            if let Ok(dec) = oxideav::OxideAvBackend::new(width, height) {
-                return Some(Box::new(dec));
-            }
-        }
         return None;
     }
 
