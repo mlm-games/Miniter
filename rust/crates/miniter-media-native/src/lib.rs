@@ -6,6 +6,7 @@ pub(crate) static HARDWARE_FALLBACK_OCCURRED: AtomicBool = AtomicBool::new(false
 pub mod audio;
 pub mod audio_export;
 pub mod decoder;
+pub mod decoders;
 pub mod demux;
 pub mod encoder;
 pub mod encoder_av1;

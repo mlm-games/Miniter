@@ -433,7 +433,7 @@ fn parse_ass_cues(path: &Path, preserve_styles: bool) -> Result<Vec<SourceSubtit
 }
 
 struct ExportDecodeSession {
-    session: VideoDecodeSession<std::io::BufReader<std::fs::File>>,
+    session: VideoDecodeSession,
     last_pts: i64,
     last_frame: Option<RgbaFrame>,
     pending_frame: Option<RgbaFrame>,

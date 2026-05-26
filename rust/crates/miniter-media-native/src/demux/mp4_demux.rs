@@ -29,10 +29,6 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
             .find(|t| matches!(t.track_type(), Ok(mp4::TrackType::Video)))
             .ok_or(DemuxError::NoVideoTrack)?;
 
-        let media_type = track
-            .media_type()
-            .map_err(|_| DemuxError::Other("Unknown media type".into()))?;
-
         let track_id = track.track_id();
         let total_samples = track.sample_count();
         let width = track.width() as u32;

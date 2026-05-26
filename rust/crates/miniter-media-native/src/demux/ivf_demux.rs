@@ -36,7 +36,7 @@ impl<R: Read> IvfDemuxer<R> {
             )));
         }
 
-        let fourcc = u32::from_le_bytes([header[8], header[9], header[10], header[11]]);
+        let _fourcc = u32::from_le_bytes([header[8], header[9], header[10], header[11]]);
         let width = u16::from_le_bytes([header[12], header[13]]) as u32;
         let height = u16::from_le_bytes([header[14], header[15]]) as u32;
         let fps_numer = u32::from_le_bytes([header[16], header[17], header[18], header[19]]);

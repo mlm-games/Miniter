@@ -68,8 +68,8 @@ struct RenderSettings {
 }
 
 enum DecodeSession {
-    File(VideoDecodeSession<BufReader<std::fs::File>>),
-    Memory(VideoDecodeSession<Cursor<Vec<u8>>>),
+    File(VideoDecodeSession),
+    Memory(VideoDecodeSession),
     Image(RgbaFrame),
 }
 
