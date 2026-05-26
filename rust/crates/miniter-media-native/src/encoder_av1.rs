@@ -6,12 +6,14 @@ use crate::frame::RgbaFrame;
 use crate::yuv::rgba_to_yuv420;
 use rav1e::prelude::*;
 
+const MIN_DIM: u32 = 16;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Av1EncodeError {
     #[error("Invalid dimensions: width and height must be > 0 and even")]
     InvalidDimensions,
-    #[error("rav1e config error")]
-    InvalidConfig,
+    #[error("rav1e config error: {0}")]
+    InvalidConfig(#[from] rav1e::InvalidConfig),
     #[error("rav1e encoder error: {0:?}")]
     Encoder(EncoderStatus),
 }
@@ -24,7 +26,8 @@ pub struct Av1Packet {
 
 pub struct Av1EncodeSession {
     ctx: Context<u8>,
-    width: usize,
+    enc_width: usize,
+    enc_height: usize,
     fps: f64,
     seq_header: Vec<u8>,
     flushed: bool,
@@ -42,10 +45,13 @@ impl Av1EncodeSession {
             return Err(Av1EncodeError::InvalidDimensions);
         }
 
+        let enc_w = width.max(MIN_DIM) as usize;
+        let enc_h = height.max(MIN_DIM) as usize;
+
         let fps_u32 = fps.round().max(1.0) as u32;
         let mut enc = EncoderConfig::with_speed_preset(10);
-        enc.width = width as usize;
-        enc.height = height as usize;
+        enc.width = enc_w;
+        enc.height = enc_h;
         enc.bit_depth = 8;
         enc.chroma_sampling = ChromaSampling::Cs420;
         enc.time_base = Rational::new(1, fps_u32 as u64);
@@ -54,14 +60,13 @@ impl Av1EncodeSession {
         enc.max_key_frame_interval = 60;
 
         let cfg = Config::new().with_encoder_config(enc);
-        let ctx: Context<u8> = cfg
-            .new_context()
-            .map_err(|_| Av1EncodeError::InvalidConfig)?;
+        let ctx: Context<u8> = cfg.new_context()?;
         let seq_header = ctx.container_sequence_header();
 
         Ok(Self {
             ctx,
-            width: width as usize,
+            enc_width: enc_w,
+            enc_height: enc_h,
             fps,
             seq_header,
             flushed: false,
@@ -74,13 +79,26 @@ impl Av1EncodeSession {
     }
 
     pub fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<Vec<Av1Packet>, Av1EncodeError> {
-        let (y_plane, u_plane, v_plane) =
-            rgba_to_yuv420(&frame.data, frame.width as usize, frame.height as usize);
+        let frame_w = frame.width as usize;
+        let frame_h = frame.height as usize;
+
+        let (y_plane, u_plane, v_plane) = if frame_w != self.enc_width || frame_h != self.enc_height {
+            let stride = self.enc_width * 4;
+            let mut padded = vec![0u8; self.enc_width * self.enc_height * 4];
+            for row in 0..frame_h.min(self.enc_height) {
+                let src = &frame.data[row * frame_w * 4..][..frame_w * 4];
+                let dst = &mut padded[row * stride..][..frame_w * 4];
+                dst.copy_from_slice(src);
+            }
+            rgba_to_yuv420(&padded, self.enc_width, self.enc_height)
+        } else {
+            rgba_to_yuv420(&frame.data, self.enc_width, self.enc_height)
+        };
 
         let mut f = self.ctx.new_frame();
-        f.planes[0].copy_from_raw_u8(&y_plane, self.width, 1);
-        f.planes[1].copy_from_raw_u8(&u_plane, self.width / 2, 1);
-        f.planes[2].copy_from_raw_u8(&v_plane, self.width / 2, 1);
+        f.planes[0].copy_from_raw_u8(&y_plane, self.enc_width, 1);
+        f.planes[1].copy_from_raw_u8(&u_plane, self.enc_width / 2, 1);
+        f.planes[2].copy_from_raw_u8(&v_plane, self.enc_width / 2, 1);
 
         self.pending_frames.push(frame.pts_us as u64);
 
