@@ -1,9 +1,9 @@
+use crate::HARDWARE_FALLBACK_OCCURRED;
 use crate::clear_session_cache;
 use crate::decoder::{DecodeError, VideoDecodeSession};
 use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
-use crate::encoder_hw::HwEncodeSession;
-use crate::HARDWARE_FALLBACK_OCCURRED;
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
+use crate::encoder_hw::HwEncodeSession;
 use crate::frame::RgbaFrame;
 use crate::image_cache::ImageCache;
 use crate::mux::{
@@ -17,12 +17,12 @@ use miniter_audio::mix::{AudioMixError, MixConfig, MixedAudio, mix_project_audio
 use miniter_domain::Project;
 use miniter_domain::clip::ClipId;
 use miniter_domain::clip::ClipKind;
+use miniter_domain::ease_in_out;
 use miniter_domain::export::{ExportFormat, SubtitleMode};
 use miniter_domain::time::Timestamp;
 use miniter_domain::track::TrackKind;
-use miniter_render_plan::compositor::{first_video_dimensions, FramePlanIterator};
+use miniter_render_plan::compositor::{FramePlanIterator, first_video_dimensions};
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
-use miniter_domain::ease_in_out;
 use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
 use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
@@ -376,8 +376,6 @@ fn parse_srt_cues(path: &Path) -> Result<Vec<SourceSubtitleCue>, String> {
     Ok(cues)
 }
 
-
-
 fn parse_ass_cues(path: &Path, preserve_styles: bool) -> Result<Vec<SourceSubtitleCue>, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read ASS/SSA '{}': {}", path.display(), e))?;
@@ -502,7 +500,9 @@ impl ExportDecodeCache {
             }
         }
 
-        match self.sessions.get_mut(&clip_id).ok_or(DecodeError::Other("clip_id missing from decode cache".into()))? {
+        match self.sessions.get_mut(&clip_id).ok_or(DecodeError::Other(
+            "clip_id missing from decode cache".into(),
+        ))? {
             ExportSession::Image(entry) => Ok(entry.frame.clone()),
             ExportSession::Video(entry) => {
                 if let Some(ref last) = entry.last_frame {
@@ -667,11 +667,21 @@ where
             Err(e) => {
                 log::warn!("HW encoder failed, falling back to software: {e}");
                 HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
-                AnyEncoder::Sw(VideoEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32)?)
+                AnyEncoder::Sw(VideoEncodeSession::new(
+                    width,
+                    height,
+                    bitrate_kbps * 1000,
+                    fps as f32,
+                )?)
             }
         }
     } else {
-        AnyEncoder::Sw(VideoEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32)?)
+        AnyEncoder::Sw(VideoEncodeSession::new(
+            width,
+            height,
+            bitrate_kbps * 1000,
+            fps as f32,
+        )?)
     };
 
     let mut iter = FramePlanIterator::with_render_settings(
@@ -952,12 +962,6 @@ fn render_node(
     }
 }
 
-
-
-
-
-
-
 fn export_av1<F>(
     project: &Project,
     output_path: &Path,
@@ -1104,7 +1108,9 @@ where
                     .as_mut()
                     .expect("IVF file must exist for AV1 IVF export");
                 for packet in packets {
-                    ivf::write_ivf_frame(file, packet.pts, &packet.data);
+                    // NOTE: previously, At 30fps, PTS=33333 (1/30s in μs) was interpreted by players as 33333 × 1/30 = 1111s.
+                    let pts_tbn = (packet.pts * fps_int as u64 + 500_000) / 1_000_000;
+                    ivf::write_ivf_frame(file, pts_tbn, &packet.data);
                     ivf_packet_count = ivf_packet_count.saturating_add(1);
                 }
             }
@@ -1135,7 +1141,8 @@ where
                 .expect("IVF file must exist for AV1 IVF export");
 
             for packet in finish_packets {
-                ivf::write_ivf_frame(file, packet.pts, &packet.data);
+                let pts_tbn = (packet.pts * fps_int as u64 + 500_000) / 1_000_000;
+                ivf::write_ivf_frame(file, pts_tbn, &packet.data);
                 ivf_packet_count = ivf_packet_count.saturating_add(1);
             }
 
@@ -1196,11 +1203,11 @@ fn write_av1_packets_to_mux<W: std::io::Write>(
     Ok(written)
 }
 
-
-
-fn encode_opus(mixed: &MixedAudio, bitrate_bps: u32) -> Result<crate::export_shared::EncodedOpus, OpusEncodeError> {
-    crate::export_shared::encode_opus(mixed, bitrate_bps)
-        .map_err(|e| OpusEncodeError::Encoder(e))
+fn encode_opus(
+    mixed: &MixedAudio,
+    bitrate_bps: u32,
+) -> Result<crate::export_shared::EncodedOpus, OpusEncodeError> {
+    crate::export_shared::encode_opus(mixed, bitrate_bps).map_err(|e| OpusEncodeError::Encoder(e))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1212,5 +1219,3 @@ pub enum OpusEncodeError {
     #[error("Opus encoder error: {0}")]
     Encoder(String),
 }
-
-

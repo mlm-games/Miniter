@@ -33,23 +33,28 @@ pub enum DecodeAudioError {
 }
 
 pub fn probe_has_audio_track(path: &Path) -> Result<bool, DecodeAudioError> {
-    if is_image_file(path) {
+    let ext = path.extension().and_then(|e| e.to_str());
+    if is_image_extension(ext) || is_video_only_extension(ext) {
         return Ok(false);
     }
     let file = File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
     let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+    if let Some(ext) = ext {
         hint.with_extension(ext);
     }
 
-    let reader = symphonia::default::get_probe().probe(
+    let reader = match symphonia::default::get_probe().probe(
         &hint,
         mss,
         FormatOptions::default(),
         MetadataOptions::default(),
-    )?;
+    ) {
+        Ok(r) => r,
+        Err(symphonia::core::errors::Error::Unsupported(_)) => return Ok(false),
+        Err(e) => return Err(e.into()),
+    };
 
     Ok(reader
         .tracks()
@@ -58,20 +63,21 @@ pub fn probe_has_audio_track(path: &Path) -> Result<bool, DecodeAudioError> {
 }
 
 pub fn decode_audio_f32(path: &Path) -> Result<DecodedAudio, DecodeAudioError> {
-    if is_image_file(path) {
+    let ext = path.extension().and_then(|e| e.to_str());
+    if is_image_extension(ext) || is_video_only_extension(ext) {
         return Err(DecodeAudioError::NoAudioTrack);
     }
     let file = File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-    decode_audio_stream(mss, path.extension().and_then(|e| e.to_str()))
+    decode_audio_stream(mss, ext)
 }
 
 pub fn decode_audio_f32_bytes(
     bytes: &[u8],
     extension_hint: Option<&str>,
 ) -> Result<DecodedAudio, DecodeAudioError> {
-    if is_image_extension(extension_hint) {
+    if is_image_extension(extension_hint) || is_video_only_extension(extension_hint) {
         return Err(DecodeAudioError::NoAudioTrack);
     }
     let cursor = Cursor::new(bytes.to_vec());
@@ -89,12 +95,18 @@ fn decode_audio_stream(
         hint.with_extension(ext);
     }
 
-    let mut reader = symphonia::default::get_probe().probe(
+    let mut reader = match symphonia::default::get_probe().probe(
         &hint,
         mss,
         FormatOptions::default(),
         MetadataOptions::default(),
-    )?;
+    ) {
+        Ok(r) => r,
+        Err(symphonia::core::errors::Error::Unsupported(_)) => {
+            return Err(DecodeAudioError::NoAudioTrack)
+        }
+        Err(e) => return Err(e.into()),
+    };
 
     let track = reader
         .tracks()
@@ -158,6 +170,10 @@ fn is_likely_audio_params(params: &Option<symphonia::core::codecs::CodecParamete
 
 fn is_any_codec(params: &Option<symphonia::core::codecs::CodecParameters>) -> bool {
     params.is_some()
+}
+
+fn is_video_only_extension(ext: Option<&str>) -> bool {
+    matches!(ext.map(|e| e.to_lowercase()).as_deref(), Some("ivf"))
 }
 
 fn is_image_file(path: &Path) -> bool {

@@ -25,20 +25,21 @@ pub enum ProbeError {
 }
 
 pub fn probe_audio(path: &Path) -> Result<AudioMeta, ProbeError> {
-    if is_image_file(path) {
+    let ext = path.extension().and_then(|e| e.to_str());
+    if is_image_extension(ext) || is_video_only_extension(ext) {
         return Err(ProbeError::NoAudioTrack);
     }
     let file = File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-    probe_audio_stream(mss, path.extension().and_then(|e| e.to_str()))
+    probe_audio_stream(mss, ext)
 }
 
 pub fn probe_audio_bytes(
     bytes: &[u8],
     extension_hint: Option<&str>,
 ) -> Result<AudioMeta, ProbeError> {
-    if is_image_extension(extension_hint) {
+    if is_image_extension(extension_hint) || is_video_only_extension(extension_hint) {
         return Err(ProbeError::NoAudioTrack);
     }
     let cursor = Cursor::new(bytes.to_vec());
@@ -56,22 +57,25 @@ fn probe_audio_stream(
         hint.with_extension(ext);
     }
 
-    let reader = symphonia::default::get_probe().probe(
+    let reader = match symphonia::default::get_probe().probe(
         &hint,
         mss,
         FormatOptions::default(),
         MetadataOptions::default(),
-    )?;
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            return match &e {
+                symphonia::core::errors::Error::Unsupported(_) => Err(ProbeError::NoAudioTrack),
+                _ => Err(ProbeError::Symphonia(e)),
+            };
+        }
+    };
 
     let track = reader
         .tracks()
         .iter()
-        .find(|t| {
-            t.codec_params
-                .as_ref()
-                .and_then(|p| p.audio())
-                .is_some()
-        })
+        .find(|t| t.codec_params.as_ref().and_then(|p| p.audio()).is_some())
         .ok_or(ProbeError::NoAudioTrack)?;
 
     let audio_params = track
@@ -107,4 +111,8 @@ fn is_image_extension(ext: Option<&str>) -> bool {
         Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif") => true,
         _ => false,
     }
+}
+
+fn is_video_only_extension(ext: Option<&str>) -> bool {
+    matches!(ext.map(|e| e.to_lowercase()).as_deref(), Some("ivf"))
 }

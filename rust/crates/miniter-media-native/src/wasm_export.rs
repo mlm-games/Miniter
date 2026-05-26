@@ -720,7 +720,8 @@ fn export_av1_ivf_bytes(
             .map_err(|e| format!("AV1 encode failed: {e}"))?;
 
         for packet in packets {
-            ivf::write_ivf_frame(&mut cursor, packet.pts, &packet.data);
+            let pts_tbn = (packet.pts * fps_int as u64 + 500_000) / 1_000_000;
+            ivf::write_ivf_frame(&mut cursor, pts_tbn, &packet.data);
             packet_count = packet_count.saturating_add(1);
         }
 
@@ -733,7 +734,8 @@ fn export_av1_ivf_bytes(
         .finish()
         .map_err(|e| format!("AV1 finalize failed: {e}"))?;
     for packet in finish_packets {
-        ivf::write_ivf_frame(&mut cursor, packet.pts, &packet.data);
+        let pts_tbn = (packet.pts * fps_int as u64 + 500_000) / 1_000_000;
+        ivf::write_ivf_frame(&mut cursor, pts_tbn, &packet.data);
         packet_count = packet_count.saturating_add(1);
     }
 
