@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
+import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.ParamDef
@@ -48,6 +49,9 @@ fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
     return when (paramKey) {
         KeyframeParams.OPACITY -> clip.opacity
         KeyframeParams.VOLUME -> clip.volume
+        KeyframeParams.TEXT_POSITION_X -> (clip.kind as? RustTextClipKind)?.style?.positionX ?: 0.5f
+        KeyframeParams.TEXT_POSITION_Y -> (clip.kind as? RustTextClipKind)?.style?.positionY ?: 0.9f
+        KeyframeParams.TEXT_FONT_SIZE -> (clip.kind as? RustTextClipKind)?.style?.fontSize ?: 24f
         else -> {
             if (paramKey.startsWith("filter.")) {
                 val parts = paramKey.split(".")
@@ -96,6 +100,9 @@ fun KeyframeEditor(
                     KeyframeParams.TRANSFORM_TRANSLATE_X,
                     KeyframeParams.TRANSFORM_TRANSLATE_Y,
                     KeyframeParams.TRANSFORM_ROTATE,
+                    KeyframeParams.TEXT_POSITION_X,
+                    KeyframeParams.TEXT_POSITION_Y,
+                    KeyframeParams.TEXT_FONT_SIZE,
                 )
                 order.indexOf(param).let { if (it < 0) Int.MAX_VALUE else it }
             }

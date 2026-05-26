@@ -124,14 +124,18 @@ fun PropertiesPanel(
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
             )
-            is RustAudioClipKind -> AudioClipProperties(clip, kind, playheadMs, onSetVolume, onAddAudioFilter, onRemoveAudioFilter, onUpdateAudioFilterDuration, onAddKeyframe)
+            is RustAudioClipKind -> AudioClipProperties(clip, kind, playheadMs, onSetVolume, onAddAudioFilter, onRemoveAudioFilter, onUpdateAudioFilterDuration, onAddKeyframe, onRemoveKeyframe, onUpdateKeyframe)
             is RustTextClipKind -> TextClipProperties(
-                clip,
-                kind,
-                onUpdateText,
-                onUpdateTextStyle,
-                onSetTextTransitionIn,
-                onSetTextTransitionOut,
+                clip = clip,
+                kind = kind,
+                playheadMs = playheadMs,
+                onUpdateText = onUpdateText,
+                onUpdateTextStyle = onUpdateTextStyle,
+                onSetTextTransitionIn = onSetTextTransitionIn,
+                onSetTextTransitionOut = onSetTextTransitionOut,
+                onAddKeyframe = onAddKeyframe,
+                onRemoveKeyframe = onRemoveKeyframe,
+                onUpdateKeyframe = onUpdateKeyframe,
             )
             is RustSubtitleClipKind -> SubtitleClipProperties(
                 clip = clip,
@@ -353,6 +357,8 @@ private fun AudioClipProperties(
     onRemoveAudioFilter: (String, Int) -> Unit,
     onUpdateAudioFilterDuration: (String, Int, Long) -> Unit,
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
+    onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
+    onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
 ) {
     val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
     val clipVolume = clip.volume
@@ -473,17 +479,35 @@ private fun AudioClipProperties(
             else -> { }
         }
     }
+
+    Spacer(Modifier.height(16.dp))
+    KeyframeEditor(
+        clip = clip,
+        playheadMs = playheadMs,
+        onAddKeyframe = { kf -> onAddKeyframe(clip.id, kf) },
+        onRemoveKeyframe = { index -> onRemoveKeyframe(clip.id, index) },
+        onUpdateKeyframe = { index, kf -> onUpdateKeyframe(clip.id, index, kf) },
+    )
+
+    Spacer(Modifier.height(16.dp))
+    HorizontalDivider()
+    Spacer(Modifier.height(16.dp))
 }
 
 @Composable
 private fun TextClipProperties(
     clip: RustClipSnapshot,
     kind: RustTextClipKind,
+    playheadMs: Long = 0L,
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
+    onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
+    onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
+    onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
 ) {
+    val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
     val style = kind.style
     val transitionIn = clip.transitionIn
     val transitionOut = clip.transitionOut
@@ -548,7 +572,10 @@ private fun TextClipProperties(
 
     Spacer(Modifier.height(8.dp))
 
-    Text("X: ${formatFixed(style.positionX * 100f, 0)}%", style = MaterialTheme.typography.labelSmall)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("X: ${formatFixed(style.positionX * 100f, 0)}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+        KeyframeToggle(KeyframeParams.TEXT_POSITION_X, clip, clipOffsetUs, onAddKeyframe)
+    }
     var posX by remember(style.positionX) { mutableFloatStateOf(style.positionX) }
     Slider(
         value = posX,
@@ -558,7 +585,10 @@ private fun TextClipProperties(
         modifier = Modifier.height(28.dp),
     )
 
-    Text("Y: ${formatFixed(style.positionY * 100f, 0)}%", style = MaterialTheme.typography.labelSmall)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Y: ${formatFixed(style.positionY * 100f, 0)}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+        KeyframeToggle(KeyframeParams.TEXT_POSITION_Y, clip, clipOffsetUs, onAddKeyframe)
+    }
     var posY by remember(style.positionY) { mutableFloatStateOf(style.positionY) }
     Slider(
         value = posY,
@@ -570,7 +600,10 @@ private fun TextClipProperties(
 
     Spacer(Modifier.height(12.dp))
 
-    Text("Size", style = MaterialTheme.typography.labelMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Size", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        KeyframeToggle(KeyframeParams.TEXT_FONT_SIZE, clip, clipOffsetUs, onAddKeyframe)
+    }
     var fontSize by remember(style.fontSize) { mutableFloatStateOf(style.fontSize) }
     Slider(
         value = fontSize,
@@ -639,7 +672,16 @@ private fun TextClipProperties(
         }
     }
 
-    Spacer(Modifier.height(12.dp))
+    Spacer(Modifier.height(16.dp))
+    KeyframeEditor(
+        clip = clip,
+        playheadMs = playheadMs,
+        onAddKeyframe = { kf -> onAddKeyframe(clip.id, kf) },
+        onRemoveKeyframe = { index -> onRemoveKeyframe(clip.id, index) },
+        onUpdateKeyframe = { index, kf -> onUpdateKeyframe(clip.id, index, kf) },
+    )
+
+    Spacer(Modifier.height(16.dp))
     HorizontalDivider()
     Spacer(Modifier.height(12.dp))
 

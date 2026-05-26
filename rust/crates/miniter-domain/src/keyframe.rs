@@ -8,6 +8,9 @@ pub mod param {
     pub const TRANSFORM_TRANSLATE_X: &str = "transform.translate_x";
     pub const TRANSFORM_TRANSLATE_Y: &str = "transform.translate_y";
     pub const TRANSFORM_ROTATE: &str = "transform.rotate";
+    pub const TEXT_POSITION_X: &str = "text.position_x";
+    pub const TEXT_POSITION_Y: &str = "text.position_y";
+    pub const TEXT_FONT_SIZE: &str = "text.font_size";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

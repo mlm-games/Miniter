@@ -219,6 +219,16 @@ fn node_for_clip(
         ClipKind::Audio(_) => None,
         ClipKind::Text(overlay) => {
             let mut opacity = clip_opacity_at(clip, local_offset);
+            let mut modified = overlay.clone();
+            if let Some(x) = clip.keyframes.evaluate(param::TEXT_POSITION_X, local_offset) {
+                modified.style.position_x = x;
+            }
+            if let Some(y) = clip.keyframes.evaluate(param::TEXT_POSITION_Y, local_offset) {
+                modified.style.position_y = y;
+            }
+            if let Some(fs) = clip.keyframes.evaluate(param::TEXT_FONT_SIZE, local_offset) {
+                modified.style.font_size = fs;
+            }
 
             if let Some(ref trans) = clip.transition_in {
                 let progress = transition_progress(clip, trans, t);
@@ -239,7 +249,7 @@ fn node_for_clip(
             }
 
             Some(RenderNode::Text {
-                overlay: overlay.clone(),
+                overlay: modified,
                 opacity,
             })
         }
