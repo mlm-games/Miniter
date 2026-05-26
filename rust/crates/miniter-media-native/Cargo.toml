@@ -42,10 +42,7 @@ libblur = "0.24"
 palette = "0.7"
 bytemuck = "1"
 
-rav1d-safe = { version = "0.3", optional = true }
-
-videoson-core = { version = "0.1", optional = true }
-videoson-codec-h264 = { version = "0.1", optional = true }
+videoson = { version = "0.1", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
@@ -65,14 +62,9 @@ less-avc = { version = "0.1.5", optional = true }
 [features]
 default = ["videoson", "av1", "hw-decoder"]
 
-# videoson for H.264 (supports B-slices)
-videoson = [
-    "dep:videoson-core",
-    "dep:videoson-codec-h264",
-]
+videoson = ["dep:videoson", "videoson/h264"]
 
-# AV1 via rav1d-safe
-av1 = ["dep:rav1d-safe"]
+av1 = ["dep:videoson", "videoson/rav1d"]
 
 # Use hw-decoder (native platform decoder) if available
 hw-decoder = ["dep:baabaabaabaabababbababbaa"]

@@ -1377,13 +1377,11 @@ dependencies = [
  "mp4",
  "muxide",
  "palette",
- "rav1d-safe",
  "rav1e",
  "symphonia",
  "thiserror 2.0.18",
  "tokio",
- "videoson-codec-h264",
- "videoson-core",
+ "videoson",
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
@@ -1892,9 +1890,9 @@ dependencies = [
 
 [[package]]
 name = "rav1d-disjoint-mut"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "731512a636cc44496761bdab72157735a78cfffcbc3f42d1b0a84ff5800e3bc7"
+checksum = "8d5f921332331631dd8716a93d81aef9ac21245da74af62bc14000a4fd7fdbfd"
 dependencies = [
  "aligned",
  "aligned-vec",
@@ -2040,9 +2038,9 @@ checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "rust_h264"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "851af7d2d80f2f15451499f29a1ff753bef71d15010880a04cbcfa1f415e8914"
+checksum = "fbedf5e104105e8783a77926f1e212ea37e78fd3b38b2c928938a283d083d6f1"
 
 [[package]]
 name = "rustc-hash"
@@ -2964,9 +2962,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "videoson"
+version = "0.1.1"
+source = "git+https://github.com/mlm-games/videoson#7b645caffd0992ae77a5c7d598a868a8a6e1b72b"
+dependencies = [
+ "videoson-codec-h264",
+ "videoson-codec-rav1d",
+ "videoson-common",
+ "videoson-core",
+ "videoson-format-ivf",
+]
+
+[[package]]
 name = "videoson-codec-h264"
-version = "0.1.0"
-source = "git+https://github.com/mlm-games/videoson#1c6ec92d48ddb93b2c1ffd6a4d60d0ec0dd1066d"
+version = "0.1.1"
+source = "git+https://github.com/mlm-games/videoson#7b645caffd0992ae77a5c7d598a868a8a6e1b72b"
 dependencies = [
  "rust_h264",
  "videoson-common",
@@ -2974,14 +2984,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "videoson-codec-rav1d"
+version = "0.1.1"
+source = "git+https://github.com/mlm-games/videoson#7b645caffd0992ae77a5c7d598a868a8a6e1b72b"
+dependencies = [
+ "rav1d-safe",
+ "videoson-core",
+]
+
+[[package]]
 name = "videoson-common"
-version = "0.1.0"
-source = "git+https://github.com/mlm-games/videoson#1c6ec92d48ddb93b2c1ffd6a4d60d0ec0dd1066d"
+version = "0.1.1"
+source = "git+https://github.com/mlm-games/videoson#7b645caffd0992ae77a5c7d598a868a8a6e1b72b"
 
 [[package]]
 name = "videoson-core"
-version = "0.1.0"
-source = "git+https://github.com/mlm-games/videoson#1c6ec92d48ddb93b2c1ffd6a4d60d0ec0dd1066d"
+version = "0.1.1"
+source = "git+https://github.com/mlm-games/videoson#7b645caffd0992ae77a5c7d598a868a8a6e1b72b"
+
+[[package]]
+name = "videoson-format-ivf"
+version = "0.1.1"
+source = "git+https://github.com/mlm-games/videoson#7b645caffd0992ae77a5c7d598a868a8a6e1b72b"
+dependencies = [
+ "videoson-common",
+ "videoson-core",
+]
 
 [[package]]
 name = "walkdir"

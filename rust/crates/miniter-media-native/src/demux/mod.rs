@@ -12,6 +12,7 @@ pub mod ivf_demux;
 pub mod mp4_demux;
 pub mod symphonia_demux;
 
+use std::fs::File;
 use std::io::{BufReader, Read, Seek};
 use std::path::Path;
 
@@ -154,7 +155,7 @@ pub fn open_demuxer(path: &Path) -> DemuxResult<Box<dyn Demuxer>> {
         }
     }
 
-    let file = std::fs::File::open(path)?;
+    let file = File::open(path)?;
     let size = file.metadata()?.len();
 
     SymphoniaDemuxer::from_file(file, size).map(|d| Box::new(d) as Box<dyn Demuxer>)
@@ -162,7 +163,7 @@ pub fn open_demuxer(path: &Path) -> DemuxResult<Box<dyn Demuxer>> {
 
 pub fn open_demuxer_with_fallback(path: &Path) -> DemuxResult<Box<dyn Demuxer>> {
     open_demuxer(path).or_else(|_| {
-        let file = std::fs::File::open(path)?;
+        let file = File::open(path)?;
         let size = file.metadata()?.len();
         SymphoniaDemuxer::from_file(file, size).map(|d| Box::new(d) as Box<dyn Demuxer>)
     })

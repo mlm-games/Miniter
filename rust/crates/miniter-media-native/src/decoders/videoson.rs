@@ -1,11 +1,11 @@
 use crate::decoders::DecodeError;
+use crate::decoders::H264_FOURCC;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
 use crate::frame::RgbaFrame;
-use crate::decoders::H264_FOURCC;
 use std::collections::VecDeque;
-use videoson_codec_h264::H264Decoder;
-use videoson_core::{
+use videoson::{
     NalFormat, Packet as VideoPacket, VideoCodecParams, VideoDecoder, VideoDecoderOptions,
+    codec_h264::H264Decoder,
 };
 
 pub struct VideosonBackend {
@@ -19,7 +19,7 @@ pub struct VideosonBackend {
 impl VideosonBackend {
     pub fn new(width: u32, height: u32) -> Result<Self, DecodeError> {
         let params = VideoCodecParams {
-            codec: videoson_core::CodecType::H264,
+            codec: videoson::CodecType::H264,
             coded_width: width,
             coded_height: height,
             extradata: Vec::new(),
@@ -48,18 +48,18 @@ impl VideosonBackend {
             let v_stride = frame.plane_data.get(2).map(|p| p.stride).unwrap_or(w / 2);
 
             let y_data = match &frame.plane_data[0].data {
-                videoson_core::PlaneData::U8(v) => v.as_slice(),
+                videoson::PlaneData::U8(v) => v.as_slice(),
                 _ => {
                     return Err(DecodeBackendError::Other(
                         "videoson: unsupported bit depth".into(),
-                    ))
+                    ));
                 }
             };
             let u_data = frame
                 .plane_data
                 .get(1)
                 .and_then(|p| match &p.data {
-                    videoson_core::PlaneData::U8(v) => Some(v.as_slice()),
+                    videoson::PlaneData::U8(v) => Some(v.as_slice()),
                     _ => None,
                 })
                 .unwrap_or(&[]);
@@ -67,7 +67,7 @@ impl VideosonBackend {
                 .plane_data
                 .get(2)
                 .and_then(|p| match &p.data {
-                    videoson_core::PlaneData::U8(v) => Some(v.as_slice()),
+                    videoson::PlaneData::U8(v) => Some(v.as_slice()),
                     _ => None,
                 })
                 .unwrap_or(&[]);

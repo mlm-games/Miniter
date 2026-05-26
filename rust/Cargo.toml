@@ -29,8 +29,7 @@ symphonia-adapter-mousiki = { git = "https://github.com/mlm-games/symphonia-adap
 muxide = { git = "https://github.com/mlm-games/muxide" }
 ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-renderer" }
 ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
-videoson-core = { git = "https://github.com/mlm-games/videoson", package = "videoson-core" }
-videoson-codec-h264 = { git = "https://github.com/mlm-games/videoson", package = "videoson-codec-h264" }
+videoson = { git = "https://github.com/mlm-games/videoson" }
 baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
 cros-codecs = { git = "https://github.com/mlm-games/cros-codecs" }
 cros-libva = { git = "https://github.com/mlm-games/cros-libva" }

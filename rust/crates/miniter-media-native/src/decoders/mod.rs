@@ -21,8 +21,6 @@ pub enum DecodeError {
     DecoderNotAvailable(String),
     #[error("Videoson: {0}")]
     Videoson(String),
-    #[error("AV1: {0}")]
-    Av1(String),
     #[error("Decoder error: {0}")]
     Other(String),
 }
@@ -89,7 +87,7 @@ pub fn create_backend(
     if fourcc == AV1_FOURCC || fourcc == AV1_IVF_FOURCC {
         #[cfg(feature = "av1")]
         {
-            if let Ok(dec) = rav1d::Av1Backend::new() {
+            if let Ok(dec) = rav1d::Av1Backend::new(width, height) {
                 return Some(Box::new(dec));
             }
         }
