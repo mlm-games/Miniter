@@ -19,10 +19,6 @@ pub use ivf_demux::IvfDemuxer;
 pub use mp4_demux::Mp4Demuxer;
 pub use symphonia_demux::SymphoniaDemuxer;
 
-// ---------------------------------------------------------------------------
-// Shared types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoContainer {
     Mp4,
@@ -103,10 +99,6 @@ pub enum DemuxError {
 
 pub type DemuxResult<T> = Result<T, DemuxError>;
 
-// ---------------------------------------------------------------------------
-// Core traits
-// ---------------------------------------------------------------------------
-
 pub trait Demuxer: Send {
     fn container(&self) -> VideoContainer;
     fn width(&self) -> u32;
@@ -139,10 +131,6 @@ pub enum DecodeBackendError {
     #[error("{0}")]
     Other(String),
 }
-
-// ---------------------------------------------------------------------------
-// Open helpers
-// ---------------------------------------------------------------------------
 
 pub fn open_demuxer(path: &Path) -> DemuxResult<Box<dyn Demuxer>> {
     let ext = path

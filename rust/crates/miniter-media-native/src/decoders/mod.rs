@@ -1,8 +1,5 @@
 use crate::demux::VideoDecoderBackend;
 
-// ---------------------------------------------------------------------------
-// Canonical fourcc constants (LE u32)
-// ---------------------------------------------------------------------------
 pub const H264_FOURCC: u32 = 0x31637661; // "avc1"
 pub const H265_FOURCC: u32 = 0x68657631; // "hev1"
 pub const AV1_FOURCC: u32 = 0x31305641; // "av01"
@@ -10,9 +7,6 @@ pub const VP8_FOURCC: u32 = 0x31475661; // "vp80"
 pub const VP9_FOURCC: u32 = 0x31475639; // "vp90"
 pub const AV1_IVF_FOURCC: u32 = 0x31495641; // "AVI1" (IVF container legacy)
 
-// ---------------------------------------------------------------------------
-// Error types
-// ---------------------------------------------------------------------------
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
     #[error("IO: {0}")]
@@ -39,9 +33,6 @@ impl From<crate::demux::DecodeBackendError> for DecodeError {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Module declarations (feature-gated)
-// ---------------------------------------------------------------------------
 #[cfg(all(
     feature = "hw-decoder",
     any(
@@ -57,9 +48,6 @@ pub mod videoson;
 
 pub mod session;
 
-// ---------------------------------------------------------------------------
-// Factory: pick a backend by fourcc
-// ---------------------------------------------------------------------------
 #[allow(unused_variables)]
 pub fn create_backend(
     fourcc: u32,
