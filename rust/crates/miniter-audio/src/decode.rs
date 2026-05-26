@@ -103,7 +103,7 @@ fn decode_audio_stream(
     ) {
         Ok(r) => r,
         Err(symphonia::core::errors::Error::Unsupported(_)) => {
-            return Err(DecodeAudioError::NoAudioTrack)
+            return Err(DecodeAudioError::NoAudioTrack);
         }
         Err(e) => return Err(e.into()),
     };
@@ -112,7 +112,12 @@ fn decode_audio_stream(
         .tracks()
         .iter()
         .find(|t| is_likely_audio_params(&t.codec_params))
-        .or_else(|| reader.tracks().iter().find(|t| is_any_codec(&t.codec_params)))
+        .or_else(|| {
+            reader
+                .tracks()
+                .iter()
+                .find(|t| is_any_codec(&t.codec_params))
+        })
         .ok_or(DecodeAudioError::NoAudioTrack)?;
 
     let track_id = track.id;
@@ -122,16 +127,23 @@ fn decode_audio_stream(
         .and_then(|p| p.audio())
         .cloned()
         .ok_or(DecodeAudioError::NoAudioTrack)?;
-    let sample_rate = audio_params.sample_rate.unwrap_or(44_100);
-    let channels = audio_params
-        .channels
-        .as_ref()
-        .map(|c| c.count() as u16)
-        .unwrap_or(1)
-        .max(1);
 
     let mut decoder = crate::codecs::get_codecs()
         .make_audio_decoder(&audio_params, &AudioDecoderOptions::default())?;
+
+    // Decoder may correct unset codec params (for eg. Opus-in-MP4 where symphonia's demuxer leaves sample_rate/channels as None).
+    let decoder_params = decoder.codec_params();
+    let sample_rate = decoder_params
+        .sample_rate
+        .or(audio_params.sample_rate)
+        .unwrap_or(44_100);
+    let channels = decoder_params
+        .channels
+        .as_ref()
+        .or(audio_params.channels.as_ref())
+        .map(|c| c.count() as u16)
+        .unwrap_or(1)
+        .max(1);
 
     let mut samples = Vec::<f32>::new();
 
