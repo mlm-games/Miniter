@@ -20,7 +20,7 @@ impl VideoDecodeSession {
         Self::from_demuxer(demuxer, hardware_acceleration)
     }
 
-    /// Open from an in-memory byte buffer (WASM path).
+    /// Open from an in-memory byte buffer (WASM path, MP4  only).
     pub fn from_reader<R: Read + Seek + Send + 'static>(
         reader: R,
         size: u64,

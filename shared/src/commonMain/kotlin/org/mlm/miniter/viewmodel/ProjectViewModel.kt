@@ -131,7 +131,7 @@ class ProjectViewModel(
                 try {
                     val decodable = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90) != null
                     if (!decodable) {
-                        handleError("Selected video cannot be decoded. Try H.264 MP4 or MOV.")
+                        handleError("Selected video cannot be decoded. Try H.264, H.265, or AV1 in MP4/MKV/WebM.")
                         return@launch
                     }
                 } catch (e: Exception) {
