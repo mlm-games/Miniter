@@ -134,7 +134,7 @@ actual class PlatformVideoEngine actual constructor() {
         timestampMs: Long,
         width: Int,
         height: Int,
-    ): ImageData? = withContext(Dispatchers.IO) {
+    ): ThumbnailResult = withContext(Dispatchers.IO) {
         try {
             val localPath = PlatformFileSystem.stageForNativeAccess(path)
             val frame = RustCoreSession.extractThumbnail(localPath, timestampMs * 1000L)
@@ -142,14 +142,15 @@ actual class PlatformVideoEngine actual constructor() {
             val fw = frame.width
             val fh = frame.height
 
-            if (width > 0 && height > 0 && (fw != width || fh != height)) {
+            val image = if (width > 0 && height > 0 && (fw != width || fh != height)) {
                 scaleRgba(rgba, fw, fh, width, height)
             } else {
                 ImageData(fw, fh, rgba)
             }
+            ThumbnailResult.Success(image)
         } catch (e: Exception) {
             Log.e("PlatformVideoEngine", "extractSingleThumbnail failed: ${e.message}", e)
-            throw e
+            ThumbnailResult.Error(e.message?.removePrefix("detail=") ?: "Unknown error")
         }
     }
 

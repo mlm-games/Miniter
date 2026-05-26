@@ -131,21 +131,22 @@ actual class PlatformVideoEngine actual constructor() {
         timestampMs: Long,
         width: Int,
         height: Int,
-    ): ImageData? = withContext(Dispatchers.IO) {
+    ): ThumbnailResult = withContext(Dispatchers.IO) {
         try {
             val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L)
             val rgba = frame.pixels
             val fw = frame.width
             val fh = frame.height
 
-            if (width > 0 && height > 0 && (fw != width || fh != height)) {
+            val image = if (width > 0 && height > 0 && (fw != width || fh != height)) {
                 scaleRgba(rgba, fw, fh, width, height)
             } else {
                 ImageData(fw, fh, rgba)
             }
+            ThumbnailResult.Success(image)
         } catch (e: Exception) {
             e.printStackTrace()
-            null
+            ThumbnailResult.Error(e.message?.removePrefix("detail=") ?: "Unknown error")
         }
     }
 

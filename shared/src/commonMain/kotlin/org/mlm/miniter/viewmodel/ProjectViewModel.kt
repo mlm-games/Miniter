@@ -45,6 +45,7 @@ import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.overlapsRange
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
+import org.mlm.miniter.engine.ThumbnailResult
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.msToUs
@@ -128,15 +129,12 @@ class ProjectViewModel(
                     handleError("Selected file has no video stream")
                     return@launch
                 }
-                try {
-                    val decodable = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90) != null
-                    if (!decodable) {
-                        handleError("Selected video cannot be decoded. Try H.264, H.265, or AV1 in MP4/MKV/WebM.")
+                when (val result = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90)) {
+                    is ThumbnailResult.Error -> {
+                        handleError(result.message)
                         return@launch
                     }
-                } catch (e: Exception) {
-                    handleError("Decode error: ${e.message}")
-                    return@launch
+                    is ThumbnailResult.Success -> { /* decodable */ }
                 }
                 sourceDurationMs = info.durationMs
 
@@ -707,9 +705,12 @@ class ProjectViewModel(
                         exportError = "'${path.substringAfterLast("/")}' has no video stream"
                         break
                     }
-                    if (engine.extractSingleThumbnail(path, 0L, 160, 90) == null) {
-                        exportError = "'${path.substringAfterLast("/")}' cannot be decoded"
-                        break
+                    when (val result = engine.extractSingleThumbnail(path, 0L, 160, 90)) {
+                        is ThumbnailResult.Error -> {
+                            exportError = "'${path.substringAfterLast("/")}': ${result.message}"
+                            break
+                        }
+                        is ThumbnailResult.Success -> { /* decodable */ }
                     }
                 } catch (e: Exception) {
                     exportError = "'${path.substringAfterLast("/")}': ${e.message}"

@@ -25,7 +25,7 @@ expect class PlatformVideoEngine() {
         timestampMs: Long,
         width: Int,
         height: Int,
-    ): ImageData?
+    ): ThumbnailResult
 
     fun cancelExport()
 
