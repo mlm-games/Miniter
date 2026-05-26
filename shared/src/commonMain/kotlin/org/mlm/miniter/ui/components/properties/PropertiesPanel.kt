@@ -145,6 +145,8 @@ fun PropertiesPanel(
                 onSetTransitionIn = onSetTextTransitionIn,
                 onSetTransitionOut = onSetTextTransitionOut,
                 onAddKeyframe = onAddKeyframe,
+                onRemoveKeyframe = onRemoveKeyframe,
+                onUpdateKeyframe = onUpdateKeyframe,
             )
         }
     }
@@ -314,36 +316,25 @@ private fun VideoClipProperties(
         }
     }
 
-    Spacer(Modifier.height(16.dp))
-
-    KeyframeEditor(
+    KeyframeSection(
         clip = clip,
         playheadMs = playheadMs,
-        onAddKeyframe = { kf -> onAddKeyframe(clip.id, kf) },
-        onRemoveKeyframe = { index -> onRemoveKeyframe(clip.id, index) },
-        onUpdateKeyframe = { index, kf -> onUpdateKeyframe(clip.id, index, kf) },
+        onAddKeyframe = onAddKeyframe,
+        onRemoveKeyframe = onRemoveKeyframe,
+        onUpdateKeyframe = onUpdateKeyframe,
     )
-
-    Spacer(Modifier.height(16.dp))
-    HorizontalDivider()
-    Spacer(Modifier.height(16.dp))
-
-    TransitionSelector(
-        label = "Transition In",
-        description = "Controls how this clip enters. Adds a fade effect to the start of this clip and the end of the previous clip.",
-        currentTransition = clip.transitionIn,
+    FadeTransitionsPair(
+        transitionIn = clip.transitionIn,
+        transitionOut = clip.transitionOut,
+        onSetTransitionIn = { onSetTransitionIn(clip.id, it) },
+        onSetTransitionOut = { onSetTransitionOut(clip.id, it) },
         options = videoTransitionOptions,
-        onSetTransition = { onSetTransitionIn(clip.id, it) },
-    )
-
-    Spacer(Modifier.height(16.dp))
-
-    TransitionSelector(
-        label = "Transition Out",
-        description = "Controls how this clip exits. Adds a fade effect to the end of this clip and the start of the next clip.",
-        currentTransition = clip.transitionOut,
-        options = videoTransitionOptions,
-        onSetTransition = { onSetTransitionOut(clip.id, it) },
+        durationRange = 0.1f..2f,
+        durationSteps = 18,
+        inLabel = "Transition In",
+        outLabel = "Transition Out",
+        inDescription = "Controls how this clip enters. Adds a fade effect to the start of this clip and the end of the previous clip.",
+        outDescription = "Controls how this clip exits. Adds a fade effect to the end of this clip and the start of the next clip.",
     )
 }
 
@@ -480,18 +471,13 @@ private fun AudioClipProperties(
         }
     }
 
-    Spacer(Modifier.height(16.dp))
-    KeyframeEditor(
+    KeyframeSection(
         clip = clip,
         playheadMs = playheadMs,
-        onAddKeyframe = { kf -> onAddKeyframe(clip.id, kf) },
-        onRemoveKeyframe = { index -> onRemoveKeyframe(clip.id, index) },
-        onUpdateKeyframe = { index, kf -> onUpdateKeyframe(clip.id, index, kf) },
+        onAddKeyframe = onAddKeyframe,
+        onRemoveKeyframe = onRemoveKeyframe,
+        onUpdateKeyframe = onUpdateKeyframe,
     )
-
-    Spacer(Modifier.height(16.dp))
-    HorizontalDivider()
-    Spacer(Modifier.height(16.dp))
 }
 
 @Composable
@@ -672,37 +658,18 @@ private fun TextClipProperties(
         }
     }
 
-    Spacer(Modifier.height(16.dp))
-    KeyframeEditor(
+    KeyframeSection(
         clip = clip,
         playheadMs = playheadMs,
-        onAddKeyframe = { kf -> onAddKeyframe(clip.id, kf) },
-        onRemoveKeyframe = { index -> onRemoveKeyframe(clip.id, index) },
-        onUpdateKeyframe = { index, kf -> onUpdateKeyframe(clip.id, index, kf) },
+        onAddKeyframe = onAddKeyframe,
+        onRemoveKeyframe = onRemoveKeyframe,
+        onUpdateKeyframe = onUpdateKeyframe,
     )
-
-    Spacer(Modifier.height(16.dp))
-    HorizontalDivider()
-    Spacer(Modifier.height(12.dp))
-
-    TransitionSelector(
-        label = "Fade In",
-        currentTransition = transitionIn,
-        options = fadeTransitionOptions,
-        durationRange = 0.1f..3f,
-        durationSteps = 28,
-        onSetTransition = { onSetTextTransitionIn(clip.id, it) },
-    )
-
-    Spacer(Modifier.height(12.dp))
-
-    TransitionSelector(
-        label = "Fade Out",
-        currentTransition = transitionOut,
-        options = fadeTransitionOptions,
-        durationRange = 0.1f..3f,
-        durationSteps = 28,
-        onSetTransition = { onSetTextTransitionOut(clip.id, it) },
+    FadeTransitionsPair(
+        transitionIn = transitionIn,
+        transitionOut = transitionOut,
+        onSetTransitionIn = { onSetTextTransitionIn(clip.id, it) },
+        onSetTransitionOut = { onSetTextTransitionOut(clip.id, it) },
     )
 }
 
@@ -726,6 +693,8 @@ private fun SubtitleClipProperties(
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
+    onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
+    onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
 ) {
     val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
     var opacityValue by remember(clip.opacity) { mutableFloatStateOf(clip.opacity) }
@@ -773,22 +742,19 @@ private fun SubtitleClipProperties(
     )
     Text(paramDefOrUnknown(KeyframeParams.OPACITY).format(opacityValue), style = MaterialTheme.typography.labelSmall)
 
-    Spacer(Modifier.height(12.dp))
-
-    TransitionSelector(
-        label = "Fade In",
-        currentTransition = transitionIn,
-        options = subtitleTransitionOptions,
-        onSetTransition = { onSetTransitionIn(clip.id, it) },
+    KeyframeSection(
+        clip = clip,
+        playheadMs = playheadMs,
+        onAddKeyframe = onAddKeyframe,
+        onRemoveKeyframe = onRemoveKeyframe,
+        onUpdateKeyframe = onUpdateKeyframe,
     )
-
-    Spacer(Modifier.height(8.dp))
-
-    TransitionSelector(
-        label = "Fade Out",
-        currentTransition = transitionOut,
+    FadeTransitionsPair(
+        transitionIn = transitionIn,
+        transitionOut = transitionOut,
+        onSetTransitionIn = { onSetTransitionIn(clip.id, it) },
+        onSetTransitionOut = { onSetTransitionOut(clip.id, it) },
         options = subtitleTransitionOptions,
-        onSetTransition = { onSetTransitionOut(clip.id, it) },
     )
 
     Spacer(Modifier.height(16.dp))
@@ -899,6 +865,62 @@ private fun RustVideoFilterSnapshot.displayName(): String =
     }
 
 private fun RustVideoEffectSnapshot.displayName(): String = filter.displayName()
+
+@Composable
+private fun KeyframeSection(
+    clip: RustClipSnapshot,
+    playheadMs: Long,
+    onAddKeyframe: (String, RustKeyframe) -> Unit,
+    onRemoveKeyframe: (String, Int) -> Unit,
+    onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit,
+) {
+    Spacer(Modifier.height(16.dp))
+    KeyframeEditor(
+        clip = clip,
+        playheadMs = playheadMs,
+        onAddKeyframe = { kf -> onAddKeyframe(clip.id, kf) },
+        onRemoveKeyframe = { index -> onRemoveKeyframe(clip.id, index) },
+        onUpdateKeyframe = { index, kf -> onUpdateKeyframe(clip.id, index, kf) },
+    )
+    Spacer(Modifier.height(16.dp))
+    HorizontalDivider()
+    Spacer(Modifier.height(16.dp))
+}
+
+@Composable
+private fun FadeTransitionsPair(
+    transitionIn: RustTransitionSnapshot?,
+    transitionOut: RustTransitionSnapshot?,
+    onSetTransitionIn: (RustTransitionSnapshot?) -> Unit,
+    onSetTransitionOut: (RustTransitionSnapshot?) -> Unit,
+    options: List<TransitionOption> = fadeTransitionOptions,
+    durationRange: ClosedFloatingPointRange<Float> = 0.1f..3f,
+    durationSteps: Int = 28,
+    inLabel: String = "Fade In",
+    outLabel: String = "Fade Out",
+    inDescription: String? = null,
+    outDescription: String? = null,
+) {
+    TransitionSelector(
+        label = inLabel,
+        description = inDescription,
+        currentTransition = transitionIn,
+        options = options,
+        durationRange = durationRange,
+        durationSteps = durationSteps,
+        onSetTransition = onSetTransitionIn,
+    )
+    Spacer(Modifier.height(12.dp))
+    TransitionSelector(
+        label = outLabel,
+        description = outDescription,
+        currentTransition = transitionOut,
+        options = options,
+        durationRange = durationRange,
+        durationSteps = durationSteps,
+        onSetTransition = onSetTransitionOut,
+    )
+}
 
 @Composable
 private fun KeyframeToggle(
