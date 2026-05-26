@@ -1,12 +1,12 @@
 //! raw AV1/VP8 bitstreams.
 
 use super::{DemuxError, DemuxResult, DemuxedSample, Demuxer, VideoContainer};
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 const AV1_FOURCC: u32 = 0x31495641;
 const VP8_FOURCC: u32 = 0x30385056;
 
-pub struct IvfDemuxer<R: Read> {
+pub struct IvfDemuxer<R: Read + Seek> {
     reader: R,
     width: u32,
     height: u32,
@@ -17,7 +17,7 @@ pub struct IvfDemuxer<R: Read> {
     done: bool,
 }
 
-impl<R: Read> IvfDemuxer<R> {
+impl<R: Read + Seek> IvfDemuxer<R> {
     pub fn from_reader(mut reader: R, _size: u64) -> DemuxResult<Self> {
         let mut header = [0u8; 32];
         reader
@@ -76,7 +76,7 @@ impl<R: Read> IvfDemuxer<R> {
     }
 }
 
-impl<R: Read + Send> Demuxer for IvfDemuxer<R> {
+impl<R: Read + Seek + Send> Demuxer for IvfDemuxer<R> {
     fn container(&self) -> VideoContainer {
         VideoContainer::Ivf
     }
@@ -131,8 +131,20 @@ impl<R: Read + Send> Demuxer for IvfDemuxer<R> {
             return Ok(Some(DemuxedSample::eos()));
         }
 
+        let mut _pts_buf = [0u8; 8];
+        self.reader
+            .read_exact(&mut _pts_buf)
+            .map_err(|e| DemuxError::Io(e))?;
+
         let mut data = vec![0u8; size];
-        self.reader.read_exact(&mut data).map_err(DemuxError::Io)?;
+        match self.reader.read_exact(&mut data) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                self.done = true;
+                return Ok(Some(DemuxedSample::eos()));
+            }
+            Err(e) => return Err(DemuxError::Io(e)),
+        }
 
         self.current_frame += 1;
         self.pts_us = (self.current_frame as f64 * 1_000_000.0 / self.fps) as i64;
@@ -149,7 +161,11 @@ impl<R: Read + Send> Demuxer for IvfDemuxer<R> {
     }
 
     fn reset(&mut self) -> DemuxResult<()> {
-        Err(DemuxError::Other("IVF reset not implemented".into()))
+        self.reader.seek(SeekFrom::Start(32))?;
+        self.current_frame = 0;
+        self.pts_us = 0;
+        self.done = false;
+        Ok(())
     }
 }
 
