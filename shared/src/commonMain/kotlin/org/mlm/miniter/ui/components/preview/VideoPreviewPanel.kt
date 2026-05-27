@@ -585,6 +585,31 @@ fun EditorVideoPreview(
         }
     }
 
+    val primaryLocalUs = if (primaryVideo != null) (playheadMs - primaryVideo.startMs) * 1000L else 0L
+    val primaryOwnTransform = findTransformFilter(primaryVideo?.filters ?: emptyList())
+    val primaryKfScale = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_SCALE, primaryLocalUs)
+    val primaryKfTx = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, primaryLocalUs)
+    val primaryKfTy = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, primaryLocalUs)
+    val primaryKfRot = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_ROTATE, primaryLocalUs)
+    val hasPrimaryKF = primaryKfScale != null || primaryKfTx != null || primaryKfTy != null || primaryKfRot != null
+
+    val currentEffectiveScale by rememberUpdatedState(
+        if (hasPrimaryKF) (primaryKfScale ?: primaryOwnTransform?.scale ?: 1f).coerceIn(0.1f, 10f)
+        else primaryOwnTransform?.scale ?: 1f
+    )
+    val currentEffectiveTx by rememberUpdatedState(
+        if (hasPrimaryKF) (primaryKfTx ?: primaryOwnTransform?.translateX ?: 0.5f)
+        else primaryOwnTransform?.translateX ?: 0.5f
+    )
+    val currentEffectiveTy by rememberUpdatedState(
+        if (hasPrimaryKF) (primaryKfTy ?: primaryOwnTransform?.translateY ?: 0.5f)
+        else primaryOwnTransform?.translateY ?: 0.5f
+    )
+    val currentEffectiveRot by rememberUpdatedState(
+        if (hasPrimaryKF) (primaryKfRot ?: primaryOwnTransform?.rotate ?: 0f)
+        else primaryOwnTransform?.rotate ?: 0f
+    )
+
     val previewModifier = modifier
         .background(Color.Black)
         .onSizeChanged { viewportSize = it }
@@ -593,8 +618,17 @@ fun EditorVideoPreview(
                 awaitFirstDown(requireUnconsumed = false)
                 if (isPlaying) return@awaitEachGesture
 
+                var initialRs = renderScale
+                var initialRtx = renderTranslateX
+                var initialRty = renderTranslateY
+                var initialRrot = renderRotate
+
                 if (transformFilter != null && !isInteracting) {
                     isInteracting = true
+                    initialRs = renderScale
+                    initialRtx = renderTranslateX
+                    initialRty = renderTranslateY
+                    initialRrot = renderRotate
                     onDragStart?.invoke()
                 }
 
@@ -626,7 +660,17 @@ fun EditorVideoPreview(
                 if (transformFilter != null) {
                     isInteracting = false
                     if (currentAutoKeyframeEnabled && selectedClipId != null) {
-                        currentOnSetKeyframe?.invoke(selectedClipId, currentPlayheadMs, renderScale, renderTranslateX, renderTranslateY, renderRotate)
+                        val scaleDelta = if (initialRs != 0f) renderScale / initialRs else renderScale
+                        val txDelta = renderTranslateX - initialRtx
+                        val tyDelta = renderTranslateY - initialRty
+                        val rotDelta = renderRotate - initialRrot
+                        currentOnSetKeyframe?.invoke(
+                            selectedClipId, currentPlayheadMs,
+                            currentEffectiveScale * scaleDelta,
+                            currentEffectiveTx + txDelta,
+                            currentEffectiveTy + tyDelta,
+                            currentEffectiveRot + rotDelta,
+                        )
                     } else {
                         onCommitTransform?.invoke()
                     }
@@ -657,14 +701,6 @@ fun EditorVideoPreview(
                 }
             )
         }
-
-    val primaryLocalUs = if (primaryVideo != null) (playheadMs - primaryVideo.startMs) * 1000L else 0L
-    val primaryOwnTransform = findTransformFilter(primaryVideo?.filters ?: emptyList())
-    val primaryKfScale = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_SCALE, primaryLocalUs)
-    val primaryKfTx = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, primaryLocalUs)
-    val primaryKfTy = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, primaryLocalUs)
-    val primaryKfRot = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_ROTATE, primaryLocalUs)
-    val hasPrimaryKF = primaryKfScale != null || primaryKfTx != null || primaryKfTy != null || primaryKfRot != null
 
     fun clipDisplayValues(
         clip: VisibleMedia.Video?,
