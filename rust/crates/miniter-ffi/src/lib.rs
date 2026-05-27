@@ -324,6 +324,7 @@ mod web_ffi {
     use js_sys::{Array, Uint8Array};
     use miniter_media_native::frame::RgbaFrame;
     use serde::{Deserialize, Serialize};
+    use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io::Cursor;
     use std::sync::LazyLock;
@@ -836,8 +837,8 @@ mod web_ffi {
 
     #[wasm_bindgen]
     pub struct WasmExportSession {
-        inner: Option<miniter_media_native::wasm_export::WasmExportChunker>,
-        result: Option<miniter_media_native::wasm_export::WasmExportArtifact>,
+        inner: RefCell<Option<miniter_media_native::wasm_export::WasmExportChunker>>,
+        result: RefCell<Option<miniter_media_native::wasm_export::WasmExportArtifact>>,
     }
 
     #[wasm_bindgen]
@@ -868,8 +869,8 @@ mod web_ffi {
             .map_err(|e| JsValue::from_str(&format!("Export init failed: {e}")))?;
 
             Ok(WasmExportSession {
-                inner: Some(chunker),
-                result: None,
+                inner: RefCell::new(Some(chunker)),
+                result: RefCell::new(None),
             })
         }
 
@@ -878,26 +879,37 @@ mod web_ffi {
         /// `{"ok":true,"done":true,"payload":{"ok":true,"bytesBase64":"...","fileName":"...","mimeType":"..."}}` or
         /// `{"ok":false,"error":"..."}`
         #[wasm_bindgen(js_name = processChunk)]
-        pub async fn process_chunk(&mut self) -> JsValue {
+        pub async fn process_chunk(&self) -> JsValue {
             yield_to_js().await;
 
-            // Now process 1 frame
-            let Some(ref mut chunker) = self.inner else {
-                // Already finished – return the cached result
-                if let Some(ref art) = self.result {
-                    let payload = WasmExportPayload {
-                        ok: true,
-                        bytes_base64: base64::engine::general_purpose::STANDARD.encode(&art.bytes),
-                        file_name: art.file_name.clone(),
-                        mime_type: art.mime_type.clone(),
-                    };
-                    return Self::json_string(&serde_json::json!({
-                        "ok": true,
-                        "done": true,
-                        "progress": 100_000,
-                        "payload": payload,
-                    }));
-                }
+            // Check cancellation set by cancel() (avoids reentrant &mut self)
+            if EXPORT_CANCELLED.load(Ordering::SeqCst) {
+                *self.inner.borrow_mut() = None;
+                return Self::json_string(&serde_json::json!({
+                    "ok": false,
+                    "error": "Export cancelled",
+                }));
+            }
+
+            // Return cached result if already finished
+            if let Some(ref art) = *self.result.borrow() {
+                let payload = WasmExportPayload {
+                    ok: true,
+                    bytes_base64: base64::engine::general_purpose::STANDARD.encode(&art.bytes),
+                    file_name: art.file_name.clone(),
+                    mime_type: art.mime_type.clone(),
+                };
+                return Self::json_string(&serde_json::json!({
+                    "ok": true,
+                    "done": true,
+                    "progress": 100_000,
+                    "payload": payload,
+                }));
+            }
+
+            // Process 1 frame
+            let mut inner = self.inner.borrow_mut();
+            let Some(ref mut chunker) = *inner else {
                 return Self::json_string(&serde_json::json!({
                     "ok": false,
                     "error": "No active export session",
@@ -914,8 +926,8 @@ mod web_ffi {
                     }))
                 }
                 Ok(None) => {
-                    // All frames done – finalise
-                    let chunker = self.inner.take().unwrap_throw();
+                    let chunker = inner.take().unwrap_throw();
+                    drop(inner);
                     EXPORT_PROGRESS.store(100_000, Ordering::SeqCst);
                     match chunker.finish() {
                         Ok(artifact) => {
@@ -932,7 +944,7 @@ mod web_ffi {
                                 "progress": 100_000,
                                 "payload": payload,
                             }));
-                            self.result = Some(artifact);
+                            *self.result.borrow_mut() = Some(artifact);
                             json
                         }
                         Err(e) => Self::json_string(&serde_json::json!({
@@ -956,18 +968,15 @@ mod web_ffi {
                 })
         }
 
-        pub fn cancel(&mut self) {
+        pub fn cancel(&self) {
             EXPORT_CANCELLED.store(true, Ordering::SeqCst);
-            if let Some(ref mut chunker) = self.inner {
-                chunker.cancel();
-            }
         }
 
         #[wasm_bindgen(js_name = getProgress)]
         pub fn progress(&self) -> u32 {
-            if self.result.is_some() {
+            if self.result.borrow().is_some() {
                 100_000
-            } else if let Some(ref chunker) = self.inner {
+            } else if let Some(ref chunker) = *self.inner.borrow() {
                 chunker.progress()
             } else {
                 0
@@ -976,7 +985,8 @@ mod web_ffi {
 
         #[wasm_bindgen(js_name = isDone)]
         pub fn is_done(&self) -> bool {
-            self.result.is_some() || self.inner.as_ref().map_or(true, |c| c.is_done())
+            self.result.borrow().is_some()
+                || self.inner.borrow().as_ref().map_or(true, |c| c.is_done())
         }
     }
 }
