@@ -1,8 +1,10 @@
 package org.mlm.miniter.rust
 
+import kotlinx.coroutines.await
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.js.JsAny
 import kotlin.js.JsArray
 import kotlin.js.JsString
 import kotlin.js.ExperimentalWasmJsInterop
@@ -183,10 +185,10 @@ actual class RustCoreSession private constructor(
             )
         }
 
-        actual fun extractThumbnail(path: String, timestampUs: Long): ImageData {
+        actual suspend fun extractThumbnail(path: String, timestampUs: Long): ImageData {
             val payload = try {
                 wasmBridgeJson.decodeFromString<WasmFramePayload>(
-                    wasmExtractThumbnail(path, timestampUs.toDouble())
+                    wasmExtractThumbnail(path, timestampUs.toDouble()).await<JsAny?>()?.toString() ?: ""
                 )
             } catch (_: SerializationException) {
                 return ImageData.create(1, 1, byteArrayOf(0, 0, 0, 0xFF.toByte()))
@@ -194,10 +196,10 @@ actual class RustCoreSession private constructor(
             return payload.toImageData()
         }
 
-        actual fun extractThumbnails(path: String, count: Int, durationUs: Long): List<ImageData> {
+        actual suspend fun extractThumbnails(path: String, count: Int, durationUs: Long): List<ImageData> {
             val payload = try {
                 wasmBridgeJson.decodeFromString<List<WasmFramePayload>>(
-                    wasmExtractThumbnails(path, count.toDouble(), durationUs.toDouble())
+                    wasmExtractThumbnails(path, count.toDouble(), durationUs.toDouble()).await<JsAny?>()?.toString() ?: ""
                 )
             } catch (_: SerializationException) {
                 return emptyList()

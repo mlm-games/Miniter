@@ -564,8 +564,21 @@ mod web_ffi {
         }
     }
 
+    async fn yield_to_js() {
+        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(
+            &mut |resolve: js_sys::Function, _reject: js_sys::Function| {
+                web_sys::window()
+                    .unwrap_throw()
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 0)
+                    .unwrap_throw();
+            },
+        ))
+        .await
+        .unwrap_throw();
+    }
+
     #[wasm_bindgen(js_name = extractThumbnail)]
-    pub fn extract_thumbnail(path: String, target_us: f64) -> Result<String, JsValue> {
+    pub async fn extract_thumbnail(path: String, target_us: f64) -> Result<String, JsValue> {
         let frame = if let Some(file) = get_registered_file(&path) {
             let size = file.bytes.len() as u64;
             let reader = Cursor::new(file.bytes);
@@ -574,6 +587,7 @@ mod web_ffi {
                     .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
             let mut last_frame: Option<RgbaFrame> = None;
             loop {
+                yield_to_js().await;
                 match session
                     .next_frame()
                     .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?
@@ -603,7 +617,7 @@ mod web_ffi {
     }
 
     #[wasm_bindgen(js_name = extractThumbnails)]
-    pub fn extract_thumbnails(
+    pub async fn extract_thumbnails(
         path: String,
         count: u32,
         duration_us: f64,
@@ -630,6 +644,7 @@ mod web_ffi {
                     if target_idx >= targets.len() {
                         break;
                     }
+                    yield_to_js().await;
                     match session
                         .next_frame()
                         .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?
@@ -817,6 +832,152 @@ mod web_ffi {
     #[wasm_bindgen(js_name = isWebCodecsHardwareAccelerated)]
     pub fn is_web_codecs_hardware_accelerated() -> bool {
         true
+    }
+
+    #[wasm_bindgen]
+    pub struct WasmExportSession {
+        inner: Option<miniter_media_native::wasm_export::WasmExportChunker>,
+        result: Option<miniter_media_native::wasm_export::WasmExportArtifact>,
+    }
+
+    #[wasm_bindgen]
+    impl WasmExportSession {
+        #[wasm_bindgen(constructor)]
+        pub fn new(
+            project_json: String,
+            output_path: String,
+        ) -> Result<WasmExportSession, JsValue> {
+            EXPORT_CANCELLED.store(false, Ordering::SeqCst);
+            EXPORT_PROGRESS.store(0, Ordering::SeqCst);
+
+            let project = Project::from_json(&project_json)
+                .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))?;
+
+            let files_map: HashMap<String, Vec<u8>> = REGISTERED_FILES
+                .lock()
+                .map_err(|_| JsValue::from_str("Lock poisoned"))?
+                .iter()
+                .map(|(path, file)| (path.clone(), file.bytes.clone()))
+                .collect();
+
+            let chunker = miniter_media_native::wasm_export::WasmExportChunker::new(
+                &project,
+                &output_path,
+                files_map,
+            )
+            .map_err(|e| JsValue::from_str(&format!("Export init failed: {e}")))?;
+
+            Ok(WasmExportSession {
+                inner: Some(chunker),
+                result: None,
+            })
+        }
+
+        /// Process one batch of frames. Returns JSON:
+        /// `{"ok":true,"done":false,"progress":50000}` or
+        /// `{"ok":true,"done":true,"payload":{"ok":true,"bytesBase64":"...","fileName":"...","mimeType":"..."}}` or
+        /// `{"ok":false,"error":"..."}`
+        #[wasm_bindgen(js_name = processChunk)]
+        pub async fn process_chunk(&mut self) -> JsValue {
+            yield_to_js().await;
+
+            // Now process 1 frame
+            let Some(ref mut chunker) = self.inner else {
+                // Already finished – return the cached result
+                if let Some(ref art) = self.result {
+                    let payload = WasmExportPayload {
+                        ok: true,
+                        bytes_base64: base64::engine::general_purpose::STANDARD.encode(&art.bytes),
+                        file_name: art.file_name.clone(),
+                        mime_type: art.mime_type.clone(),
+                    };
+                    return Self::json_string(&serde_json::json!({
+                        "ok": true,
+                        "done": true,
+                        "progress": 100_000,
+                        "payload": payload,
+                    }));
+                }
+                return Self::json_string(&serde_json::json!({
+                    "ok": false,
+                    "error": "No active export session",
+                }));
+            };
+
+            match chunker.process_chunk(1) {
+                Ok(Some(progress)) => {
+                    EXPORT_PROGRESS.store(progress, Ordering::SeqCst);
+                    Self::json_string(&serde_json::json!({
+                        "ok": true,
+                        "done": false,
+                        "progress": progress,
+                    }))
+                }
+                Ok(None) => {
+                    // All frames done – finalise
+                    let chunker = self.inner.take().unwrap_throw();
+                    EXPORT_PROGRESS.store(100_000, Ordering::SeqCst);
+                    match chunker.finish() {
+                        Ok(artifact) => {
+                            let payload = WasmExportPayload {
+                                ok: true,
+                                bytes_base64: base64::engine::general_purpose::STANDARD
+                                    .encode(&artifact.bytes),
+                                file_name: artifact.file_name.clone(),
+                                mime_type: artifact.mime_type.clone(),
+                            };
+                            let json = Self::json_string(&serde_json::json!({
+                                "ok": true,
+                                "done": true,
+                                "progress": 100_000,
+                                "payload": payload,
+                            }));
+                            self.result = Some(artifact);
+                            json
+                        }
+                        Err(e) => Self::json_string(&serde_json::json!({
+                            "ok": false,
+                            "error": e,
+                        })),
+                    }
+                }
+                Err(e) => Self::json_string(&serde_json::json!({
+                    "ok": false,
+                    "error": e,
+                })),
+            }
+        }
+
+        fn json_string(value: &serde_json::Value) -> JsValue {
+            serde_json::to_string(value)
+                .map(|s| JsValue::from_str(&s))
+                .unwrap_or_else(|_| {
+                    JsValue::from_str(r#"{"ok":false,"error":"JSON serialization failed"}"#)
+                })
+        }
+
+        pub fn cancel(&mut self) {
+            EXPORT_CANCELLED.store(true, Ordering::SeqCst);
+            if let Some(ref mut chunker) = self.inner {
+                chunker.cancel();
+            }
+        }
+
+        #[wasm_bindgen(js_name = getProgress)]
+        pub fn progress(&self) -> u32 {
+            if self.result.is_some() {
+                100_000
+            } else if let Some(ref chunker) = self.inner {
+                chunker.progress()
+            } else {
+                0
+            }
+        }
+
+        #[wasm_bindgen(js_name = isDone)]
+        pub fn is_done(&self) -> bool {
+            self.result.is_some() || self.inner.as_ref().map_or(true, |c| c.is_done())
+        }
     }
 }
 

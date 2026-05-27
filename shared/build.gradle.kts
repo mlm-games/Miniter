@@ -67,6 +67,7 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
     @org.gradle.api.tasks.TaskAction
     fun generate() {
         val content = dtsFile.get().asFile.readText()
+            .replace(Regex("/\\*\\*[\\s\\S]*?\\*/"), "")
 
         val classMatch = Regex(
             """export class WasmEditorHandle\s*\{([^}]+(?:\{[^}]*\}[^}]*)*)\}""",
@@ -87,46 +88,51 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
         sb.appendLine()
         sb.appendLine("package org.mlm.miniter.rust")
         sb.appendLine()
+        sb.appendLine("import kotlin.js.JsAny")
         sb.appendLine("import kotlin.js.JsName")
+        sb.appendLine("import kotlin.js.Promise")
         sb.appendLine()
 
-        val methods = extractMethods(classBody)
-        val staticMethods = methods.filter { it.isStatic }
-        val instanceMethods = methods.filter { !it.isStatic && it.name != "free" }
-        val ctorParams = Regex("""constructor\s*\(([^)]*)\)\s*;""")
-            .find(classBody)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.trim()
-            .orEmpty()
-        val ctorKt = convertParams(ctorParams)
-
-        if (ctorKt.isBlank()) {
-            sb.appendLine("external class WasmEditorHandle {")
-        } else {
-            sb.appendLine("external class WasmEditorHandle($ctorKt) {")
-        }
-
-        if (staticMethods.isNotEmpty()) {
-            sb.appendLine("    companion object {")
-            for (m in staticMethods) {
-                val params = convertParams(m.params)
-                val ret = convertReturnType(m.returnType)
-                sb.appendLine("        fun ${m.name}($params): $ret")
+        val emitClass: (String, StringBuilder) -> Unit = emitClass@ { className, buf ->
+            val re = Regex(
+                """export class $className\s*\{([^}]+(?:\{[^}]*\}[^}]*)*)\}""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+            val match = re.find(content) ?: return@emitClass
+            val body = match.groupValues[1]
+            val methods = extractMethods(body)
+            val staticMethods = methods.filter { it.isStatic }
+            val instanceMethods = methods.filter { !it.isStatic && it.name != "free" }
+            val ctorParams = Regex("""constructor\s*\(([^)]*)\)\s*;""")
+                .find(body)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.trim()
+                .orEmpty()
+            val ctorKt = convertParams(ctorParams)
+            if (ctorKt.isBlank()) {
+                buf.appendLine("external class $className {")
+            } else {
+                buf.appendLine("external class $className($ctorKt) {")
             }
-            sb.appendLine("    }")
-            sb.appendLine()
+            if (staticMethods.isNotEmpty()) {
+                buf.appendLine("    companion object {")
+                for (m in staticMethods) {
+                    buf.appendLine("        fun ${m.name}(${convertParams(m.params)}): ${convertReturnType(m.returnType)}")
+                }
+                buf.appendLine("    }")
+                buf.appendLine()
+            }
+            buf.appendLine("    fun free()")
+            for (m in instanceMethods) {
+                buf.appendLine("    fun ${m.name}(${convertParams(m.params)}): ${convertReturnType(m.returnType)}")
+            }
+            buf.appendLine("}")
+            buf.appendLine()
         }
 
-        sb.appendLine("    fun free()")
-        for (m in instanceMethods) {
-            val params = convertParams(m.params)
-            val ret = convertReturnType(m.returnType)
-            sb.appendLine("    fun ${m.name}($params): $ret")
-        }
-
-        sb.appendLine("}")
-        sb.appendLine()
+        emitClass("WasmEditorHandle", sb)
+        emitClass("WasmExportSession", sb)
         sb.appendLine("@JsName(\"probeAudio\")")
         sb.appendLine("external fun wasmProbeAudio(path: String): String")
         sb.appendLine("@JsName(\"extractWaveform\")")
@@ -134,9 +140,9 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
         sb.appendLine("@JsName(\"probeVideo\")")
         sb.appendLine("external fun wasmProbeVideo(path: String): String")
         sb.appendLine("@JsName(\"extractThumbnail\")")
-        sb.appendLine("external fun wasmExtractThumbnail(path: String, targetUs: Double): String")
+        sb.appendLine("external fun wasmExtractThumbnail(path: String, targetUs: Double): Promise<JsAny?>")
         sb.appendLine("@JsName(\"extractThumbnails\")")
-        sb.appendLine("external fun wasmExtractThumbnails(path: String, count: Double, durationUs: Double): String")
+        sb.appendLine("external fun wasmExtractThumbnails(path: String, count: Double, durationUs: Double): Promise<JsAny?>")
         sb.appendLine("@JsName(\"registerFile\")")
         sb.appendLine("external fun wasmRegisterFile(path: String, bytesBase64: String, extension: String?): Boolean")
         sb.appendLine("@JsName(\"mediaBlobUrl\")")
@@ -240,7 +246,7 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
                 t == "number" -> "Double"
                 t == "boolean" -> "Boolean"
                 t == "void" -> "Unit"
-                t.startsWith("Promise<") -> "Any"
+                t.startsWith("Promise<") -> "Promise<JsAny?>"
                 t.startsWith("Result<") -> "JsAny"
                 t.startsWith("WasmEditorHandle") -> "WasmEditorHandle"
                 t.endsWith("[]") -> "JsAny"
@@ -264,6 +270,7 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
         fun convertReturnType(ts: String): String {
             val t = ts.trim()
             return when {
+                t.startsWith("Promise<") -> "Promise<JsAny?>"
                 t.startsWith("Result<") -> {
                     val inner = t.removePrefix("Result<").removeSuffix(">")
                     convertType(inner)

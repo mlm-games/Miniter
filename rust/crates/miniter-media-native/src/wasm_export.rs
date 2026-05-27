@@ -10,10 +10,10 @@ use crate::filters;
 use crate::frame::RgbaFrame;
 use crate::image_cache::ImageCache;
 use crate::mux::{
-    extract_sps_pps, ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut,
-    SubtitleTrackConfigOut, VideoTrackCodecOut,
+    ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
+    VideoTrackCodecOut, extract_sps_pps,
 };
-use miniter_audio::mix::{mix_project_audio_with_source_map, MixConfig, MixedAudio};
+use miniter_audio::mix::{MixConfig, MixedAudio, mix_project_audio_with_source_map};
 use miniter_domain::clip::{ClipId, ClipKind, VideoClip};
 use miniter_domain::ease_in_out;
 use miniter_domain::export::{ExportFormat, SubtitleMode};
@@ -23,12 +23,16 @@ use miniter_domain::text_overlay::{TextAlignment, TextOverlay, TextStyle};
 use miniter_domain::time::Timestamp;
 use miniter_domain::track::TrackKind;
 use miniter_render_plan::compositor::FramePlanIterator;
-use miniter_render_plan::render_graph::{plan_frame, RenderNode, RenderPlan};
+use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
 use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
 
 fn is_image_path(path: &str) -> bool {
     matches!(
-        std::path::Path::new(path).extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
+        std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
         Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif")
     )
 }
@@ -42,8 +46,7 @@ fn image_format_from_path(path: &str) -> image::ImageFormat {
 }
 
 fn load_image_from_bytes(bytes: &[u8], fmt: image::ImageFormat) -> Result<RgbaFrame, String> {
-    let img = image::load_from_memory_with_format(bytes, fmt)
-        .map_err(|e| e.to_string())?;
+    let img = image::load_from_memory_with_format(bytes, fmt).map_err(|e| e.to_string())?;
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
     Ok(RgbaFrame {
@@ -142,7 +145,9 @@ impl<'a> ExportDecodeCache<'a> {
                     let img = load_image_from_bytes(bytes, fmt)?;
                     DecodeSession::Image(img)
                 } else {
-                    let img = self.image_cache.get_frame(Path::new(path))
+                    let img = self
+                        .image_cache
+                        .get_frame(Path::new(path))
                         .map_err(|e| format!("image load failed for '{path}': {e}"))?;
                     DecodeSession::Image(img)
                 }
@@ -317,7 +322,9 @@ fn export_target_info(format: ExportFormat) -> Result<(&'static str, &'static st
         ExportFormat::Av1Mp4 => Ok(("mp4", "video/mp4")),
         ExportFormat::Av1Ivf => Ok(("ivf", "video/ivf")),
         ExportFormat::Mov => Err("MOV export is not supported on web yet".to_string()),
-        ExportFormat::Av1Mkv | ExportFormat::Av1WebM => Err("MKV/WebM AV1 export is not supported on web yet".to_string()),
+        ExportFormat::Av1Mkv | ExportFormat::Av1WebM => {
+            Err("MKV/WebM AV1 export is not supported on web yet".to_string())
+        }
         _ => Err("Unsupported export format on web".to_string()),
     }
 }
@@ -490,7 +497,7 @@ fn export_h264_mp4_bytes(
             let (bytes, keyframe) = match encoded {
                 EncodedVideoOutput::Sample { bytes, is_keyframe } => (bytes, is_keyframe),
                 EncodedVideoOutput::Skipped => {
-                    return Err("H.264 encoder skipped frame".to_string())
+                    return Err("H.264 encoder skipped frame".to_string());
                 }
             };
 
@@ -808,8 +815,6 @@ fn write_audio_packets<W: Write>(
     Ok(())
 }
 
-
-
 fn load_subtitle_cues(path: &str, registered_files: &HashMap<String, Vec<u8>>) -> Vec<SubtitleCue> {
     let content = if let Some(bytes) = registered_files.get(path) {
         match std::str::from_utf8(bytes) {
@@ -961,8 +966,6 @@ fn parse_srt_cues(content: &str) -> Vec<SubtitleCue> {
     cues
 }
 
-
-
 fn parse_ass_cues(content: &str) -> Vec<SubtitleCue> {
     let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
     let mut cues = Vec::new();
@@ -1041,10 +1044,6 @@ fn parse_ass_timestamp_us(value: &str) -> Option<i64> {
     Some(((h * 3600 + m * 60 + s) * 1_000_000) + (cs * 10_000))
 }
 
-
-
-
-
 fn resolve_render_settings(project: &Project) -> RenderSettings {
     let (profile_w, profile_h) = project.export_profile.resolution.dimensions();
     let (source_w, source_h) = first_video_dimensions(project);
@@ -1072,6 +1071,453 @@ fn first_video_dimensions(project: &Project) -> (u32, u32) {
     }
 
     (1920, 1080)
+}
+
+/// An encoded video frame buffered in memory.
+struct BufferedFrame {
+    pts_us: u64,
+    data: Vec<u8>,
+    is_keyframe: bool,
+}
+
+/// Format-specific encoder state for chunked export.
+enum ChunkedEncoder {
+    H264 {
+        encoder: VideoEncodeSession,
+        sps: Vec<u8>,
+        pps: Vec<u8>,
+    },
+    Av1Mp4 {
+        encoder: Av1EncodeSession,
+    },
+    Av1Ivf {
+        encoder: Av1EncodeSession,
+        fps_int: u32,
+    },
+}
+
+/// A chunked export state machine that processes video frames one at a time.
+/// Usage: `new()` → loop `process_chunk(1)` until `is_done()` → `finish()`
+pub struct WasmExportChunker {
+    // Drop order: decode_cache before _registered_files
+    decode_cache: ExportDecodeCache<'static>,
+    _registered_files: Box<HashMap<String, Vec<u8>>>,
+
+    timeline: miniter_domain::timeline::Timeline,
+    format: ExportFormat,
+    settings: RenderSettings,
+    output_path: String,
+    subtitle_mode: SubtitleMode,
+    frame_duration_us: i64,
+    current_frame: u64,
+    total_frames: u64,
+    cancelled: bool,
+    done: bool,
+    progress: u32,
+    encoder: ChunkedEncoder,
+    buffered_frames: Vec<BufferedFrame>,
+    audio_encoded: Option<EncodedOpus>,
+    subtitle_samples: Vec<SoftSubtitleSample>,
+}
+
+impl WasmExportChunker {
+    const MAX_FRAMES_PER_CHUNK: u32 = 15;
+
+    pub fn new(
+        project: &Project,
+        output_path: &str,
+        registered_files: HashMap<String, Vec<u8>>,
+    ) -> Result<Self, String> {
+        let format = project.export_profile.format;
+        let settings = resolve_render_settings(project);
+
+        let files_box = Box::new(registered_files);
+        // SAFETY: The reference points to data inside files_box (heap-allocated).
+        // The Box and its heap allocation live as long as WasmExportChunker.
+        // drop order ensures decode_cache is dropped before _registered_files.
+        let files_ref: &'static HashMap<String, Vec<u8>> =
+            unsafe { &*(&*files_box as *const HashMap<String, Vec<u8>>) };
+        let decode_cache = ExportDecodeCache::new(files_ref);
+
+        let audio_encoded = prepare_audio_track(project, &*files_box)
+            .map_err(|e| format!("Audio prep failed: {e}"))?;
+        let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
+            collect_soft_subtitle_samples(project, &*files_box)
+        } else {
+            Vec::new()
+        };
+
+        let subtitle_mode = project.export_profile.subtitle_mode;
+
+        let safe_fps = if settings.fps.is_finite() && settings.fps > 0.0 {
+            settings.fps
+        } else {
+            30.0
+        };
+        let frame_duration_us = (1_000_000.0 / safe_fps).round().max(1.0) as i64;
+        let end_us = project.timeline.duration_end().as_micros().max(0);
+        let total_frames = if end_us == 0 {
+            1
+        } else {
+            ((end_us + frame_duration_us - 1) / frame_duration_us) as u64
+        };
+
+        let timeline = project.timeline.clone();
+
+        let encoder = match format {
+            ExportFormat::Mp4 => {
+                let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
+                let enc = VideoEncodeSession::new(
+                    settings.width,
+                    settings.height,
+                    bitrate_kbps * 1000,
+                    settings.fps as f32,
+                )
+                .map_err(|e| format!("H.264 encoder init failed: {e}"))?;
+                ChunkedEncoder::H264 {
+                    encoder: enc,
+                    sps: Vec::new(),
+                    pps: Vec::new(),
+                }
+            }
+            ExportFormat::Av1Mp4 => {
+                let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
+                let enc = Av1EncodeSession::new(
+                    settings.width,
+                    settings.height,
+                    settings.fps,
+                    bitrate_kbps,
+                )
+                .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+                ChunkedEncoder::Av1Mp4 { encoder: enc }
+            }
+            ExportFormat::Av1Ivf => {
+                let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
+                let enc = Av1EncodeSession::new(
+                    settings.width,
+                    settings.height,
+                    settings.fps,
+                    bitrate_kbps,
+                )
+                .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+                ChunkedEncoder::Av1Ivf {
+                    encoder: enc,
+                    fps_int: settings.fps.round().max(1.0) as u32,
+                }
+            }
+            _ => return Err("Unsupported export format for chunked export".to_string()),
+        };
+
+        Ok(WasmExportChunker {
+            decode_cache,
+            _registered_files: files_box,
+            timeline,
+            format,
+            settings,
+            output_path: output_path.to_string(),
+            subtitle_mode,
+            frame_duration_us,
+            current_frame: 0,
+            total_frames,
+            cancelled: false,
+            done: false,
+            progress: 0,
+            encoder,
+            buffered_frames: Vec::new(),
+            audio_encoded,
+            subtitle_samples,
+        })
+    }
+
+    /// Process up to `max_frames` frames (one at a time, computed on-demand).
+    /// Returns `Ok(Some(progress_0_100000))` if more frames remain,
+    /// `Ok(None)` if all frames are done, or `Err` on failure/cancellation.
+    pub fn process_chunk(&mut self, max_frames: u32) -> Result<Option<u32>, String> {
+        if self.done {
+            return Ok(None);
+        }
+        if self.cancelled {
+            return Err("Export cancelled".to_string());
+        }
+
+        let end = self
+            .current_frame
+            .saturating_add(max_frames.max(1) as u64)
+            .min(self.total_frames);
+        while self.current_frame < end {
+            if self.cancelled {
+                return Err("Export cancelled".to_string());
+            }
+
+            let t = Timestamp::from_micros(self.current_frame as i64 * self.frame_duration_us);
+            let plan = plan_frame(
+                &self.timeline,
+                t,
+                self.settings.width,
+                self.settings.height,
+                self.subtitle_mode,
+            );
+
+            let rgba = render_plan_to_rgba(&plan, &mut self.decode_cache)?;
+            let frame = RgbaFrame {
+                width: self.settings.width,
+                height: self.settings.height,
+                data: rgba,
+                pts_us: plan.timestamp.as_micros(),
+            };
+
+            self.encode_one_frame(&frame)?;
+            self.current_frame += 1;
+            self.progress =
+                ((self.current_frame as f64 / self.total_frames as f64) * 100_000.0) as u32;
+        }
+
+        if self.current_frame >= self.total_frames {
+            self.done = true;
+        }
+
+        Ok(Some(self.progress.min(100_000)))
+    }
+
+    fn encode_one_frame(&mut self, frame: &RgbaFrame) -> Result<(), String> {
+        let pts = frame.pts_us.max(0) as u64;
+
+        match &mut self.encoder {
+            ChunkedEncoder::H264 { encoder, sps, pps } => {
+                let encoded = encoder
+                    .encode_frame(frame)
+                    .map_err(|e| format!("H.264 encode failed: {e}"))?;
+
+                match encoded {
+                    EncodedVideoOutput::Sample { bytes, is_keyframe } => {
+                        if self.buffered_frames.is_empty() {
+                            let (extracted_sps, extracted_pps) =
+                                crate::mux::extract_sps_pps(&bytes).ok_or_else(|| {
+                                    "Could not extract SPS/PPS from H.264 stream".to_string()
+                                })?;
+                            *sps = extracted_sps;
+                            *pps = extracted_pps;
+                        }
+                        self.buffered_frames.push(BufferedFrame {
+                            pts_us: pts,
+                            data: bytes,
+                            is_keyframe,
+                        });
+                    }
+                    EncodedVideoOutput::Skipped => {
+                        return Err("H.264 encoder skipped frame".to_string());
+                    }
+                }
+            }
+            ChunkedEncoder::Av1Mp4 { encoder } | ChunkedEncoder::Av1Ivf { encoder, .. } => {
+                let packets = encoder
+                    .encode_frame(frame)
+                    .map_err(|e| format!("AV1 encode failed: {e}"))?;
+
+                for packet in packets {
+                    let sample = strip_leading_temporal_delimiters(&packet.data);
+                    if sample.is_empty() {
+                        continue;
+                    }
+                    self.buffered_frames.push(BufferedFrame {
+                        pts_us: packet.pts,
+                        data: sample.to_vec(),
+                        is_keyframe: packet.is_keyframe,
+                    });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+
+    pub fn progress(&self) -> u32 {
+        self.progress
+    }
+
+    pub fn cancel(&mut self) {
+        self.cancelled = true;
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
+    }
+
+    /// Complete the export and return the final artifact.
+    pub fn finish(mut self) -> Result<WasmExportArtifact, String> {
+        if self.cancelled {
+            return Err("Export cancelled".to_string());
+        }
+
+        // Process any remaining frames
+        while !self.done {
+            self.process_chunk(Self::MAX_FRAMES_PER_CHUNK)?;
+            if self.cancelled {
+                return Err("Export cancelled".to_string());
+            }
+        }
+
+        // Finish AV1 encoders (trailing packets)
+        match &mut self.encoder {
+            ChunkedEncoder::Av1Mp4 { encoder } | ChunkedEncoder::Av1Ivf { encoder, .. } => {
+                let trailing = encoder
+                    .finish()
+                    .map_err(|e| format!("AV1 finalize failed: {e}"))?;
+                for p in trailing {
+                    self.buffered_frames.push(BufferedFrame {
+                        pts_us: p.pts,
+                        data: p.data,
+                        is_keyframe: p.is_keyframe,
+                    });
+                }
+            }
+            _ => {}
+        }
+
+        let (extension, mime_type) = export_target_info(self.format)?;
+        let file_name = chunker_file_name(&self.output_path, extension);
+
+        match self.format {
+            ExportFormat::Mp4 | ExportFormat::Av1Mp4 => {
+                let (sps, pps) = match &self.encoder {
+                    ChunkedEncoder::H264 { sps, pps, .. } => (sps.clone(), pps.clone()),
+                    _ => (Vec::new(), Vec::new()),
+                };
+                let video_codec = match self.encoder {
+                    ChunkedEncoder::H264 { .. } => VideoTrackCodecOut::H264,
+                    _ => VideoTrackCodecOut::Av1,
+                };
+                let audio_track = self.audio_encoded.as_ref().map(|e| OpusTrackConfigOut {
+                    sample_rate: 48_000,
+                    channels: e.channels,
+                });
+                let subtitle_track = if self.subtitle_samples.is_empty() {
+                    None
+                } else {
+                    Some(SubtitleTrackConfigOut {
+                        codec: SubtitleTrackCodecOut::MovText,
+                        language: Some("und".to_string()),
+                    })
+                };
+
+                let mut output = Vec::new();
+                let mut muxer = Mp4Muxer::new(
+                    &mut output,
+                    self.settings.width,
+                    self.settings.height,
+                    self.settings.fps,
+                    &sps,
+                    &pps,
+                    ContainerFormat::Mp4,
+                    audio_track,
+                    subtitle_track,
+                    video_codec,
+                )
+                .map_err(|e| format!("MP4 muxer init failed: {e}"))?;
+
+                for f in &self.buffered_frames {
+                    muxer
+                        .write_sample_at(f.pts_us, &f.data, f.is_keyframe)
+                        .map_err(|e| format!("MP4 write failed: {e}"))?;
+                }
+
+                if let Some(audio) = &self.audio_encoded {
+                    let start_anchor_us = self
+                        .decode_cache
+                        .first_decoded_video_pts_us
+                        .unwrap_or(0)
+                        .max(0) as u64;
+                    let audio_packets = &audio.packets;
+                    for packet in audio_packets {
+                        let pts = start_anchor_us.saturating_add(packet.pts_us);
+                        muxer
+                            .write_audio_sample_at(pts, &packet.bytes)
+                            .map_err(|e| format!("MP4 audio write failed: {e}"))?;
+                    }
+                }
+
+                for sample in &self.subtitle_samples {
+                    muxer
+                        .write_subtitle_sample_at(
+                            sample.start_us.max(0) as u64,
+                            sample.duration_us.max(1) as u64,
+                            &sample.text,
+                        )
+                        .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
+                }
+
+                muxer
+                    .finish()
+                    .map_err(|e| format!("MP4 finalize failed: {e}"))?;
+                drop(muxer);
+
+                Ok(WasmExportArtifact {
+                    bytes: output,
+                    file_name,
+                    mime_type: mime_type.to_string(),
+                })
+            }
+            ExportFormat::Av1Ivf => {
+                let fps_int = match &self.encoder {
+                    ChunkedEncoder::Av1Ivf { fps_int, .. } => *fps_int,
+                    _ => 1,
+                };
+
+                let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
+                ivf::write_ivf_header(
+                    &mut cursor,
+                    self.settings.width as usize,
+                    self.settings.height as usize,
+                    fps_int as usize,
+                    1,
+                );
+
+                let mut packet_count: u32 = 0;
+                for f in &self.buffered_frames {
+                    let pts_tbn = (f.pts_us * fps_int as u64 + 500_000) / 1_000_000;
+                    ivf::write_ivf_frame(&mut cursor, pts_tbn, &f.data);
+                    packet_count = packet_count.saturating_add(1);
+                }
+
+                use std::io::{Seek, Write};
+                cursor
+                    .seek(std::io::SeekFrom::Start(24))
+                    .map_err(|e| format!("IVF seek failed: {e}"))?;
+                cursor
+                    .write_all(&packet_count.to_le_bytes())
+                    .map_err(|e| format!("IVF packet-count write failed: {e}"))?;
+
+                Ok(WasmExportArtifact {
+                    bytes: cursor.into_inner(),
+                    file_name,
+                    mime_type: mime_type.to_string(),
+                })
+            }
+            _ => Err("Unsupported export format for finalization".to_string()),
+        }
+    }
+}
+
+fn chunker_file_name(output_path: &str, extension: &str) -> String {
+    let raw = output_path
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.rsplit('\\').next())
+        .unwrap_or("")
+        .trim();
+    let mut name = sanitize_file_name(raw);
+    if name.is_empty() {
+        name = "export".to_string();
+    }
+    let expected_suffix = format!(".{extension}");
+    if !name.to_ascii_lowercase().ends_with(&expected_suffix) {
+        name.push_str(&expected_suffix);
+    }
+    name
 }
 
 fn render_plan_to_rgba(
@@ -1204,9 +1650,3 @@ fn render_node(
         }
     }
 }
-
-
-
-
-
-

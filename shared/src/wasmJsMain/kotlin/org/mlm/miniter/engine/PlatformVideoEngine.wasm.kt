@@ -1,17 +1,35 @@
 package org.mlm.miniter.engine
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.await
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.js.ExperimentalWasmJsInterop
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.rust.RustCoreSession
-import org.mlm.miniter.rust.WasmExportPayload
+import org.mlm.miniter.rust.WasmExportSession
+import kotlin.js.JsAny
+
+private val engineJson = Json { ignoreUnknownKeys = true }
+
+@Serializable
+private data class ChunkResponse(
+    val ok: Boolean,
+    val done: Boolean = false,
+    val progress: UInt = 0u,
+    val payload: ChunkPayload? = null,
+    val error: String? = null,
+)
+
+@Serializable
+private data class ChunkPayload(
+    val ok: Boolean,
+    val bytesBase64: String,
+    val fileName: String,
+    val mimeType: String,
+)
 
 actual class PlatformVideoEngine actual constructor() {
 
@@ -19,6 +37,7 @@ actual class PlatformVideoEngine actual constructor() {
     actual val exportProgress: StateFlow<ExportProgress> = _exportProgress
 
     private var exportCancelled = false
+    private var activeSession: WasmExportSession? = null
 
     actual suspend fun probeVideo(path: String): VideoInfo {
         return withContext(Dispatchers.Default) {
@@ -30,63 +49,76 @@ actual class PlatformVideoEngine actual constructor() {
         projectJson: String,
         outputPath: String,
     ) {
-        withContext(Dispatchers.Default) {
-            exportCancelled = false
-            _exportProgress.value = ExportProgress(
-                phase = "Encoding video…",
-                progress = 0f,
-            )
+        exportCancelled = false
+        _exportProgress.value = ExportProgress(
+            phase = "Encoding video…",
+            progress = 0f,
+        )
 
-            try {
-                coroutineScope {
-                    val progressJob = launch {
-                        while (isActive && !exportCancelled) {
-                            val pct = RustCoreSession.exportProgress().toInt()
-                            _exportProgress.value = ExportProgress(
-                                phase = "Encoding video…",
-                                progress = (pct / 100_000f).coerceIn(0f, 1f),
-                            )
-                            kotlinx.coroutines.delay(100)
-                        }
-                    }
+        try {
+            val session = WasmExportSession(projectJson, outputPath)
+            activeSession = session
 
-                    try {
-                        val payload = RustCoreSession.exportProjectBlob(projectJson, outputPath)
-                        progressJob.cancel()
-                        ensureActive()
-
-                        if (payload.ok && !exportCancelled) {
-                            wasmDownloadBlob(payload.fileName, payload.mimeType, payload.bytesBase64)
-                            _exportProgress.value = ExportProgress(
-                                phase = "Export complete",
-                                progress = 1f,
-                                isComplete = true,
-                            )
-                        } else {
-                            _exportProgress.value = ExportProgress(
-                                phase = "Export cancelled",
-                                isCancelled = true,
-                            )
-                        }
-                    } catch (e: Throwable) {
-                        progressJob.cancel()
-                        throw e
-                    }
-                }
-            } catch (e: Throwable) {
-                val cancelled = exportCancelled || e.message?.contains("cancel", ignoreCase = true) == true
-
-                _exportProgress.value = if (cancelled) {
-                    ExportProgress(
+            while (true) {
+                if (exportCancelled) {
+                    session.cancel()
+                    _exportProgress.value = ExportProgress(
                         phase = "Export cancelled",
                         isCancelled = true,
                     )
-                } else {
-                    ExportProgress(
-                        error = e.message ?: "Export failed",
-                    )
+                    return
                 }
+
+                val responseJson = session.processChunk().await<JsAny?>()?.toString() ?: ""
+                val response = engineJson.decodeFromString<ChunkResponse>(responseJson)
+
+                if (!response.ok) {
+                    val cancelled = exportCancelled ||
+                        (response.error?.contains("cancel", ignoreCase = true) == true)
+                    _exportProgress.value = if (cancelled) {
+                        ExportProgress(phase = "Export cancelled", isCancelled = true)
+                    } else {
+                        ExportProgress(error = response.error ?: "Export failed")
+                    }
+                    return
+                }
+
+                _exportProgress.value = ExportProgress(
+                    phase = "Encoding video…",
+                    progress = (response.progress.toFloat() / 100_000f).coerceIn(0f, 1f),
+                )
+
+                if (response.done) {
+                    val payload = response.payload!!
+                    if (payload.ok && !exportCancelled) {
+                        wasmDownloadBlob(payload.fileName, payload.mimeType, payload.bytesBase64)
+                        _exportProgress.value = ExportProgress(
+                            phase = "Export complete",
+                            progress = 1f,
+                            isComplete = true,
+                        )
+                    } else {
+                        _exportProgress.value = ExportProgress(
+                            phase = "Export cancelled",
+                            isCancelled = true,
+                        )
+                    }
+                    return
+                }
+
+                kotlinx.coroutines.delay(0)
             }
+        } catch (e: Throwable) {
+            val cancelled = exportCancelled ||
+                e.message?.contains("cancel", ignoreCase = true) == true
+
+            _exportProgress.value = if (cancelled) {
+                ExportProgress(phase = "Export cancelled", isCancelled = true)
+            } else {
+                ExportProgress(error = e.message ?: "Export failed")
+            }
+        } finally {
+            activeSession = null
         }
     }
 
@@ -140,7 +172,7 @@ actual class PlatformVideoEngine actual constructor() {
 
     actual fun cancelExport() {
         exportCancelled = true
-        RustCoreSession.cancelExport()
+        activeSession?.cancel()
         _exportProgress.value = ExportProgress(
             phase = "Cancelled",
             isCancelled = true,
@@ -149,6 +181,7 @@ actual class PlatformVideoEngine actual constructor() {
 
     actual fun reset() {
         exportCancelled = false
+        activeSession = null
         _exportProgress.value = ExportProgress()
     }
 }
