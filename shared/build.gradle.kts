@@ -439,6 +439,7 @@ dependencies {
 }
 
 tasks.matching { it.name == "genUniFFIWasm" }.configureEach {
+    setDependsOn(emptySet<Any>())
     enabled = false
 }
 
