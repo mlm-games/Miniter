@@ -229,7 +229,7 @@ impl VideoDecoderBackend for BaabaBackend {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let _ = self.rt.block_on(self.input.flush());
-            return Ok(None);
+            Ok(None)
         }
 
         #[cfg(target_arch = "wasm32")]
