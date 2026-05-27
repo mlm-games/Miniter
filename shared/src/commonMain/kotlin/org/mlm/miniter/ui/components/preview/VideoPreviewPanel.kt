@@ -32,9 +32,9 @@ import kotlinx.coroutines.isActive
 import org.mlm.miniter.editor.model.*
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
-import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
+import org.mlm.miniter.project.KeyframeParams
 import kotlin.time.TimeSource
 
 private suspend fun seekToPosition(
@@ -160,6 +160,31 @@ private fun collectVisibleMedia(
     return visibleMedia.sortedBy { it.trackIndex }
 }
 
+private data class TransformValues(
+    val scale: Float,
+    val tx: Float,
+    val ty: Float,
+    val rot: Float,
+)
+
+private fun clipTransformModifier(
+    tv: TransformValues,
+    viewportSize: IntSize,
+): Modifier = Modifier.graphicsLayer {
+    scaleX = tv.scale
+    scaleY = tv.scale
+    translationX = (tv.tx - 0.5f) * viewportSize.width
+    translationY = (tv.ty - 0.5f) * viewportSize.height
+    rotationZ = tv.rot
+}
+
+private fun findTransformFilter(filters: List<RustVideoEffectSnapshot>): RustTransformFilterSnapshot? {
+    return filters
+        .filter { it.enabled }
+        .mapNotNull { it.filter as? RustTransformFilterSnapshot }
+        .firstOrNull()
+}
+
 @Composable
 fun EditorVideoPreview(
     snapshot: RustProjectSnapshot?,
@@ -201,9 +226,9 @@ fun EditorVideoPreview(
     val primaryVolume = primaryVideo?.volume ?: 1f
     val primaryFilters = primaryVideo?.filters ?: emptyList()
     val primaryOpacity = primaryVideo?.opacity ?: 1f
-    val effectiveOpacity = primaryVideo?.let { clip ->
-        clip.keyframes.evaluate(KeyframeParams.OPACITY, (playheadMs - clip.startMs) * 1000L) ?: clip.opacity
-    } ?: 1f
+    val primaryEffectiveOpacity = primaryVideo?.keyframes?.evaluate(
+        KeyframeParams.OPACITY, (playheadMs - primaryVideo.startMs) * 1000L,
+    ) ?: primaryOpacity
 
     val audioMedia = remember(snapshot, playheadMs) {
         val playheadUs = playheadMs * 1000L
@@ -265,26 +290,6 @@ fun EditorVideoPreview(
             renderTranslateX = transformFilter.translateX
             renderTranslateY = transformFilter.translateY
             renderRotate = transformFilter.rotate
-        }
-    }
-
-    LaunchedEffect(playheadMs, clipKey, isInteracting) {
-        if (isInteracting) return@LaunchedEffect
-        val clip = primaryVideo ?: return@LaunchedEffect
-        if (clip.keyframes.keyframes.isEmpty()) return@LaunchedEffect
-
-        val localUs = (playheadMs - clip.startMs) * 1000L
-        clip.keyframes.evaluate(KeyframeParams.TRANSFORM_SCALE, localUs)?.let {
-            renderScale = it.coerceIn(0.1f, 10f)
-        }
-        clip.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, localUs)?.let {
-            renderTranslateX = it
-        }
-        clip.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, localUs)?.let {
-            renderTranslateY = it
-        }
-        clip.keyframes.evaluate(KeyframeParams.TRANSFORM_ROTATE, localUs)?.let {
-            renderRotate = it
         }
     }
 
@@ -395,7 +400,7 @@ fun EditorVideoPreview(
         playerState.volume = primaryVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, effectiveOpacity) {
+    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, primaryEffectiveOpacity) {
         if (isPlaying) return@LaunchedEffect
         if (primaryVideo == null || primaryVideoPath == null) return@LaunchedEffect
 
@@ -409,12 +414,12 @@ fun EditorVideoPreview(
             .map { it.filter }
             .filter { it !is RustTransformFilterSnapshot }
 
-        if (grabberReady && (primaryFilters.any { it.enabled } || effectiveOpacity < 1f)) {
+        if (grabberReady && (primaryFilters.any { it.enabled } || primaryEffectiveOpacity < 1f)) {
             try {
                 scrubbedFrame = frameGrabber.grabFrame(
                     timestampMs = sourceTimeMs,
                     filters = nonTransformFilters,
-                    opacity = effectiveOpacity,
+                    opacity = primaryEffectiveOpacity,
                 )
             } catch (_: Exception) {}
         } else if (grabberReady) {
@@ -639,26 +644,54 @@ fun EditorVideoPreview(
             )
         }
 
+    val primaryLocalUs = if (primaryVideo != null) (playheadMs - primaryVideo.startMs) * 1000L else 0L
+    val primaryOwnTransform = findTransformFilter(primaryVideo?.filters ?: emptyList())
+    val primaryKfScale = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_SCALE, primaryLocalUs)
+    val primaryKfTx = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, primaryLocalUs)
+    val primaryKfTy = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, primaryLocalUs)
+    val primaryKfRot = primaryVideo?.keyframes?.evaluate(KeyframeParams.TRANSFORM_ROTATE, primaryLocalUs)
+    val hasPrimaryKF = primaryKfScale != null || primaryKfTx != null || primaryKfTy != null || primaryKfRot != null
+
+    fun clipDisplayValues(
+        clip: VisibleMedia.Video?,
+        kfScale: Float?,
+        kfTx: Float?,
+        kfTy: Float?,
+        kfRot: Float?,
+        hasKF: Boolean,
+        staticFilter: RustTransformFilterSnapshot?,
+    ): TransformValues {
+        val scale = if (hasKF) (kfScale ?: staticFilter?.scale ?: 1f).coerceIn(0.1f, 10f)
+            else staticFilter?.scale ?: 1f
+        val tx = if (hasKF) (kfTx ?: staticFilter?.translateX ?: 0.5f)
+            else staticFilter?.translateX ?: 0.5f
+        val ty = if (hasKF) (kfTy ?: staticFilter?.translateY ?: 0.5f)
+            else staticFilter?.translateY ?: 0.5f
+        val rot = if (hasKF) (kfRot ?: staticFilter?.rotate ?: 0f)
+            else staticFilter?.rotate ?: 0f
+        return TransformValues(scale, tx, ty, rot)
+    }
+
+    val primaryDisplay = if (isInteracting && transformFilter != null) {
+        TransformValues(renderScale, renderTranslateX, renderTranslateY, renderRotate)
+    } else {
+        clipDisplayValues(primaryVideo, primaryKfScale, primaryKfTx, primaryKfTy, primaryKfRot, hasPrimaryKF, primaryOwnTransform)
+    }
+
+    val transformModifier = Modifier
+        .fillMaxSize()
+        .graphicsLayer {
+            scaleX = visualScale
+            scaleY = visualScale
+            translationX = visualTranslateX
+            translationY = visualTranslateY
+            rotationZ = 0f
+        }
+
     Box(
         modifier = previewModifier.clipToBounds(),
         contentAlignment = Alignment.Center,
     ) {
-        val currentScale = if (transformFilter != null) renderScale else visualScale
-        // Filter identity for translateX/Y is at 0.5 (not 0).
-        val currentTransX = if (transformFilter != null) (renderTranslateX - 0.5f) * viewportSize.width else visualTranslateX
-        val currentTransY = if (transformFilter != null) (renderTranslateY - 0.5f) * viewportSize.height else visualTranslateY
-        val currentRot = if (transformFilter != null) renderRotate else 0f
-
-        val transformModifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                scaleX = currentScale
-                scaleY = currentScale
-                translationX = currentTransX
-                translationY = currentTransY
-                rotationZ = currentRot
-            }
-
         when {
             visibleMedia.isEmpty() && thumbnailFallback == null -> {
                 Column(
@@ -688,7 +721,9 @@ fun EditorVideoPreview(
                                 Image(
                                     bitmap = bitmap,
                                     contentDescription = "Preview",
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .then(clipTransformModifier(primaryDisplay, viewportSize)),
                                     contentScale = ContentScale.Fit,
                                 )
                             }
@@ -698,7 +733,9 @@ fun EditorVideoPreview(
                             Box(modifier = Modifier.fillMaxSize()) {
                                 VideoPlayerSurface(
                                     playerState = playerState,
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .then(clipTransformModifier(primaryDisplay, viewportSize)),
                                 )
                             }
                         }
@@ -723,12 +760,23 @@ fun EditorVideoPreview(
                     }
 
                     backgroundVideos.forEach { bgVideo ->
+                        val bgLocalUs = (playheadMs - bgVideo.startMs) * 1000L
+                        val bgTransformFilter = findTransformFilter(bgVideo.filters)
+                        val bgKfScale = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_SCALE, bgLocalUs)
+                        val bgKfTx = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, bgLocalUs)
+                        val bgKfTy = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, bgLocalUs)
+                        val bgKfRot = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_ROTATE, bgLocalUs)
+                        val hasBgKF = bgKfScale != null || bgKfTx != null || bgKfTy != null || bgKfRot != null
+                        val bgDisplay = clipDisplayValues(bgVideo, bgKfScale, bgKfTx, bgKfTy, bgKfRot, hasBgKF, bgTransformFilter)
+                        val bgEffectiveOpacity = bgVideo.keyframes.evaluate(
+                            KeyframeParams.OPACITY, bgLocalUs,
+                        ) ?: bgVideo.opacity
                         val bgOffset = playheadMs - bgVideo.startMs
                         val bgSourceTime = bgVideo.sourceStartMs + (bgOffset * bgVideo.speed).toLong()
                         BackgroundVideoFrame(
                             sourcePath = bgVideo.sourcePath,
                             sourceTimeMs = bgSourceTime,
-                            opacity = bgVideo.opacity,
+                            opacity = bgEffectiveOpacity,
                             frameGrabber = frameGrabber,
                             onFrameLoaded = { frame ->
                                 backgroundFrames = backgroundFrames + (bgVideo.id to frame)
@@ -742,7 +790,8 @@ fun EditorVideoPreview(
                                 contentDescription = "Background video",
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .graphicsLayer { alpha = bgVideo.opacity },
+                                    .then(clipTransformModifier(bgDisplay, viewportSize))
+                                    .graphicsLayer { alpha = bgEffectiveOpacity },
                                 contentScale = ContentScale.Fit,
                             )
                         }
