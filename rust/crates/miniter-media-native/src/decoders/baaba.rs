@@ -229,6 +229,7 @@ impl VideoDecoderBackend for BaabaBackend {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let _ = self.rt.block_on(self.input.flush());
+            return Ok(None);
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -237,9 +238,8 @@ impl VideoDecoderBackend for BaabaBackend {
                 .block_on(self.input.flush())
                 .map_err(|e| DecodeBackendError::Other(format!("baaba flush: {e}")))?;
             drain_raw_frames(&mut self.output, &mut self.frame_buffer)?;
+            Ok(self.frame_buffer.pop_front())
         }
-
-        Ok(self.frame_buffer.pop_front())
     }
 
     fn reset(&mut self) {
