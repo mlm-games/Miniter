@@ -50,10 +50,11 @@ ass-renderer = { git = "https://github.com/mlm-games/ass-rs", default-features =
 ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
 
 [target.'cfg(all(target_os = "android", target_arch = "aarch64"))'.dependencies]
-baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", optional = true, features = ["android"] }
+baabaabaabaabababbababbaa = { workspace = true, features = ["android"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", optional = true, features = ["web-codecs"] }
+baabaabaabaabababbababbaa = { workspace = true, features = ["web-codecs"], optional = true }
+web-codecs = "0.3"
 tokio = { version = "1", features = ["rt", "sync", "macros"] }
 web-sys = { version = "0.3.99", features = ["Window", "Document", "Storage"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }

@@ -4,13 +4,13 @@ use std::time::Duration;
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
 use crate::frame::RgbaFrame;
+use baabaabaabaabababbababbaa::VideoDecoderInput as _;
+#[cfg(not(target_arch = "wasm32"))]
+use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
 use baabaabaabaabababbababbaa::{
     Dimensions, EncodedVideoPacket, PixelFormat, VideoCodecId, VideoDecoderConfig,
     VideoFrame as BaabaFrame, VideoPlanes,
 };
-use baabaabaabaabababbababbaa::VideoDecoderInput as _;
-#[cfg(not(target_arch = "wasm32"))]
-use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
 
 #[cfg(target_os = "linux")]
 use baabaabaabaabababbababbaa::platform::linux::{
@@ -66,8 +66,7 @@ impl BaabaBackend {
             .map_err(|e| DecodeError::Other(format!("BaabaError: {:?}", e)))?;
 
         #[cfg(not(target_arch = "wasm32"))]
-        let rt =
-            Runtime::new().map_err(|e| DecodeError::Other(format!("tokio: {e}")))?;
+        let rt = Runtime::new().map_err(|e| DecodeError::Other(format!("tokio: {e}")))?;
 
         Ok(Self {
             input,
@@ -94,8 +93,7 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 if data.len() >= luma + 2 * chroma {
                     let (y, rest) = data.split_at(luma);
                     let (u, v) = rest.split_at(chroma);
-                    let rgba =
-                        crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, w / 2, w / 2);
+                    let rgba = crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, w / 2, w / 2);
                     Ok(RgbaFrame {
                         width: frame.dimensions.width,
                         height: frame.dimensions.height,
@@ -129,16 +127,58 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
 }
 
 #[cfg(target_arch = "wasm32")]
-fn drain_frames(
+fn wc_pixel_format_to_baaba(fmt: web_sys::VideoPixelFormat) -> PixelFormat {
+    use web_sys::VideoPixelFormat;
+    match fmt {
+        VideoPixelFormat::I420 | VideoPixelFormat::I420a => PixelFormat::Yuv420p,
+        VideoPixelFormat::Nv12 => PixelFormat::Nv12,
+        VideoPixelFormat::Rgba => PixelFormat::Rgba8,
+        VideoPixelFormat::Bgra => PixelFormat::Bgra8,
+        _ => PixelFormat::Nv12,
+    }
+}
+
+/// Drain all available raw `web_codecs::VideoFrame`s and convert them to
+/// `RgbaFrame`s by copying pixel data to CPU memory.
+///
+/// This is safe to call after `flush()` has resolved: all frames are already
+/// in the channel, so the async `copy_to_cpu()` inside `block_on` will not
+/// park indefinitely.
+#[cfg(target_arch = "wasm32")]
+fn drain_raw_frames(
     output: &mut PlatformVideoDecoderOutput,
     buffer: &mut VecDeque<RgbaFrame>,
 ) -> Result<(), DecodeBackendError> {
-    while let Some(baaba_frame) = output
-        .try_frame()
-        .map_err(|e| DecodeBackendError::Other(format!("baaba try_frame: {e}")))?
+    let mut raw_frames = Vec::new();
+    while let Some(raw_frame) = output
+        .try_frame_raw()
+        .map_err(|e| DecodeBackendError::Other(format!("baaba try_frame_raw: {e}")))?
     {
+        raw_frames.push(raw_frame);
+    }
+
+    for raw in raw_frames {
+        let dims = raw.dimensions();
+        let ts = raw.timestamp();
+        let fmt = raw
+            .format()
+            .map(wc_pixel_format_to_baaba)
+            .unwrap_or(PixelFormat::Nv12);
+
+        let data = WASM_RT
+            .block_on(raw.copy_to_cpu())
+            .map_err(|e| DecodeBackendError::Other(format!("copy_to_cpu: {e:?}")))?;
+
+        let baaba_frame = BaabaFrame {
+            dimensions: Dimensions::new(dims.width, dims.height),
+            format: fmt,
+            timestamp: ts,
+            planes: VideoPlanes::Cpu(data),
+        };
+
         buffer.push_back(convert_baaba_frame(baaba_frame)?);
     }
+
     Ok(())
 }
 
@@ -181,7 +221,7 @@ impl VideoDecoderBackend for BaabaBackend {
 
         #[cfg(target_arch = "wasm32")]
         {
-            drain_frames(&mut self.output, &mut self.frame_buffer)?;
+            // Don't block here — frames are collected during finish().
             Ok(self.frame_buffer.pop_front())
         }
     }
@@ -197,7 +237,7 @@ impl VideoDecoderBackend for BaabaBackend {
             let _ = WASM_RT
                 .block_on(self.input.flush())
                 .map_err(|e| DecodeBackendError::Other(format!("baaba flush: {e}")))?;
-            drain_frames(&mut self.output, &mut self.frame_buffer)?;
+            drain_raw_frames(&mut self.output, &mut self.frame_buffer)?;
         }
 
         Ok(self.frame_buffer.pop_front())
