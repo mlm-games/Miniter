@@ -295,6 +295,10 @@ fun EditorVideoPreview(
         }
     }
 
+    val currentPlayheadMs by rememberUpdatedState(playheadMs)
+    val currentAutoKeyframeEnabled by rememberUpdatedState(autoKeyframeEnabled)
+    val currentOnSetKeyframe by rememberUpdatedState(onSetKeyframe)
+
     fun syncVisualTransform() {
         if (onVisualTransformChange != null && (visualScale != 1f || visualTranslateX != 0f || visualTranslateY != 0f)) {
             onVisualTransformChange(visualScale, visualTranslateX, visualTranslateY)
@@ -621,8 +625,8 @@ fun EditorVideoPreview(
                 // Gesture ended — all pointers up
                 if (transformFilter != null) {
                     isInteracting = false
-                    if (autoKeyframeEnabled && selectedClipId != null) {
-                        onSetKeyframe?.invoke(selectedClipId, playheadMs, renderScale, renderTranslateX, renderTranslateY, renderRotate)
+                    if (currentAutoKeyframeEnabled && selectedClipId != null) {
+                        currentOnSetKeyframe?.invoke(selectedClipId, currentPlayheadMs, renderScale, renderTranslateX, renderTranslateY, renderRotate)
                     } else {
                         onCommitTransform?.invoke()
                     }
@@ -639,8 +643,8 @@ fun EditorVideoPreview(
                         renderTranslateY = 0.5f
                         renderRotate = 0f
                         onTransformChanged?.invoke(1f, 0.5f, 0.5f, 0f)
-                        if (autoKeyframeEnabled && selectedClipId != null) {
-                            onSetKeyframe?.invoke(selectedClipId, playheadMs, 1f, 0.5f, 0.5f, 0f)
+                        if (currentAutoKeyframeEnabled && selectedClipId != null) {
+                            currentOnSetKeyframe?.invoke(selectedClipId, currentPlayheadMs, 1f, 0.5f, 0.5f, 0f)
                         } else {
                             onCommitTransform?.invoke()
                         }
