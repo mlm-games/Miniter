@@ -21,6 +21,7 @@ private data class ChunkResponse(
     val progress: UInt = 0u,
     val payload: ChunkPayload? = null,
     val error: String? = null,
+    val hardwareFallback: Boolean = false,
 )
 
 @Serializable
@@ -88,16 +89,18 @@ actual class PlatformVideoEngine actual constructor() {
                     phase = "Encoding video…",
                     progress = (response.progress.toFloat() / 100_000f).coerceIn(0f, 1f),
                     previewFrame = previewFrame,
+                    hardwareFallback = response.hardwareFallback,
                 )
 
                 if (response.done) {
                     val payload = response.payload!!
-                    if (payload.ok && !exportCancelled) {
+                        if (payload.ok && !exportCancelled) {
                         wasmDownloadBlob(payload.fileName, payload.mimeType, payload.bytesBase64)
                         _exportProgress.value = ExportProgress(
                             phase = "Export complete",
                             progress = 1f,
                             isComplete = true,
+                            hardwareFallback = response.hardwareFallback,
                         )
                     } else {
                         _exportProgress.value = ExportProgress(

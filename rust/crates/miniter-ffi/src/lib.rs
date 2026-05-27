@@ -313,7 +313,7 @@ mod native_ffi {
 
     #[uniffi::export]
     pub fn was_export_hardware_accelerated() -> bool {
-        !miniter_media_native::export::was_hardware_fallback()
+        !miniter_media_native::was_hardware_fallback()
     }
 
     #[uniffi::export]
@@ -930,6 +930,7 @@ mod web_ffi {
                     "ok": true,
                     "done": true,
                     "progress": 100_000,
+                    "hardwareFallback": miniter_media_native::was_hardware_fallback(),
                     "payload": payload,
                 }));
             }
@@ -950,6 +951,7 @@ mod web_ffi {
                         "ok": true,
                         "done": false,
                         "progress": progress,
+                        "hardwareFallback": miniter_media_native::was_hardware_fallback(),
                     }))
                 }
                 Ok(None) => {
@@ -969,6 +971,7 @@ mod web_ffi {
                                 "ok": true,
                                 "done": true,
                                 "progress": 100_000,
+                                "hardwareFallback": miniter_media_native::was_hardware_fallback(),
                                 "payload": payload,
                             }));
                             *self.result.borrow_mut() = Some(artifact);

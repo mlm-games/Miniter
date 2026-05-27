@@ -1,7 +1,11 @@
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// true when HW accel. was requested but fell back to software.
 pub(crate) static HARDWARE_FALLBACK_OCCURRED: AtomicBool = AtomicBool::new(false);
+
+pub fn was_hardware_fallback() -> bool {
+    HARDWARE_FALLBACK_OCCURRED.load(Ordering::SeqCst)
+}
 
 pub mod audio;
 pub mod audio_export;
