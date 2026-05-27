@@ -7,4 +7,5 @@ data class ExportProgress(
     val isCancelled: Boolean = false,
     val error: String? = null,
     val hardwareFallback: Boolean = false,
+    val previewFrame: ImageData? = null,
 )

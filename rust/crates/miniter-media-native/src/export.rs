@@ -29,6 +29,56 @@ use std::fs::{File, create_dir_all};
 use std::io::BufWriter;
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+pub(crate) static EXPORT_PREVIEW: OnceLock<Mutex<Option<(u32, u32, Vec<u8>)>>> = OnceLock::new();
+
+fn preview_store() -> &'static Mutex<Option<(u32, u32, Vec<u8>)>> {
+    EXPORT_PREVIEW.get_or_init(|| Mutex::new(None))
+}
+
+pub fn take_export_preview() -> Option<(u32, u32, Vec<u8>)> {
+    preview_store().lock().ok()?.take()
+}
+
+pub fn clear_export_preview() {
+    if let Ok(mut preview) = preview_store().lock() {
+        *preview = None;
+    }
+}
+
+fn downscale_rgba_for_preview(data: &[u8], width: u32, height: u32) -> Option<(u32, u32, Vec<u8>)> {
+    const MAX_DIM: u32 = 160;
+    let (pw, ph) = if width > height {
+        (MAX_DIM, (height * MAX_DIM / width).max(1))
+    } else {
+        ((width * MAX_DIM / height).max(1), MAX_DIM)
+    };
+    if pw >= width || ph >= height {
+        return None; // already small enough
+    }
+    let mut out = Vec::with_capacity((pw * ph * 4) as usize);
+    for y in 0..ph {
+        let src_y = (y * height / ph) as usize;
+        for x in 0..pw {
+            let src_x = (x * width / pw) as usize;
+            let si = (src_y * width as usize + src_x) * 4;
+            out.extend_from_slice(&data[si..si + 4]);
+        }
+    }
+    Some((pw, ph, out))
+}
+
+fn store_preview_frame(rgba: &[u8], width: u32, height: u32) {
+    let preview = if let Some(down) = downscale_rgba_for_preview(rgba, width, height) {
+        down
+    } else {
+        (width, height, rgba.to_vec())
+    };
+    if let Ok(mut store) = preview_store().lock() {
+        *store = Some(preview);
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExportError {
@@ -70,6 +120,7 @@ where
     F: Fn() -> bool,
 {
     clear_session_cache();
+    clear_export_preview();
     HARDWARE_FALLBACK_OCCURRED.store(false, Ordering::SeqCst);
     let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
@@ -708,6 +759,7 @@ where
 
     let first_rgba =
         render_plan_to_rgba(&first_plan, &mut decode_cache, &first_decoded_video_pts_us)?;
+    store_preview_frame(&first_rgba, width, height);
     let first_frame = RgbaFrame {
         width,
         height,
@@ -749,6 +801,7 @@ where
         }
 
         let rgba = render_plan_to_rgba(&plan, &mut decode_cache, &first_decoded_video_pts_us)?;
+        store_preview_frame(&rgba, width, height);
         let frame = RgbaFrame {
             width,
             height,
@@ -1093,6 +1146,7 @@ where
         }
 
         let rgba = render_plan_to_rgba(&plan, &mut decode_cache, &first_decoded_video_pts_us)?;
+        store_preview_frame(&rgba, width, height);
         let frame = RgbaFrame {
             width,
             height,

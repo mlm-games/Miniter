@@ -4,6 +4,7 @@ import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.ffi.EditorHandle as NativeEditorHandle
 import org.mlm.miniter.ffi.cancelExport as nativeCancelExport
+import org.mlm.miniter.ffi.exportPreviewFrame as nativeExportPreviewFrame
 import org.mlm.miniter.ffi.exportProgress as nativeExportProgress
 import org.mlm.miniter.ffi.exportProjectJson as nativeExportProjectJson
 import org.mlm.miniter.ffi.extractThumbnail as nativeExtractThumbnail
@@ -100,6 +101,15 @@ actual class RustCoreSession private constructor(
 
         actual fun exportProgress(): UInt =
             nativeExportProgress()
+
+        actual fun exportPreviewFrame(): ImageData? {
+            val frame = nativeExportPreviewFrame() ?: return null
+            return ImageData.create(
+                width = frame.width.toInt(),
+                height = frame.height.toInt(),
+                pixels = frame.rgba.copyOf(),
+            )
+        }
 
         actual fun wasExportHardwareAccelerated(): Boolean =
             nativeWasExportHardwareAccelerated()

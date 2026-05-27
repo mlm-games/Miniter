@@ -1,6 +1,8 @@
 package org.mlm.miniter.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -11,6 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
@@ -34,6 +39,7 @@ import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.editor.model.RustSubtitleMode
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.engine.ExportProgress
+import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.util.popBack
@@ -454,6 +460,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         Column(
                             Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Text(
                                 progress.phase,
@@ -469,6 +476,18 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            progress.previewFrame?.let { frame ->
+                                val bitmap = remember(frame) { frame.toImageBitmap() }
+                                Image(
+                                    bitmap = bitmap,
+                                    contentDescription = "Export preview",
+                                    modifier = Modifier
+                                        .width(160.dp)
+                                        .clip(MaterialTheme.shapes.small)
+                                        .background(Color.Black),
+                                    contentScale = ContentScale.Fit,
+                                )
+                            }
                             Spacer(Modifier.height(4.dp))
                             OutlinedButton(
                                 onClick = { vm.cancelExport() },

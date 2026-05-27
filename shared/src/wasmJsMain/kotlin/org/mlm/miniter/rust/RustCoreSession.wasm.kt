@@ -36,7 +36,7 @@ private data class WasmFramePayload(
     val width: Int,
     val height: Int,
     val rgbaBase64: String,
-    val ptsUs: Long,
+    val ptsUs: Long = 0,
 )
 
 @Serializable
@@ -216,6 +216,17 @@ actual class RustCoreSession private constructor(
 
         actual fun cancelExport() {
             wasmCancelExport()
+        }
+
+        actual fun exportPreviewFrame(): ImageData? {
+            val json = wasmExportPreviewFrame()
+            if (json == "null") return null
+            return try {
+                val payload = wasmBridgeJson.decodeFromString<WasmFramePayload>(json)
+                payload.toImageData()
+            } catch (_: Exception) {
+                null
+            }
         }
 
         actual fun exportProgress(): UInt = wasmExportProgress().toUInt()

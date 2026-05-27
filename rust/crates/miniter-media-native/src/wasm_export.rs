@@ -1,6 +1,23 @@
 use std::collections::HashMap;
 use std::io::{BufReader, Cursor, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+
+pub(crate) static WASM_EXPORT_PREVIEW: OnceLock<Mutex<Option<(u32, u32, Vec<u8>)>>> = OnceLock::new();
+
+fn wasm_preview_store() -> &'static Mutex<Option<(u32, u32, Vec<u8>)>> {
+    WASM_EXPORT_PREVIEW.get_or_init(|| Mutex::new(None))
+}
+
+pub fn take_wasm_export_preview() -> Option<(u32, u32, Vec<u8>)> {
+    wasm_preview_store().lock().ok()?.take()
+}
+
+pub fn clear_wasm_export_preview() {
+    if let Ok(mut preview) = wasm_preview_store().lock() {
+        *preview = None;
+    }
+}
 
 use crate::decoder::{DecodeError, VideoDecodeSession};
 use crate::encoder::{EncodedVideoOutput, VideoEncodeSession};
@@ -25,6 +42,39 @@ use miniter_domain::track::TrackKind;
 use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
 use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
+
+fn downscale_rgba_for_preview(data: &[u8], width: u32, height: u32) -> Option<(u32, u32, Vec<u8>)> {
+    const MAX_DIM: u32 = 160;
+    let (pw, ph) = if width > height {
+        (MAX_DIM, (height * MAX_DIM / width).max(1))
+    } else {
+        ((width * MAX_DIM / height).max(1), MAX_DIM)
+    };
+    if pw >= width || ph >= height {
+        return None;
+    }
+    let mut out = Vec::with_capacity((pw * ph * 4) as usize);
+    for y in 0..ph {
+        let src_y = (y * height / ph) as usize;
+        for x in 0..pw {
+            let src_x = (x * width / pw) as usize;
+            let si = (src_y * width as usize + src_x) * 4;
+            out.extend_from_slice(&data[si..si + 4]);
+        }
+    }
+    Some((pw, ph, out))
+}
+
+fn store_wasm_preview_frame(rgba: &[u8], width: u32, height: u32) {
+    let preview = if let Some(down) = downscale_rgba_for_preview(rgba, width, height) {
+        down
+    } else {
+        (width, height, rgba.to_vec())
+    };
+    if let Ok(mut store) = wasm_preview_store().lock() {
+        *store = Some(preview);
+    }
+}
 
 fn is_image_path(path: &str) -> bool {
     matches!(
@@ -286,6 +336,7 @@ pub fn export_project_to_bytes(
     is_cancelled: impl Fn() -> bool,
     on_progress: impl Fn(u32),
 ) -> Result<WasmExportArtifact, String> {
+    clear_wasm_export_preview();
     let format = project.export_profile.format;
     let (extension, mime_type) = export_target_info(format)?;
     let file_name = resolve_output_file_name(project, output_path, extension);
@@ -429,6 +480,7 @@ fn export_h264_mp4_bytes(
     }
 
     let first_rgba = render_plan_to_rgba(&first_plan, &mut decode_cache)?;
+    store_wasm_preview_frame(&first_rgba, settings.width, settings.height);
     let first_frame = RgbaFrame {
         width: settings.width,
         height: settings.height,
@@ -483,6 +535,7 @@ fn export_h264_mp4_bytes(
             }
 
             let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
+            store_wasm_preview_frame(&rgba, settings.width, settings.height);
             let frame = RgbaFrame {
                 width: settings.width,
                 height: settings.height,
@@ -615,6 +668,7 @@ fn export_av1_mp4_bytes(
         }
 
         let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
+        store_wasm_preview_frame(&rgba, settings.width, settings.height);
         let frame = RgbaFrame {
             width: settings.width,
             height: settings.height,
@@ -715,6 +769,7 @@ fn export_av1_ivf_bytes(
         }
 
         let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
+        store_wasm_preview_frame(&rgba, settings.width, settings.height);
         let frame = RgbaFrame {
             width: settings.width,
             height: settings.height,
@@ -1128,6 +1183,7 @@ impl WasmExportChunker {
         output_path: &str,
         registered_files: HashMap<String, Vec<u8>>,
     ) -> Result<Self, String> {
+        clear_wasm_export_preview();
         let format = project.export_profile.format;
         let settings = resolve_render_settings(project);
 
@@ -1259,6 +1315,7 @@ impl WasmExportChunker {
             );
 
             let rgba = render_plan_to_rgba(&plan, &mut self.decode_cache)?;
+            store_wasm_preview_frame(&rgba, self.settings.width, self.settings.height);
             let frame = RgbaFrame {
                 width: self.settings.width,
                 height: self.settings.height,

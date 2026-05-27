@@ -83,9 +83,11 @@ actual class PlatformVideoEngine actual constructor() {
                     return
                 }
 
+                val previewFrame = RustCoreSession.exportPreviewFrame()
                 _exportProgress.value = ExportProgress(
                     phase = "Encoding video…",
                     progress = (response.progress.toFloat() / 100_000f).coerceIn(0f, 1f),
+                    previewFrame = previewFrame,
                 )
 
                 if (response.done) {

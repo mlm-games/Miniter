@@ -155,6 +155,8 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
         sb.appendLine("external fun wasmExportProjectBlob(projectJson: String, outputPath: String): String")
         sb.appendLine("@JsName(\"exportProgress\")")
         sb.appendLine("external fun wasmExportProgress(): Double")
+        sb.appendLine("@JsName(\"exportPreviewFrame\")")
+        sb.appendLine("external fun wasmExportPreviewFrame(): String")
         sb.appendLine("@JsName(\"cancelExport\")")
         sb.appendLine("external fun wasmCancelExport()")
 

@@ -315,6 +315,17 @@ mod native_ffi {
     pub fn was_export_hardware_accelerated() -> bool {
         !miniter_media_native::export::was_hardware_fallback()
     }
+
+    #[uniffi::export]
+    pub fn export_preview_frame() -> Option<FrameData> {
+        let (width, height, rgba) = miniter_media_native::export::take_export_preview()?;
+        Some(FrameData {
+            width,
+            height,
+            rgba,
+            pts_us: 0,
+        })
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -772,6 +783,22 @@ mod web_ffi {
     #[wasm_bindgen(js_name = cancelExport)]
     pub fn cancel_export() {
         EXPORT_CANCELLED.store(true, Ordering::SeqCst);
+    }
+
+    #[wasm_bindgen(js_name = exportPreviewFrame)]
+    pub fn export_preview_frame() -> String {
+        let Some((width, height, rgba)) =
+            miniter_media_native::wasm_export::take_wasm_export_preview()
+        else {
+            return "null".to_string();
+        };
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&rgba);
+        serde_json::json!({
+            "width": width,
+            "height": height,
+            "rgbaBase64": encoded,
+        })
+        .to_string()
     }
 
     fn registered_file_to_blob_url(path: &str) -> Result<String, JsValue> {

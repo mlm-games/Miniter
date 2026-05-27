@@ -38,11 +38,15 @@ actual class PlatformVideoEngine actual constructor() {
 
             coroutineScope {
                 val progressJob = launch {
+                    var lastPreview: ImageData? = null
                     while (isActive && !exportCancelled) {
                         val pct = RustCoreSession.exportProgress().toInt()
+                        val previewFrame = RustCoreSession.exportPreviewFrame() ?: lastPreview
+                        if (previewFrame != null) lastPreview = previewFrame
                         _exportProgress.value = ExportProgress(
                             phase = "Encoding video…",
                             progress = pct / 100_000f,
+                            previewFrame = previewFrame,
                         )
                         kotlinx.coroutines.delay(100)
                     }
