@@ -246,20 +246,18 @@ private external fun wasmIsWebCodecsHardwareAccelerated(): Boolean
 () => {
     if (typeof VideoDecoder === 'undefined') return [];
     var codecs = [];
-    var tests = [
-        { codec: 'video/avc', desc: { width: 64, height: 64 } },
-        { codec: 'video/hevc', desc: { width: 64, height: 64 } },
-        { codec: 'video/vp8', desc: { width: 64, height: 64 } },
-        { codec: 'video/vp9', desc: { width: 64, height: 64 } },
-        { codec: 'video/av01', desc: { width: 64, height: 64 } }
-    ];
-    tests.forEach(function(t) {
+    var tests = ['video/avc', 'video/hevc', 'video/vp8', 'video/vp9', 'video/av01'];
+    for (var i = 0; i < tests.length; i++) {
         try {
-            VideoDecoder.isConfigSupported({ codec: t.codec, ...t.desc }).then(function(r) {
-                if (r.supported) codecs.push(t.codec);
+            var decoder = new VideoDecoder({
+                error: function() {},
+                output: function() {}
             });
+            decoder.configure({ codec: tests[i], width: 64, height: 64 });
+            decoder.close();
+            codecs.push(tests[i]);
         } catch(e) {}
-    });
+    }
     return codecs;
 }
 """)
