@@ -1,9 +1,53 @@
+use crate::filters;
+use crate::mux::{Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTrackConfigOut};
 use fast_image_resize::images::{Image, ImageRef};
 use fast_image_resize::{PixelType, Resizer};
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
-use crate::filters;
+use std::io::Write;
+
+pub(crate) fn audio_track_config(audio: &EncodedOpus) -> OpusTrackConfigOut {
+    OpusTrackConfigOut {
+        sample_rate: 48_000,
+        channels: audio.channels,
+    }
+}
+
+pub(crate) fn subtitle_track_config() -> SubtitleTrackConfigOut {
+    SubtitleTrackConfigOut {
+        codec: SubtitleTrackCodecOut::MovText,
+        language: Some("und".to_string()),
+    }
+}
+
+/// Write audio packets to an MP4 muxer, adjusting PTS by start_anchor_us.
+pub(crate) fn write_audio_packets<W: Write>(
+    muxer: &mut Mp4Muxer<W>,
+    audio: &EncodedOpus,
+    start_anchor_us: u64,
+) -> Result<(), crate::mux::MuxError> {
+    for packet in &audio.packets {
+        let pts = start_anchor_us.saturating_add(packet.pts_us);
+        muxer.write_audio_sample_at(pts, &packet.bytes)?;
+    }
+    Ok(())
+}
+
+/// Write soft subtitle samples to an MP4 muxer.
+pub(crate) fn write_soft_subtitle_samples<W: Write>(
+    muxer: &mut Mp4Muxer<W>,
+    samples: &[SoftSubtitleSample],
+) -> Result<(), crate::mux::MuxError> {
+    for sample in samples {
+        muxer.write_subtitle_sample_at(
+            sample.start_us.max(0) as u64,
+            sample.duration_us.max(1) as u64,
+            &sample.text,
+        )?;
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct SoftSubtitleSample {
@@ -105,7 +149,13 @@ pub(crate) fn flatten_on_black(img: &mut [u8]) {
     }
 }
 
-pub(crate) fn flip_rgba(src: &[u8], width: usize, height: usize, horizontal: bool, vertical: bool) -> Vec<u8> {
+pub(crate) fn flip_rgba(
+    src: &[u8],
+    width: usize,
+    height: usize,
+    horizontal: bool,
+    vertical: bool,
+) -> Vec<u8> {
     if !horizontal && !vertical {
         return src.to_vec();
     }
@@ -127,7 +177,9 @@ pub(crate) fn flip_rgba(src: &[u8], width: usize, height: usize, horizontal: boo
 }
 
 pub(crate) fn rotate_rgba(src: &[u8], width: usize, height: usize, degrees: f32) -> Vec<u8> {
-    if width == 0 || height == 0 { return src.to_vec(); }
+    if width == 0 || height == 0 {
+        return src.to_vec();
+    }
     let rad = degrees.to_radians();
     let (sin_r, cos_r) = rad.sin_cos();
     let mut dst = vec![0u8; width * height * 4];
@@ -150,7 +202,15 @@ pub(crate) fn rotate_rgba(src: &[u8], width: usize, height: usize, degrees: f32)
     dst
 }
 
-pub(crate) fn crop_rgba(src: &[u8], width: usize, height: usize, left: f32, top: f32, right: f32, bottom: f32) -> Vec<u8> {
+pub(crate) fn crop_rgba(
+    src: &[u8],
+    width: usize,
+    height: usize,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+) -> Vec<u8> {
     let l = (left.clamp(0.0, 1.0) * width as f32).round() as usize;
     let t = (top.clamp(0.0, 1.0) * height as f32).round() as usize;
     let r = (right.clamp(0.0, 1.0) * width as f32).round() as usize;
@@ -179,7 +239,15 @@ pub(crate) fn crop_rgba(src: &[u8], width: usize, height: usize, left: f32, top:
     out
 }
 
-pub(crate) fn transform_rgba(src: &[u8], width: usize, height: usize, scale: f32, tx: f32, ty: f32, rotate: f32) -> Vec<u8> {
+pub(crate) fn transform_rgba(
+    src: &[u8],
+    width: usize,
+    height: usize,
+    scale: f32,
+    tx: f32,
+    ty: f32,
+    rotate: f32,
+) -> Vec<u8> {
     let zoom = scale.clamp(0.05, 50.0);
     let rad = rotate.to_radians();
     let (sin_r, cos_r) = rad.sin_cos();
@@ -218,7 +286,13 @@ pub(crate) fn transform_rgba(src: &[u8], width: usize, height: usize, scale: f32
     dst
 }
 
-pub(crate) fn scale_rgba(src: &[u8], src_w: usize, src_h: usize, dst_w: usize, dst_h: usize) -> Vec<u8> {
+pub(crate) fn scale_rgba(
+    src: &[u8],
+    src_w: usize,
+    src_h: usize,
+    dst_w: usize,
+    dst_h: usize,
+) -> Vec<u8> {
     let src_ref = match ImageRef::new(src_w as u32, src_h as u32, src, PixelType::U8x4) {
         Ok(r) => r,
         Err(_) => return vec![0u8; dst_w * dst_h * 4],
@@ -266,7 +340,12 @@ pub(crate) fn fit_rgba_into_canvas(
     canvas
 }
 
-pub(crate) fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: usize, filter_list: &[VideoFilter]) {
+pub(crate) fn apply_video_filters(
+    pixels: &mut Vec<u8>,
+    width: usize,
+    height: usize,
+    filter_list: &[VideoFilter],
+) {
     let w = width;
     let h = height;
     for filter in filter_list {
@@ -280,16 +359,29 @@ pub(crate) fn apply_video_filters(pixels: &mut Vec<u8>, width: usize, height: us
             VideoFilter::Sharpen { amount } => filters::sharpen_rgba(pixels, w, h, *amount),
             VideoFilter::Opacity { value } => filters::scale_alpha(pixels, *value),
             VideoFilter::Hue { degrees } => filters::adjust_hue(pixels, *degrees),
-            VideoFilter::Flip { horizontal, vertical } => {
+            VideoFilter::Flip {
+                horizontal,
+                vertical,
+            } => {
                 *pixels = flip_rgba(pixels, w, h, *horizontal, *vertical);
             }
             VideoFilter::Rotate { degrees } => {
                 *pixels = rotate_rgba(pixels, w, h, *degrees);
             }
-            VideoFilter::Crop { left, top, right, bottom } => {
+            VideoFilter::Crop {
+                left,
+                top,
+                right,
+                bottom,
+            } => {
                 *pixels = crop_rgba(pixels, w, h, *left, *top, *right, *bottom);
             }
-            VideoFilter::Transform { scale, translate_x, translate_y, rotate } => {
+            VideoFilter::Transform {
+                scale,
+                translate_x,
+                translate_y,
+                rotate,
+            } => {
                 *pixels = transform_rgba(pixels, w, h, *scale, *translate_x, *translate_y, *rotate);
             }
             VideoFilter::Speed { .. } => {}
@@ -624,7 +716,10 @@ fn parse_argb_hex(input: &str, default: [u8; 4]) -> [u8; 4] {
     }
 }
 
-pub(crate) fn encode_opus(mixed: &miniter_audio::mix::MixedAudio, bitrate_bps: u32) -> Result<EncodedOpus, String> {
+pub(crate) fn encode_opus(
+    mixed: &miniter_audio::mix::MixedAudio,
+    bitrate_bps: u32,
+) -> Result<EncodedOpus, String> {
     use mousiki::{
         Application as MousikiApplication, Bitrate as MousikiBitrate, Channels as MousikiChannels,
         Encoder as MousikiEncoder, FrameDuration as MousikiFrameDuration,
@@ -693,4 +788,103 @@ pub(crate) fn encode_opus(mixed: &miniter_audio::mix::MixedAudio, bitrate_bps: u
     }
 
     Ok(EncodedOpus { channels, packets })
+}
+
+pub(crate) fn downscale_rgba_for_preview(
+    data: &[u8],
+    width: u32,
+    height: u32,
+) -> Option<(u32, u32, Vec<u8>)> {
+    const MAX_DIM: u32 = 160;
+    let (pw, ph) = if width > height {
+        (MAX_DIM, (height * MAX_DIM / width).max(1))
+    } else {
+        ((width * MAX_DIM / height).max(1), MAX_DIM)
+    };
+    if pw >= width || ph >= height {
+        return None;
+    }
+    let mut out = Vec::with_capacity((pw * ph * 4) as usize);
+    for y in 0..ph {
+        let src_y = (y * height / ph) as usize;
+        for x in 0..pw {
+            let src_x = (x * width / pw) as usize;
+            let si = (src_y * width as usize + src_x) * 4;
+            out.extend_from_slice(&data[si..si + 4]);
+        }
+    }
+    Some((pw, ph, out))
+}
+
+/// Render settings resolved from a project's export profile.
+#[derive(Debug)]
+pub(crate) struct RenderSettings {
+    pub width: u32,
+    pub height: u32,
+    pub fps: f64,
+}
+
+pub(crate) fn is_image_path(path: &str) -> bool {
+    matches!(
+        std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
+        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif")
+    )
+}
+
+/// Map a subtitle cue to a timeline sample (pure transform, no I/O).
+pub(crate) fn map_subtitle_cue_to_timeline_sample(
+    clip: &miniter_domain::clip::Clip,
+    start_us: i64,
+    end_us: i64,
+    text: &str,
+) -> Option<SoftSubtitleSample> {
+    let speed = if clip.speed.is_finite() && clip.speed > 0.0 {
+        clip.speed
+    } else {
+        1.0
+    };
+
+    let clip_source_start = clip.source_start.as_micros();
+    let inferred_source_end = clip_source_start
+        + (clip.timeline_duration.as_micros() as f64 * speed)
+            .round()
+            .max(1.0) as i64;
+    let clip_source_end = if clip.source_end.as_micros() > clip_source_start {
+        clip.source_end.as_micros()
+    } else {
+        inferred_source_end
+    };
+
+    let visible_start = start_us.max(clip_source_start);
+    let visible_end = end_us.min(clip_source_end);
+    if visible_end <= visible_start {
+        return None;
+    }
+
+    let local_start = ((visible_start - clip_source_start) as f64 / speed).round() as i64;
+    let local_end = ((visible_end - clip_source_start) as f64 / speed).round() as i64;
+
+    let clip_timeline_start = clip.timeline_start.as_micros();
+    let clip_timeline_end = clip.timeline_end().as_micros();
+
+    let sample_start = (clip_timeline_start + local_start).clamp(0, clip_timeline_end);
+    let sample_end = (clip_timeline_start + local_end).clamp(0, clip_timeline_end);
+    if sample_end <= sample_start {
+        return None;
+    }
+
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    Some(SoftSubtitleSample {
+        start_us: sample_start,
+        duration_us: (sample_end - sample_start).max(1),
+        text: text.to_string(),
+    })
 }

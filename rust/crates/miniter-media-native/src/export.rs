@@ -47,28 +47,6 @@ pub fn clear_export_preview() {
     }
 }
 
-fn downscale_rgba_for_preview(data: &[u8], width: u32, height: u32) -> Option<(u32, u32, Vec<u8>)> {
-    const MAX_DIM: u32 = 160;
-    let (pw, ph) = if width > height {
-        (MAX_DIM, (height * MAX_DIM / width).max(1))
-    } else {
-        ((width * MAX_DIM / height).max(1), MAX_DIM)
-    };
-    if pw >= width || ph >= height {
-        return None; // already small enough
-    }
-    let mut out = Vec::with_capacity((pw * ph * 4) as usize);
-    for y in 0..ph {
-        let src_y = (y * height / ph) as usize;
-        for x in 0..pw {
-            let src_x = (x * width / pw) as usize;
-            let si = (src_y * width as usize + src_x) * 4;
-            out.extend_from_slice(&data[si..si + 4]);
-        }
-    }
-    Some((pw, ph, out))
-}
-
 fn store_preview_frame(rgba: &[u8], width: u32, height: u32) {
     let preview = if let Some(down) = downscale_rgba_for_preview(rgba, width, height) {
         down
@@ -204,13 +182,6 @@ where
     result
 }
 
-#[derive(Debug, Clone, Copy)]
-struct RenderSettings {
-    width: u32,
-    height: u32,
-    fps: f64,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Av1Container {
     Ivf,
@@ -336,51 +307,7 @@ fn map_cue_to_timeline_sample(
     clip: &miniter_domain::clip::Clip,
     cue: SourceSubtitleCue,
 ) -> Option<SoftSubtitleSample> {
-    let speed = if clip.speed.is_finite() && clip.speed > 0.0 {
-        clip.speed
-    } else {
-        1.0
-    };
-
-    let clip_source_start = clip.source_start.as_micros();
-    let inferred_source_end = clip_source_start
-        + (clip.timeline_duration.as_micros() as f64 * speed)
-            .round()
-            .max(1.0) as i64;
-    let clip_source_end = if clip.source_end.as_micros() > clip_source_start {
-        clip.source_end.as_micros()
-    } else {
-        inferred_source_end
-    };
-
-    let visible_start = cue.start_us.max(clip_source_start);
-    let visible_end = cue.end_us.min(clip_source_end);
-    if visible_end <= visible_start {
-        return None;
-    }
-
-    let local_start = ((visible_start - clip_source_start) as f64 / speed).round() as i64;
-    let local_end = ((visible_end - clip_source_start) as f64 / speed).round() as i64;
-
-    let clip_timeline_start = clip.timeline_start.as_micros();
-    let clip_timeline_end = clip.timeline_end().as_micros();
-
-    let sample_start = (clip_timeline_start + local_start).clamp(0, clip_timeline_end);
-    let sample_end = (clip_timeline_start + local_end).clamp(0, clip_timeline_end);
-    if sample_end <= sample_start {
-        return None;
-    }
-
-    let text = cue.text.trim();
-    if text.is_empty() {
-        return None;
-    }
-
-    Some(SoftSubtitleSample {
-        start_us: sample_start,
-        duration_us: (sample_end - sample_start).max(1),
-        text: text.to_string(),
-    })
+    map_subtitle_cue_to_timeline_sample(clip, cue.start_us, cue.end_us, &cue.text)
 }
 
 fn parse_srt_cues(path: &Path) -> Result<Vec<SourceSubtitleCue>, String> {
@@ -505,13 +432,7 @@ struct ExportDecodeCache {
 }
 
 fn is_image_file(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .as_deref(),
-        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif")
-    )
+    path.to_str().map_or(false, is_image_path)
 }
 
 impl ExportDecodeCache {
@@ -837,19 +758,10 @@ where
 
     if let Some(oe) = audio_encoded {
         let start_anchor_us = first_decoded_video_pts_us.load(Ordering::Relaxed).max(0) as u64;
-        for packet in &oe.packets {
-            let pts = start_anchor_us.saturating_add(packet.pts_us);
-            muxer.write_audio_sample_at(pts, &packet.bytes)?;
-        }
+        write_audio_packets(&mut muxer, &oe, start_anchor_us)?;
     }
 
-    for sample in &subtitle_samples {
-        muxer.write_subtitle_sample_at(
-            sample.start_us.max(0) as u64,
-            sample.duration_us.max(1) as u64,
-            &sample.text,
-        )?;
-    }
+    write_soft_subtitle_samples(&mut muxer, &subtitle_samples)?;
 
     muxer.finish()?;
 
@@ -1214,19 +1126,10 @@ where
             if let Some(oe) = audio_encoded {
                 let start_anchor_us =
                     first_decoded_video_pts_us.load(Ordering::Relaxed).max(0) as u64;
-                for packet in &oe.packets {
-                    let pts = start_anchor_us.saturating_add(packet.pts_us);
-                    muxer.write_audio_sample_at(pts, &packet.bytes)?;
-                }
+                write_audio_packets(muxer, &oe, start_anchor_us)?;
             }
 
-            for sample in &subtitle_samples {
-                muxer.write_subtitle_sample_at(
-                    sample.start_us.max(0) as u64,
-                    sample.duration_us.max(1) as u64,
-                    &sample.text,
-                )?;
-            }
+            write_soft_subtitle_samples(muxer, &subtitle_samples)?;
 
             muxer.finish()?;
         }

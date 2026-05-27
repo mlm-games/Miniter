@@ -3,7 +3,8 @@ use std::io::{BufReader, Cursor, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
-pub(crate) static WASM_EXPORT_PREVIEW: OnceLock<Mutex<Option<(u32, u32, Vec<u8>)>>> = OnceLock::new();
+pub(crate) static WASM_EXPORT_PREVIEW: OnceLock<Mutex<Option<(u32, u32, Vec<u8>)>>> =
+    OnceLock::new();
 
 fn wasm_preview_store() -> &'static Mutex<Option<(u32, u32, Vec<u8>)>> {
     WASM_EXPORT_PREVIEW.get_or_init(|| Mutex::new(None))
@@ -29,8 +30,10 @@ use crate::export_shared::*;
 use crate::filters;
 use crate::frame::RgbaFrame;
 use crate::image_cache::ImageCache;
-use crate::mux::{ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut,
-    SubtitleTrackConfigOut, VideoTrackCodecOut, extract_sps_pps};
+use crate::mux::{
+    ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
+    VideoTrackCodecOut, extract_sps_pps,
+};
 use crate::wasm_export::encoder::{EncoderBackend, create_encoder_backend};
 use miniter_audio::mix::{MixConfig, MixedAudio, mix_project_audio_with_source_map};
 use miniter_domain::clip::{ClipId, ClipKind, VideoClip};
@@ -45,28 +48,6 @@ use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
 use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
 
-fn downscale_rgba_for_preview(data: &[u8], width: u32, height: u32) -> Option<(u32, u32, Vec<u8>)> {
-    const MAX_DIM: u32 = 160;
-    let (pw, ph) = if width > height {
-        (MAX_DIM, (height * MAX_DIM / width).max(1))
-    } else {
-        ((width * MAX_DIM / height).max(1), MAX_DIM)
-    };
-    if pw >= width || ph >= height {
-        return None;
-    }
-    let mut out = Vec::with_capacity((pw * ph * 4) as usize);
-    for y in 0..ph {
-        let src_y = (y * height / ph) as usize;
-        for x in 0..pw {
-            let src_x = (x * width / pw) as usize;
-            let si = (src_y * width as usize + src_x) * 4;
-            out.extend_from_slice(&data[si..si + 4]);
-        }
-    }
-    Some((pw, ph, out))
-}
-
 fn store_wasm_preview_frame(rgba: &[u8], width: u32, height: u32) {
     let preview = if let Some(down) = downscale_rgba_for_preview(rgba, width, height) {
         down
@@ -76,17 +57,6 @@ fn store_wasm_preview_frame(rgba: &[u8], width: u32, height: u32) {
     if let Ok(mut store) = wasm_preview_store().lock() {
         *store = Some(preview);
     }
-}
-
-fn is_image_path(path: &str) -> bool {
-    matches!(
-        std::path::Path::new(path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .as_deref(),
-        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif")
-    )
 }
 
 fn image_format_from_path(path: &str) -> image::ImageFormat {
@@ -113,13 +83,6 @@ pub struct WasmExportArtifact {
     pub bytes: Vec<u8>,
     pub file_name: String,
     pub mime_type: String,
-}
-
-#[derive(Debug)]
-struct RenderSettings {
-    width: u32,
-    height: u32,
-    fps: f64,
 }
 
 enum DecodeSession {
@@ -475,8 +438,7 @@ fn export_h264_mp4_bytes(
             Ok(hw) => AnyH264Encoder::Hw(hw),
             Err(e) => {
                 log::warn!("HW H.264 encoder init failed, falling back to SW: {e}");
-                crate::HARDWARE_FALLBACK_OCCURRED
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                crate::HARDWARE_FALLBACK_OCCURRED.store(true, std::sync::atomic::Ordering::SeqCst);
                 AnyH264Encoder::Sw(
                     VideoEncodeSession::new(
                         settings.width,
@@ -615,18 +577,12 @@ fn export_h264_mp4_bytes(
         if let Some(encoded_audio) = &audio_encoded {
             let start_anchor_us =
                 decode_cache.first_decoded_video_pts_us.unwrap_or(0).max(0) as u64;
-            write_audio_packets(&mut muxer, encoded_audio, start_anchor_us)?;
+            write_audio_packets(&mut muxer, encoded_audio, start_anchor_us)
+                .map_err(|e| format!("MP4 audio write failed: {e}"))?;
         }
 
-        for sample in &subtitle_samples {
-            muxer
-                .write_subtitle_sample_at(
-                    sample.start_us.max(0) as u64,
-                    sample.duration_us.max(1) as u64,
-                    &sample.text,
-                )
-                .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
-        }
+        write_soft_subtitle_samples(&mut muxer, &subtitle_samples)
+            .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
 
         muxer
             .finish()
@@ -739,7 +695,8 @@ fn export_av1_mp4_bytes(
 
     if let Some(encoded_audio) = &audio_encoded {
         let start_anchor_us = decode_cache.first_decoded_video_pts_us.unwrap_or(0).max(0) as u64;
-        write_audio_packets(&mut muxer, encoded_audio, start_anchor_us)?;
+        write_audio_packets(&mut muxer, encoded_audio, start_anchor_us)
+            .map_err(|e| format!("MP4 audio write failed: {e}"))?;
     }
 
     for sample in &subtitle_samples {
@@ -901,20 +858,6 @@ fn prepare_audio_track(
     Ok(Some(encoded))
 }
 
-fn write_audio_packets<W: Write>(
-    muxer: &mut Mp4Muxer<W>,
-    encoded: &EncodedOpus,
-    start_anchor_us: u64,
-) -> Result<(), String> {
-    for packet in &encoded.packets {
-        let pts = start_anchor_us.saturating_add(packet.pts_us);
-        muxer
-            .write_audio_sample_at(pts, &packet.bytes)
-            .map_err(|e| format!("MP4 audio write failed: {e}"))?;
-    }
-    Ok(())
-}
-
 fn load_subtitle_cues(path: &str, registered_files: &HashMap<String, Vec<u8>>) -> Vec<SubtitleCue> {
     let content = if let Some(bytes) = registered_files.get(path) {
         match std::str::from_utf8(bytes) {
@@ -965,64 +908,20 @@ fn collect_soft_subtitle_samples(
             samples.extend(
                 load_subtitle_cues(&sub.source_path, registered_files)
                     .into_iter()
-                    .filter_map(|cue| map_cue_to_timeline_sample(clip, cue)),
+                    .filter_map(|cue| {
+                        map_subtitle_cue_to_timeline_sample(
+                            clip,
+                            cue.start_us,
+                            cue.end_us,
+                            &cue.text,
+                        )
+                    }),
             );
         }
     }
 
     samples.sort_by_key(|s| s.start_us);
     samples
-}
-
-fn map_cue_to_timeline_sample(
-    clip: &miniter_domain::clip::Clip,
-    cue: SubtitleCue,
-) -> Option<SoftSubtitleSample> {
-    let speed = if clip.speed.is_finite() && clip.speed > 0.0 {
-        clip.speed
-    } else {
-        1.0
-    };
-
-    let clip_source_start = clip.source_start.as_micros();
-    let inferred_source_end = clip_source_start
-        + (clip.timeline_duration.as_micros() as f64 * speed)
-            .round()
-            .max(1.0) as i64;
-    let clip_source_end = if clip.source_end.as_micros() > clip_source_start {
-        clip.source_end.as_micros()
-    } else {
-        inferred_source_end
-    };
-
-    let visible_start = cue.start_us.max(clip_source_start);
-    let visible_end = cue.end_us.min(clip_source_end);
-    if visible_end <= visible_start {
-        return None;
-    }
-
-    let local_start = ((visible_start - clip_source_start) as f64 / speed).round() as i64;
-    let local_end = ((visible_end - clip_source_start) as f64 / speed).round() as i64;
-
-    let clip_timeline_start = clip.timeline_start.as_micros();
-    let clip_timeline_end = clip.timeline_end().as_micros();
-
-    let sample_start = (clip_timeline_start + local_start).clamp(0, clip_timeline_end);
-    let sample_end = (clip_timeline_start + local_end).clamp(0, clip_timeline_end);
-    if sample_end <= sample_start {
-        return None;
-    }
-
-    let text = cue.text.trim();
-    if text.is_empty() {
-        return None;
-    }
-
-    Some(SoftSubtitleSample {
-        start_us: sample_start,
-        duration_us: (sample_end - sample_start).max(1),
-        text: text.to_string(),
-    })
 }
 
 fn parse_srt_cues(content: &str) -> Vec<SubtitleCue> {
