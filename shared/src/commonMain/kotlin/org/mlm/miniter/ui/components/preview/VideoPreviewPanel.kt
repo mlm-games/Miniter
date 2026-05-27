@@ -203,6 +203,8 @@ fun EditorVideoPreview(
     onTransformChanged: ((scale: Float, translateX: Float, translateY: Float, rotate: Float) -> Unit)? = null,
     onCommitTransform: (() -> Unit)? = null,
     onDragStart: (() -> Unit)? = null,
+    autoKeyframeEnabled: Boolean = false,
+    onSetKeyframe: ((clipId: String, playheadMs: Long, scale: Float, tx: Float, ty: Float, rot: Float) -> Unit)? = null,
 ) {
     val playerState = rememberVideoPlayerState()
     val frameGrabber = remember { PlatformFrameGrabber() }
@@ -619,7 +621,11 @@ fun EditorVideoPreview(
                 // Gesture ended — all pointers up
                 if (transformFilter != null) {
                     isInteracting = false
-                    onCommitTransform?.invoke()
+                    if (autoKeyframeEnabled && selectedClipId != null) {
+                        onSetKeyframe?.invoke(selectedClipId, playheadMs, renderScale, renderTranslateX, renderTranslateY, renderRotate)
+                    } else {
+                        onCommitTransform?.invoke()
+                    }
                 }
             }
         }
@@ -633,7 +639,11 @@ fun EditorVideoPreview(
                         renderTranslateY = 0.5f
                         renderRotate = 0f
                         onTransformChanged?.invoke(1f, 0.5f, 0.5f, 0f)
-                        onCommitTransform?.invoke()
+                        if (autoKeyframeEnabled && selectedClipId != null) {
+                            onSetKeyframe?.invoke(selectedClipId, playheadMs, 1f, 0.5f, 0.5f, 0f)
+                        } else {
+                            onCommitTransform?.invoke()
+                        }
                     } else {
                         visualScale = 1f
                         visualTranslateX = 0f

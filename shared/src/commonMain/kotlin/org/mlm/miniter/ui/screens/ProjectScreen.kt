@@ -13,6 +13,7 @@ import io.github.vinceglb.filekit.dialogs.FileKitType
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.nav.Route
 import org.mlm.miniter.platform.SupportedFormats
@@ -50,6 +51,7 @@ fun ProjectScreen(
 
     var showExitConfirm by remember { mutableStateOf(false) }
     var showPropertiesSheet by remember { mutableStateOf(false) }
+    var autoKeyframeEnabled by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val scope = rememberCoroutineScope()
@@ -140,6 +142,33 @@ fun ProjectScreen(
             onCommitTransform = {
                 if (selectedClipId != null) vm.commitEdit()
             },
+            autoKeyframeEnabled = autoKeyframeEnabled,
+            onSetKeyframe = { clipId, playheadMs, scale, tx, ty, rot ->
+                val clip = snapshot?.timeline?.tracks?.flatMap { it.clips }?.find { it.id == clipId }
+                if (clip != null) {
+                    val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceAtLeast(0L)
+                    vm.addKeyframe(clipId, RustKeyframe(
+                        param = "transform.scale",
+                        offset = clipOffsetUs.coerceAtLeast(0L),
+                        value = scale,
+                    ))
+                    vm.addKeyframe(clipId, RustKeyframe(
+                        param = "transform.translate_x",
+                        offset = clipOffsetUs.coerceAtLeast(0L),
+                        value = tx,
+                    ))
+                    vm.addKeyframe(clipId, RustKeyframe(
+                        param = "transform.translate_y",
+                        offset = clipOffsetUs.coerceAtLeast(0L),
+                        value = ty,
+                    ))
+                    vm.addKeyframe(clipId, RustKeyframe(
+                        param = "transform.rotate",
+                        offset = clipOffsetUs.coerceAtLeast(0L),
+                        value = rot,
+                    ))
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.40f),
@@ -167,6 +196,8 @@ fun ProjectScreen(
             onDelete = { vm.deleteSelectedClip() },
             onDeselect = { vm.selectClip(null) },
             onProperties = { showPropertiesSheet = true },
+            autoKeyframeEnabled = autoKeyframeEnabled,
+            onToggleAutoKeyframe = { autoKeyframeEnabled = !autoKeyframeEnabled },
         )
 
         HorizontalDivider(thickness = 0.5.dp)

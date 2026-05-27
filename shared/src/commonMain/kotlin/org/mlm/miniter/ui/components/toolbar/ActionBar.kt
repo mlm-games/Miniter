@@ -25,6 +25,8 @@ fun ActionBar(
     onDelete: () -> Unit,
     onDeselect: () -> Unit,
     onProperties: () -> Unit,
+    autoKeyframeEnabled: Boolean = false,
+    onToggleAutoKeyframe: () -> Unit = {},
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -71,6 +73,10 @@ fun ActionBar(
                             label = "Properties",
                             onClick = onProperties,
                         )
+                        AutoKeyframeChip(
+                            enabled = autoKeyframeEnabled,
+                            onClick = onToggleAutoKeyframe,
+                        )
                         ActionChip(
                             icon = Icons.Default.Close,
                             label = "Deselect",
@@ -103,6 +109,49 @@ fun ActionBar(
             }
         }
     }
+}
+
+@Composable
+private fun AutoKeyframeChip(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val containerColor = if (enabled) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val contentColor = if (enabled) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val border = if (enabled) {
+        androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+    } else {
+        null
+    }
+    AssistChip(
+        onClick = onClick,
+        label = {
+            Text("Auto KF", style = MaterialTheme.typography.labelSmall)
+        },
+        leadingIcon = {
+            Icon(
+                Icons.Default.Keyboard,
+                "Auto keyframe",
+                Modifier.size(16.dp),
+                tint = contentColor,
+            )
+        },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = containerColor,
+            labelColor = contentColor,
+            leadingIconContentColor = contentColor,
+        ),
+        border = border,
+        modifier = Modifier.height(32.dp),
+    )
 }
 
 @Composable
