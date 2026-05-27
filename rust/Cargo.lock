@@ -377,7 +377,7 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#2a2f75fcf8f5570de59bf4d7eb4eed2504e2d328"
+source = "git+https://github.com/mlm-games/baa4bababab2baa#29103fe2e783ed174ed6b767477ae53cf94c7edc"
 dependencies = [
  "bytes",
  "js-sys",
@@ -1288,9 +1288,9 @@ dependencies = [
 
 [[package]]
 name = "memchr"
-version = "2.8.0"
+version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 
 [[package]]
 name = "memmap2"
@@ -1387,6 +1387,7 @@ dependencies = [
  "tokio",
  "videoson",
  "wasm-bindgen-futures",
+ "web-codecs",
  "web-sys",
  "web-time",
 ]
@@ -3135,7 +3136,7 @@ dependencies = [
 [[package]]
 name = "web-codecs"
 version = "0.3.10"
-source = "git+https://github.com/mlm-games/web-rs.git?branch=main#25fbcbf51d15a02c4eb258f64e20df0b20dba5e2"
+source = "git+https://github.com/mlm-games/web-rs.git?branch=main#190c6d5921d12fca709c1c27711cfdc58cd0bce7"
 dependencies = [
  "bytemuck",
  "bytes",
