@@ -15,6 +15,9 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustTrackKind
+import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
+import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.nav.Route
 import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.settings.AppSettings
@@ -147,26 +150,29 @@ fun ProjectScreen(
                 val clip = snapshot?.timeline?.tracks?.flatMap { it.clips }?.find { it.id == clipId }
                 if (clip != null) {
                     val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceAtLeast(0L)
-                    vm.addKeyframe(clipId, RustKeyframe(
-                        param = "transform.scale",
-                        offset = clipOffsetUs.coerceAtLeast(0L),
-                        value = scale,
-                    ))
-                    vm.addKeyframe(clipId, RustKeyframe(
-                        param = "transform.translate_x",
-                        offset = clipOffsetUs.coerceAtLeast(0L),
-                        value = tx,
-                    ))
-                    vm.addKeyframe(clipId, RustKeyframe(
-                        param = "transform.translate_y",
-                        offset = clipOffsetUs.coerceAtLeast(0L),
-                        value = ty,
-                    ))
-                    vm.addKeyframe(clipId, RustKeyframe(
-                        param = "transform.rotate",
-                        offset = clipOffsetUs.coerceAtLeast(0L),
-                        value = rot,
-                    ))
+                    val videoKind = clip.kind as? RustVideoClipKind
+                    val staticFilter = videoKind?.filters?.firstOrNull { it.filter is RustTransformFilterSnapshot }?.filter as? RustTransformFilterSnapshot
+                    fun effective(param: String, default: Float, filterAccessor: (RustTransformFilterSnapshot) -> Float): Float {
+                        val kf = clip.keyframes.evaluate(param, clipOffsetUs)
+                        if (kf != null) return kf
+                        return staticFilter?.let(filterAccessor) ?: default
+                    }
+                    data class KfParam(val param: String, val newValue: Float, val default: Float, val filterAccessor: (RustTransformFilterSnapshot) -> Float)
+                    listOf(
+                        KfParam(KeyframeParams.TRANSFORM_SCALE, scale, 1f) { it.scale },
+                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_X, tx, 0.5f) { it.translateX },
+                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_Y, ty, 0.5f) { it.translateY },
+                        KfParam(KeyframeParams.TRANSFORM_ROTATE, rot, 0f) { it.rotate },
+                    ).forEach { (param, newVal, default, accessor) ->
+                        val current = effective(param, default, accessor)
+                        if (kotlin.math.abs(newVal - current) > 0.0001f) {
+                            vm.addKeyframe(clipId, RustKeyframe(
+                                param = param,
+                                offset = clipOffsetUs.coerceAtLeast(0L),
+                                value = newVal,
+                            ))
+                        }
+                    }
                 }
             },
             modifier = Modifier
