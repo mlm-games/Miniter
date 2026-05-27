@@ -866,6 +866,9 @@ mod web_ffi {
     pub struct WasmExportSession {
         inner: RefCell<Option<miniter_media_native::wasm_export::WasmExportChunker>>,
         result: RefCell<Option<miniter_media_native::wasm_export::WasmExportArtifact>>,
+        project_json: String,
+        output_path: String,
+        hw_fallback_tried: std::cell::Cell<bool>,
     }
 
     #[wasm_bindgen]
@@ -898,6 +901,9 @@ mod web_ffi {
             Ok(WasmExportSession {
                 inner: RefCell::new(Some(chunker)),
                 result: RefCell::new(None),
+                project_json,
+                output_path,
+                hw_fallback_tried: std::cell::Cell::new(false),
             })
         }
 
@@ -916,6 +922,78 @@ mod web_ffi {
                     "ok": false,
                     "error": "Export cancelled",
                 }));
+            }
+
+            // This must happen after yield_to_js() so the error callback has a chance to fire.
+            if !self.hw_fallback_tried.get() {
+                let needs_fallback = {
+                    let inner = self.inner.borrow();
+                    inner
+                        .as_ref()
+                        .map_or(false, |c| c.check_hw_encoder_error().is_err())
+                };
+                if needs_fallback {
+                    self.hw_fallback_tried.set(true);
+                    log::warn!("HW encoder async init failed, falling back to SW");
+                    miniter_media_native::HARDWARE_FALLBACK_OCCURRED
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    *self.inner.borrow_mut() = None;
+                    // Directly modify project JSON to disable HW
+                    let sw_project_json =
+                        match serde_json::from_str::<serde_json::Value>(&self.project_json)
+                            .and_then(|mut v| {
+                                if let Some(profile) = v.get_mut("export_profile") {
+                                    if let Some(hw) = profile.get_mut("hardware_acceleration") {
+                                        *hw = serde_json::Value::Bool(false);
+                                    }
+                                }
+                                serde_json::to_string(&v)
+                            }) {
+                            Ok(json) => json,
+                            Err(e) => {
+                                return Self::json_string(&serde_json::json!({
+                                    "ok": false,
+                                    "error": format!("Failed to modify project JSON: {e}"),
+                                }));
+                            }
+                        };
+                    let project = match Project::from_json(&sw_project_json) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            return Self::json_string(&serde_json::json!({
+                                "ok": false,
+                                "error": format!("Parse error: {e}"),
+                            }));
+                        }
+                    };
+                    let files_map: HashMap<String, Vec<u8>> = match REGISTERED_FILES.lock() {
+                        Ok(files) => files
+                            .iter()
+                            .map(|(path, file)| (path.clone(), file.bytes.clone()))
+                            .collect(),
+                        Err(_) => {
+                            return Self::json_string(&serde_json::json!({
+                                "ok": false,
+                                "error": "Lock poisoned",
+                            }));
+                        }
+                    };
+                    match miniter_media_native::wasm_export::WasmExportChunker::new(
+                        &project,
+                        &self.output_path,
+                        files_map,
+                    ) {
+                        Ok(chunker) => {
+                            *self.inner.borrow_mut() = Some(chunker);
+                        }
+                        Err(e) => {
+                            return Self::json_string(&serde_json::json!({
+                                "ok": false,
+                                "error": format!("SW export init failed: {e}"),
+                            }));
+                        }
+                    }
+                }
             }
 
             // Return cached result if already finished
@@ -957,6 +1035,8 @@ mod web_ffi {
                 Ok(None) => {
                     let chunker = inner.take().unwrap_throw();
                     drop(inner);
+                    // Yield to JS one more time so the last HW encoder frame's output arrives via microtask before finish() drains it.
+                    yield_to_js().await;
                     EXPORT_PROGRESS.store(100_000, Ordering::SeqCst);
                     match chunker.finish() {
                         Ok(artifact) => {

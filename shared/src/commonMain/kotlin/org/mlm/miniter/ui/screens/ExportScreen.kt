@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -443,11 +444,13 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                         tint = MaterialTheme.colorScheme.error,
                                     )
                                     Spacer(Modifier.width(12.dp))
-                                    Text(
-                                        error,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onErrorContainer,
-                                    )
+                                    SelectionContainer {
+                                        Text(
+                                            error,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                        )
+                                    }
                                 }
                             }
                             OutlinedButton(onClick = { vm.resetExport() }) {

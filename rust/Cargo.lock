@@ -377,7 +377,7 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#29103fe2e783ed174ed6b767477ae53cf94c7edc"
+source = "git+https://github.com/mlm-games/baa4bababab2baa#db488614edea7a6d560ff6c11f310b631839d50b"
 dependencies = [
  "bytes",
  "js-sys",
@@ -3136,7 +3136,7 @@ dependencies = [
 [[package]]
 name = "web-codecs"
 version = "0.3.10"
-source = "git+https://github.com/mlm-games/web-rs.git?branch=main#190c6d5921d12fca709c1c27711cfdc58cd0bce7"
+source = "git+https://github.com/mlm-games/web-rs.git?branch=main#fccb727f3000bd2f2bfc359050f8ff4e1f8d3475"
 dependencies = [
  "bytemuck",
  "bytes",

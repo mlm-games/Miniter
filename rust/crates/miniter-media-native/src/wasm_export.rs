@@ -20,8 +20,9 @@ pub fn clear_wasm_export_preview() {
 }
 
 use crate::decoder::{DecodeError, VideoDecodeSession};
-use crate::encoder::{EncodedVideoOutput, VideoEncodeSession};
+use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeSession, Av1Packet};
+use crate::encoder_hw::HwEncodeSession;
 use crate::export_shared::*;
 use crate::filters;
 use crate::frame::RgbaFrame;
@@ -416,6 +417,20 @@ fn sanitize_file_name(input: &str) -> String {
         .to_string()
 }
 
+enum AnyH264Encoder {
+    Sw(VideoEncodeSession),
+    Hw(HwEncodeSession),
+}
+
+impl AnyH264Encoder {
+    fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<EncodedVideoOutput, EncodeError> {
+        match self {
+            Self::Sw(e) => e.encode_frame(frame),
+            Self::Hw(e) => e.encode_frame(frame),
+        }
+    }
+}
+
 fn export_h264_mp4_bytes(
     project: &Project,
     registered_files: &HashMap<String, Vec<u8>>,
@@ -447,13 +462,42 @@ fn export_h264_mp4_bytes(
     on_progress(1);
     on_progress(5);
 
-    let mut encoder = VideoEncodeSession::new(
-        settings.width,
-        settings.height,
-        bitrate_kbps * 1000,
-        settings.fps as f32,
-    )
-    .map_err(|e| format!("H.264 encoder init failed: {e}"))?;
+    let hw_requested = project.export_profile.hardware_acceleration;
+    let mut encoder: AnyH264Encoder = if hw_requested {
+        match HwEncodeSession::new(
+            settings.width,
+            settings.height,
+            bitrate_kbps * 1000,
+            settings.fps as f32,
+            "video/avc",
+        ) {
+            Ok(hw) => AnyH264Encoder::Hw(hw),
+            Err(e) => {
+                log::warn!("HW H.264 encoder init failed, falling back to SW: {e}");
+                crate::HARDWARE_FALLBACK_OCCURRED
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                AnyH264Encoder::Sw(
+                    VideoEncodeSession::new(
+                        settings.width,
+                        settings.height,
+                        bitrate_kbps * 1000,
+                        settings.fps as f32,
+                    )
+                    .map_err(|e| format!("H.264 SW encoder init failed: {e}"))?,
+                )
+            }
+        }
+    } else {
+        AnyH264Encoder::Sw(
+            VideoEncodeSession::new(
+                settings.width,
+                settings.height,
+                bitrate_kbps * 1000,
+                settings.fps as f32,
+            )
+            .map_err(|e| format!("H.264 encoder init failed: {e}"))?,
+        )
+    };
 
     let mut iter = FramePlanIterator::with_render_settings(
         &project.timeline,
@@ -1142,11 +1186,25 @@ enum ChunkedEncoder {
         sps: Vec<u8>,
         pps: Vec<u8>,
     },
+    H264Hw {
+        encoder: crate::encoder_hw::HwEncodeSession,
+        sps: Vec<u8>,
+        pps: Vec<u8>,
+    },
     Av1Mp4 {
         encoder: Av1EncodeSession,
     },
     Av1Ivf {
         encoder: Av1EncodeSession,
+        fps_int: u32,
+    },
+    #[cfg(feature = "hw-decoder")]
+    Av1Mp4Hw {
+        encoder: crate::encoder_hw::HwEncodeSession,
+    },
+    #[cfg(feature = "hw-decoder")]
+    Av1IvfHw {
+        encoder: crate::encoder_hw::HwEncodeSession,
         fps_int: u32,
     },
 }
@@ -1223,43 +1281,168 @@ impl WasmExportChunker {
         let encoder = match format {
             ExportFormat::Mp4 => {
                 let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
-                let enc = VideoEncodeSession::new(
-                    settings.width,
-                    settings.height,
-                    bitrate_kbps * 1000,
-                    settings.fps as f32,
-                )
-                .map_err(|e| format!("H.264 encoder init failed: {e}"))?;
-                ChunkedEncoder::H264 {
-                    encoder: enc,
-                    sps: Vec::new(),
-                    pps: Vec::new(),
-                }
+                let hw_requested = project.export_profile.hardware_acceleration;
+                let enc: ChunkedEncoder = if hw_requested {
+                    match HwEncodeSession::new(
+                        settings.width,
+                        settings.height,
+                        bitrate_kbps * 1000,
+                        settings.fps as f32,
+                        "video/avc",
+                    ) {
+                        Ok(hw) => {
+                            ChunkedEncoder::H264Hw {
+                                encoder: hw,
+                                sps: Vec::new(),
+                                pps: Vec::new(),
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("HW H.264 encoder init failed, falling back to SW: {e}");
+                            crate::HARDWARE_FALLBACK_OCCURRED
+                                .store(true, std::sync::atomic::Ordering::SeqCst);
+                            let enc = VideoEncodeSession::new(
+                                settings.width,
+                                settings.height,
+                                bitrate_kbps * 1000,
+                                settings.fps as f32,
+                            )
+                            .map_err(|e| format!("H.264 SW encoder init failed: {e}"))?;
+                            ChunkedEncoder::H264 {
+                                encoder: enc,
+                                sps: Vec::new(),
+                                pps: Vec::new(),
+                            }
+                        }
+                    }
+                } else {
+                    let enc = VideoEncodeSession::new(
+                        settings.width,
+                        settings.height,
+                        bitrate_kbps * 1000,
+                        settings.fps as f32,
+                    )
+                    .map_err(|e| format!("H.264 encoder init failed: {e}"))?;
+                    ChunkedEncoder::H264 {
+                        encoder: enc,
+                        sps: Vec::new(),
+                        pps: Vec::new(),
+                    }
+                };
+                enc
             }
             ExportFormat::Av1Mp4 => {
                 let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
-                let enc = Av1EncodeSession::new(
-                    settings.width,
-                    settings.height,
-                    settings.fps,
-                    bitrate_kbps,
-                )
-                .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
-                ChunkedEncoder::Av1Mp4 { encoder: enc }
+                let hw_requested = project.export_profile.hardware_acceleration;
+                let enc: ChunkedEncoder = if hw_requested {
+                    #[cfg(feature = "hw-decoder")]
+                    match HwEncodeSession::new(
+                        settings.width,
+                        settings.height,
+                        bitrate_kbps * 1000,
+                        settings.fps as f32,
+                        "video/av01",
+                    ) {
+                        Ok(hw) => ChunkedEncoder::Av1Mp4Hw { encoder: hw },
+                        Err(e) => {
+                            log::warn!("HW AV1 encoder init failed, falling back to SW: {e}");
+                            crate::HARDWARE_FALLBACK_OCCURRED
+                                .store(true, std::sync::atomic::Ordering::SeqCst);
+                            let enc = Av1EncodeSession::new(
+                                settings.width,
+                                settings.height,
+                                settings.fps,
+                                bitrate_kbps,
+                            )
+                            .map_err(|e| format!("AV1 SW encoder init failed: {e}"))?;
+                            ChunkedEncoder::Av1Mp4 { encoder: enc }
+                        }
+                    }
+                    #[cfg(not(feature = "hw-decoder"))]
+                    {
+                        let enc = Av1EncodeSession::new(
+                            settings.width,
+                            settings.height,
+                            settings.fps,
+                            bitrate_kbps,
+                        )
+                        .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+                        ChunkedEncoder::Av1Mp4 { encoder: enc }
+                    }
+                } else {
+                    let enc = Av1EncodeSession::new(
+                        settings.width,
+                        settings.height,
+                        settings.fps,
+                        bitrate_kbps,
+                    )
+                    .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+                    ChunkedEncoder::Av1Mp4 { encoder: enc }
+                };
+                enc
             }
             ExportFormat::Av1Ivf => {
                 let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
-                let enc = Av1EncodeSession::new(
-                    settings.width,
-                    settings.height,
-                    settings.fps,
-                    bitrate_kbps,
-                )
-                .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
-                ChunkedEncoder::Av1Ivf {
-                    encoder: enc,
-                    fps_int: settings.fps.round().max(1.0) as u32,
-                }
+                let hw_requested = project.export_profile.hardware_acceleration;
+                let fps_int = settings.fps.round().max(1.0) as u32;
+                let enc: ChunkedEncoder = if hw_requested {
+                    #[cfg(feature = "hw-decoder")]
+                    match HwEncodeSession::new(
+                        settings.width,
+                        settings.height,
+                        bitrate_kbps * 1000,
+                        settings.fps as f32,
+                        "video/av01",
+                    ) {
+                        Ok(hw) => ChunkedEncoder::Av1IvfHw {
+                            encoder: hw,
+                            fps_int,
+                        },
+                        Err(e) => {
+                            log::warn!("HW AV1 encoder init failed, falling back to SW: {e}");
+                            crate::HARDWARE_FALLBACK_OCCURRED
+                                .store(true, std::sync::atomic::Ordering::SeqCst);
+                            let enc = Av1EncodeSession::new(
+                                settings.width,
+                                settings.height,
+                                settings.fps,
+                                bitrate_kbps,
+                            )
+                            .map_err(|e| format!("AV1 SW encoder init failed: {e}"))?;
+                            ChunkedEncoder::Av1Ivf {
+                                encoder: enc,
+                                fps_int,
+                            }
+                        }
+                    }
+                    #[cfg(not(feature = "hw-decoder"))]
+                    {
+                        let enc = Av1EncodeSession::new(
+                            settings.width,
+                            settings.height,
+                            settings.fps,
+                            bitrate_kbps,
+                        )
+                        .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+                        ChunkedEncoder::Av1Ivf {
+                            encoder: enc,
+                            fps_int,
+                        }
+                    }
+                } else {
+                    let enc = Av1EncodeSession::new(
+                        settings.width,
+                        settings.height,
+                        settings.fps,
+                        bitrate_kbps,
+                    )
+                    .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+                    ChunkedEncoder::Av1Ivf {
+                        encoder: enc,
+                        fps_int,
+                    }
+                };
+                enc
             }
             _ => return Err("Unsupported export format for chunked export".to_string()),
         };
@@ -1289,6 +1472,10 @@ impl WasmExportChunker {
     /// Returns `Ok(Some(progress_0_100000))` if more frames remain,
     /// `Ok(None)` if all frames are done, or `Err` on failure/cancellation.
     pub fn process_chunk(&mut self, max_frames: u32) -> Result<Option<u32>, String> {
+        // Check for HW encoder async error (fires after JS yield in the session).
+        if let Err(e) = self.check_hw_encoder_error() {
+            return Err(format!("HW encoder init failed: {e}"));
+        }
         if self.done {
             return Ok(None);
         }
@@ -1339,12 +1526,11 @@ impl WasmExportChunker {
     fn encode_one_frame(&mut self, frame: &RgbaFrame) -> Result<(), String> {
         let pts = frame.pts_us.max(0) as u64;
 
-        match &mut self.encoder {
-            ChunkedEncoder::H264 { encoder, sps, pps } => {
-                let encoded = encoder
+        macro_rules! encode_h264 {
+            ($encoder:expr, $sps:expr, $pps:expr) => {{
+                let encoded = ($encoder)
                     .encode_frame(frame)
                     .map_err(|e| format!("H.264 encode failed: {e}"))?;
-
                 match encoded {
                     EncodedVideoOutput::Sample { bytes, is_keyframe } => {
                         if self.buffered_frames.is_empty() {
@@ -1352,8 +1538,8 @@ impl WasmExportChunker {
                                 crate::mux::extract_sps_pps(&bytes).ok_or_else(|| {
                                     "Could not extract SPS/PPS from H.264 stream".to_string()
                                 })?;
-                            *sps = extracted_sps;
-                            *pps = extracted_pps;
+                            *$sps = extracted_sps;
+                            *$pps = extracted_pps;
                         }
                         self.buffered_frames.push(BufferedFrame {
                             pts_us: pts,
@@ -1365,6 +1551,76 @@ impl WasmExportChunker {
                         return Err("H.264 encoder skipped frame".to_string());
                     }
                 }
+            }};
+        }
+
+        #[cfg(feature = "hw-decoder")]
+        macro_rules! encode_h264_hw {
+            ($encoder:expr, $sps:expr, $pps:expr) => {{
+                // Submit current frame (non-blocking)
+                $encoder
+                    .submit_frame(frame)
+                    .map_err(|e| format!("H.264 HW submit failed: {e}"))?;
+                // Drain completed outputs from previous submissions
+                let completed = $encoder
+                    .drain_completed()
+                    .map_err(|e| format!("H.264 HW drain failed: {e}"))?;
+                for f in completed {
+                    if f.bytes.is_empty() {
+                        continue;
+                    }
+                    if self.buffered_frames.is_empty() {
+                        let (extracted_sps, extracted_pps) =
+                            crate::mux::extract_sps_pps(&f.bytes).ok_or_else(|| {
+                                "Could not extract SPS/PPS from H.264 stream".to_string()
+                            })?;
+                        *$sps = extracted_sps;
+                        *$pps = extracted_pps;
+                    }
+                    self.buffered_frames.push(BufferedFrame {
+                        pts_us: f.pts_us,
+                        data: f.bytes,
+                        is_keyframe: f.is_keyframe,
+                    });
+                }
+            }};
+        }
+
+        #[cfg(feature = "hw-decoder")]
+        macro_rules! encode_av1_hw {
+            ($encoder:expr) => {{
+                $encoder
+                    .submit_frame(frame)
+                    .map_err(|e| format!("AV1 HW submit failed: {e}"))?;
+                let completed = $encoder
+                    .drain_completed()
+                    .map_err(|e| format!("AV1 HW drain failed: {e}"))?;
+                for f in completed {
+                    if f.bytes.is_empty() {
+                        continue;
+                    }
+                    let sample = strip_leading_temporal_delimiters(&f.bytes);
+                    if sample.is_empty() {
+                        continue;
+                    }
+                    self.buffered_frames.push(BufferedFrame {
+                        pts_us: f.pts_us,
+                        data: sample.to_vec(),
+                        is_keyframe: f.is_keyframe,
+                    });
+                }
+            }};
+        }
+
+        match &mut self.encoder {
+            ChunkedEncoder::H264 { encoder, sps, pps } => {
+                encode_h264!(encoder, sps, pps);
+            }
+            ChunkedEncoder::H264Hw { encoder, sps, pps } => {
+                #[cfg(feature = "hw-decoder")]
+                encode_h264_hw!(encoder, sps, pps);
+                #[cfg(not(feature = "hw-decoder"))]
+                encode_h264!(encoder, sps, pps);
             }
             ChunkedEncoder::Av1Mp4 { encoder } | ChunkedEncoder::Av1Ivf { encoder, .. } => {
                 let packets = encoder
@@ -1383,8 +1639,29 @@ impl WasmExportChunker {
                     });
                 }
             }
+            #[cfg(feature = "hw-decoder")]
+            ChunkedEncoder::Av1Mp4Hw { encoder } | ChunkedEncoder::Av1IvfHw { encoder, .. } => {
+                encode_av1_hw!(encoder);
+            }
         }
 
+        Ok(())
+    }
+
+    /// Check if the HW encoder's async error callback fired (e.g., codec not supported).
+    /// Must be called after yielding to JS to allow the callback to fire.
+    pub fn check_hw_encoder_error(&self) -> Result<(), String> {
+        #[cfg(feature = "hw-decoder")]
+        match &self.encoder {
+            ChunkedEncoder::H264Hw { encoder, .. }
+            | ChunkedEncoder::Av1Mp4Hw { encoder, .. }
+            | ChunkedEncoder::Av1IvfHw { encoder, .. } => {
+                if let Some(err) = encoder.check_error() {
+                    return Err(format!("{err:?}"));
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -1418,7 +1695,46 @@ impl WasmExportChunker {
             }
         }
 
-        // Finish AV1 encoders (trailing packets)
+        // Drain remaining HW encoder output (last frame arrives after JS yields)
+        #[cfg(feature = "hw-decoder")]
+        {
+            let hw_trailing = match &mut self.encoder {
+                ChunkedEncoder::H264Hw { encoder, .. } => Some(
+                    encoder
+                        .drain_completed()
+                        .map_err(|e| format!("HW encoder final drain: {e}"))?,
+                ),
+                ChunkedEncoder::Av1Mp4Hw { encoder, .. }
+                | ChunkedEncoder::Av1IvfHw { encoder, .. } => Some(
+                    encoder
+                        .drain_completed()
+                        .map_err(|e| format!("HW AV1 final drain: {e}"))?,
+                ),
+                _ => None,
+            };
+            if let Some(frames) = hw_trailing {
+                for f in frames {
+                    if f.bytes.is_empty() {
+                        continue;
+                    }
+                    let sample = if matches!(self.encoder, ChunkedEncoder::Av1Mp4Hw { .. } | ChunkedEncoder::Av1IvfHw { .. }) {
+                        strip_leading_temporal_delimiters(&f.bytes)
+                    } else {
+                        &f.bytes
+                    };
+                    if sample.is_empty() {
+                        continue;
+                    }
+                    self.buffered_frames.push(BufferedFrame {
+                        pts_us: f.pts_us,
+                        data: sample.to_vec(),
+                        is_keyframe: f.is_keyframe,
+                    });
+                }
+            }
+        }
+
+        // Finish AV1 software encoders (trailing packets)
         match &mut self.encoder {
             ChunkedEncoder::Av1Mp4 { encoder } | ChunkedEncoder::Av1Ivf { encoder, .. } => {
                 let trailing = encoder
@@ -1442,10 +1758,21 @@ impl WasmExportChunker {
             ExportFormat::Mp4 | ExportFormat::Av1Mp4 => {
                 let (sps, pps) = match &self.encoder {
                     ChunkedEncoder::H264 { sps, pps, .. } => (sps.clone(), pps.clone()),
+                    ChunkedEncoder::H264Hw { sps, pps, .. } => (sps.clone(), pps.clone()),
+                    #[cfg(feature = "hw-decoder")]
+                    ChunkedEncoder::Av1Mp4Hw { .. } | ChunkedEncoder::Av1IvfHw { .. } => {
+                        (Vec::new(), Vec::new())
+                    }
                     _ => (Vec::new(), Vec::new()),
                 };
                 let video_codec = match self.encoder {
-                    ChunkedEncoder::H264 { .. } => VideoTrackCodecOut::H264,
+                    ChunkedEncoder::H264 { .. } | ChunkedEncoder::H264Hw { .. } => {
+                        VideoTrackCodecOut::H264
+                    }
+                    #[cfg(feature = "hw-decoder")]
+                    ChunkedEncoder::Av1Mp4Hw { .. } | ChunkedEncoder::Av1IvfHw { .. } => {
+                        VideoTrackCodecOut::Av1
+                    }
                     _ => VideoTrackCodecOut::Av1,
                 };
                 let audio_track = self.audio_encoded.as_ref().map(|e| OpusTrackConfigOut {
@@ -1521,6 +1848,8 @@ impl WasmExportChunker {
             ExportFormat::Av1Ivf => {
                 let fps_int = match &self.encoder {
                     ChunkedEncoder::Av1Ivf { fps_int, .. } => *fps_int,
+                    #[cfg(feature = "hw-decoder")]
+                    ChunkedEncoder::Av1IvfHw { fps_int, .. } => *fps_int,
                     _ => 1,
                 };
 

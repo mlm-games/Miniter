@@ -1,4 +1,5 @@
 use crate::demux::VideoDecoderBackend;
+use std::sync::atomic::Ordering;
 
 pub const H264_FOURCC: u32 = 0x31637661; // "avc1"
 pub const H265_FOURCC: u32 = 0x68657631; // "hev1"
@@ -63,9 +64,15 @@ pub fn create_backend(
         )
     ))]
     if hardware_acceleration {
-        if let Ok(dec) = baaba::BaabaBackend::new(width, height, codec_mime) {
-            if dec.is_supported(fourcc) {
-                return Some(Box::new(dec));
+        match baaba::BaabaBackend::new(width, height, codec_mime) {
+            Ok(dec) => {
+                if dec.is_supported(fourcc) {
+                    return Some(Box::new(dec));
+                }
+                crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
+            }
+            Err(_) => {
+                crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
             }
         }
     }
