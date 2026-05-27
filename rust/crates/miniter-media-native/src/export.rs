@@ -985,6 +985,21 @@ where
         (None, None)
     };
 
+    if project.export_profile.hardware_acceleration {
+        if HwEncodeSession::new(
+            width,
+            height,
+            bitrate_kbps * 1000,
+            fps as f32,
+            "video/av01",
+        )
+        .is_err()
+        {
+            log::warn!("HW AV1 encoder not available, falling back to software");
+            HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
+        }
+    }
+
     on_progress(5);
 
     let fps_int = fps.round().max(1.0) as u32;

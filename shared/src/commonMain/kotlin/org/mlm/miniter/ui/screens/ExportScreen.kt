@@ -107,7 +107,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(progress.hardwareFallback) {
         if (progress.hardwareFallback) {
-            snackbarHostState.showSnackbar("Hardware accel. wasn't available, fell back to software (slower & larger in size)")
+            snackbarHostState.showSnackbar("Hardware encoder wasn't available, fell back to software (slower)")
         }
     }
     val scrollState = rememberScrollState()

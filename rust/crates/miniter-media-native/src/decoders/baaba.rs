@@ -221,7 +221,6 @@ impl VideoDecoderBackend for BaabaBackend {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // Don't block here — frames are collected during finish().
             Ok(self.frame_buffer.pop_front())
         }
     }
