@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8" ?>
 <component type="desktop-application">
   <id>io.github.mlm_games.miniter</id>
   <name>Miniter</name>
@@ -21,63 +21,8 @@
     <color type="primary" scheme_preference="light">#6750A4</color>
     <color type="primary" scheme_preference="dark">#D0BCFF</color>
   </branding>
-  <content_rating type="oars-1.1"/>
+  <content_rating type="oars-1.1" />
   <releases>
-    <release version="0.6.3" date="2026-05-27" type="stable">
-      <description>
-        <ul>
-          <li>linux hw: use git paths, and show the snackbar for fallback here too</li>
-          <li>wire linux vaapi encoder too</li>
-          <li>Show a preview during export</li>
-          <li>split wasm loading logic to chunks (prevents lag on export), and also for thumbnails</li>
-          <li>Allow importing audio on the main project selection screen</li>
-          <li>fix web baaba compile issue, and use new web hw sync api</li>
-          <li>fix web-rs compilation</li>
-          <li>remimport rav1d-safe via videoson</li>
-          <li>rm extra comments from decoder refactor</li>
-          <li>opus codec (import) support</li>
-          <li>Add missing keyframe sections for audio/text clips</li>
-          <li>fix ivf files not being exportable</li>
-          <li>fix ivf export</li>
-          <li>remove duration slider for text, and make it infinitely draggable</li>
-          <li>Catch split errors</li>
-          <li>Update release notes for v0.6.2</li>
-          <li>stack keyframes and basic color def to distinguish</li>
-          <li>chroe: fix inverted zoom</li>
-          <li>Fix rotation being off by 90 degrees</li>
-          <li>clip the video to the preview</li>
-          <li>audio param ui for fade in/out and normalise</li>
-          <li>Add rotation support</li>
-          <li>fix transform impl</li>
-          <li>non ui params impl</li>
-          <li>rename to video properties to effects, and add more effect layers</li>
-          <li>bump agp to 9.2.0</li>
-          <li>Update release notes for v0.6.1</li>
-          <li>Add image support via image crate</li>
-          <li>save unified demuxer</li>
-          <li>test oxideav</li>
-          <li>Add transition out for clips, and also fix few transitions not appearing</li>
-          <li>fix mp4 decode skipping frames</li>
-          <li>the logic works and runs on web!</li>
-          <li>web shenanigans (vid doesn't play, but projectl loads)</li>
-          <li>remove thumbnail caching, causes too many issues to preserve (due to wasm)</li>
-          <li>fix kotlin</li>
-          <li>platform media paths</li>
-          <li>going experimental (use my hardware d&amp;e crate (web init too)</li>
-          <li>Create rust-toolchain.toml</li>
-          <li>replace encoder with less-avc</li>
-          <li>Partial hard subs (save, but add soft subs via ass -&gt; srt in muxide fork)</li>
-          <li>replace opusic-sys with mousiki (pure rust)</li>
-          <li>save</li>
-          <li>Fix dual audio clips not being condensed, and also av1 video being not exported correctly with blank space</li>
-          <li>Fix video size issue for few mp4s, and opus audio err</li>
-          <li>add text fade out</li>
-          <li>base rust functionality with AOL</li>
-          <li>add base rust structure</li>
-          <li>Clarify Android save workaround in README</li>
-        </ul>
-      </description>
-    </release>
     <release version="0.1.0" date="2026-02-25" type="stable">
       <description>
         <ul>
