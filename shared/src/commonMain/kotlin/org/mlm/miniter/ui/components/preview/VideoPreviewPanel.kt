@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.kdroidfilter.composemediaplayer.InitialPlayerState
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
 import kotlinx.coroutines.CoroutineScope
@@ -264,7 +265,7 @@ fun EditorVideoPreview(
             audioFileDurationMs = 0L
             lastLoadedAudioPath = audioSourcePath
 
-            audioPlayerState.openUri(audioPlaybackUri)
+            audioPlayerState.openUri(audioPlaybackUri, InitialPlayerState.PAUSE)
 
             var attempts = 0
             while (attempts < 40) {
@@ -313,7 +314,7 @@ fun EditorVideoPreview(
             primaryVideoUri = uri
 
             if (!uri.isNullOrBlank()) {
-                playerState.openUri(uri)
+                playerState.openUri(uri, InitialPlayerState.PAUSE)
 
                 var attempts = 0
                 while (attempts < 40) {
