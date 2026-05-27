@@ -1,6 +1,5 @@
 package org.mlm.miniter.ui.components.preview
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -35,10 +34,6 @@ import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
-import kotlin.math.PI
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
 import kotlin.time.TimeSource
 
 private suspend fun seekToPosition(
@@ -728,31 +723,6 @@ fun EditorVideoPreview(
                     }
                 }
 
-                if (transformFilter != null && !isPlaying) {
-                    TransformHandles(
-                        scale = currentScale,
-                        rotation = currentRot,
-                        translateX = currentTransX,
-                        translateY = currentTransY,
-                        viewportSize = viewportSize,
-                        onScaleDelta = { ds ->
-                            renderScale = (renderScale * ds).coerceIn(0.1f, 10f)
-                            onTransformChanged?.invoke(renderScale, renderTranslateX, renderTranslateY, renderRotate)
-                        },
-                        onRotateDelta = { dr ->
-                            renderRotate += dr
-                            onTransformChanged?.invoke(renderScale, renderTranslateX, renderTranslateY, renderRotate)
-                        },
-                        onDragStart = {
-                            isInteracting = true
-                            onDragStart?.invoke()
-                        },
-                        onDragEnd = {
-                            isInteracting = false
-                            commitTransform()
-                        }
-                    )
-                }
             }
         }
     }
@@ -765,126 +735,6 @@ private data class AudioClipInfo(
     val sourceStartMs: Long,
     val speed: Float,
 )
-
-@Composable
-private fun TransformHandles(
-    scale: Float,
-    rotation: Float,
-    translateX: Float,
-    translateY: Float,
-    viewportSize: IntSize,
-    onScaleDelta: (Float) -> Unit,
-    onRotateDelta: (Float) -> Unit,
-    onDragStart: () -> Unit,
-    onDragEnd: () -> Unit,
-) {
-    if (viewportSize.width == 0 || viewportSize.height == 0) return
-
-    val handleRadiusDp = 10.dp
-    val hitRadiusDp = 24.dp
-    val outlineColor = MaterialTheme.colorScheme.primary
-    val handleFill = Color.White
-
-    val w = viewportSize.width.toFloat()
-    val h = viewportSize.height.toFloat()
-
-    val latestScale by rememberUpdatedState(scale)
-    val latestRotation by rememberUpdatedState(rotation)
-    val latestTx by rememberUpdatedState(translateX)
-    val latestTy by rememberUpdatedState(translateY)
-
-    fun center() = Offset(w / 2f + latestTx, h / 2f + latestTy)
-
-    fun mapCorner(lx: Float, ly: Float): Offset {
-        val c = center()
-        val rad = latestRotation * PI.toFloat() / 180f
-        val cos = cos(rad)
-        val sin = sin(rad)
-        val sx = lx * latestScale
-        val sy = ly * latestScale
-        return Offset(
-            c.x + sx * cos - sy * sin,
-            c.y + sx * sin + sy * cos,
-        )
-    }
-
-    fun corners() = listOf(
-        mapCorner(-w / 2f, -h / 2f),
-        mapCorner( w / 2f, -h / 2f),
-        mapCorner( w / 2f,  h / 2f),
-        mapCorner(-w / 2f,  h / 2f),
-    )
-
-    Canvas(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                val hitRadius = hitRadiusDp.toPx()
-
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val hitCorners = corners()
-                    val hitIdx = hitCorners.indexOfFirst { c ->
-                        (down.position - c).getDistance() <= hitRadius
-                    }
-                    if (hitIdx == -1) return@awaitEachGesture
-
-                    down.consume()
-                    onDragStart()
-
-                    var prev = down.position
-
-                    try {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull() ?: break
-                            if (!change.pressed) break
-                            change.consume()
-
-                            val curr = change.position
-                            val c = center()
-
-                            val prevVec = prev - c
-                            val currVec = curr - c
-
-                            val aStart = atan2(prevVec.y, prevVec.x)
-                            val aEnd   = atan2(currVec.y, currVec.x)
-                            onRotateDelta((aEnd - aStart) * 180f / PI.toFloat())
-
-                            val dPrev = prevVec.getDistance()
-                            val dCurr = currVec.getDistance()
-                            if (dPrev > 1f) {
-                                onScaleDelta(dCurr / dPrev)
-                            }
-
-                            prev = curr
-                        }
-                    } finally {
-                        onDragEnd()
-                    }
-                }
-            }
-    ) {
-        val cs = corners()
-        val handlePx = handleRadiusDp.toPx()
-        val strokePx = 2.dp.toPx()
-
-        val path = androidx.compose.ui.graphics.Path().apply {
-            moveTo(cs[0].x, cs[0].y)
-            for (i in 1..3) lineTo(cs[i].x, cs[i].y)
-            close()
-        }
-        drawPath(
-            path, outlineColor,
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokePx),
-        )
-
-        cs.forEach { corner ->
-            drawCircle(handleFill, radius = handlePx, center = corner)
-            drawCircle(outlineColor, radius = handlePx - 3.dp.toPx(), center = corner)
-        }
-    }
-}
 
 @Composable
 private fun BackgroundVideoFrame(
