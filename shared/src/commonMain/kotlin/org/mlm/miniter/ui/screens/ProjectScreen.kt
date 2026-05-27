@@ -106,6 +106,11 @@ fun ProjectScreen(
             onImportSubtitles = { subtitlePicker.launch() },
         )
 
+        val selectedClip = snapshot?.timeline?.tracks?.flatMap { it.clips }?.find { it.id == selectedClipId }
+        val videoKind = selectedClip?.kind as? org.mlm.miniter.editor.model.RustVideoClipKind
+        val transformFilterIndex = videoKind?.filters?.indexOfFirst { it.filter is org.mlm.miniter.editor.model.RustTransformFilterSnapshot } ?: -1
+        val transformFilter = if (transformFilterIndex != -1) videoKind?.filters?.get(transformFilterIndex)?.filter as? org.mlm.miniter.editor.model.RustTransformFilterSnapshot else null
+
         EditorVideoPreview(
             snapshot = snapshot,
             playheadMs = playheadMs,
@@ -113,6 +118,28 @@ fun ProjectScreen(
             onPlayingChange = { vm.setPlaying(it) },
             onPlayheadChange = { vm.seekTo(it) },
             thumbnailFallback = uiState.thumbnails.firstOrNull(),
+            selectedClipId = selectedClipId,
+            transformFilter = transformFilter,
+            onDragStart = {
+                if (selectedClipId != null) vm.beginEdit()
+            },
+            onTransformChanged = { scale, tx, ty, rot ->
+                if (selectedClipId != null && transformFilterIndex != -1) {
+                    vm.updateFilterParams(
+                        selectedClipId,
+                        transformFilterIndex,
+                        mapOf(
+                            "scale" to scale,
+                            "translate_x" to tx,
+                            "translate_y" to ty,
+                            "rotate" to rot
+                        )
+                    )
+                }
+            },
+            onCommitTransform = {
+                if (selectedClipId != null) vm.commitEdit()
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.40f),
