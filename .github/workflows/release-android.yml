@@ -139,6 +139,9 @@ jobs:
             "ndk;${{ env.ANDROID_NDK_VERSION }}"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
 
+      - name: Install system dependencies
+        run: sudo apt update && sudo apt install -y libva-dev
+
       - name: Install Rust + cargo-ndk + Android targets
         run: |
           rustup show   # rust comes preinstalled

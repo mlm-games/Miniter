@@ -438,11 +438,6 @@ dependencies {
     add("kspWasmJs", libs.kmp.settings.ksp)
 }
 
-tasks.matching { it.name == "genUniFFIWasm" }.configureEach {
-    setDependsOn(emptySet<Any>())
-    enabled = false
-}
-
 tasks.matching { it.name.startsWith("kspWasmJs") || it.name == "kspKotlinWasmJs" }.configureEach {
     dependsOn(generateWasmExterns)
 }

@@ -47,6 +47,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install system dependencies
+        run: sudo apt update && sudo apt install -y libva-dev
+
       - name: Build Rust JNI (host)
         run: cargo build --release --manifest-path rust/Cargo.toml
 
