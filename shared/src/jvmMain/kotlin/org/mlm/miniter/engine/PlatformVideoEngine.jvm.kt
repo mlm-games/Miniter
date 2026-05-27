@@ -58,10 +58,12 @@ actual class PlatformVideoEngine actual constructor() {
                     ensureActive()
 
                     _exportProgress.value = if (ok && !exportCancelled) {
+                        val hwOk = RustCoreSession.wasExportHardwareAccelerated()
                         ExportProgress(
-                            phase = "Export complete",
+                            phase = if (hwOk) "Export complete" else "Export complete (software fallback)",
                             progress = 1f,
                             isComplete = true,
+                            hardwareFallback = !hwOk,
                         )
                     } else {
                         ExportProgress(

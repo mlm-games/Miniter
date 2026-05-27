@@ -8,7 +8,8 @@ use std::time::Duration;
     feature = "hw-decoder",
     any(
         all(target_os = "android", target_arch = "aarch64"),
-        target_arch = "wasm32"
+        target_arch = "wasm32",
+        target_os = "linux"
     )
 ))]
 mod hw {
@@ -26,6 +27,11 @@ mod hw {
         WasmVideoEncoderInput, WasmVideoEncoderOutput, WebCodecsHost,
     };
 
+    #[cfg(target_os = "linux")]
+    use baabaabaabaabababbababbaa::platform::linux::{
+        CrosVideoEncoderInput, CrosVideoEncoderOutput, CrosCodecsHost,
+    };
+
     #[cfg(not(target_arch = "wasm32"))]
     use tokio::runtime::Runtime;
 
@@ -33,6 +39,10 @@ mod hw {
     type PlatformInput = AndroidVideoEncoderInput;
     #[cfg(target_os = "android")]
     type PlatformOutput = AndroidVideoEncoderOutput;
+    #[cfg(target_os = "linux")]
+    type PlatformInput = CrosVideoEncoderInput;
+    #[cfg(target_os = "linux")]
+    type PlatformOutput = CrosVideoEncoderOutput;
     #[cfg(target_arch = "wasm32")]
     type PlatformInput = WasmVideoEncoderInput;
     #[cfg(target_arch = "wasm32")]
@@ -77,6 +87,8 @@ mod hw {
             let host = MediaCodecHost::new();
             #[cfg(target_arch = "wasm32")]
             let host = WebCodecsHost::new();
+            #[cfg(target_os = "linux")]
+            let host = CrosCodecsHost::new();
 
             let (input, output) = host
                 .create_video_encoder(config)
@@ -234,7 +246,8 @@ mod hw {
     feature = "hw-decoder",
     any(
         all(target_os = "android", target_arch = "aarch64"),
-        target_arch = "wasm32"
+        target_arch = "wasm32",
+        target_os = "linux"
     )
 )))]
 mod hw {
