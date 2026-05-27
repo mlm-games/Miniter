@@ -32,6 +32,7 @@ import kotlinx.coroutines.isActive
 import org.mlm.miniter.editor.model.*
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
+import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
 import kotlin.time.TimeSource
@@ -79,6 +80,7 @@ sealed interface VisibleMedia {
         val speed: Float,
         val volume: Float,
         val filters: List<RustVideoEffectSnapshot>,
+        val keyframes: RustKeyframeCurve = RustKeyframeCurve(),
     ) : VisibleMedia
 
     data class Text(
@@ -131,6 +133,7 @@ private fun collectVisibleMedia(
                             speed = clip.speed.toFloat(),
                             volume = clip.volume,
                             filters = kind.filters,
+                            keyframes = clip.keyframes,
                         )
                     )
                 }
@@ -198,6 +201,9 @@ fun EditorVideoPreview(
     val primaryVolume = primaryVideo?.volume ?: 1f
     val primaryFilters = primaryVideo?.filters ?: emptyList()
     val primaryOpacity = primaryVideo?.opacity ?: 1f
+    val effectiveOpacity = primaryVideo?.let { clip ->
+        clip.keyframes.evaluate(KeyframeParams.OPACITY, (playheadMs - clip.startMs) * 1000L) ?: clip.opacity
+    } ?: 1f
 
     val audioMedia = remember(snapshot, playheadMs) {
         val playheadUs = playheadMs * 1000L
@@ -259,6 +265,26 @@ fun EditorVideoPreview(
             renderTranslateX = transformFilter.translateX
             renderTranslateY = transformFilter.translateY
             renderRotate = transformFilter.rotate
+        }
+    }
+
+    LaunchedEffect(playheadMs, clipKey, isInteracting) {
+        if (isInteracting) return@LaunchedEffect
+        val clip = primaryVideo ?: return@LaunchedEffect
+        if (clip.keyframes.keyframes.isEmpty()) return@LaunchedEffect
+
+        val localUs = (playheadMs - clip.startMs) * 1000L
+        clip.keyframes.evaluate(KeyframeParams.TRANSFORM_SCALE, localUs)?.let {
+            renderScale = it.coerceIn(0.1f, 10f)
+        }
+        clip.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, localUs)?.let {
+            renderTranslateX = it
+        }
+        clip.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, localUs)?.let {
+            renderTranslateY = it
+        }
+        clip.keyframes.evaluate(KeyframeParams.TRANSFORM_ROTATE, localUs)?.let {
+            renderRotate = it
         }
     }
 
@@ -369,7 +395,7 @@ fun EditorVideoPreview(
         playerState.volume = primaryVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, primaryOpacity) {
+    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, effectiveOpacity) {
         if (isPlaying) return@LaunchedEffect
         if (primaryVideo == null || primaryVideoPath == null) return@LaunchedEffect
 
@@ -383,12 +409,12 @@ fun EditorVideoPreview(
             .map { it.filter }
             .filter { it !is RustTransformFilterSnapshot }
 
-        if (grabberReady && (primaryFilters.any { it.enabled } || primaryOpacity < 1f)) {
+        if (grabberReady && (primaryFilters.any { it.enabled } || effectiveOpacity < 1f)) {
             try {
                 scrubbedFrame = frameGrabber.grabFrame(
                     timestampMs = sourceTimeMs,
                     filters = nonTransformFilters,
-                    opacity = primaryOpacity,
+                    opacity = effectiveOpacity,
                 )
             } catch (_: Exception) {}
         } else if (grabberReady) {

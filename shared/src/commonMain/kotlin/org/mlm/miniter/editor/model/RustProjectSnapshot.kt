@@ -83,7 +83,37 @@ enum class RustEasing {
 @Serializable
 data class RustKeyframeCurve(
     val keyframes: List<RustKeyframe> = emptyList(),
-)
+) {
+    fun evaluate(param: String, timeUs: Long): Float? {
+        val relevant = keyframes.filter { it.param == param }.sortedBy { it.offset }
+        if (relevant.isEmpty()) return null
+        if (relevant.size == 1) return relevant[0].value
+
+        val t = timeUs
+        if (t <= relevant.first().offset) return relevant.first().value
+        if (t >= relevant.last().offset) return relevant.last().value
+
+        for (i in 0 until relevant.lastIndex) {
+            val a = relevant[i]
+            val b = relevant[i + 1]
+            if (t in a.offset..b.offset) {
+                val range = (b.offset - a.offset).toFloat()
+                if (range <= 0f) return b.value
+                val progress = ((t - a.offset).toFloat() / range).coerceIn(0f, 1f)
+                val eased = applyEasing(a.easing, progress)
+                return a.value + (b.value - a.value) * eased
+            }
+        }
+        return relevant.last().value
+    }
+}
+
+private fun applyEasing(easing: RustEasing, t: Float): Float = when (easing) {
+    RustEasing.Linear -> t
+    RustEasing.EaseIn -> t * t * t
+    RustEasing.EaseOut -> 1f - (1f - t) * (1f - t) * (1f - t)
+    RustEasing.EaseInOut -> if (t < 0.5f) 4f * t * t * t else 1f - (-2f * t + 2f) * (-2f * t + 2f) * (-2f * t + 2f) / 2f
+}
 
 @Serializable
 data class RustClipSnapshot(
