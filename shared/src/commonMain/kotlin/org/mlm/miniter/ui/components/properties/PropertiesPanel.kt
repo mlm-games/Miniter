@@ -674,7 +674,7 @@ private fun TextClipProperties(
 }
 
 private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
-    RustTransformFilterSnapshot(scale = 1f, translateX = 0.5f, translateY = 0.5f, rotate = 0f),
+    RustTransformFilterSnapshot(scale = 1f, translateX = 0.0f, translateY = 0.0f, rotate = 0f),
     RustBrightnessFilterSnapshot(0f),
     RustContrastFilterSnapshot(1f),
     RustSaturationFilterSnapshot(1f),

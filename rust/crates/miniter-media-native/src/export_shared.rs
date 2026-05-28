@@ -271,8 +271,8 @@ pub(crate) fn transform_rgba(
 
             u = u - 0.5 - tx;
             v = v - 0.5 - ty;
-            u = (u + 0.5) / zoom;
-            v = (v + 0.5) / zoom;
+            u = u / zoom;
+            v = v / zoom;
 
             u += 0.5;
             v += 0.5;

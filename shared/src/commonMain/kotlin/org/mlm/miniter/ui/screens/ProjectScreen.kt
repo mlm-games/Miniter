@@ -160,8 +160,8 @@ fun ProjectScreen(
                     data class KfParam(val param: String, val newValue: Float, val default: Float, val filterAccessor: (RustTransformFilterSnapshot) -> Float)
                     listOf(
                         KfParam(KeyframeParams.TRANSFORM_SCALE, scale, 1f) { it.scale },
-                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_X, tx, 0.5f) { it.translateX },
-                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_Y, ty, 0.5f) { it.translateY },
+                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_X, tx, 0.0f) { it.translateX },
+                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_Y, ty, 0.0f) { it.translateY },
                         KfParam(KeyframeParams.TRANSFORM_ROTATE, rot, 0f) { it.rotate },
                     ).forEach { (param, newVal, default, accessor) ->
                         val current = effective(param, default, accessor)

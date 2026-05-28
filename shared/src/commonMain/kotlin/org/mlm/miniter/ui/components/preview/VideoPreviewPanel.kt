@@ -177,8 +177,8 @@ private fun clipTransformModifier(
 ): Modifier = Modifier.graphicsLayer {
     scaleX = tv.scale
     scaleY = tv.scale
-    translationX = (tv.tx - 0.5f) * viewportSize.width
-    translationY = (tv.ty - 0.5f) * viewportSize.height
+    translationX = tv.tx * viewportSize.width
+    translationY = tv.ty * viewportSize.height
     rotationZ = tv.rot
 }
 
@@ -200,8 +200,8 @@ fun EditorVideoPreview(
     thumbnailFallback: ImageData? = null,
     onVisualTransformChange: ((scale: Float, translateX: Float, translateY: Float) -> Unit)? = null,
     initialVisualScale: Float = 1f,
-    initialVisualTranslateX: Float = 0.5f,
-    initialVisualTranslateY: Float = 0.5f,
+    initialVisualTranslateX: Float = 0.0f,
+    initialVisualTranslateY: Float = 0.0f,
     selectedClipId: String? = null,
     transformFilter: RustTransformFilterSnapshot? = null,
     onTransformChanged: ((scale: Float, translateX: Float, translateY: Float, rotate: Float) -> Unit)? = null,
@@ -286,8 +286,8 @@ fun EditorVideoPreview(
 
     val clipKey = selectedClipId
     var renderScale by remember(clipKey) { mutableFloatStateOf(transformFilter?.scale ?: 1f) }
-    var renderTranslateX by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateX ?: 0.5f) }
-    var renderTranslateY by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateY ?: 0.5f) }
+    var renderTranslateX by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateX ?: 0.0f) }
+    var renderTranslateY by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateY ?: 0.0f) }
     var renderRotate by remember(clipKey) { mutableFloatStateOf(transformFilter?.rotate ?: 0f) }
 
     LaunchedEffect(transformFilter) {
@@ -304,7 +304,7 @@ fun EditorVideoPreview(
     val currentOnSetKeyframe by rememberUpdatedState(onSetKeyframe)
 
     fun syncVisualTransform() {
-        if (onVisualTransformChange != null && (visualScale != 1f || visualTranslateX != 0.5f || visualTranslateY != 0.5f)) {
+        if (onVisualTransformChange != null && (visualScale != 1f || visualTranslateX != 0.0f || visualTranslateY != 0.0f)) {
             onVisualTransformChange(visualScale, visualTranslateX, visualTranslateY)
         }
     }
@@ -602,12 +602,12 @@ fun EditorVideoPreview(
         else primaryOwnTransform?.scale ?: 1f
     )
     val currentEffectiveTx by rememberUpdatedState(
-        if (hasPrimaryKF) (primaryKfTx ?: primaryOwnTransform?.translateX ?: 0.5f)
-        else primaryOwnTransform?.translateX ?: 0.5f
+        if (hasPrimaryKF) (primaryKfTx ?: primaryOwnTransform?.translateX ?: 0.0f)
+        else primaryOwnTransform?.translateX ?: 0.0f
     )
     val currentEffectiveTy by rememberUpdatedState(
-        if (hasPrimaryKF) (primaryKfTy ?: primaryOwnTransform?.translateY ?: 0.5f)
-        else primaryOwnTransform?.translateY ?: 0.5f
+        if (hasPrimaryKF) (primaryKfTy ?: primaryOwnTransform?.translateY ?: 0.0f)
+        else primaryOwnTransform?.translateY ?: 0.0f
     )
     val currentEffectiveRot by rememberUpdatedState(
         if (hasPrimaryKF) (primaryKfRot ?: primaryOwnTransform?.rotate ?: 0f)
@@ -687,19 +687,19 @@ fun EditorVideoPreview(
                     if (isPlaying) return@detectTapGestures
                     if (transformFilter != null) {
                         renderScale = 1f
-                        renderTranslateX = 0.5f
-                        renderTranslateY = 0.5f
+                        renderTranslateX = 0.0f
+                        renderTranslateY = 0.0f
                         renderRotate = 0f
-                        onTransformChanged?.invoke(1f, 0.5f, 0.5f, 0f)
+                        onTransformChanged?.invoke(1f, 0.0f, 0.0f, 0f)
                         if (currentAutoKeyframeEnabled && selectedClipId != null) {
-                            currentOnSetKeyframe?.invoke(selectedClipId, currentPlayheadMs, 1f, 0.5f, 0.5f, 0f)
+                            currentOnSetKeyframe?.invoke(selectedClipId, currentPlayheadMs, 1f, 0.0f, 0.0f, 0f)
                         } else {
                             onCommitTransform?.invoke()
                         }
                     } else {
                         visualScale = 1f
-                        visualTranslateX = 0.5f
-                        visualTranslateY = 0.5f
+                        visualTranslateX = 0.0f
+                        visualTranslateY = 0.0f
                         syncVisualTransform()
                     }
                 }
@@ -717,10 +717,10 @@ fun EditorVideoPreview(
     ): TransformValues {
         val scale = if (hasKF) (kfScale ?: staticFilter?.scale ?: 1f).coerceIn(0.1f, 10f)
             else staticFilter?.scale ?: 1f
-        val tx = if (hasKF) (kfTx ?: staticFilter?.translateX ?: 0.5f)
-            else staticFilter?.translateX ?: 0.5f
-        val ty = if (hasKF) (kfTy ?: staticFilter?.translateY ?: 0.5f)
-            else staticFilter?.translateY ?: 0.5f
+        val tx = if (hasKF) (kfTx ?: staticFilter?.translateX ?: 0.0f)
+            else staticFilter?.translateX ?: 0.0f
+        val ty = if (hasKF) (kfTy ?: staticFilter?.translateY ?: 0.0f)
+            else staticFilter?.translateY ?: 0.0f
         val rot = if (hasKF) (kfRot ?: staticFilter?.rotate ?: 0f)
             else staticFilter?.rotate ?: 0f
         return TransformValues(scale, tx, ty, rot)

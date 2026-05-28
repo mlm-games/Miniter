@@ -101,8 +101,8 @@ fn apply_transform_keyframes(
     }
 
     let scale = scale.unwrap_or(1.0);
-    let tx = tx.unwrap_or(0.5);
-    let ty = ty.unwrap_or(0.5);
+    let tx = tx.unwrap_or(0.0);
+    let ty = ty.unwrap_or(0.0);
     let rotate = rotate.unwrap_or(0.0);
 
     for filter in filters.iter_mut() {
