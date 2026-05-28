@@ -37,7 +37,7 @@ private fun paramDefFor(param: String): ParamDef {
         for (filter in FILTERS) {
             for (prop in filter.properties) {
                 if (prop.keyframeSuffix == suffix) {
-                    return ParamDef(param, prop.displayName, prop.range, prop.steps, prop.format)
+                    return ParamDef(param, prop.displayName, prop.range, default = 0f, prop.steps, prop.format)
                 }
             }
         }

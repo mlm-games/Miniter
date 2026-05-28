@@ -39,6 +39,7 @@ import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
 import org.mlm.miniter.project.KeyframeParams
+import org.mlm.miniter.project.defaultOf
 import kotlin.time.TimeSource
 
 private suspend fun seekToPosition(
@@ -199,9 +200,9 @@ fun EditorVideoPreview(
     modifier: Modifier = Modifier,
     thumbnailFallback: ImageData? = null,
     onVisualTransformChange: ((scale: Float, translateX: Float, translateY: Float) -> Unit)? = null,
-    initialVisualScale: Float = 1f,
-    initialVisualTranslateX: Float = 0.0f,
-    initialVisualTranslateY: Float = 0.0f,
+    initialVisualScale: Float = defaultOf(KeyframeParams.TRANSFORM_SCALE),
+    initialVisualTranslateX: Float = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X),
+    initialVisualTranslateY: Float = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y),
     selectedClipId: String? = null,
     transformFilter: RustTransformFilterSnapshot? = null,
     onTransformChanged: ((scale: Float, translateX: Float, translateY: Float, rotate: Float) -> Unit)? = null,
@@ -229,9 +230,9 @@ fun EditorVideoPreview(
     var primaryVideoUri by remember(primaryVideoPath) { mutableStateOf<String?>(null) }
     val canPlayPrimary = !primaryVideoUri.isNullOrBlank()
     val primarySpeed = primaryVideo?.speed ?: 1f
-    val primaryVolume = primaryVideo?.volume ?: 1f
+    val primaryVolume = primaryVideo?.volume ?: defaultOf(KeyframeParams.VOLUME)
     val primaryFilters = primaryVideo?.filters ?: emptyList()
-    val primaryOpacity = primaryVideo?.opacity ?: 1f
+    val primaryOpacity = primaryVideo?.opacity ?: defaultOf(KeyframeParams.OPACITY)
     val primaryEffectiveOpacity = primaryVideo?.keyframes?.evaluate(
         KeyframeParams.OPACITY, (playheadMs - primaryVideo.startMs) * 1000L,
     ) ?: primaryOpacity
@@ -285,10 +286,10 @@ fun EditorVideoPreview(
     }
 
     val clipKey = selectedClipId
-    var renderScale by remember(clipKey) { mutableFloatStateOf(transformFilter?.scale ?: 1f) }
-    var renderTranslateX by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateX ?: 0.0f) }
-    var renderTranslateY by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateY ?: 0.0f) }
-    var renderRotate by remember(clipKey) { mutableFloatStateOf(transformFilter?.rotate ?: 0f) }
+    var renderScale by remember(clipKey) { mutableFloatStateOf(transformFilter?.scale ?: defaultOf(KeyframeParams.TRANSFORM_SCALE)) }
+    var renderTranslateX by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateX ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X)) }
+    var renderTranslateY by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateY ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y)) }
+    var renderRotate by remember(clipKey) { mutableFloatStateOf(transformFilter?.rotate ?: defaultOf(KeyframeParams.TRANSFORM_ROTATE)) }
 
     LaunchedEffect(transformFilter) {
         if (transformFilter != null) {
@@ -304,7 +305,7 @@ fun EditorVideoPreview(
     val currentOnSetKeyframe by rememberUpdatedState(onSetKeyframe)
 
     fun syncVisualTransform() {
-        if (onVisualTransformChange != null && (visualScale != 1f || visualTranslateX != 0.0f || visualTranslateY != 0.0f)) {
+        if (onVisualTransformChange != null && (visualScale != defaultOf(KeyframeParams.TRANSFORM_SCALE) || visualTranslateX != defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X) || visualTranslateY != defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y))) {
             onVisualTransformChange(visualScale, visualTranslateX, visualTranslateY)
         }
     }
@@ -598,20 +599,20 @@ fun EditorVideoPreview(
     val hasPrimaryKF = primaryKfScale != null || primaryKfTx != null || primaryKfTy != null || primaryKfRot != null
 
     val currentEffectiveScale by rememberUpdatedState(
-        if (hasPrimaryKF) (primaryKfScale ?: primaryOwnTransform?.scale ?: 1f).coerceIn(0.1f, 10f)
-        else primaryOwnTransform?.scale ?: 1f
+        if (hasPrimaryKF) (primaryKfScale ?: primaryOwnTransform?.scale ?: defaultOf(KeyframeParams.TRANSFORM_SCALE)).coerceIn(0.1f, 10f)
+        else primaryOwnTransform?.scale ?: defaultOf(KeyframeParams.TRANSFORM_SCALE)
     )
     val currentEffectiveTx by rememberUpdatedState(
-        if (hasPrimaryKF) (primaryKfTx ?: primaryOwnTransform?.translateX ?: 0.0f)
-        else primaryOwnTransform?.translateX ?: 0.0f
+        if (hasPrimaryKF) (primaryKfTx ?: primaryOwnTransform?.translateX ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X))
+        else primaryOwnTransform?.translateX ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X)
     )
     val currentEffectiveTy by rememberUpdatedState(
-        if (hasPrimaryKF) (primaryKfTy ?: primaryOwnTransform?.translateY ?: 0.0f)
-        else primaryOwnTransform?.translateY ?: 0.0f
+        if (hasPrimaryKF) (primaryKfTy ?: primaryOwnTransform?.translateY ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y))
+        else primaryOwnTransform?.translateY ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y)
     )
     val currentEffectiveRot by rememberUpdatedState(
-        if (hasPrimaryKF) (primaryKfRot ?: primaryOwnTransform?.rotate ?: 0f)
-        else primaryOwnTransform?.rotate ?: 0f
+        if (hasPrimaryKF) (primaryKfRot ?: primaryOwnTransform?.rotate ?: defaultOf(KeyframeParams.TRANSFORM_ROTATE))
+        else primaryOwnTransform?.rotate ?: defaultOf(KeyframeParams.TRANSFORM_ROTATE)
     )
 
     val previewModifier = modifier
@@ -687,19 +688,19 @@ fun EditorVideoPreview(
                     if (isPlaying) return@detectTapGestures
                     if (transformFilter != null) {
                         renderScale = 1f
-                        renderTranslateX = 0.0f
-                        renderTranslateY = 0.0f
-                        renderRotate = 0f
-                        onTransformChanged?.invoke(1f, 0.0f, 0.0f, 0f)
+                        renderTranslateX = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X)
+                        renderTranslateY = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y)
+                        renderRotate = defaultOf(KeyframeParams.TRANSFORM_ROTATE)
+                        onTransformChanged?.invoke(defaultOf(KeyframeParams.TRANSFORM_SCALE), defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X), defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y), defaultOf(KeyframeParams.TRANSFORM_ROTATE))
                         if (currentAutoKeyframeEnabled && selectedClipId != null) {
-                            currentOnSetKeyframe?.invoke(selectedClipId, currentPlayheadMs, 1f, 0.0f, 0.0f, 0f)
+                            currentOnSetKeyframe?.invoke(selectedClipId, currentPlayheadMs, defaultOf(KeyframeParams.TRANSFORM_SCALE), defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X), defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y), defaultOf(KeyframeParams.TRANSFORM_ROTATE))
                         } else {
                             onCommitTransform?.invoke()
                         }
                     } else {
-                        visualScale = 1f
-                        visualTranslateX = 0.0f
-                        visualTranslateY = 0.0f
+                        visualScale = defaultOf(KeyframeParams.TRANSFORM_SCALE)
+                        visualTranslateX = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X)
+                        visualTranslateY = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y)
                         syncVisualTransform()
                     }
                 }
@@ -715,14 +716,14 @@ fun EditorVideoPreview(
         hasKF: Boolean,
         staticFilter: RustTransformFilterSnapshot?,
     ): TransformValues {
-        val scale = if (hasKF) (kfScale ?: staticFilter?.scale ?: 1f).coerceIn(0.1f, 10f)
-            else staticFilter?.scale ?: 1f
-        val tx = if (hasKF) (kfTx ?: staticFilter?.translateX ?: 0.0f)
-            else staticFilter?.translateX ?: 0.0f
-        val ty = if (hasKF) (kfTy ?: staticFilter?.translateY ?: 0.0f)
-            else staticFilter?.translateY ?: 0.0f
-        val rot = if (hasKF) (kfRot ?: staticFilter?.rotate ?: 0f)
-            else staticFilter?.rotate ?: 0f
+        val scale = if (hasKF) (kfScale ?: staticFilter?.scale ?: defaultOf(KeyframeParams.TRANSFORM_SCALE)).coerceIn(0.1f, 10f)
+            else staticFilter?.scale ?: defaultOf(KeyframeParams.TRANSFORM_SCALE)
+        val tx = if (hasKF) (kfTx ?: staticFilter?.translateX ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X))
+            else staticFilter?.translateX ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X)
+        val ty = if (hasKF) (kfTy ?: staticFilter?.translateY ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y))
+            else staticFilter?.translateY ?: defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y)
+        val rot = if (hasKF) (kfRot ?: staticFilter?.rotate ?: defaultOf(KeyframeParams.TRANSFORM_ROTATE))
+            else staticFilter?.rotate ?: defaultOf(KeyframeParams.TRANSFORM_ROTATE)
         return TransformValues(scale, tx, ty, rot)
     }
 

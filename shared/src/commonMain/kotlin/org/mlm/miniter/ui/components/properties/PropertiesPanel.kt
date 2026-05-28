@@ -45,6 +45,7 @@ import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.project.KeyframeParams
+import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.project.paramDefOrUnknown
 
 @Composable
@@ -674,7 +675,7 @@ private fun TextClipProperties(
 }
 
 private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
-    RustTransformFilterSnapshot(scale = 1f, translateX = 0.0f, translateY = 0.0f, rotate = 0f),
+    RustTransformFilterSnapshot(scale = defaultOf(KeyframeParams.TRANSFORM_SCALE), translateX = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X), translateY = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y), rotate = defaultOf(KeyframeParams.TRANSFORM_ROTATE)),
     RustBrightnessFilterSnapshot(0f),
     RustContrastFilterSnapshot(1f),
     RustSaturationFilterSnapshot(1f),

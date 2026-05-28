@@ -85,6 +85,7 @@ data class ParamDef(
     val key: String,
     val displayName: String,
     val range: ClosedFloatingPointRange<Float>,
+    val default: Float,
     val steps: Int = 0,
     val format: (Float) -> String,
     val color: Color = Color.Gray,
@@ -96,22 +97,25 @@ private fun fmtDeg(v: Float) = "${v.toInt()}°"
 private fun fmt2d(v: Float) = "${(v * 100).toInt() / 100f}"
 
 val ALL_PARAMS: List<ParamDef> = listOf(
-    ParamDef(KeyframeParams.OPACITY, "Opacity", 0f..1f, format = ::fmtPct, color = Color(0xFF5B8DEF)),
-    ParamDef(KeyframeParams.VOLUME, "Volume", 0f..2f, 19, format = ::fmtPct, color = Color(0xFF4CAF50)),
-    ParamDef(KeyframeParams.TRANSFORM_SCALE, "Scale", 0.5f..3f, 24, format = ::fmt1d, color = Color(0xFFFF9800)),
-    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_X, "Pan X", -1f..1f, format = ::fmtPct, color = Color(0xFFFF9800)),
-    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_Y, "Pan Y", -1f..1f, format = ::fmtPct, color = Color(0xFFFF9800)),
-    ParamDef(KeyframeParams.TRANSFORM_ROTATE, "Rotate", -180f..180f, format = ::fmtDeg, color = Color(0xFFFF9800)),
-    ParamDef(KeyframeParams.TEXT_POSITION_X, "Text X", 0f..1f, format = ::fmtPct, color = Color(0xFF26A69A)),
-    ParamDef(KeyframeParams.TEXT_POSITION_Y, "Text Y", 0f..1f, format = ::fmtPct, color = Color(0xFF26A69A)),
-    ParamDef(KeyframeParams.TEXT_FONT_SIZE, "Font Size", 12f..120f, 26, format = { "${it.toInt()}sp" }, color = Color(0xFF26A69A)),
+    ParamDef(KeyframeParams.OPACITY, "Opacity", 0f..1f, default = 1f, format = ::fmtPct, color = Color(0xFF5B8DEF)),
+    ParamDef(KeyframeParams.VOLUME, "Volume", 0f..2f, default = 1f, 19, format = ::fmtPct, color = Color(0xFF4CAF50)),
+    ParamDef(KeyframeParams.TRANSFORM_SCALE, "Scale", 0.5f..3f, default = 1f, 24, format = ::fmt1d, color = Color(0xFFFF9800)),
+    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_X, "Pan X", -1f..1f, default = 0.0f, format = ::fmtPct, color = Color(0xFFFF9800)),
+    ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_Y, "Pan Y", -1f..1f, default = 0.0f, format = ::fmtPct, color = Color(0xFFFF9800)),
+    ParamDef(KeyframeParams.TRANSFORM_ROTATE, "Rotate", -180f..180f, default = 0f, format = ::fmtDeg, color = Color(0xFFFF9800)),
+    ParamDef(KeyframeParams.TEXT_POSITION_X, "Text X", 0f..1f, default = 0.5f, format = ::fmtPct, color = Color(0xFF26A69A)),
+    ParamDef(KeyframeParams.TEXT_POSITION_Y, "Text Y", 0f..1f, default = 0.9f, format = ::fmtPct, color = Color(0xFF26A69A)),
+    ParamDef(KeyframeParams.TEXT_FONT_SIZE, "Font Size", 12f..120f, default = 24f, 26, format = { "${it.toInt()}sp" }, color = Color(0xFF26A69A)),
 )
 
 val ALL_PARAMS_BY_KEY: Map<String, ParamDef> = ALL_PARAMS.associateBy { it.key }
+
+fun defaultOf(key: String): Float = ALL_PARAMS_BY_KEY[key]?.default ?: 0f
 
 fun paramDefOrUnknown(key: String): ParamDef = ALL_PARAMS_BY_KEY[key] ?: ParamDef(
     key = key,
     displayName = key,
     range = 0f..1f,
+    default = 0f,
     format = ::fmt2d,
 )

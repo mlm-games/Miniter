@@ -18,6 +18,7 @@ import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.project.KeyframeParams
+import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.nav.Route
 import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.settings.AppSettings
@@ -159,10 +160,10 @@ fun ProjectScreen(
                     }
                     data class KfParam(val param: String, val newValue: Float, val default: Float, val filterAccessor: (RustTransformFilterSnapshot) -> Float)
                     listOf(
-                        KfParam(KeyframeParams.TRANSFORM_SCALE, scale, 1f) { it.scale },
-                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_X, tx, 0.0f) { it.translateX },
-                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_Y, ty, 0.0f) { it.translateY },
-                        KfParam(KeyframeParams.TRANSFORM_ROTATE, rot, 0f) { it.rotate },
+                        KfParam(KeyframeParams.TRANSFORM_SCALE, scale, defaultOf(KeyframeParams.TRANSFORM_SCALE)) { it.scale },
+                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_X, tx, defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X)) { it.translateX },
+                        KfParam(KeyframeParams.TRANSFORM_TRANSLATE_Y, ty, defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y)) { it.translateY },
+                        KfParam(KeyframeParams.TRANSFORM_ROTATE, rot, defaultOf(KeyframeParams.TRANSFORM_ROTATE)) { it.rotate },
                     ).forEach { (param, newVal, default, accessor) ->
                         val current = effective(param, default, accessor)
                         if (kotlin.math.abs(newVal - current) > 0.0001f) {
