@@ -1,6 +1,7 @@
 package org.mlm.miniter.ui.components.preview
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -17,7 +18,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -196,8 +200,8 @@ fun EditorVideoPreview(
     thumbnailFallback: ImageData? = null,
     onVisualTransformChange: ((scale: Float, translateX: Float, translateY: Float) -> Unit)? = null,
     initialVisualScale: Float = 1f,
-    initialVisualTranslateX: Float = 0f,
-    initialVisualTranslateY: Float = 0f,
+    initialVisualTranslateX: Float = 0.5f,
+    initialVisualTranslateY: Float = 0.5f,
     selectedClipId: String? = null,
     transformFilter: RustTransformFilterSnapshot? = null,
     onTransformChanged: ((scale: Float, translateX: Float, translateY: Float, rotate: Float) -> Unit)? = null,
@@ -282,8 +286,8 @@ fun EditorVideoPreview(
 
     val clipKey = selectedClipId
     var renderScale by remember(clipKey) { mutableFloatStateOf(transformFilter?.scale ?: 1f) }
-    var renderTranslateX by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateX ?: 0f) }
-    var renderTranslateY by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateY ?: 0f) }
+    var renderTranslateX by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateX ?: 0.5f) }
+    var renderTranslateY by remember(clipKey) { mutableFloatStateOf(transformFilter?.translateY ?: 0.5f) }
     var renderRotate by remember(clipKey) { mutableFloatStateOf(transformFilter?.rotate ?: 0f) }
 
     LaunchedEffect(transformFilter) {
@@ -300,7 +304,7 @@ fun EditorVideoPreview(
     val currentOnSetKeyframe by rememberUpdatedState(onSetKeyframe)
 
     fun syncVisualTransform() {
-        if (onVisualTransformChange != null && (visualScale != 1f || visualTranslateX != 0f || visualTranslateY != 0f)) {
+        if (onVisualTransformChange != null && (visualScale != 1f || visualTranslateX != 0.5f || visualTranslateY != 0.5f)) {
             onVisualTransformChange(visualScale, visualTranslateX, visualTranslateY)
         }
     }
@@ -694,8 +698,8 @@ fun EditorVideoPreview(
                         }
                     } else {
                         visualScale = 1f
-                        visualTranslateX = 0f
-                        visualTranslateY = 0f
+                        visualTranslateX = 0.5f
+                        visualTranslateY = 0.5f
                         syncVisualTransform()
                     }
                 }
@@ -726,6 +730,26 @@ fun EditorVideoPreview(
         TransformValues(renderScale, renderTranslateX, renderTranslateY, renderRotate)
     } else {
         clipDisplayValues(primaryVideo, primaryKfScale, primaryKfTx, primaryKfTy, primaryKfRot, hasPrimaryKF, primaryOwnTransform)
+    }
+
+    val sourceWidth = snapshot?.timeline?.tracks
+        ?.flatMap { it.clips }
+        ?.firstNotNullOfOrNull { clip ->
+            (clip.kind as? RustVideoClipKind)?.width?.takeIf { it > 0 }
+        } ?: 0
+    val sourceHeight = snapshot?.timeline?.tracks
+        ?.flatMap { it.clips }
+        ?.firstNotNullOfOrNull { clip ->
+            (clip.kind as? RustVideoClipKind)?.height?.takeIf { it > 0 }
+        } ?: 0
+    val (exportWidth, exportHeight) = when (val resolution = snapshot?.exportProfile?.resolution) {
+        RustExportResolution.Source -> sourceWidth to sourceHeight
+        RustExportResolution.Sd480 -> 854 to 480
+        RustExportResolution.Hd720 -> 1280 to 720
+        RustExportResolution.Hd1080 -> 1920 to 1080
+        RustExportResolution.Uhd4k -> 3840 to 2160
+        is RustExportResolution.Custom -> resolution.width to resolution.height
+        null -> 0 to 0
     }
 
     val transformModifier = Modifier
@@ -763,91 +787,129 @@ fun EditorVideoPreview(
             }
 
             else -> {
-                Box(modifier = transformModifier) {
-                    when {
-                        !isPlaying && scrubbedFrame != null -> {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                val bitmap = remember(scrubbedFrame) { scrubbedFrame!!.toImageBitmap() }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = transformModifier) {
+                        when {
+                            !isPlaying && scrubbedFrame != null -> {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    val bitmap = remember(scrubbedFrame) { scrubbedFrame!!.toImageBitmap() }
+                                    Image(
+                                        bitmap = bitmap,
+                                        contentDescription = "Preview",
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .then(clipTransformModifier(primaryDisplay, viewportSize)),
+                                        contentScale = ContentScale.Fit,
+                                    )
+                                }
+                            }
+
+                            canPlayPrimary && lastLoadedPath == primaryVideoPath -> {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    VideoPlayerSurface(
+                                        playerState = playerState,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .then(clipTransformModifier(primaryDisplay, viewportSize)),
+                                    )
+                                }
+                            }
+
+                            thumbnailFallback != null -> {
+                                val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
                                 Image(
                                     bitmap = bitmap,
-                                    contentDescription = "Preview",
+                                    contentDescription = "Thumbnail",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit,
+                                )
+                            }
+
+                            visibleMedia.isNotEmpty() -> {
+                                Icon(
+                                    Icons.Default.VideoFile, null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = Color.White.copy(alpha = 0.3f),
+                                )
+                            }
+                        }
+
+                        backgroundVideos.forEach { bgVideo ->
+                            val bgLocalUs = (playheadMs - bgVideo.startMs) * 1000L
+                            val bgTransformFilter = findTransformFilter(bgVideo.filters)
+                            val bgKfScale = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_SCALE, bgLocalUs)
+                            val bgKfTx = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, bgLocalUs)
+                            val bgKfTy = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, bgLocalUs)
+                            val bgKfRot = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_ROTATE, bgLocalUs)
+                            val hasBgKF = bgKfScale != null || bgKfTx != null || bgKfTy != null || bgKfRot != null
+                            val bgDisplay = clipDisplayValues(bgVideo, bgKfScale, bgKfTx, bgKfTy, bgKfRot, hasBgKF, bgTransformFilter)
+                            val bgEffectiveOpacity = bgVideo.keyframes.evaluate(
+                                KeyframeParams.OPACITY, bgLocalUs,
+                            ) ?: bgVideo.opacity
+                            val bgOffset = playheadMs - bgVideo.startMs
+                            val bgSourceTime = bgVideo.sourceStartMs + (bgOffset * bgVideo.speed).toLong()
+                            BackgroundVideoFrame(
+                                sourcePath = bgVideo.sourcePath,
+                                sourceTimeMs = bgSourceTime,
+                                opacity = bgEffectiveOpacity,
+                                frameGrabber = frameGrabber,
+                                onFrameLoaded = { frame ->
+                                    backgroundFrames = backgroundFrames + (bgVideo.id to frame)
+                                }
+                            )
+
+                            backgroundFrames[bgVideo.id]?.let { frame ->
+                                val bgBitmap = remember(frame) { frame.toImageBitmap() }
+                                Image(
+                                    bitmap = bgBitmap,
+                                    contentDescription = "Background video",
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .then(clipTransformModifier(primaryDisplay, viewportSize)),
+                                        .then(clipTransformModifier(bgDisplay, viewportSize))
+                                        .graphicsLayer { alpha = bgEffectiveOpacity },
                                     contentScale = ContentScale.Fit,
                                 )
                             }
                         }
-
-                        canPlayPrimary && lastLoadedPath == primaryVideoPath -> {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                VideoPlayerSurface(
-                                    playerState = playerState,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .then(clipTransformModifier(primaryDisplay, viewportSize)),
-                                )
-                            }
-                        }
-
-                        thumbnailFallback != null -> {
-                            val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
-                            Image(
-                                bitmap = bitmap,
-                                contentDescription = "Thumbnail",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit,
-                            )
-                        }
-
-                        visibleMedia.isNotEmpty() -> {
-                            Icon(
-                                Icons.Default.VideoFile, null,
-                                modifier = Modifier.size(48.dp),
-                                tint = Color.White.copy(alpha = 0.3f),
-                            )
-                        }
                     }
 
-                    backgroundVideos.forEach { bgVideo ->
-                        val bgLocalUs = (playheadMs - bgVideo.startMs) * 1000L
-                        val bgTransformFilter = findTransformFilter(bgVideo.filters)
-                        val bgKfScale = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_SCALE, bgLocalUs)
-                        val bgKfTx = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, bgLocalUs)
-                        val bgKfTy = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, bgLocalUs)
-                        val bgKfRot = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_ROTATE, bgLocalUs)
-                        val hasBgKF = bgKfScale != null || bgKfTx != null || bgKfTy != null || bgKfRot != null
-                        val bgDisplay = clipDisplayValues(bgVideo, bgKfScale, bgKfTx, bgKfTy, bgKfRot, hasBgKF, bgTransformFilter)
-                        val bgEffectiveOpacity = bgVideo.keyframes.evaluate(
-                            KeyframeParams.OPACITY, bgLocalUs,
-                        ) ?: bgVideo.opacity
-                        val bgOffset = playheadMs - bgVideo.startMs
-                        val bgSourceTime = bgVideo.sourceStartMs + (bgOffset * bgVideo.speed).toLong()
-                        BackgroundVideoFrame(
-                            sourcePath = bgVideo.sourcePath,
-                            sourceTimeMs = bgSourceTime,
-                            opacity = bgEffectiveOpacity,
-                            frameGrabber = frameGrabber,
-                            onFrameLoaded = { frame ->
-                                backgroundFrames = backgroundFrames + (bgVideo.id to frame)
+                    if (exportWidth > 0 && exportHeight > 0) {
+                        val exportFrameRect = remember(viewportSize, exportWidth, exportHeight) {
+                            val vw = viewportSize.width.toFloat()
+                            val vh = viewportSize.height.toFloat()
+                            val exportAspect = exportWidth.toFloat() / exportHeight.toFloat()
+                            val viewAspect = vw / vh
+                            val (fw, fh) = if (exportAspect > viewAspect) {
+                                vw to vw / exportAspect
+                            } else {
+                                vh * exportAspect to vh
                             }
-                        )
+                            val fx = (vw - fw) / 2f
+                            val fy = (vh - fh) / 2f
+                            Rect(fx, fy, fx + fw, fy + fh)
+                        }
 
-                        backgroundFrames[bgVideo.id]?.let { frame ->
-                            val bgBitmap = remember(frame) { frame.toImageBitmap() }
-                            Image(
-                                bitmap = bgBitmap,
-                                contentDescription = "Background video",
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .then(clipTransformModifier(bgDisplay, viewportSize))
-                                    .graphicsLayer { alpha = bgEffectiveOpacity },
-                                contentScale = ContentScale.Fit,
+                        val nonExportColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                        val exportColor = Color.Transparent  // .copy(alpha = 0.10f)
+                        val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            drawRect(exportColor, topLeft = Offset(exportFrameRect.left, exportFrameRect.top), size = Size(exportFrameRect.width, exportFrameRect.height))
+
+                            drawRect(nonExportColor, topLeft = Offset(0f, 0f), size = Size(size.width, exportFrameRect.top))
+                            drawRect(nonExportColor, topLeft = Offset(0f, exportFrameRect.bottom), size = Size(size.width, size.height - exportFrameRect.bottom))
+                            drawRect(nonExportColor, topLeft = Offset(0f, exportFrameRect.top), size = Size(exportFrameRect.left, exportFrameRect.height))
+                            drawRect(nonExportColor, topLeft = Offset(exportFrameRect.right, exportFrameRect.top), size = Size(size.width - exportFrameRect.right, exportFrameRect.height))
+
+                            drawRect(
+                                borderColor,
+                                topLeft = Offset(exportFrameRect.left, exportFrameRect.top),
+                                size = Size(exportFrameRect.width, exportFrameRect.height),
+                                style = Stroke(width = 2.dp.toPx()),
                             )
                         }
                     }
                 }
-
             }
         }
     }
