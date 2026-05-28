@@ -140,7 +140,7 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
 
       - name: Install system dependencies
-        run: sudo apt update && sudo apt install -y libva-dev
+        run: sudo apt update && sudo apt install -y libva-dev libgbm-dev
 
       - name: Install Rust + cargo-ndk + Android targets
         run: |
