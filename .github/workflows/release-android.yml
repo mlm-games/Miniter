@@ -144,7 +144,7 @@ jobs:
 
       - name: Install Rust + cargo-ndk + Android targets
         run: |
-          rustup default nightly  # rustup comes preinstalled
+          rustup show   # rust comes preinstalled
           rustup target add \
             aarch64-linux-android \
             armv7-linux-androideabi \
