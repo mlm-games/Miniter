@@ -32,7 +32,7 @@ okio = "3.17.0"
 ffmpegkit = "6.1.4"
 composeMediaPlayer = "0.10.0"
 apkDist = "0.5.2"
-rustUniffi = "0.2.1"
+rustUniffi = "0.2.3"
 jna = "5.18.1"
 
 
