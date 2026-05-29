@@ -34,9 +34,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Get version
         id: get_version
         run: |
@@ -46,6 +43,9 @@ jobs:
             VERSION="${{ github.event.release.tag_name }}"
           fi
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Install system dependencies
+        run: sudo apt update && sudo apt install -y libva-dev libgbm-dev
 
       - name: Vendor Rust dependencies
         run: |
