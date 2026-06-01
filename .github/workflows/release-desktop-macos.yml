@@ -72,6 +72,14 @@ jobs:
         run: |
           ./gradlew :desktopApp:packageDmg --no-daemon
 
+      - name: Print jpackage error logs on failure
+        if: failure()
+        run: |
+          echo "== JPACKAGE ERROR LOG =="
+          cat desktopApp/build/compose/logs/createDistributable/jpackage-*-err.txt || echo "No error log found"
+          echo "== JPACKAGE OUTPUT LOG =="
+          cat desktopApp/build/compose/logs/createDistributable/jpackage-*-out.txt || echo "No output log found
+
       - name: Import signing certificate
         if: ${{ inputs.sign_and_notarize }}
         uses: apple-actions/import-codesign-certs@v3
