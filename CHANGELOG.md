@@ -1,3 +1,8 @@
+## v0.6.3
+
+- Display only encoding hw codecs for linux in export UI
+
+
 ## v0.6.1
 
 - Add image support via image crate
