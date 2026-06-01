@@ -45,3 +45,8 @@ mediacodec = { git = "https://github.com/mlm-games/rust_mediacodec", package = "
 # ass-core = { path = "../../../Documents/Repos/ass-rs/crates/ass-core" }
 # cros-libva = { path = "../../../Documents/Repos/cros-libva/lib" }
 # cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
+
+[profile.release] # try fix fdroid release
+opt-level = 3
+lto = "fat"
+codegen-units = 1
