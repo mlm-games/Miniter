@@ -1,6 +1,10 @@
 package org.mlm.miniter.ui.components.dialogs
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.KeyboardOptions
+import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.platform.openSaveFileDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
@@ -8,6 +12,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.vinceglb.filekit.FileKit
 import io.github.vinceglb.filekit.PlatformFile
@@ -48,16 +54,33 @@ fun ConfirmDialog(
 
 @Composable
 fun NewProjectDialog(
-    mediaPath: String,
-    mediaName: String,
+    mediaPath: String? = null,
+    mediaName: String? = null,
     onDismiss: () -> Unit,
-    onCreate: (projectName: String, savePath: String) -> Unit,
+    onCreate: (projectName: String, savePath: String, resolution: RustExportResolution, fps: Int) -> Unit,
 ) {
-    var projectName by remember { mutableStateOf(mediaName.substringBeforeLast(".")) }
+    val isBlank = mediaPath == null
+    var projectName by remember { mutableStateOf(mediaName?.substringBeforeLast(".") ?: "Untitled") }
     var saveFile by remember { mutableStateOf<PlatformFile?>(null) }
+    var useSourceResolution by remember { mutableStateOf(!isBlank) }
+    var customWidth by remember { mutableStateOf("1920") }
+    var customHeight by remember { mutableStateOf("1080") }
+    var fpsText by remember { mutableStateOf("30") }
     val scope = rememberCoroutineScope()
 
     val savePath = saveFile?.platformPath() ?: defaultProjectSavePath(projectName.ifBlank { "project" })
+
+    val parsedFps = fpsText.toIntOrNull() ?: 0
+    val customW = customWidth.toIntOrNull() ?: 0
+    val customH = customHeight.toIntOrNull() ?: 0
+    val hasValidResolution = useSourceResolution || (customW > 0 && customH > 0)
+    val isValid = projectName.isNotBlank() && hasValidResolution && parsedFps in 1..240
+
+    val finalResolution = if (useSourceResolution) {
+        RustExportResolution.Source
+    } else {
+        RustExportResolution.Custom(customW, customH)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -115,12 +138,68 @@ fun NewProjectDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                HorizontalDivider()
+
+                Text("Resolution & FPS", style = MaterialTheme.typography.titleSmall)
+                Column(Modifier.selectableGroup()) {
+                    Row(Modifier.fillMaxWidth().selectable(
+                        selected = useSourceResolution,
+                        onClick = { useSourceResolution = true },
+                        role = Role.RadioButton,
+                    ), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(useSourceResolution, onClick = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (isBlank) "Source (no video)" else "Source (match source video)",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth().selectable(
+                        selected = !useSourceResolution,
+                        onClick = { useSourceResolution = false },
+                        role = Role.RadioButton,
+                    ), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(!useSourceResolution, onClick = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Custom", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                if (!useSourceResolution) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = customWidth,
+                            onValueChange = { customWidth = it.filter { c -> c.isDigit() } },
+                            label = { Text("Width") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        )
+                        Text("×", style = MaterialTheme.typography.titleMedium)
+                        OutlinedTextField(
+                            value = customHeight,
+                            onValueChange = { customHeight = it.filter { c -> c.isDigit() } },
+                            label = { Text("Height") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        )
+                        OutlinedTextField(
+                            value = fpsText,
+                            onValueChange = { fpsText = it.filter { c -> c.isDigit() } },
+                            label = { Text("FPS") },
+                            singleLine = true,
+                            modifier = Modifier.width(80.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onCreate(projectName, savePath) },
-                enabled = projectName.isNotBlank(),
+                onClick = { onCreate(projectName, savePath, finalResolution, parsedFps) },
+                enabled = isValid,
             ) {
                 Text("Create")
             }
