@@ -383,11 +383,46 @@ class ProjectViewModel(
         projectName: String,
         savePath: String?,
         openAsProject: Boolean = false,
+        resolution: RustExportResolution? = null,
+        fps: Int? = null,
     ) {
-        if (openAsProject) {
-            loadProject(videoPath)
-        } else {
-            newProject(projectName, videoPath, savePath)
+        when {
+            openAsProject -> loadProject(videoPath)
+            videoPath.isEmpty() -> createBlankProject(projectName, savePath, resolution ?: RustExportResolution.Hd1080, fps ?: 30)
+            else -> newProject(projectName, videoPath, savePath)
+        }
+    }
+
+    fun createBlankProject(
+        name: String,
+        savePath: String? = null,
+        resolution: RustExportResolution = RustExportResolution.Hd1080,
+        fps: Int = 30,
+    ) {
+        viewModelScope.launch {
+            _state.update { it.copy(isLoading = true) }
+            try {
+                rustStore.create(name)
+                val currentProfile = rustStore.snapshot.value?.exportProfile
+                if (currentProfile != null) {
+                    updateExportProfile(
+                        currentProfile.copy(resolution = resolution, fps = fps.toDouble())
+                    )
+                } else {
+                    syncFromRust(
+                        projectPath = savePath,
+                        selectedTrackId = null,
+                        selectedClipId = null,
+                        playheadMs = 0L,
+                        isDirty = true,
+                    )
+                }
+                if (savePath != null) {
+                    recentProjectsRepository.addRecent(savePath, name)
+                }
+            } catch (e: Exception) {
+                handleError("Failed to create project: ${e.message}")
+            }
         }
     }
 

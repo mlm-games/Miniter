@@ -69,9 +69,9 @@ fun App() {
                         entry<Route.Editor> {
                             EditorScreen(
                                 onOpenSettings = { backStack.add(Route.Settings) },
-                                onOpenProject = { path, name, savePath, openAsProject ->
-                                    backStack.add(Route.Project(path, name, savePath, openAsProject))
-                                }
+                                onOpenProject = { path, name, savePath, openAsProject, resolution, fps ->
+                                    backStack.add(Route.Project(path, name, savePath, openAsProject, resolution, fps))
+                                },
                             )
                         }
 
@@ -86,6 +86,8 @@ fun App() {
                                 backStack = backStack,
                                 savePath = key.savePath,
                                 openAsProject = key.openAsProject,
+                                resolution = key.resolution,
+                                fps = key.fps,
                             )
                         }
 

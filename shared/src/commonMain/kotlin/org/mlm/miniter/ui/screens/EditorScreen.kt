@@ -18,6 +18,7 @@ import io.github.vinceglb.filekit.dialogs.FileKitType
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import io.github.vinceglb.filekit.name
 import org.koin.compose.koinInject
+import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.project.RecentProject
@@ -29,7 +30,7 @@ import org.mlm.miniter.viewmodel.ProjectViewModel
 @Composable
 fun EditorScreen(
     onOpenSettings: () -> Unit,
-    onOpenProject: (String, String, String?, Boolean) -> Unit,
+    onOpenProject: (String, String, String?, Boolean, RustExportResolution, Int) -> Unit,
     editorViewModel: EditorViewModel = koinInject(),
 ) {
     val snackbarManager: SnackbarManager = koinInject()
@@ -51,7 +52,7 @@ fun EditorScreen(
     val projectPicker = rememberFilePickerLauncher(
         type = FileKitType.File(extensions = listOf("mntr")),
     ) { file: PlatformFile? ->
-        file?.let { onOpenProject(it.platformPath(), it.name, null, true) }
+        file?.let { onOpenProject(it.platformPath(), it.name, null, true, RustExportResolution.Source, 30) }
     }
 
     pendingImportFile?.let { file ->
@@ -59,9 +60,9 @@ fun EditorScreen(
             mediaPath = file.platformPath(),
             mediaName = file.name,
             onDismiss = { pendingImportFile = null },
-            onCreate = { projectName, savePath ->
+            onCreate = { projectName, savePath, resolution, fps ->
                 pendingImportFile = null
-                onOpenProject(file.platformPath(), projectName, savePath, false)
+                onOpenProject(file.platformPath(), projectName, savePath, false, resolution, fps)
             },
         )
     }
@@ -98,7 +99,7 @@ fun EditorScreen(
             Spacer(Modifier.height(32.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { mediaPicker.launch() }, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = { mediaPicker.launch() }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.FolderOpen, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("Open Media")
@@ -132,7 +133,7 @@ fun EditorScreen(
                         RecentProjectItem(
                             recent = recent,
                             onClick = {
-                                onOpenProject(recent.path, recent.name, null, true)
+                                onOpenProject(recent.path, recent.name, null, true, RustExportResolution.Source, 30)
                             },
                             onRemove = { editorViewModel.removeRecent(recent.path) },
                         )

@@ -11,6 +11,7 @@ import androidx.savedstate.serialization.SavedStateConfiguration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
+import org.mlm.miniter.editor.model.RustExportResolution
 
 const val NAV_ANIM_DURATION = 450
 
@@ -25,6 +26,8 @@ sealed interface Route : NavKey {
         val name: String,
         val savePath: String? = null,
         val openAsProject: Boolean = false,
+        val resolution: RustExportResolution? = null,
+        val fps: Int? = null,
     ) : Route
     @Serializable data class Export(val projectPath: String) : Route
 }

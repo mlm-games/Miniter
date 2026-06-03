@@ -24,6 +24,7 @@ import androidx.navigation3.runtime.NavKey
 import io.github.vinceglb.filekit.FileKit
 import io.github.vinceglb.filekit.PlatformFile
 import io.github.mlmgames.settings.core.SettingsRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.mlm.miniter.platform.getHardwareAccelerationName
@@ -94,6 +95,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     var quality by remember(profileQuality) { mutableFloatStateOf(profileQuality) }
     var customWidth by remember(displayWidth) { mutableStateOf(displayWidth.takeIf { it > 0 }?.toString() ?: "") }
     var customHeight by remember(displayHeight) { mutableStateOf(displayHeight.takeIf { it > 0 }?.toString() ?: "") }
+    var customFps by remember(profile?.fps) { mutableStateOf(profile?.fps?.toInt()?.toString() ?: "30") }
     var subtitleMode by remember(profile?.subtitleMode) {
         mutableStateOf(profile?.subtitleMode ?: RustSubtitleMode.Soft)
     }
@@ -123,6 +125,29 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
 
     DisposableEffect(Unit) {
         onDispose { vm.resetExport() }
+    }
+
+    LaunchedEffect(customWidth, customHeight, customFps) {
+        if (isExporting) return@LaunchedEffect
+        val w = customWidth.toIntOrNull() ?: 0
+        val h = customHeight.toIntOrNull() ?: 0
+        val f = customFps.toIntOrNull() ?: 0
+        if (w > 0 && h > 0) {
+            delay(500)
+            val newResolution = when {
+                hasSourceDimensions && w == sourceWidth && h == sourceHeight -> RustExportResolution.Source
+                w == 854 && h == 480 -> RustExportResolution.Sd480
+                w == 1280 && h == 720 -> RustExportResolution.Hd720
+                w == 1920 && h == 1080 -> RustExportResolution.Hd1080
+                w == 3840 && h == 2160 -> RustExportResolution.Uhd4k
+                else -> RustExportResolution.Custom(w, h)
+            }
+            val currentProfile = profile ?: return@LaunchedEffect
+            val newFps = if (f in 1..240) f.toDouble() else currentProfile.fps
+            if (newResolution != currentProfile.resolution || newFps != currentProfile.fps) {
+                vm.updateExportProfile(currentProfile.copy(resolution = newResolution, fps = newFps))
+            }
+        }
     }
 
     fun launchFileSaver(suggestedName: String, extension: String) {
@@ -232,6 +257,18 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     modifier = Modifier.weight(1f),
                     enabled = !isExporting,
                     supportingText = { Text(sourceHintText) },
+                )
+            }
+
+            Text("Frame Rate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = customFps,
+                    onValueChange = { customFps = it.filter { c -> c.isDigit() } },
+                    label = { Text("FPS") },
+                    singleLine = true,
+                    modifier = Modifier.width(100.dp),
+                    enabled = !isExporting,
                 )
             }
 
@@ -533,7 +570,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                                 )
                                                 else -> RustExportResolution.Source
                                             },
-                                            fps = 30.0,
+                                            fps = (customFps.toIntOrNull()?.coerceIn(1, 240) ?: 30).toDouble(),
                                             videoBitrateKbps = (500 + quality * 80).toInt().coerceAtLeast(500),
                                             audioBitrateKbps = 192,
                                             audioSampleRate = 48_000,

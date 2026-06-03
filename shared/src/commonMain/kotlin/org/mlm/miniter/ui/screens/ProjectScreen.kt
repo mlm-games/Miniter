@@ -13,6 +13,7 @@ import io.github.vinceglb.filekit.dialogs.FileKitType
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
@@ -40,6 +41,8 @@ fun ProjectScreen(
     backStack: NavBackStack<NavKey>,
     savePath: String? = null,
     openAsProject: Boolean = false,
+    resolution: RustExportResolution? = null,
+    fps: Int? = null,
 ) {
     val vm: ProjectViewModel = koinInject()
     val uiState by vm.state.collectAsState()
@@ -79,7 +82,7 @@ fun ProjectScreen(
 
     LaunchedEffect(videoPath) {
         if (snapshot == null) {
-            vm.initProject(videoPath, videoName, savePath, openAsProject)
+            vm.initProject(videoPath, videoName, savePath, openAsProject, resolution, fps)
         }
     }
 
