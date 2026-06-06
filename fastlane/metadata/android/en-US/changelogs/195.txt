@@ -1,0 +1,2 @@
+- provide an option to select custom resolution & fps on project creation
+- sync resolution changes from export screen to preview panel

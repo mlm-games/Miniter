@@ -23,6 +23,14 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.6.4" date="2026-06-06" type="stable">
+      <description>
+        <ul>
+          <li>provide an option to select custom resolution &amp; fps on project creation</li>
+          <li>sync resolution changes from export screen to preview panel</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.6.3" date="2026-06-01" type="stable">
       <description>
         <ul>

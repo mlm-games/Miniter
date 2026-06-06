@@ -1,3 +1,9 @@
+## v0.6.4
+
+- provide an option to select custom resolution & fps on project creation
+- sync resolution changes from export screen to preview panel
+
+
 ## v0.6.3
 
 - Display only encoding hw codecs for linux in export UI
