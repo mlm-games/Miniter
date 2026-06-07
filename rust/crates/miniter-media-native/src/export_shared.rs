@@ -720,16 +720,16 @@ pub(crate) fn encode_opus(
     mixed: &miniter_audio::mix::MixedAudio,
     bitrate_bps: u32,
 ) -> Result<EncodedOpus, String> {
-    use mousiki::{
-        Application as MousikiApplication, Bitrate as MousikiBitrate, Channels as MousikiChannels,
-        Encoder as MousikiEncoder, FrameDuration as MousikiFrameDuration,
+    use oporus::{
+        Application as OporusApplication, Bitrate as OporusBitrate, Channels as OporusChannels,
+        Encoder as OporusEncoder, FrameDuration as OporusFrameDuration,
     };
 
     let channels = mixed.channels;
 
-    let mousiki_channels = match channels {
-        1 => MousikiChannels::Mono,
-        2 => MousikiChannels::Stereo,
+    let oporus_channels = match channels {
+        1 => OporusChannels::Mono,
+        2 => OporusChannels::Stereo,
         other => return Err(format!("Unsupported channel count: {other}")),
     };
 
@@ -749,13 +749,13 @@ pub(crate) fn encode_opus(
     };
 
     let mut encoder =
-        MousikiEncoder::builder(sample_rate, mousiki_channels, MousikiApplication::Audio)
-            .bitrate(MousikiBitrate::Bits(bitrate_bps.min(i32::MAX as u32) as i32))
+        OporusEncoder::builder(sample_rate, oporus_channels, OporusApplication::Audio)
+            .bitrate(OporusBitrate::Bits(bitrate_bps.min(i32::MAX as u32) as i32))
             .complexity(10)
             .vbr(false)
             .inband_fec(false)
             .packet_loss_perc(0)
-            .frame_duration(MousikiFrameDuration::Ms20)
+            .frame_duration(OporusFrameDuration::Ms20)
             .build()
             .map_err(|e| format!("Opus encoder init failed: {e:?}"))?;
 

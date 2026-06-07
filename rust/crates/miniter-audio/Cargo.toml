@@ -6,9 +6,16 @@ edition.workspace = true
 [dependencies]
 miniter-domain = { path = "../miniter-domain" }
 symphonia = { version = "0.6", features = [
-    "aac", "alac", "flac", "mpa", "vorbis",
-    "isomp4", "mkv", "ogg", "wav",
+    "aac",
+    "alac",
+    "flac",
+    "mpa",
+    "vorbis",
+    "isomp4",
+    "mkv",
+    "ogg",
+    "wav",
 ] }
-symphonia-adapter-mousiki.workspace = true
+symphonia-adapter-oporus.workspace = true
 thiserror.workspace = true
 log.workspace = true

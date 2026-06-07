@@ -7,7 +7,7 @@ pub fn get_codecs() -> &'static CodecRegistry {
     REGISTRY.get_or_init(|| {
         let mut registry = CodecRegistry::new();
         symphonia::default::register_enabled_codecs(&mut registry);
-        registry.register_audio_decoder::<symphonia_adapter_mousiki::OpusDecoder>();
+        registry.register_audio_decoder::<symphonia_adapter_oporus::OpusDecoder>();
         registry
     })
 }

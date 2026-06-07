@@ -1515,7 +1515,7 @@ dependencies = [
  "log",
  "miniter-domain",
  "symphonia",
- "symphonia-adapter-mousiki",
+ "symphonia-adapter-oporus",
  "thiserror 2.0.18",
 ]
 
@@ -1547,7 +1547,7 @@ dependencies = [
  "miniter-media-native",
  "miniter-render-plan",
  "miniter-usecases",
- "mousiki",
+ "oporus",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -1578,9 +1578,9 @@ dependencies = [
  "miniter-audio",
  "miniter-domain",
  "miniter-render-plan",
- "mousiki",
  "mp4",
  "muxide",
+ "oporus",
  "palette",
  "rav1e",
  "symphonia",
@@ -1621,17 +1621,6 @@ checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
  "simd-adler32",
-]
-
-[[package]]
-name = "mousiki"
-version = "0.2.2"
-source = "git+https://github.com/mlm-games/mousiki-recovered#b95b0565f9cb98a2863c9cbf54f4694a1c68fb53"
-dependencies = [
- "bitflags 2.11.1",
- "cfg-if",
- "libm",
- "log",
 ]
 
 [[package]]
@@ -1825,6 +1814,18 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "oporus"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a6e57342fbf0d69472e56a00c870b3e052062139e0b0da33eb502b2c6e13582"
+dependencies = [
+ "bitflags 2.11.1",
+ "cfg-if",
+ "libm",
+ "log",
+]
 
 [[package]]
 name = "palette"
@@ -2604,12 +2605,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "symphonia-adapter-mousiki"
-version = "0.1.1"
-source = "git+https://github.com/mlm-games/symphonia-adapter-mousiki#53ec055676641314ccea5ce49fe2863c34ea8948"
+name = "symphonia-adapter-oporus"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b2c9fc1c54fac0729f76075ec6cb4143d50233ba2af47be169e341e964c27aa"
 dependencies = [
  "log",
- "mousiki",
+ "oporus",
  "symphonia-core",
 ]
 

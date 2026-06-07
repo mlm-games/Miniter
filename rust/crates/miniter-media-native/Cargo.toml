@@ -12,7 +12,14 @@ log.workspace = true
 web-time.workspace = true
 
 # Image loading (PNG, JPG, WebP, GIF, BMP, TIFF)
-image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"] }
+image = { version = "0.24", default-features = false, features = [
+    "png",
+    "jpeg",
+    "webp",
+    "gif",
+    "bmp",
+    "tiff",
+] }
 
 # Container demux/mux
 mp4 = "0.14"
@@ -27,11 +34,11 @@ rav1e = { version = "0.8", default-features = false }
 ivf = "0.1"
 av-ivf = "0.5"
 
-# symphonia: video demux via MKV/WebM (VP8/VP9/AV1/etc.) + audio
+# video demux via MKV/WebM (VP8/VP9/AV1/etc.) + audio
 symphonia = { version = "0.6", features = ["isomp4", "mkv", "pcm", "ogg"] }
 
 # Opus encoding
-mousiki = { git = "https://github.com/mlm-games/mousiki-recovered"}
+oporus = "0.2.4"
 
 fast_image_resize = "6.0"
 
@@ -46,17 +53,27 @@ videoson = { version = "0.1", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
-ass-renderer = { git = "https://github.com/mlm-games/ass-rs", default-features = false, features = ["software-backend", "image", "simd"] }
+ass-renderer = { git = "https://github.com/mlm-games/ass-rs", default-features = false, features = [
+    "software-backend",
+    "image",
+    "simd",
+] }
 ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
 
 [target.'cfg(all(target_os = "android", target_arch = "aarch64"))'.dependencies]
-baabaabaabaabababbababbaa = { workspace = true, features = ["android"], optional = true }
+baabaabaabaabababbababbaa = { workspace = true, features = [
+    "android",
+], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-baabaabaabaabababbababbaa = { workspace = true, features = ["linux"], optional = true }
+baabaabaabaabababbababbaa = { workspace = true, features = [
+    "linux",
+], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-baabaabaabaabababbababbaa = { workspace = true, features = ["web-codecs"], optional = true }
+baabaabaabaabababbababbaa = { workspace = true, features = [
+    "web-codecs",
+], optional = true }
 web-codecs = "0.3"
 tokio = { version = "1", features = ["rt", "sync", "macros"] }
 web-sys = { version = "0.3.99", features = ["Window", "Document", "Storage"] }

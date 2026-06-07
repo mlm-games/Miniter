@@ -23,7 +23,7 @@ log = "0.4"
 anyhow = "1"
 web-time = "1.1.0"
 uniffi = { version = "0.31", features = ["wasm-unstable-single-threaded"] }
-symphonia-adapter-mousiki = { git = "https://github.com/mlm-games/symphonia-adapter-mousiki" }
+symphonia-adapter-oporus = "0.1.3"
 baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
 # baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baabaabaabaabababbababbaa" }
 
