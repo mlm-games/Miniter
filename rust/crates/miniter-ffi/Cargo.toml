@@ -17,27 +17,20 @@ uniffi.workspace = true
 serde_json.workspace = true
 log.workspace = true
 thiserror.workspace = true
-image = { version = "0.25", default-features = false, features = [
-    "png",
-    "jpeg",
-    "webp",
-    "gif",
-    "bmp",
-    "tiff",
-] }
+image.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.4", features = ["wasm_js"] }
+getrandom.workspace = true
 wasm-bindgen = "=0.2.122"
 serde-wasm-bindgen = "0.6"
 console_error_panic_hook = "0.1"
-wasm-bindgen-futures = "=0.4.72"
+wasm-bindgen-futures.workspace = true
 base64 = "0.22"
 js-sys = "0.3.99"
-ivf = "0.1"
-oporus = "0.2.4"
-font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
-web-sys = { version = "0.3.99", features = [
+ivf.workspace = true
+oporus.workspace = true
+font8x8.workspace = true
+web-sys = { workspace = true, features = [
     "Blob",
     "BlobPropertyBag",
     "CssStyleDeclaration",

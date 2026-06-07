@@ -11,39 +11,24 @@ thiserror.workspace = true
 log.workspace = true
 web-time.workspace = true
 
-# Image loading (PNG, JPG, WebP, GIF, BMP, TIFF)
-image = { version = "0.25", default-features = false, features = [
-    "png",
-    "jpeg",
-    "webp",
-    "gif",
-    "bmp",
-    "tiff",
-] }
+image.workspace = true
 
-# Container demux/mux
 mp4 = "0.14"
 muxide = "0.2"
 
-# H.264 encoder
 less-avc = { version = "0.1.5" }
-# openh264 = { version = "0.9", optional = true }  # TODO: only if requested / av1 is not preferred
 
-# AV1
 rav1e = { version = "0.8", default-features = false }
-ivf = "0.1"
+ivf.workspace = true
 av-ivf = "0.5"
 
-# video demux via MKV/WebM (VP8/VP9/AV1/etc.) + audio
-symphonia = { version = "0.6", features = ["isomp4", "mkv", "pcm", "ogg"] }
+symphonia = { workspace = true, features = ["isomp4", "mkv", "pcm", "ogg"] }
 
-# Opus encoding
-oporus = "0.2.4"
+oporus.workspace = true
 
 fast_image_resize = "6.0"
 
-# Text rendering for export
-font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
+font8x8.workspace = true
 
 libblur = "0.24"
 palette = "0.7"
@@ -76,9 +61,9 @@ baabaabaabaabababbababbaa = { workspace = true, features = [
 ], optional = true }
 web-codecs = "0.3"
 tokio = { version = "1", features = ["rt", "sync", "macros"] }
-web-sys = { version = "0.3.99", features = ["Window", "Document", "Storage"] }
-getrandom = { version = "0.4", features = ["wasm_js"] }
-wasm-bindgen-futures = "0.4"
+web-sys = { workspace = true, features = ["Window", "Document", "Storage"] }
+getrandom.workspace = true
+wasm-bindgen-futures.workspace = true
 less-avc = { version = "0.1.5", optional = true }
 
 [features]
@@ -88,5 +73,4 @@ videoson = ["dep:videoson", "videoson/h264"]
 
 av1 = ["dep:videoson", "videoson/rav1d"]
 
-# Use hw-decoder (native platform decoder) if available
 hw-decoder = ["dep:baabaabaabaabababbababbaa"]

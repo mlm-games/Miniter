@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 miniter-domain = { path = "../miniter-domain" }
-symphonia = { version = "0.6", features = [
+symphonia = { workspace = true, features = [
     "aac",
     "alac",
     "flac",
