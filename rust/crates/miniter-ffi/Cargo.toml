@@ -17,7 +17,7 @@ uniffi.workspace = true
 serde_json.workspace = true
 log.workspace = true
 thiserror.workspace = true
-image = { version = "0.24", default-features = false, features = [
+image = { version = "0.25", default-features = false, features = [
     "png",
     "jpeg",
     "webp",
@@ -27,7 +27,7 @@ image = { version = "0.24", default-features = false, features = [
 ] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen = "=0.2.122"
 serde-wasm-bindgen = "0.6"
 console_error_panic_hook = "0.1"

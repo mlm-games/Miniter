@@ -12,7 +12,7 @@ log.workspace = true
 web-time.workspace = true
 
 # Image loading (PNG, JPG, WebP, GIF, BMP, TIFF)
-image = { version = "0.24", default-features = false, features = [
+image = { version = "0.25", default-features = false, features = [
     "png",
     "jpeg",
     "webp",
@@ -77,7 +77,7 @@ baabaabaabaabababbababbaa = { workspace = true, features = [
 web-codecs = "0.3"
 tokio = { version = "1", features = ["rt", "sync", "macros"] }
 web-sys = { version = "0.3.99", features = ["Window", "Document", "Storage"] }
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen-futures = "0.4"
 less-avc = { version = "0.1.5", optional = true }
 
