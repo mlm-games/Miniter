@@ -1,10 +1,8 @@
-use std::fs::File;
 use std::path::Path;
+
 use symphonia::core::codecs::audio::AudioDecoderOptions;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::formats::probe::Hint;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
+
+use crate::util;
 
 #[derive(Debug, Clone)]
 pub struct LoudnessProfile {
@@ -31,20 +29,8 @@ pub fn scan_loudness(
     if chunk_duration_us <= 0 {
         return Err(LoudnessError::InvalidChunkDuration);
     }
-    let file = File::open(path)?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-    let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-
-    let mut reader = symphonia::default::get_probe().probe(
-        &hint,
-        mss,
-        FormatOptions::default(),
-        MetadataOptions::default(),
-    )?;
+    let (mss, ext) = util::open_mss_from_path(path)?;
+    let mut reader = util::probe(mss, ext.as_deref())?;
 
     let track = reader
         .tracks()

@@ -1516,12 +1516,12 @@ fn render_node(
                 height,
             );
             apply_video_filters(&mut fitted, width, height, filters);
-            apply_global_alpha(&mut fitted, *opacity);
+            filters::scale_alpha(&mut fitted, *opacity);
             Ok(fitted)
         }
         RenderNode::Text { overlay, opacity } => {
             let mut img = render_text_overlay(overlay, width, height);
-            apply_global_alpha(&mut img, *opacity);
+            filters::scale_alpha(&mut img, *opacity);
             Ok(img)
         }
         RenderNode::Subtitle {
@@ -1554,7 +1554,7 @@ fn render_node(
             };
 
             let mut img = render_text_overlay(&overlay, width, height);
-            apply_global_alpha(&mut img, *opacity);
+            filters::scale_alpha(&mut img, *opacity);
             Ok(img)
         }
         RenderNode::Stack(children) => {
@@ -1580,9 +1580,9 @@ fn render_node(
                 | miniter_domain::transition::TransitionKind::Dissolve => {
                     let (bottom_a, top_a) = opacity_pair(*kind, eased);
                     let mut canvas = bottom_img;
-                    apply_global_alpha(&mut canvas, bottom_a);
+                    filters::scale_alpha(&mut canvas, bottom_a);
                     let mut top_layer = top_img;
-                    apply_global_alpha(&mut top_layer, top_a);
+                    filters::scale_alpha(&mut top_layer, top_a);
                     alpha_over(&mut canvas, &top_layer);
                     Ok(canvas)
                 }

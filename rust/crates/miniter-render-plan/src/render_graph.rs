@@ -229,25 +229,7 @@ fn node_for_clip(
             if let Some(fs) = clip.keyframes.evaluate(param::TEXT_FONT_SIZE, local_offset) {
                 modified.style.font_size = fs;
             }
-
-            if let Some(ref trans) = clip.transition_in {
-                let progress = transition_progress(clip, trans, t);
-                if progress < 1.0 {
-                    let eased = ease_in_out(progress);
-                    let (_, text_a) = opacity_pair(trans.kind, eased);
-                    opacity *= text_a;
-                }
-            }
-
-            if let Some(ref trans) = clip.transition_out {
-                let out_progress = transition_out_progress(clip, trans, t);
-                if out_progress < 1.0 {
-                    let eased = ease_in_out(out_progress);
-                    let (fade_a, _) = opacity_pair(trans.kind, eased);
-                    opacity *= fade_a;
-                }
-            }
-
+            apply_opacity_from_clip_transitions(clip, t, &mut opacity);
             Some(RenderNode::Text {
                 overlay: modified,
                 opacity,
@@ -255,25 +237,7 @@ fn node_for_clip(
         }
         ClipKind::Subtitle(sub) => {
             let mut opacity = clip_opacity_at(clip, local_offset);
-
-            if let Some(ref trans) = clip.transition_in {
-                let progress = transition_progress(clip, trans, t);
-                if progress < 1.0 {
-                    let eased = ease_in_out(progress);
-                    let (_, text_a) = opacity_pair(trans.kind, eased);
-                    opacity *= text_a;
-                }
-            }
-
-            if let Some(ref trans) = clip.transition_out {
-                let out_progress = transition_out_progress(clip, trans, t);
-                if out_progress < 1.0 {
-                    let eased = ease_in_out(out_progress);
-                    let (fade_a, _) = opacity_pair(trans.kind, eased);
-                    opacity *= fade_a;
-                }
-            }
-
+            apply_opacity_from_clip_transitions(clip, t, &mut opacity);
             match subtitle_mode {
                 SubtitleMode::Hard => Some(RenderNode::Subtitle {
                     source_path: sub.source_path.clone(),
@@ -285,6 +249,26 @@ fn node_for_clip(
             }
         }
         _ => None,
+    }
+}
+
+fn apply_opacity_from_clip_transitions(clip: &Clip, t: Timestamp, opacity: &mut f32) {
+    if let Some(ref trans) = clip.transition_in {
+        let progress = transition_progress(clip, trans, t);
+        if progress < 1.0 {
+            let eased = ease_in_out(progress);
+            let (_, text_a) = opacity_pair(trans.kind, eased);
+            *opacity *= text_a;
+        }
+    }
+
+    if let Some(ref trans) = clip.transition_out {
+        let out_progress = transition_out_progress(clip, trans, t);
+        if out_progress < 1.0 {
+            let eased = ease_in_out(out_progress);
+            let (fade_a, _) = opacity_pair(trans.kind, eased);
+            *opacity *= fade_a;
+        }
     }
 }
 

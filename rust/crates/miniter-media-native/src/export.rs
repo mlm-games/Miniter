@@ -1,6 +1,10 @@
 use crate::HARDWARE_FALLBACK_OCCURRED;
+
 use crate::clear_session_cache;
+
 use crate::decoder::{DecodeError, VideoDecodeSession};
+
+use crate::filters;
 use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
 use crate::encoder_hw::HwEncodeSession;
@@ -431,10 +435,6 @@ struct ExportDecodeCache {
     hardware_acceleration: bool,
 }
 
-fn is_image_file(path: &Path) -> bool {
-    path.to_str().map_or(false, is_image_path)
-}
-
 impl ExportDecodeCache {
     fn new(hardware_acceleration: bool) -> Self {
         Self {
@@ -452,7 +452,7 @@ impl ExportDecodeCache {
         target_us: i64,
     ) -> Result<RgbaFrame, DecodeError> {
         if !self.sessions.contains_key(&clip_id) {
-            if is_image_file(path) {
+            if miniter_audio::util::is_image_file(path) {
                 let frame = self
                     .image_cache
                     .get_frame(path)
@@ -820,13 +820,13 @@ fn render_node(
                 height,
             );
             apply_video_filters(&mut fitted, width, height, filters);
-            apply_global_alpha(&mut fitted, *opacity);
+            filters::scale_alpha(&mut fitted, *opacity);
             Ok(fitted)
         }
 
         RenderNode::Text { overlay, opacity } => {
             let mut img = render_text_overlay(overlay, width, height);
-            apply_global_alpha(&mut img, *opacity);
+            filters::scale_alpha(&mut img, *opacity);
             Ok(img)
         }
 
@@ -846,7 +846,7 @@ fn render_node(
                     Ok(frame) => {
                         let mut img = frame.into_buffer();
                         if img.len() == width * height * 4 {
-                            apply_global_alpha(&mut img, *opacity);
+                            filters::scale_alpha(&mut img, *opacity);
                             return Ok(img);
                         }
                     }
@@ -899,9 +899,9 @@ fn render_node(
                 | miniter_domain::transition::TransitionKind::Dissolve => {
                     let (bottom_a, top_a) = opacity_pair(*kind, eased);
                     let mut canvas = bottom_img;
-                    apply_global_alpha(&mut canvas, bottom_a);
+                    filters::scale_alpha(&mut canvas, bottom_a);
                     let mut top_layer = top_img;
-                    apply_global_alpha(&mut top_layer, top_a);
+                    filters::scale_alpha(&mut top_layer, top_a);
                     alpha_over(&mut canvas, &top_layer);
                     Ok(canvas)
                 }

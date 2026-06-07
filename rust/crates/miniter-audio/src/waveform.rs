@@ -1,11 +1,9 @@
-use std::fs::File;
-use std::io::Cursor;
 use std::path::Path;
+
 use symphonia::core::codecs::audio::AudioDecoderOptions;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
+
+use crate::util;
 
 #[derive(Debug, Clone)]
 pub struct WaveformData {
@@ -28,14 +26,8 @@ pub enum WaveformError {
 }
 
 pub fn extract_waveform(path: &Path, target_buckets: usize) -> Result<WaveformData, WaveformError> {
-    let file = File::open(path)?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-    extract_waveform_stream(
-        mss,
-        target_buckets,
-        path.extension().and_then(|e| e.to_str()),
-    )
+    let (mss, ext) = util::open_mss_from_path(path)?;
+    extract_waveform_stream(mss, target_buckets, ext.as_deref())
 }
 
 pub fn extract_waveform_bytes(
@@ -43,10 +35,8 @@ pub fn extract_waveform_bytes(
     target_buckets: usize,
     extension_hint: Option<&str>,
 ) -> Result<WaveformData, WaveformError> {
-    let cursor = Cursor::new(bytes.to_vec());
-    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
-
-    extract_waveform_stream(mss, target_buckets, extension_hint)
+    let (mss, ext) = util::open_mss_from_bytes(bytes, extension_hint);
+    extract_waveform_stream(mss, target_buckets, ext.as_deref())
 }
 
 fn extract_waveform_stream(
@@ -58,17 +48,7 @@ fn extract_waveform_stream(
         return Err(WaveformError::InvalidBucketCount);
     }
 
-    let mut hint = Hint::new();
-    if let Some(ext) = extension_hint {
-        hint.with_extension(ext);
-    }
-
-    let mut reader = symphonia::default::get_probe().probe(
-        &hint,
-        mss,
-        FormatOptions::default(),
-        MetadataOptions::default(),
-    )?;
+    let mut reader = util::probe(mss, extension_hint)?;
 
     let track = reader
         .tracks()

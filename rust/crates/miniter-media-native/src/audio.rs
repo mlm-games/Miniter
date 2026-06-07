@@ -1,11 +1,8 @@
-use std::fs::File;
 use std::path::Path;
+
 use miniter_audio::codecs;
+use miniter_audio::util;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::formats::probe::Hint;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AudioDecodeError {
@@ -28,20 +25,8 @@ pub struct AudioDecoder {
 
 impl AudioDecoder {
     pub fn new(path: &Path) -> Result<Self, AudioDecodeError> {
-        let file = File::open(path)?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-        let mut hint = Hint::new();
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            hint.with_extension(ext);
-        }
-
-        let mut format = symphonia::default::get_probe().probe(
-            &hint,
-            mss,
-            FormatOptions::default(),
-            MetadataOptions::default(),
-        )?;
+        let (mss, ext) = util::open_mss_from_path(path)?;
+        let mut format = util::probe(mss, ext.as_deref())?;
 
         let track = format
             .tracks()
@@ -90,20 +75,8 @@ impl AudioDecoder {
     }
 
     pub fn decode_file(&mut self, path: &Path) -> Result<Vec<i16>, AudioDecodeError> {
-        let file = File::open(path)?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-        let mut hint = Hint::new();
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            hint.with_extension(ext);
-        }
-
-        let mut format = symphonia::default::get_probe().probe(
-            &hint,
-            mss,
-            FormatOptions::default(),
-            MetadataOptions::default(),
-        )?;
+        let (mss, ext) = util::open_mss_from_path(path)?;
+        let mut format = util::probe(mss, ext.as_deref())?;
 
         let track = format
             .tracks()

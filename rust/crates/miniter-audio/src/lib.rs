@@ -3,6 +3,7 @@ pub mod decode;
 pub mod loudness;
 pub mod mix;
 pub mod probe;
+pub mod util;
 pub mod wav;
 pub mod waveform;
 

@@ -1,10 +1,8 @@
-use std::fs::File;
-use std::io::Cursor;
 use std::path::Path;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::formats::probe::Hint;
+
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
+
+use crate::util;
 
 #[derive(Debug, Clone)]
 pub struct AudioMeta {
@@ -25,44 +23,29 @@ pub enum ProbeError {
 }
 
 pub fn probe_audio(path: &Path) -> Result<AudioMeta, ProbeError> {
-    let ext = path.extension().and_then(|e| e.to_str());
-    if is_image_extension(ext) || is_video_only_extension(ext) {
+    let (mss, ext) = util::open_mss_from_path(path)?;
+    if util::is_image_extension(ext.as_deref()) || util::is_video_only_extension(ext.as_deref()) {
         return Err(ProbeError::NoAudioTrack);
     }
-    let file = File::open(path)?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-    probe_audio_stream(mss, ext)
+    probe_audio_stream(mss, ext.as_deref())
 }
 
 pub fn probe_audio_bytes(
     bytes: &[u8],
     extension_hint: Option<&str>,
 ) -> Result<AudioMeta, ProbeError> {
-    if is_image_extension(extension_hint) || is_video_only_extension(extension_hint) {
+    if util::is_image_extension(extension_hint) || util::is_video_only_extension(extension_hint) {
         return Err(ProbeError::NoAudioTrack);
     }
-    let cursor = Cursor::new(bytes.to_vec());
-    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
-
-    probe_audio_stream(mss, extension_hint)
+    let (mss, ext) = util::open_mss_from_bytes(bytes, extension_hint);
+    probe_audio_stream(mss, ext.as_deref())
 }
 
 fn probe_audio_stream(
     mss: MediaSourceStream,
     extension_hint: Option<&str>,
 ) -> Result<AudioMeta, ProbeError> {
-    let mut hint = Hint::new();
-    if let Some(ext) = extension_hint {
-        hint.with_extension(ext);
-    }
-
-    let reader = match symphonia::default::get_probe().probe(
-        &hint,
-        mss,
-        FormatOptions::default(),
-        MetadataOptions::default(),
-    ) {
+    let reader = match util::probe(mss, extension_hint) {
         Ok(r) => r,
         Err(e) => {
             return match &e {
@@ -100,19 +83,4 @@ fn probe_audio_stream(
             .unwrap_or(0),
         duration_us,
     })
-}
-
-fn is_image_file(path: &Path) -> bool {
-    is_image_extension(path.extension().and_then(|e| e.to_str()))
-}
-
-fn is_image_extension(ext: Option<&str>) -> bool {
-    match ext.map(|e| e.to_lowercase()).as_deref() {
-        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif") => true,
-        _ => false,
-    }
-}
-
-fn is_video_only_extension(ext: Option<&str>) -> bool {
-    matches!(ext.map(|e| e.to_lowercase()).as_deref(), Some("ivf"))
 }

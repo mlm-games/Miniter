@@ -2,11 +2,11 @@ use crate::demux::VideoDecoderBackend;
 use std::sync::atomic::Ordering;
 
 pub const H264_FOURCC: u32 = 0x31637661; // "avc1"
-pub const H265_FOURCC: u32 = 0x68657631; // "hev1"
-pub const AV1_FOURCC: u32 = 0x31305641; // "av01"
-pub const VP8_FOURCC: u32 = 0x31475661; // "vp80"
-pub const VP9_FOURCC: u32 = 0x31475639; // "vp90"
-pub const AV1_IVF_FOURCC: u32 = 0x31495641; // "AVI1" (IVF container legacy)
+pub const H265_FOURCC: u32 = 0x31766568; // "hev1"
+pub const AV1_FOURCC: u32 = 0x31305641; // "AV01"
+pub const VP8_FOURCC: u32 = 0x30385056; // "VP80"
+pub const VP9_FOURCC: u32 = 0x30395056; // "VP90"
+pub const AV1_IVF_FOURCC: u32 = 0x31495641; // "AVI1"
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {

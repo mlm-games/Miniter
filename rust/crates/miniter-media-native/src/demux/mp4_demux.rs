@@ -1,12 +1,8 @@
 //! mp4 crate demuxer.
 
 use super::{DemuxError, DemuxResult, DemuxedSample, Demuxer, VideoContainer};
+use crate::decoders::{AV1_FOURCC, H264_FOURCC, H265_FOURCC, VP9_FOURCC};
 use std::io::{BufReader, Read, Seek};
-
-const H264_FOURCC: u32 = 0x31637661;
-const H265_FOURCC: u32 = 0x31766368;
-const VP9_FOURCC: u32 = 0x33397076;
-const AV1_FOURCC: u32 = 0x31305641;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Codec {

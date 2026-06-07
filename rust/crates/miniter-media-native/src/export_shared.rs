@@ -3,6 +3,7 @@ use crate::mux::{Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTr
 use fast_image_resize::images::{Image, ImageRef};
 use fast_image_resize::{PixelType, Resizer};
 use font8x8::{BASIC_FONTS, UnicodeFonts};
+use miniter_audio::util;
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use std::io::Write;
@@ -130,13 +131,6 @@ pub(crate) fn alpha_over_pixel(dst: &mut [u8], src: &[u8]) {
     }
 
     dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
-}
-
-pub(crate) fn apply_global_alpha(img: &mut [u8], alpha: f32) {
-    let a = alpha.clamp(0.0, 1.0);
-    for px in img.chunks_exact_mut(4) {
-        px[3] = ((px[3] as f32) * a).round().clamp(0.0, 255.0) as u8;
-    }
 }
 
 pub(crate) fn flatten_on_black(img: &mut [u8]) {
@@ -403,40 +397,6 @@ pub(crate) fn strip_leading_temporal_delimiters(data: &[u8]) -> &[u8] {
         pos += 2;
     }
     &data[pos..]
-}
-
-pub(crate) fn resample_interleaved_linear(
-    input: &[f32],
-    in_rate: u32,
-    out_rate: u32,
-    channels: usize,
-) -> Vec<f32> {
-    if in_rate == out_rate || input.is_empty() {
-        return input.to_vec();
-    }
-
-    let in_frames = input.len() / channels;
-    if in_frames == 0 {
-        return Vec::new();
-    }
-
-    let out_frames = ((in_frames as u64 * out_rate as u64) / in_rate as u64) as usize;
-    let mut out = vec![0.0f32; out_frames * channels];
-
-    for of in 0..out_frames {
-        let src_pos = (of as f64) * (in_rate as f64) / (out_rate as f64);
-        let i0 = src_pos.floor() as usize;
-        let i1 = (i0 + 1).min(in_frames.saturating_sub(1));
-        let t = (src_pos - i0 as f64) as f32;
-
-        for ch in 0..channels {
-            let a = input[i0 * channels + ch];
-            let b = input[i1 * channels + ch];
-            out[of * channels + ch] = a + (b - a) * t;
-        }
-    }
-
-    out
 }
 
 pub(crate) fn normalize_even_dimension(value: u32, fallback: u32) -> u32 {
@@ -740,11 +700,11 @@ pub(crate) fn encode_opus(
         if mixed.sample_rate == 0 {
             return Err("Unsupported sample rate: 0".to_string());
         }
-        resample_interleaved_linear(
+        util::resample_linear_interleaved(
             &mixed.samples,
             mixed.sample_rate,
             sample_rate,
-            channels as usize,
+            channels as u16,
         )
     };
 

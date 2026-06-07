@@ -6,6 +6,7 @@ use miniter_domain::clip::ClipKind;
 use miniter_domain::filter::AudioFilter;
 
 use crate::decode::{DecodeAudioError, DecodedAudio, decode_audio_f32, decode_audio_f32_bytes};
+use crate::util;
 
 #[derive(Debug, Clone, Copy)]
 pub struct MixConfig {
@@ -312,7 +313,7 @@ fn adapt_audio(mut audio: DecodedAudio, config: MixConfig) -> DecodedAudio {
     }
 
     if audio.sample_rate != config.sample_rate {
-        audio.samples = resample_linear_interleaved(
+        audio.samples = util::resample_linear_interleaved(
             &audio.samples,
             audio.sample_rate,
             config.sample_rate,
@@ -372,50 +373,6 @@ fn convert_channels_interleaved(input: &[f32], in_channels: u16, out_channels: u
                     out.push(frame[ch.min(in_channels - 1)]);
                 }
             }
-        }
-    }
-
-    out
-}
-
-fn resample_linear_interleaved(
-    input: &[f32],
-    in_sample_rate: u32,
-    out_sample_rate: u32,
-    channels: u16,
-) -> Vec<f32> {
-    let channels = channels.max(1) as usize;
-
-    if in_sample_rate == out_sample_rate {
-        return input.to_vec();
-    }
-
-    let in_frames = input.len() / channels;
-    if in_frames == 0 {
-        return Vec::new();
-    }
-
-    let out_frames = (((in_frames as u128) * (out_sample_rate as u128)
-        + (in_sample_rate as u128 / 2))
-        / (in_sample_rate as u128))
-        .max(1) as usize;
-
-    let mut out = vec![0.0f32; out_frames * channels];
-
-    for out_frame in 0..out_frames {
-        let mut src_pos = (out_frame as f64) * (in_sample_rate as f64) / (out_sample_rate as f64);
-        if src_pos > (in_frames.saturating_sub(1)) as f64 {
-            src_pos = (in_frames.saturating_sub(1)) as f64;
-        }
-
-        let src_frame_0 = src_pos.floor() as usize;
-        let src_frame_1 = (src_frame_0 + 1).min(in_frames.saturating_sub(1));
-        let frac = (src_pos - src_frame_0 as f64) as f32;
-
-        for ch in 0..channels {
-            let a = input[src_frame_0 * channels + ch];
-            let b = input[src_frame_1 * channels + ch];
-            out[out_frame * channels + ch] = a + (b - a) * frac;
         }
     }
 

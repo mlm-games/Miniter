@@ -1,10 +1,8 @@
 //! raw AV1/VP8 bitstreams.
 
 use super::{DemuxError, DemuxResult, DemuxedSample, Demuxer, VideoContainer};
+use crate::decoders::{AV1_IVF_FOURCC, VP8_FOURCC};
 use std::io::{BufReader, Read, Seek, SeekFrom};
-
-const AV1_FOURCC: u32 = 0x31495641;
-const VP8_FOURCC: u32 = 0x30385056;
 
 pub struct IvfDemuxer<R: Read + Seek> {
     reader: R,
@@ -72,7 +70,7 @@ impl<R: Read + Seek> IvfDemuxer<R> {
     }
 
     fn fourcc(&self) -> u32 {
-        AV1_FOURCC
+        AV1_IVF_FOURCC
     }
 }
 
@@ -102,7 +100,7 @@ impl<R: Read + Seek + Send> Demuxer for IvfDemuxer<R> {
     }
 
     fn fourcc(&self) -> u32 {
-        AV1_FOURCC
+        AV1_IVF_FOURCC
     }
 
     fn format_name(&self) -> &'static str {
