@@ -784,6 +784,138 @@ pub(crate) struct RenderSettings {
     pub fps: f64,
 }
 
+/// Ogg CRC-32: poly 0x04C11DB7, init 0, no reflection, no final XOR.
+pub(crate) fn ogg_crc32(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0;
+    for &b in data {
+        crc ^= (b as u32) << 24;
+        for _ in 0..8 {
+            crc = if crc & 0x8000_0000 != 0 {
+                (crc << 1) ^ 0x04C1_1DB7
+            } else {
+                crc << 1
+            };
+        }
+    }
+    crc
+}
+
+pub(crate) fn write_ogg_page<W: Write>(
+    w: &mut W,
+    header_type: u8,
+    granule: u64,
+    serial: u32,
+    seq: u32,
+    packets: &[&[u8]],
+) -> Result<(), String> {
+    let mut segments = Vec::new();
+    for p in packets {
+        let mut rem = p.len();
+        loop {
+            if rem >= 255 {
+                segments.push(255u8);
+                rem -= 255;
+            } else {
+                segments.push(rem as u8);
+                break;
+            }
+        }
+    }
+    debug_assert!(segments.len() <= 255);
+
+    let body_len: usize = packets.iter().map(|p| p.len()).sum();
+    let mut page = Vec::with_capacity(27 + segments.len() + body_len);
+    page.extend_from_slice(b"OggS");
+    page.push(0);
+    page.push(header_type);
+    page.extend_from_slice(&granule.to_le_bytes());
+    page.extend_from_slice(&serial.to_le_bytes());
+    page.extend_from_slice(&seq.to_le_bytes());
+    page.extend_from_slice(&[0u8; 4]);
+    page.push(segments.len() as u8);
+    page.extend_from_slice(&segments);
+    for p in packets {
+        page.extend_from_slice(p);
+    }
+
+    let crc = ogg_crc32(&page);
+    page[22..26].copy_from_slice(&crc.to_le_bytes());
+    w.write_all(&page).map_err(|e| e.to_string())
+}
+
+pub(crate) fn write_ogg_opus<W: Write>(
+    w: &mut W,
+    encoded: &EncodedOpus,
+    input_sample_rate: u32,
+    total_samples_48k: u64,
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<(), String> {
+    const PRE_SKIP: u16 = 0;
+    const SAMPLES_PER_PACKET: u64 = 960;
+    let serial: u32 = 0x4D49_4E49;
+    let mut seq: u32 = 0;
+
+    let mut head = Vec::with_capacity(19);
+    head.extend_from_slice(b"OpusHead");
+    head.push(1);
+    head.push(encoded.channels as u8);
+    head.extend_from_slice(&PRE_SKIP.to_le_bytes());
+    head.extend_from_slice(&input_sample_rate.to_le_bytes());
+    head.extend_from_slice(&0i16.to_le_bytes());
+    head.push(0);
+    write_ogg_page(w, 0x02, 0, serial, seq, &[&head])?;
+    seq += 1;
+
+    let vendor = b"miniter";
+    let mut tags = Vec::new();
+    tags.extend_from_slice(b"OpusTags");
+    tags.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
+    tags.extend_from_slice(vendor);
+    tags.extend_from_slice(&0u32.to_le_bytes());
+    write_ogg_page(w, 0x00, 0, serial, seq, &[&tags])?;
+    seq += 1;
+
+    let mut samples_done: u64 = 0;
+    let mut idx = 0usize;
+    while idx < encoded.packets.len() {
+        if is_cancelled() {
+            return Err("Export cancelled".to_string());
+        }
+
+        let mut batch: Vec<&[u8]> = Vec::new();
+        let mut seg_count = 0usize;
+        while idx < encoded.packets.len() && batch.len() < 50 {
+            let p = encoded.packets[idx].bytes.as_slice();
+            let segs = p.len() / 255 + 1;
+            if seg_count + segs > 255 {
+                break;
+            }
+            seg_count += segs;
+            batch.push(p);
+            samples_done += SAMPLES_PER_PACKET;
+            idx += 1;
+        }
+
+        let is_last = idx >= encoded.packets.len();
+        let granule = if is_last {
+            samples_done.min(total_samples_48k) + PRE_SKIP as u64
+        } else {
+            samples_done + PRE_SKIP as u64
+        };
+        write_ogg_page(
+            w,
+            if is_last { 0x04 } else { 0x00 },
+            granule,
+            serial,
+            seq,
+            &batch,
+        )?;
+        seq += 1;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn is_image_path(path: &str) -> bool {
     matches!(
         std::path::Path::new(path)

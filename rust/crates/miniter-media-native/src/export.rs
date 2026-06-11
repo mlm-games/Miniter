@@ -4,10 +4,10 @@ use crate::clear_session_cache;
 
 use crate::decoder::{DecodeError, VideoDecodeSession};
 
-use crate::filters;
 use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
 use crate::encoder_hw::HwEncodeSession;
+use crate::filters;
 use crate::frame::RgbaFrame;
 use crate::image_cache::ImageCache;
 use crate::mux::{
@@ -31,6 +31,7 @@ use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
 use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
 use std::io::BufWriter;
+use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -78,6 +79,8 @@ pub enum ExportError {
     AudioMix(#[from] AudioMixError),
     #[error("Opus encode: {0}")]
     OpusEncode(#[from] OpusEncodeError),
+    #[error("MP3 encode: {0}")]
+    Mp3Encode(String),
     #[error("Could not extract SPS/PPS from H.264 stream")]
     MissingAvcConfig,
     #[error("Export cancelled")]
@@ -180,6 +183,7 @@ where
             &is_cancelled,
             &on_progress,
         ),
+        ExportFormat::Opus => export_opus_ogg(project, output_path, &is_cancelled, &on_progress),
         _ => return Err(ExportError::UnsupportedFormat),
     };
     clear_session_cache();
@@ -428,7 +432,7 @@ enum ExportSession {
     Image(ImageSession),
 }
 
-struct ExportDecodeCache {
+pub struct ExportDecodeCache {
     sessions: HashMap<ClipId, ExportSession>,
     subtitle_renderers: HashMap<String, SubtitleRenderer>,
     image_cache: ImageCache,
@@ -436,7 +440,7 @@ struct ExportDecodeCache {
 }
 
 impl ExportDecodeCache {
-    fn new(hardware_acceleration: bool) -> Self {
+    pub fn new(hardware_acceleration: bool) -> Self {
         Self {
             sessions: HashMap::new(),
             subtitle_renderers: HashMap::new(),
@@ -986,14 +990,8 @@ where
     };
 
     if project.export_profile.hardware_acceleration {
-        if HwEncodeSession::new(
-            width,
-            height,
-            bitrate_kbps * 1000,
-            fps as f32,
-            "video/av01",
-        )
-        .is_err()
+        if HwEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32, "video/av01")
+            .is_err()
         {
             log::warn!("HW AV1 encoder not available, falling back to software");
             HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
@@ -1174,12 +1172,121 @@ fn write_av1_packets_to_mux<W: std::io::Write>(
     }
     Ok(written)
 }
+fn export_opus_ogg<F>(
+    project: &Project,
+    output_path: &Path,
+    is_cancelled: &F,
+    on_progress: &dyn Fn(u32),
+) -> Result<(), ExportError>
+where
+    F: Fn() -> bool,
+{
+    on_progress(1);
+    let config = MixConfig::default();
+    let mixed = mix_project_audio(project, config)?;
+    if mixed.samples.is_empty() {
+        return Err(ExportError::UnsupportedFormat);
+    }
+    on_progress(10);
+
+    if is_cancelled() {
+        return Err(ExportError::Cancelled);
+    }
+
+    // Opus tops out at 510 kbps.
+    let bitrate_bps = project
+        .export_profile
+        .audio_bitrate_kbps
+        .max(32)
+        .min(510)
+        .saturating_mul(1000);
+    let encoded = encode_opus(&mixed, bitrate_bps)?;
+    on_progress(50);
+
+    if is_cancelled() {
+        return Err(ExportError::Cancelled);
+    }
+
+    // Real stream length at 48 kHz, used to trim the encoder's final padded frame.
+    let channels = (mixed.channels.max(1)) as u64;
+    let src_samples_per_ch = mixed.samples.len() as u64 / channels;
+    let total_samples_48k = if mixed.sample_rate == 48_000 {
+        src_samples_per_ch
+    } else {
+        src_samples_per_ch * 48_000 / mixed.sample_rate.max(1) as u64
+    };
+
+    let file = File::create(output_path)?;
+    let mut writer = BufWriter::new(file);
+    write_ogg_opus(
+        &mut writer,
+        &encoded,
+        mixed.sample_rate,
+        total_samples_48k,
+        is_cancelled,
+    )
+    .map_err(|e| ExportError::Mp4Mux(MuxError::OggMux(e)))?;
+    {
+        use std::io::Write;
+        writer.flush()?;
+    }
+
+    on_progress(100_000);
+    Ok(())
+}
 
 fn encode_opus(
     mixed: &MixedAudio,
     bitrate_bps: u32,
 ) -> Result<crate::export_shared::EncodedOpus, OpusEncodeError> {
     crate::export_shared::encode_opus(mixed, bitrate_bps).map_err(|e| OpusEncodeError::Encoder(e))
+}
+
+/// Render a single frame from a timeline at the given timestamp.
+///
+/// Uses the native Rust decoder pipeline (videoson/symphonia) for frame extraction,
+/// then applies transitions, filters, and compositing via the render graph.
+/// Returns RGBA pixel data at the requested resolution.
+///
+/// This is the same rendering path used during export, exposed for preview purposes.
+/// Each call creates a fresh [`ExportDecodeCache`], so sequential calls to nearby
+/// timestamps on the same timeline will re-open and re-seek source files. For better
+/// performance across many frames, use the export pipeline directly.
+pub fn render_single_frame(
+    timeline: &miniter_domain::Timeline,
+    timestamp: Timestamp,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, ExportError> {
+    let mut decode_cache = ExportDecodeCache::new(false);
+    let plan = plan_frame(timeline, timestamp, width, height, SubtitleMode::Soft);
+    render_node(
+        &plan.root,
+        width as usize,
+        height as usize,
+        &mut decode_cache,
+        &AtomicI64::new(-1),
+    )
+}
+
+/// Like `render_single_frame` but accepts a pre-existing decode cache so
+/// sequential frames reuse open decoder sessions instead of re-opening the
+/// source file and decoding from the beginning each time.
+pub fn render_single_frame_cached(
+    timeline: &miniter_domain::Timeline,
+    timestamp: Timestamp,
+    width: u32,
+    height: u32,
+    decode_cache: &mut ExportDecodeCache,
+) -> Result<Vec<u8>, ExportError> {
+    let plan = plan_frame(timeline, timestamp, width, height, SubtitleMode::Soft);
+    render_node(
+        &plan.root,
+        width as usize,
+        height as usize,
+        decode_cache,
+        &AtomicI64::new(-1),
+    )
 }
 
 #[derive(Debug, thiserror::Error)]

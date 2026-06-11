@@ -34,7 +34,7 @@ use crate::mux::{
     ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
     VideoTrackCodecOut, extract_sps_pps,
 };
-use crate::wasm_export::encoder::{EncoderBackend, create_encoder_backend};
+use crate::wasm_export::encoder::{EncoderBackend, EncodedPacket, create_encoder_backend};
 use miniter_audio::mix::{MixConfig, MixedAudio, mix_project_audio_with_source_map};
 use miniter_domain::clip::{ClipId, ClipKind, VideoClip};
 use miniter_domain::ease_in_out;
@@ -316,6 +316,9 @@ pub fn export_project_to_bytes(
         ExportFormat::Av1Ivf => {
             export_av1_ivf_bytes(project, registered_files, &is_cancelled, &on_progress)?
         }
+        ExportFormat::Opus => {
+            export_opus_ogg_bytes(project, registered_files, &is_cancelled, &on_progress)?
+        }
         ExportFormat::Mov => {
             return Err("MOV export is not supported on web yet".to_string());
         }
@@ -337,6 +340,7 @@ fn export_target_info(format: ExportFormat) -> Result<(&'static str, &'static st
         ExportFormat::Mp4 => Ok(("mp4", "video/mp4")),
         ExportFormat::Av1Mp4 => Ok(("mp4", "video/mp4")),
         ExportFormat::Av1Ivf => Ok(("ivf", "video/ivf")),
+        ExportFormat::Opus => Ok(("ogg", "audio/ogg")),
         ExportFormat::Mov => Err("MOV export is not supported on web yet".to_string()),
         ExportFormat::Av1Mkv | ExportFormat::Av1WebM => {
             Err("MKV/WebM AV1 export is not supported on web yet".to_string())
@@ -817,6 +821,59 @@ fn export_av1_ivf_bytes(
     Ok(cursor.into_inner())
 }
 
+fn export_opus_ogg_bytes(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+    is_cancelled: &dyn Fn() -> bool,
+    on_progress: &dyn Fn(u32),
+) -> Result<Vec<u8>, String> {
+    on_progress(1);
+    let mixed = mix_project_audio_with_source_map(project, MixConfig::default(), registered_files)
+        .map_err(|e| format!("Audio mix failed: {e}"))?;
+    if mixed.samples.is_empty() {
+        return Err("No audio to export".to_string());
+    }
+    on_progress(10);
+
+    if is_cancelled() {
+        return Err("Export cancelled".to_string());
+    }
+
+    let bitrate_bps = project
+        .export_profile
+        .audio_bitrate_kbps
+        .max(32)
+        .min(510)
+        .saturating_mul(1000);
+    let encoded = encode_opus(&mixed, bitrate_bps)?;
+    on_progress(50);
+
+    if is_cancelled() {
+        return Err("Export cancelled".to_string());
+    }
+
+    let channels = (mixed.channels.max(1)) as u64;
+    let src_samples_per_ch = mixed.samples.len() as u64 / channels;
+    let total_samples_48k = if mixed.sample_rate == 48_000 {
+        src_samples_per_ch
+    } else {
+        src_samples_per_ch * 48_000 / mixed.sample_rate.max(1) as u64
+    };
+
+    let mut output = Vec::new();
+    let mut cursor = Cursor::new(&mut output);
+    write_ogg_opus(
+        &mut cursor,
+        &encoded,
+        mixed.sample_rate,
+        total_samples_48k,
+        is_cancelled,
+    )?;
+
+    on_progress(100_000);
+    Ok(output)
+}
+
 fn write_av1_packets_to_mux<W: Write>(
     muxer: &mut Mp4Muxer<W>,
     packets: &[Av1Packet],
@@ -1072,6 +1129,19 @@ fn first_video_dimensions(project: &Project) -> (u32, u32) {
     (1920, 1080)
 }
 
+struct NoopBackend;
+
+impl EncoderBackend for NoopBackend {
+    fn name(&self) -> &'static str { "noop" }
+    fn encode_frame(&mut self, _frame: &RgbaFrame) -> Result<Vec<EncodedPacket>, String> {
+        Ok(Vec::new())
+    }
+    fn finish(&mut self) -> Result<Vec<EncodedPacket>, String> {
+        Ok(Vec::new())
+    }
+    fn check_error(&self) -> Option<String> { None }
+}
+
 /// An encoded video frame buffered in memory.
 struct BufferedFrame {
     pts_us: u64,
@@ -1104,6 +1174,8 @@ pub struct WasmExportChunker {
     buffered_frames: Vec<BufferedFrame>,
     audio_encoded: Option<EncodedOpus>,
     subtitle_samples: Vec<SoftSubtitleSample>,
+    ogg_sample_rate: u32,
+    ogg_total_samples_48k: u64,
 }
 
 impl WasmExportChunker {
@@ -1154,6 +1226,43 @@ impl WasmExportChunker {
         let hw_requested = project.export_profile.hardware_acceleration;
         let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
         let fps_int = settings.fps.round().max(1.0) as u32;
+
+        if format == ExportFormat::Opus {
+            let (ogg_sample_rate, ogg_total_samples_48k) =
+                if let Some(ref audio) = audio_encoded {
+                    let samples_per_packet = 960u64;
+                    let total = audio.packets.len() as u64 * samples_per_packet;
+                    (48_000, total)
+                } else {
+                    (48_000, 0)
+                };
+
+            return Ok(WasmExportChunker {
+                decode_cache,
+                _registered_files: files_box,
+                timeline,
+                format,
+                settings,
+                output_path: output_path.to_string(),
+                subtitle_mode,
+                frame_duration_us,
+                current_frame: 0,
+                total_frames: 0,
+                cancelled: false,
+                done: true,
+                progress: 0,
+                encoder: Box::new(NoopBackend),
+                sps: Vec::new(),
+                pps: Vec::new(),
+                fps_int,
+                buffered_frames: Vec::new(),
+                audio_encoded,
+                subtitle_samples,
+                ogg_sample_rate,
+                ogg_total_samples_48k,
+            });
+        }
+
         let (encoder, sps, pps) = {
             let enc = create_encoder_backend(
                 format,
@@ -1189,6 +1298,8 @@ impl WasmExportChunker {
             buffered_frames: Vec::new(),
             audio_encoded,
             subtitle_samples,
+            ogg_sample_rate: 0,
+            ogg_total_samples_48k: 0,
         })
     }
 
@@ -1450,6 +1561,25 @@ impl WasmExportChunker {
 
                 Ok(WasmExportArtifact {
                     bytes: cursor.into_inner(),
+                    file_name,
+                    mime_type: mime_type.to_string(),
+                })
+            }
+            ExportFormat::Opus => {
+                let Some(audio) = &self.audio_encoded else {
+                    return Err("No audio data to export".to_string());
+                };
+                let mut output = Vec::new();
+                let mut cursor = std::io::Cursor::new(&mut output);
+                write_ogg_opus(
+                    &mut cursor,
+                    audio,
+                    self.ogg_sample_rate,
+                    self.ogg_total_samples_48k,
+                    &|| false,
+                )?;
+                Ok(WasmExportArtifact {
+                    bytes: output,
                     file_name,
                     mime_type: mime_type.to_string(),
                 })

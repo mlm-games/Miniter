@@ -12,6 +12,8 @@ pub enum MuxError {
     Muxide(#[from] InnerMuxError),
     #[error("MOV container is not supported by muxide")]
     MovUnsupported,
+    #[error("OGG mux: {0}")]
+    OggMux(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

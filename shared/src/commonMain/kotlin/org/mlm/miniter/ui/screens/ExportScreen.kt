@@ -201,6 +201,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 RustExportFormat.Av1Mp4 -> "AV1 / MP4"
                                 RustExportFormat.Av1Ivf -> "AV1 / IVF"
                                 RustExportFormat.Mov -> "H.264 / MOV"
+                                RustExportFormat.Opus -> "Opus / Ogg"
                             }
                         )
                     }
@@ -666,4 +667,5 @@ private val RustExportFormat.extension: String
         RustExportFormat.Av1Ivf -> "ivf"
         RustExportFormat.Av1Mp4 -> "mp4"
         RustExportFormat.Mov -> "mov"
+        RustExportFormat.Opus -> "ogg"
     }
