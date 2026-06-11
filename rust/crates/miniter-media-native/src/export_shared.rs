@@ -552,7 +552,7 @@ pub(crate) fn render_text_overlay(overlay: &TextOverlay, width: usize, height: u
         for g in glyphs {
             let m = &g.metrics;
             let gx = pen_x + m.xmin as f32;
-            let gy = baseline_y - m.ymin as f32;
+            let gy = baseline_y + m.ymin as f32;
 
             if overlay.style.shadow {
                 let soff = 1.max((font_size / 20.0).round() as i32);

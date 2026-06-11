@@ -793,6 +793,23 @@ fun EditorVideoPreview(
         null -> 0 to 0
     }
 
+    val contentArea = remember(viewportSize, exportWidth, exportHeight) {
+        val vw = viewportSize.width.coerceAtLeast(1).toFloat()
+        val vh = viewportSize.height.coerceAtLeast(1).toFloat()
+        if (exportWidth <= 0 || exportHeight <= 0) {
+            Rect(0f, 0f, vw, vh)
+        } else {
+            val exportAspect = exportWidth.toFloat() / exportHeight.toFloat()
+            val viewAspect = vw / vh
+            val (fw, fh) = if (exportAspect > viewAspect) {
+                vw to vw / exportAspect
+            } else {
+                vh * exportAspect to vh
+            }
+            Rect((vw - fw) / 2f, (vh - fh) / 2f, (vw + fw) / 2f, (vh + fh) / 2f)
+        }
+    }
+
     val transformModifier = Modifier
         .fillMaxSize()
         .graphicsLayer {
@@ -930,8 +947,10 @@ fun EditorVideoPreview(
                             modifier = Modifier
                                 .wrapContentSize(Alignment.TopStart)
                                 .offset {
-                                    val anchorX = (style.positionX * viewportSize.width).toInt()
-                                    val anchorY = (style.positionY * viewportSize.height).toInt()
+                                    val cw = contentArea.width.toInt()
+                                    val ch = contentArea.height.toInt()
+                                    val anchorX = (style.positionX * cw + contentArea.left).toInt()
+                                    val anchorY = (style.positionY * ch + contentArea.top).toInt()
                                     val tw = layout?.size?.width ?: 0
                                     val th = layout?.size?.height ?: 0
                                     val ox = when (style.alignment) {
@@ -958,8 +977,8 @@ fun EditorVideoPreview(
                                     val tw = subLayout?.size?.width ?: 0
                                     val th = subLayout?.size?.height ?: 0
                                     IntOffset(
-                                        (viewportSize.width - tw) / 2,
-                                        viewportSize.height - th - 40,
+                                        (contentArea.left + contentArea.width / 2 - tw / 2).toInt(),
+                                        (contentArea.bottom - th - 40).toInt(),
                                     )
                                 }
                                 .background(Color.Black.copy(alpha = 0.5f))
@@ -968,20 +987,7 @@ fun EditorVideoPreview(
                     }
 
                     if (exportWidth > 0 && exportHeight > 0) {
-                        val exportFrameRect = remember(viewportSize, exportWidth, exportHeight) {
-                            val vw = viewportSize.width.toFloat()
-                            val vh = viewportSize.height.toFloat()
-                            val exportAspect = exportWidth.toFloat() / exportHeight.toFloat()
-                            val viewAspect = vw / vh
-                            val (fw, fh) = if (exportAspect > viewAspect) {
-                                vw to vw / exportAspect
-                            } else {
-                                vh * exportAspect to vh
-                            }
-                            val fx = (vw - fw) / 2f
-                            val fy = (vh - fh) / 2f
-                            Rect(fx, fy, fx + fw, fy + fh)
-                        }
+                        val exportFrameRect = contentArea
 
                         val nonExportColor = MaterialTheme.colorScheme.surfaceContainerLowest
                         val exportColor = Color.Transparent  // .copy(alpha = 0.10f)
