@@ -37,7 +37,7 @@ image = { version = "0.25", default-features = false, features = [
 getrandom = { version = "0.4", features = ["wasm_js"] }
 oporus = "0.2.4"
 ivf = "0.1"
-font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
+fontdue = "0.9"
 web-sys = "0.3.99"
 wasm-bindgen-futures = "0.4"
 

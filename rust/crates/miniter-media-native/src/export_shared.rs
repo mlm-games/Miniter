@@ -2,7 +2,7 @@ use crate::filters;
 use crate::mux::{Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTrackConfigOut};
 use fast_image_resize::images::{Image, ImageRef};
 use fast_image_resize::{PixelType, Resizer};
-use font8x8::{BASIC_FONTS, UnicodeFonts};
+use fontdue::{Font, FontSettings};
 use miniter_audio::util;
 use miniter_domain::filter::VideoFilter;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
@@ -468,12 +468,10 @@ pub(crate) fn render_text_overlay(overlay: &TextOverlay, width: usize, height: u
         return canvas;
     }
 
-    let scale = (overlay.style.font_size / 8.0).round().max(1.0) as i32;
-    let line_h = 8 * scale + scale;
-    let block_h = line_h * lines.len() as i32;
-    let anchor_x = (overlay.style.position_x.clamp(0.0, 1.0) * width as f32) as i32;
-    let anchor_y = (overlay.style.position_y.clamp(0.0, 1.0) * height as f32) as i32;
-    let start_y = anchor_y - block_h / 2;
+    let font_data: &[u8] = include_bytes!("../fonts/NotoSans-Regular.ttf");
+    let font = Font::from_bytes(font_data, FontSettings::default())
+        .expect("Failed to load bundled font");
+    let font_size = overlay.style.font_size.max(1.0);
 
     let fg = parse_argb_hex(&overlay.style.color, [255, 255, 255, 255]);
     let bg = overlay
@@ -481,153 +479,175 @@ pub(crate) fn render_text_overlay(overlay: &TextOverlay, width: usize, height: u
         .background_color
         .as_ref()
         .map(|c| parse_argb_hex(c, [0, 0, 0, 0]));
-    let outline = overlay
+    let outline_color = overlay
         .style
         .outline_color
         .as_ref()
         .map(|c| parse_argb_hex(c, [0, 0, 0, 255]));
+    let outline_width = if outline_color.is_some() {
+        let w = overlay.style.outline_width.max(0.0).round() as i32;
+        if w == 0 { 2 } else { w }
+    } else {
+        0
+    };
+    let has_outline = outline_width > 0;
 
-    let max_w = lines
-        .iter()
-        .map(|line| line.chars().count() as i32 * 8 * scale)
-        .max()
-        .unwrap_or(0);
+    let (ascent, descent, line_gap) = font
+        .horizontal_line_metrics(font_size)
+        .map(|lm| (lm.ascent, lm.descent, lm.line_gap))
+        .unwrap_or((font_size * 0.8, font_size * 0.2, 0.0));
+    let line_height = (ascent - descent + line_gap).ceil().max(font_size);
 
-    if let Some(bg) = bg {
-        let x = match overlay.style.alignment {
-            TextAlignment::Left => anchor_x,
-            TextAlignment::Center => anchor_x - max_w / 2,
-            TextAlignment::Right => anchor_x - max_w,
-            _ => anchor_x,
-        };
-        draw_rect(
-            &mut canvas,
-            width,
-            height,
-            x - scale,
-            start_y - scale,
-            max_w + scale * 2,
-            block_h + scale * 2,
-            bg,
-        );
+    let anchor_x = (overlay.style.position_x.clamp(0.0, 1.0) * width as f32) as i32;
+    let anchor_y = (overlay.style.position_y.clamp(0.0, 1.0) * height as f32) as i32;
+    let total_text_h = line_height * lines.len() as f32;
+    let start_y = anchor_y - (total_text_h / 2.0) as i32;
+
+    struct GlyphInfo {
+        metrics: fontdue::Metrics,
+        bitmap: Vec<u8>,
     }
 
-    for (line_idx, line) in lines.iter().enumerate() {
-        let line_w = line.chars().count() as i32 * 8 * scale;
-        let x = match overlay.style.alignment {
-            TextAlignment::Left => anchor_x,
-            TextAlignment::Center => anchor_x - line_w / 2,
-            TextAlignment::Right => anchor_x - line_w,
-            _ => anchor_x,
-        };
-        let y = start_y + (line_idx as i32 * line_h);
+    let mut line_glyphs: Vec<Vec<GlyphInfo>> = Vec::with_capacity(lines.len());
+    let mut line_widths: Vec<f32> = Vec::with_capacity(lines.len());
 
-        let mut pen_x = x;
+    for line in &lines {
+        let mut glyphs = Vec::with_capacity(line.chars().count());
+        let mut w = 0.0f32;
         for ch in line.chars() {
+            let (metrics, bitmap) = font.rasterize(ch, font_size);
+            w += metrics.advance_width;
+            glyphs.push(GlyphInfo { metrics, bitmap });
+        }
+        line_widths.push(w);
+        line_glyphs.push(glyphs);
+    }
+    let max_line_w = line_widths.iter().cloned().fold(0.0f32, f32::max);
+
+    if let Some(bg_color) = bg {
+        let pad = (outline_width + 4).max(8);
+        let bg_w = (max_line_w.ceil() as i32) + pad * 2;
+        let bg_h = (line_height * lines.len() as f32).ceil() as i32 + pad * 2;
+        let bg_x = match overlay.style.alignment {
+            TextAlignment::Left => anchor_x,
+            TextAlignment::Center => anchor_x - bg_w / 2,
+            TextAlignment::Right => anchor_x - bg_w,
+            _ => anchor_x,
+        } - pad;
+        let bg_y = start_y - pad;
+        draw_rect(&mut canvas, width, height, bg_x, bg_y, bg_w, bg_h, bg_color);
+    }
+
+    for (line_idx, glyphs) in line_glyphs.iter().enumerate() {
+        let line_w = line_widths[line_idx];
+        let base_x = match overlay.style.alignment {
+            TextAlignment::Left => anchor_x as f32,
+            TextAlignment::Center => anchor_x as f32 - line_w / 2.0,
+            TextAlignment::Right => anchor_x as f32 - line_w,
+            _ => anchor_x as f32,
+        };
+        let baseline_y = start_y as f32 + (line_idx as f32 * line_height) + ascent;
+
+        let mut pen_x = base_x;
+        for g in glyphs {
+            let m = &g.metrics;
+            let gx = pen_x + m.xmin as f32;
+            let gy = baseline_y - m.ymin as f32;
+
             if overlay.style.shadow {
-                draw_char(
+                let soff = 1.max((font_size / 20.0).round() as i32);
+                blit_glyph(
                     &mut canvas,
                     width,
                     height,
-                    ch,
-                    pen_x + scale / 2,
-                    y + scale / 2,
-                    scale,
+                    &g.bitmap,
+                    m.width,
+                    m.height,
+                    gx as i32 + soff,
+                    gy as i32 + soff,
                     [0, 0, 0, 128],
-                    None,
-                    false,
                 );
             }
 
-            draw_char(
-                &mut canvas,
-                width,
-                height,
-                ch,
-                pen_x,
-                y,
-                scale,
-                fg,
-                outline,
-                overlay.style.bold,
+            if has_outline {
+                let oc = outline_color.unwrap();
+                for oy in -outline_width..=outline_width {
+                    for ox in -outline_width..=outline_width {
+                        if ox == 0 && oy == 0 {
+                            continue;
+                        }
+                        blit_glyph(
+                            &mut canvas,
+                            width,
+                            height,
+                            &g.bitmap,
+                            m.width,
+                            m.height,
+                            gx as i32 + ox,
+                            gy as i32 + oy,
+                            oc,
+                        );
+                    }
+                }
+            }
+
+            blit_glyph(
+                &mut canvas, width, height, &g.bitmap, m.width, m.height, gx as i32, gy as i32, fg,
             );
 
-            pen_x += 8 * scale;
+            if overlay.style.bold {
+                blit_glyph(
+                    &mut canvas,
+                    width,
+                    height,
+                    &g.bitmap,
+                    m.width,
+                    m.height,
+                    gx as i32 + 1,
+                    gy as i32,
+                    fg,
+                );
+            }
+
+            pen_x += m.advance_width;
         }
     }
 
     canvas
 }
 
-fn draw_char(
+fn blit_glyph(
     canvas: &mut [u8],
-    width: usize,
-    height: usize,
-    ch: char,
+    cw: usize,
+    ch: usize,
+    bitmap: &[u8],
+    gw: usize,
+    gh: usize,
     x: i32,
     y: i32,
-    scale: i32,
-    color: [u8; 4],
-    outline: Option<[u8; 4]>,
-    bold: bool,
-) {
-    let glyph = BASIC_FONTS.get(ch).or_else(|| BASIC_FONTS.get('?'));
-    let Some(glyph) = glyph else { return };
-
-    if let Some(outline_color) = outline {
-        for oy in -1..=1 {
-            for ox in -1..=1 {
-                if ox == 0 && oy == 0 {
-                    continue;
-                }
-                rasterize_glyph(
-                    canvas,
-                    width,
-                    height,
-                    &glyph,
-                    x + ox * scale,
-                    y + oy * scale,
-                    scale,
-                    outline_color,
-                );
-            }
-        }
-    }
-
-    rasterize_glyph(canvas, width, height, &glyph, x, y, scale, color);
-    if bold {
-        rasterize_glyph(canvas, width, height, &glyph, x + 1, y, scale, color);
-    }
-}
-
-fn rasterize_glyph(
-    canvas: &mut [u8],
-    width: usize,
-    height: usize,
-    glyph: &[u8; 8],
-    x: i32,
-    y: i32,
-    scale: i32,
     color: [u8; 4],
 ) {
-    for (row, bits) in glyph.iter().enumerate() {
-        for col in 0..8 {
-            if (bits & (1 << col)) == 0 {
+    for row in 0..gh {
+        for col in 0..gw {
+            let cov = bitmap[row * gw + col];
+            if cov == 0 {
                 continue;
             }
 
-            for sy in 0..scale {
-                for sx in 0..scale {
-                    let px = x + col * scale + sx;
-                    let py = y + row as i32 * scale + sy;
-                    if px < 0 || py < 0 || px >= width as i32 || py >= height as i32 {
-                        continue;
-                    }
-
-                    let i = ((py as usize * width) + px as usize) * 4;
-                    alpha_over_pixel(&mut canvas[i..i + 4], &color);
-                }
+            let px = x + col as i32;
+            let py = y + row as i32;
+            if px < 0 || py < 0 || px >= cw as i32 || py >= ch as i32 {
+                continue;
             }
+
+            let i = (py as usize * cw + px as usize) * 4;
+            if i + 4 > canvas.len() {
+                continue;
+            }
+
+            let mut src = color;
+            src[3] = (color[3] as u32 * cov as u32 / 255) as u8;
+            alpha_over_pixel(&mut canvas[i..i + 4], &src);
         }
     }
 }

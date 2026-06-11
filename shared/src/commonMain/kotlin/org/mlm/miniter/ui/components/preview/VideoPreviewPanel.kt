@@ -26,8 +26,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.kdroidfilter.composemediaplayer.InitialPlayerState
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
@@ -874,6 +880,36 @@ fun EditorVideoPreview(
                         }
                     }
 
+                    textOverlays.forEach { textOverlay ->
+                        val style = textOverlay.style
+                        val textColor = parseArgbHex(style.color, Color.White)
+                        var layout by remember(textOverlay.id) { mutableStateOf<TextLayoutResult?>(null) }
+
+                        Text(
+                            text = textOverlay.text,
+                            color = textColor.copy(alpha = textColor.alpha * textOverlay.opacity),
+                            fontSize = style.fontSize.sp,
+                            fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
+                            fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
+                            textAlign = TextAlign.Start,
+                            onTextLayout = { layout = it },
+                            modifier = Modifier
+                                .wrapContentSize(Alignment.TopStart)
+                                .offset {
+                                    val anchorX = (style.positionX * viewportSize.width).toInt()
+                                    val anchorY = (style.positionY * viewportSize.height).toInt()
+                                    val tw = layout?.size?.width ?: 0
+                                    val th = layout?.size?.height ?: 0
+                                    val ox = when (style.alignment) {
+                                        RustTextAlignment.Left -> 0
+                                        RustTextAlignment.Center -> -tw / 2
+                                        RustTextAlignment.Right -> -tw
+                                    }
+                                    IntOffset(anchorX + ox, anchorY - th / 2)
+                                },
+                        )
+                    }
+
                     if (exportWidth > 0 && exportHeight > 0) {
                         val exportFrameRect = remember(viewportSize, exportWidth, exportHeight) {
                             val vw = viewportSize.width.toFloat()
@@ -914,6 +950,14 @@ fun EditorVideoPreview(
             }
         }
     }
+}
+
+private fun parseArgbHex(hex: String, default: Color): Color {
+    val s = hex.trimStart('#')
+    if (s.length != 8 && s.length != 6) return default
+    val v = s.toLongOrNull(16) ?: return default
+    val argb = if (s.length == 6) (0xFF000000L or v).toInt() else v.toInt()
+    return Color(argb)
 }
 
 private data class AudioClipInfo(

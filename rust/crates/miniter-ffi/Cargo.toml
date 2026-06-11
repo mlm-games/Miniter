@@ -29,7 +29,7 @@ base64 = "0.22"
 js-sys = "0.3.99"
 ivf.workspace = true
 oporus.workspace = true
-font8x8.workspace = true
+
 web-sys = { workspace = true, features = [
     "Blob",
     "BlobPropertyBag",
