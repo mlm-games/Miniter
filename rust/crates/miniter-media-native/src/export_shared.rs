@@ -936,6 +936,80 @@ pub(crate) fn write_ogg_opus<W: Write>(
     Ok(())
 }
 
+/// Get the plain subtitle text at a given timestamp from an SRT or ASS/SSA file.
+/// Returns None on wasm (no filesystem access) or if the file can't be read.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn subtitle_text_at(path: &str, timestamp_us: i64) -> Option<String> {
+    let file_path = std::path::Path::new(path);
+    let ext = file_path.extension()?.to_str()?.to_ascii_lowercase();
+    let content = std::fs::read_to_string(file_path).ok()?;
+    let text = match ext.as_str() {
+        "srt" => subtitle_text_at_from_srt(&content, timestamp_us),
+        "ass" | "ssa" => subtitle_text_at_from_ass(&content, timestamp_us),
+        _ => None,
+    };
+    text.map(|t| strip_ass_override_tags(&t))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn subtitle_text_at(_path: &str, _timestamp_us: i64) -> Option<String> {
+    None
+}
+
+pub fn subtitle_text_at_from_srt(content: &str, timestamp_us: i64) -> Option<String> {
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    for block in normalized.split("\n\n") {
+        let lines: Vec<&str> = block.lines().collect();
+        if lines.is_empty() {
+            continue;
+        }
+
+        let mut cursor = 0usize;
+        if lines[cursor].trim().chars().all(|c| c.is_ascii_digit()) {
+            cursor += 1;
+        }
+        if cursor >= lines.len() {
+            continue;
+        }
+
+        let (start_us, end_us) = parse_srt_time_range(lines[cursor])?;
+        cursor += 1;
+        if cursor >= lines.len() || end_us <= start_us {
+            continue;
+        }
+
+        if timestamp_us >= start_us && timestamp_us < end_us {
+            return Some(lines[cursor..].join("\n").trim().to_string());
+        }
+    }
+    None
+}
+
+pub fn subtitle_text_at_from_ass(content: &str, timestamp_us: i64) -> Option<String> {
+    let script = ass_core::parser::Script::parse(content).ok()?;
+    for section in script.sections() {
+        let ass_core::Section::Events(events) = section else {
+            continue;
+        };
+        for event in events {
+            if !event.is_dialogue() {
+                continue;
+            }
+            let start_cs = event.start_time_cs().ok()?;
+            let end_cs = event.end_time_cs().ok()?;
+            if end_cs <= start_cs {
+                continue;
+            }
+            let start_us = start_cs as i64 * 10_000;
+            let end_us = end_cs as i64 * 10_000;
+            if timestamp_us >= start_us && timestamp_us < end_us {
+                return Some(strip_ass_override_tags(&event.text));
+            }
+        }
+    }
+    None
+}
+
 pub(crate) fn is_image_path(path: &str) -> bool {
     matches!(
         std::path::Path::new(path)

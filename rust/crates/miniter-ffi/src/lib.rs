@@ -317,6 +317,11 @@ mod native_ffi {
     }
 
     #[uniffi::export]
+    pub fn subtitle_text_at(path: String, timestamp_us: i64) -> Option<String> {
+        miniter_media_native::export_shared::subtitle_text_at(&path, timestamp_us)
+    }
+
+    #[uniffi::export]
     pub fn export_preview_frame() -> Option<FrameData> {
         let (width, height, rgba) = miniter_media_native::export::take_export_preview()?;
         Some(FrameData {
@@ -799,6 +804,27 @@ mod web_ffi {
             "rgbaBase64": encoded,
         })
         .to_string()
+    }
+
+    fn registered_file_content(path: &str) -> Option<Vec<u8>> {
+        REGISTERED_FILES
+            .lock()
+            .ok()
+            .and_then(|files| files.get(path).cloned())
+            .map(|f| f.bytes)
+    }
+
+    #[wasm_bindgen(js_name = subtitleTextAt)]
+    pub fn subtitle_text_at(path: String, timestamp_us: f64) -> Option<String> {
+        let path = std::path::Path::new(&path);
+        let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+        let bytes = registered_file_content(path.to_str()?)?;
+        let content = String::from_utf8(bytes).ok()?;
+        match ext.as_str() {
+            "srt" => miniter_media_native::export_shared::subtitle_text_at_from_srt(&content, timestamp_us as i64),
+            "ass" | "ssa" => miniter_media_native::export_shared::subtitle_text_at_from_ass(&content, timestamp_us as i64),
+            _ => None,
+        }
     }
 
     fn registered_file_to_blob_url(path: &str) -> Result<String, JsValue> {

@@ -41,6 +41,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.mlm.miniter.editor.model.*
 import org.mlm.miniter.engine.ImageData
+import org.mlm.miniter.rust.RustCoreSession
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
@@ -105,6 +106,17 @@ sealed interface VisibleMedia {
         val text: String,
         val style: RustTextStyleSnapshot,
     ) : VisibleMedia
+
+    data class Subtitle(
+        override val id: String,
+        override val trackIndex: Int,
+        override val trackId: String,
+        override val startMs: Long,
+        override val durationMs: Long,
+        override val sourceStartMs: Long,
+        override val opacity: Float,
+        val text: String,
+    ) : VisibleMedia
 }
 
 private fun collectVisibleMedia(
@@ -162,6 +174,27 @@ private fun collectVisibleMedia(
                             style = kind.style,
                         )
                     )
+                }
+                is RustSubtitleClipKind -> {
+                    val text = try {
+                        RustCoreSession.subtitleTextAt(kind.sourcePath, playheadUs)
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (text != null) {
+                        visibleMedia.add(
+                            VisibleMedia.Subtitle(
+                                id = clip.id,
+                                trackIndex = trackIndex,
+                                trackId = track.id,
+                                startMs = clip.timelineStartUs / 1000L,
+                                durationMs = clip.timelineDurationUs / 1000L,
+                                sourceStartMs = clip.sourceStartUs / 1000L,
+                                opacity = clip.opacity,
+                                text = text,
+                            )
+                        )
+                    }
                 }
                 else -> {}
             }
@@ -231,6 +264,7 @@ fun EditorVideoPreview(
     val primaryVideo = visibleMedia.filterIsInstance<VisibleMedia.Video>().firstOrNull()
     val backgroundVideos = visibleMedia.filterIsInstance<VisibleMedia.Video>().drop(1)
     val textOverlays = visibleMedia.filterIsInstance<VisibleMedia.Text>()
+    val subtitles = visibleMedia.filterIsInstance<VisibleMedia.Subtitle>()
 
     val primaryVideoPath = primaryVideo?.sourcePath
     var primaryVideoUri by remember(primaryVideoPath) { mutableStateOf<String?>(null) }
@@ -907,6 +941,29 @@ fun EditorVideoPreview(
                                     }
                                     IntOffset(anchorX + ox, anchorY - th / 2)
                                 },
+                        )
+                    }
+
+                    subtitles.forEach { subtitle ->
+                        var subLayout by remember(subtitle.id) { mutableStateOf<TextLayoutResult?>(null) }
+                        Text(
+                            text = subtitle.text,
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Center,
+                            onTextLayout = { subLayout = it },
+                            modifier = Modifier
+                                .wrapContentSize(Alignment.TopStart)
+                                .offset {
+                                    val tw = subLayout?.size?.width ?: 0
+                                    val th = subLayout?.size?.height ?: 0
+                                    IntOffset(
+                                        (viewportSize.width - tw) / 2,
+                                        viewportSize.height - th - 40,
+                                    )
+                                }
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
 

@@ -29,6 +29,7 @@ oporus.workspace = true
 fast_image_resize = "6.0"
 
 fontdue.workspace = true
+ass-core = { path = "../../../../../Documents/Repos/ass-rs/crates/ass-core" }
 
 libblur = "0.24"
 palette = "0.7"
@@ -36,14 +37,14 @@ bytemuck = "1"
 
 videoson = { version = "0.1", optional = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
-ass-renderer = { git = "https://github.com/mlm-games/ass-rs", default-features = false, features = [
+ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer", default-features = false, features = [
     "software-backend",
     "image",
     "simd",
 ] }
-ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 
 [target.'cfg(all(target_os = "android", target_arch = "aarch64"))'.dependencies]
 baabaabaabaabababbababbaa = { workspace = true, features = [
