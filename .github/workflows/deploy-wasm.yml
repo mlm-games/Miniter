@@ -32,7 +32,7 @@ jobs:
 
       - name: Set up Rust
         run: |
-          rustup default wasm32-unknown-unknown
+          rustup target add wasm32-unknown-unknown
           echo "RUSTFLAGS=--cfg=web_sys_unstable_apis" >> $GITHUB_ENV
 
       - name: Install wasm-bindgen CLI
