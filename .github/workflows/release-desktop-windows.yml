@@ -43,8 +43,7 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           cache: gradle
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+
 
       - name: Build Rust JNI (host)
         run: cargo build --release --manifest-path rust/Cargo.toml

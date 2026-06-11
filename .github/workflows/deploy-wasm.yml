@@ -31,10 +31,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: wasm32-unknown-unknown
-          rustflags: "--cfg=web_sys_unstable_apis"
+        run: |
+          rustup default wasm32-unknown-unknown
+          echo "RUSTFLAGS=--cfg=web_sys_unstable_apis" >> $GITHUB_ENV
 
       - name: Install wasm-bindgen CLI
         run: cargo install wasm-bindgen-cli --version 0.2.122 --locked
