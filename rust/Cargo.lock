@@ -241,6 +241,7 @@ dependencies = [
 [[package]]
 name = "ass-core"
 version = "0.1.1"
+source = "git+https://github.com/mlm-games/ass-rs#337cfdbe013a6db18de890c636eedda3ca29844b"
 dependencies = [
  "ahash",
  "bitflags 2.13.0",
@@ -254,6 +255,7 @@ dependencies = [
 [[package]]
 name = "ass-renderer"
 version = "0.1.0"
+source = "git+https://github.com/mlm-games/ass-rs#337cfdbe013a6db18de890c636eedda3ca29844b"
 dependencies = [
  "ahash",
  "ass-core",

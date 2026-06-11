@@ -29,7 +29,6 @@ oporus.workspace = true
 fast_image_resize = "6.0"
 
 fontdue.workspace = true
-ass-core = { path = "../../../../../Documents/Repos/ass-rs/crates/ass-core" }
 
 libblur = "0.24"
 palette = "0.7"
@@ -37,7 +36,8 @@ bytemuck = "1"
 
 videoson = { version = "0.1", optional = true }
 
-ass-renderer = { path = "/home/ymsr/Documents/Repos/ass-rs/crates/ass-renderer", default-features = false, features = [
+ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
+ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-renderer", default-features = false, features = [
     "software-backend",
     "image",
     "simd",
