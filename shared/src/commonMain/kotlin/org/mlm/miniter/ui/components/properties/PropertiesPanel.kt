@@ -19,7 +19,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.vinceglb.filekit.PlatformFile
+import io.github.vinceglb.filekit.dialogs.FileKitType
+import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import org.mlm.miniter.platform.PlatformFileSystem
+import org.mlm.miniter.platform.SupportedFormats
+import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
@@ -73,6 +78,7 @@ fun PropertiesPanel(
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
+    onSetSubtitleFont: (String, String?) -> Unit = { _, _ -> },
 ) {
     val clip = snapshot?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -148,6 +154,7 @@ fun PropertiesPanel(
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
+                onSetSubtitleFont = onSetSubtitleFont,
             )
         }
     }
@@ -696,6 +703,7 @@ private fun SubtitleClipProperties(
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
+    onSetSubtitleFont: (String, String?) -> Unit = { _, _ -> },
 ) {
     val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
     var opacityValue by remember(clip.opacity) { mutableFloatStateOf(clip.opacity) }
@@ -728,6 +736,40 @@ private fun SubtitleClipProperties(
         "Source: $fileName",
         style = MaterialTheme.typography.labelMedium,
     )
+
+    Spacer(Modifier.height(8.dp))
+
+    val fontPicker = rememberFilePickerLauncher(
+        type = FileKitType.File(extensions = SupportedFormats.fontExtensions),
+    ) { file: PlatformFile? ->
+        file?.let { onSetSubtitleFont(clip.id, it.platformPath()) }
+    }
+
+    val fontFileName = kind.fontPath?.substringAfterLast("/")?.substringAfterLast("\\")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Font", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            fontFileName ?: "None",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (fontFileName != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (fontFileName != null) {
+            IconButton(
+                onClick = { onSetSubtitleFont(clip.id, null) },
+                modifier = Modifier.size(24.dp),
+            ) {
+                Icon(Icons.Filled.Close, contentDescription = "Remove font", modifier = Modifier.size(16.dp))
+            }
+        }
+        Spacer(Modifier.width(4.dp))
+        OutlinedButton(
+            onClick = { fontPicker.launch() },
+            modifier = Modifier.height(32.dp),
+        ) {
+            Text(if (fontFileName != null) "Change" else "Select", style = MaterialTheme.typography.labelSmall)
+        }
+    }
 
     Spacer(Modifier.height(12.dp))
 

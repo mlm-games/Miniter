@@ -137,6 +137,10 @@ pub enum EditCommand {
         clip_id: ClipId,
         style: TextStyle,
     },
+    SetSubtitleFont {
+        clip_id: ClipId,
+        font_path: Option<String>,
+    },
     SetExportProfile {
         profile: ExportProfile,
     },

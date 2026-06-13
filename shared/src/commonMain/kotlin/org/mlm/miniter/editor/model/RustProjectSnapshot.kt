@@ -190,6 +190,8 @@ data class RustTextClipKind(
 data class RustSubtitleClipKind(
     @SerialName("source_path")
     val sourcePath: String,
+    @SerialName("font_path")
+    val fontPath: String? = null,
 ) : RustClipKindPayload
 
 @Serializable

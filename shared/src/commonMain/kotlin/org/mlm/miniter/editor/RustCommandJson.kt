@@ -222,6 +222,14 @@ class RustCommandJson(
             put("style", json.encodeToJsonElement(RustTextStyleSnapshot.serializer(), style))
         }
 
+    fun setSubtitleFont(clipId: String, fontPath: String?): String =
+        wrap("SetSubtitleFont") {
+            put("clip_id", uuid(clipId))
+            if (fontPath != null) {
+                put("font_path", JsonPrimitive(fontPath))
+            }
+        }
+
     fun setExportProfile(profile: RustExportProfileSnapshot): String =
         wrap("SetExportProfile") {
             put("profile", json.encodeToJsonElement(RustExportProfileSnapshot.serializer(), profile))

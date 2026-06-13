@@ -441,6 +441,20 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             }
         }
 
+        EditCommand::SetSubtitleFont { clip_id, font_path } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            match &mut clip.kind {
+                ClipKind::Subtitle(s) => {
+                    let old = std::mem::replace(&mut s.font_path, font_path);
+                    Ok(EditCommand::SetSubtitleFont {
+                        clip_id,
+                        font_path: old,
+                    })
+                }
+                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            }
+        }
+
         EditCommand::AddKeyframe { clip_id, keyframe } => {
             let clip = find_clip_mut(state, clip_id)?;
             let idx = clip.keyframes.insert_sorted(keyframe);

@@ -5,5 +5,6 @@ actual object SupportedFormats {
     actual val audioExtensions: List<String> = listOf("mp3", "wav", "ogg", "m4a", "aac")
     actual val imageExtensions: List<String> = listOf("png", "jpg", "jpeg", "webp", "gif", "bmp")
     actual val subtitleExtensions: List<String> = listOf("ass", "ssa", "srt")
+    actual val fontExtensions: List<String> = listOf("ttf", "otf")
     actual val formatHelpMessage: String = "Supported: MP4, WebM, MKV, 3GP, IVF, MP3, WAV, OGG, PNG, JPG"
 }

@@ -279,6 +279,7 @@ fun ProjectScreen(
                 onAddKeyframe = vm::addKeyframe,
                 onRemoveKeyframe = vm::removeKeyframe,
                 onUpdateKeyframe = vm::updateKeyframe,
+                onSetSubtitleFont = vm::setSubtitleFont,
             )
 
     }

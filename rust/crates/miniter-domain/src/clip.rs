@@ -125,4 +125,6 @@ pub struct AudioClip {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubtitleClip {
     pub source_path: String,
+    #[serde(default)]
+    pub font_path: Option<String>,
 }

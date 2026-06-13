@@ -39,6 +39,7 @@ fun PropertiesBottomSheet(
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
+    onSetSubtitleFont: (String, String?) -> Unit = { _, _ -> },
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -75,6 +76,7 @@ fun PropertiesBottomSheet(
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
+                onSetSubtitleFont = onSetSubtitleFont,
             )
         }
     }

@@ -1057,6 +1057,14 @@ class ProjectViewModel(
         syncFromRust()
     }
 
+    fun setSubtitleFont(clipId: String, fontPath: String?) {
+        val clip = findRustClip(clipId)?.kind as? RustSubtitleClipKind ?: return
+        rustStore.dispatch(
+            rustStore.commands.setSubtitleFont(clipId, fontPath),
+        )
+        syncFromRust()
+    }
+
     fun setTextTransitionIn(clipId: String, transition: RustTransitionSnapshot?) {
         rustStore.dispatch(
             rustStore.commands.setTransitionIn(clipId, transition),

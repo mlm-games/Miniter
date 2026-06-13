@@ -281,7 +281,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         selected = subtitleMode == mode,
                         onClick = { subtitleMode = mode },
                         shape = SegmentedButtonDefaults.itemShape(index, subtitleOptions.size),
-                        enabled = !isExporting && mode != RustSubtitleMode.Hard,
+                        enabled = !isExporting,
                     ) {
                         Text(
                             when (mode) {

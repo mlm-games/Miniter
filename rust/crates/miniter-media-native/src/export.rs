@@ -23,6 +23,7 @@ use miniter_domain::clip::ClipId;
 use miniter_domain::clip::ClipKind;
 use miniter_domain::ease_in_out;
 use miniter_domain::export::{ExportFormat, SubtitleMode};
+use miniter_domain::text_overlay::{TextAlignment, TextOverlay, TextStyle};
 use miniter_domain::time::Timestamp;
 use miniter_domain::track::TrackKind;
 use miniter_render_plan::compositor::{FramePlanIterator, first_video_dimensions};
@@ -836,30 +837,63 @@ fn render_node(
 
         RenderNode::Subtitle {
             source_path,
-            source_pts: _,
+            source_pts,
             opacity,
         } => {
             if !Path::new(source_path).exists() {
                 return Ok(transparent_rgba(width, height));
             }
 
-            let time_cs = (first_decoded_video_pts_us.load(Ordering::Relaxed) / 10_000) as i64;
+            let ext = Path::new(source_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase());
 
-            match decode_cache.get_subtitle_renderer(source_path, width as u32, height as u32) {
-                Ok(renderer) => match renderer.render_frame(time_cs) {
-                    Ok(frame) => {
-                        let mut img = frame.into_buffer();
-                        if img.len() == width * height * 4 {
-                            filters::scale_alpha(&mut img, *opacity);
-                            return Ok(img);
+            match ext.as_deref() {
+                Some("ass" | "ssa") => {
+                    let time_cs = (source_pts.as_micros() / 10_000) as i64;
+                    match decode_cache.get_subtitle_renderer(source_path, width as u32, height as u32) {
+                        Ok(renderer) => match renderer.render_frame(time_cs) {
+                            Ok(frame) => {
+                                let mut img = frame.into_buffer();
+                                if img.len() == width * height * 4 {
+                                    filters::scale_alpha(&mut img, *opacity);
+                                    return Ok(img);
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("Subtitle render error: {}", e);
+                            }
+                        },
+                        Err(e) => {
+                            log::warn!("Subtitle renderer init error: {}", e);
                         }
                     }
-                    Err(e) => {
-                        log::warn!("Subtitle render error: {}", e);
+                }
+                _ => {
+                    if let Some(text) = crate::export_shared::subtitle_text_at(source_path, source_pts.as_micros()) {
+                        let subtitle_style = TextStyle {
+                            font_family: "sans-serif".to_string(),
+                            font_size: ((height as f32) * 0.045).clamp(22.0, 56.0),
+                            position_x: 0.5,
+                            position_y: 0.90,
+                            alignment: TextAlignment::Center,
+                            color: "FFFFFFFF".to_string(),
+                            outline_color: Some("FF000000".to_string()),
+                            outline_width: 2.0,
+                            shadow: true,
+                            bold: false,
+                            italic: false,
+                            background_color: None,
+                        };
+                        let overlay = TextOverlay {
+                            text,
+                            style: subtitle_style,
+                        };
+                        let mut img = crate::export_shared::render_text_overlay(&overlay, width, height);
+                        filters::scale_alpha(&mut img, *opacity);
+                        return Ok(img);
                     }
-                },
-                Err(e) => {
-                    log::warn!("Subtitle renderer init error: {}", e);
                 }
             }
 

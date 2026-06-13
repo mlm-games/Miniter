@@ -23,6 +23,10 @@ actual object SupportedFormats {
         listOf("ass", "ssa", "srt")
     }
 
+    actual val fontExtensions: List<String> by lazy {
+        listOf("ttf", "otf", "woff", "woff2")
+    }
+
     actual val formatHelpMessage: String by lazy {
         val os = System.getProperty("os.name").lowercase()
         when {
