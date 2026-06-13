@@ -261,44 +261,49 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 )
             }
 
-            Text("Frame Rate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = customFps,
-                    onValueChange = { customFps = it.filter { c -> c.isDigit() } },
-                    label = { Text("FPS") },
-                    singleLine = true,
-                    modifier = Modifier.width(100.dp),
-                    enabled = !isExporting,
-                )
-            }
-
-            Text("Subtitles", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                val subtitleOptions = listOf(RustSubtitleMode.Soft, RustSubtitleMode.Hard)
-                subtitleOptions.forEachIndexed { index, mode ->
-                    SegmentedButton(
-                        selected = subtitleMode == mode,
-                        onClick = { subtitleMode = mode },
-                        shape = SegmentedButtonDefaults.itemShape(index, subtitleOptions.size),
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column {
+                    Text("Frame Rate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = customFps,
+                        onValueChange = { customFps = it.filter { c -> c.isDigit() } },
+                        label = { Text("FPS") },
+                        singleLine = true,
+                        modifier = Modifier.width(100.dp),
                         enabled = !isExporting,
-                    ) {
-                        Text(
-                            when (mode) {
-                                RustSubtitleMode.Hard -> "Burn in"
-                                RustSubtitleMode.Soft -> "Embed (soft)"
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Subtitles", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        val subtitleOptions = listOf(RustSubtitleMode.Soft, RustSubtitleMode.Hard)
+                        subtitleOptions.forEachIndexed { index, mode ->
+                            SegmentedButton(
+                                selected = subtitleMode == mode,
+                                onClick = { subtitleMode = mode },
+                                shape = SegmentedButtonDefaults.itemShape(index, subtitleOptions.size),
+                                enabled = !isExporting,
+                            ) {
+                                Text(
+                                    when (mode) {
+                                        RustSubtitleMode.Hard -> "Burn in"
+                                        RustSubtitleMode.Soft -> "Embed (soft)"
+                                    }
+                                )
                             }
+                        }
+                    }
+                    if (subtitleMode == RustSubtitleMode.Soft && format == RustExportFormat.Mp4) {
+                        Text(
+                            "ASS/SSA styling is converted to plain text in MP4 soft subtitles.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
                         )
                     }
                 }
-            }
-
-            if (subtitleMode == RustSubtitleMode.Soft && format == RustExportFormat.Mp4) {
-                Text(
-                    "ASS/SSA styling is converted to plain text in MP4 soft subtitles.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
             }
 
             HorizontalDivider()
