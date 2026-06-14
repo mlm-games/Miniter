@@ -265,8 +265,8 @@ pub(crate) fn transform_rgba(
 
             u = u - 0.5 - tx;
             v = v - 0.5 - ty;
-            u = u / zoom;
-            v = v / zoom;
+            u /= zoom;
+            v /= zoom;
 
             u += 0.5;
             v += 0.5;
@@ -743,7 +743,7 @@ pub(crate) fn encode_opus(
             &mixed.samples,
             mixed.sample_rate,
             sample_rate,
-            channels as u16,
+            channels,
         )
     };
 
@@ -1022,7 +1022,7 @@ pub fn subtitle_text_at_from_ass(content: &str, timestamp_us: i64) -> Option<Str
             let start_us = start_cs as i64 * 10_000;
             let end_us = end_cs as i64 * 10_000;
             if timestamp_us >= start_us && timestamp_us < end_us {
-                return Some(strip_ass_override_tags(&event.text));
+                return Some(strip_ass_override_tags(event.text));
             }
         }
     }

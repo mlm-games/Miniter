@@ -195,11 +195,10 @@ fn decode_source_audio(
     source_path: &str,
     source_map: Option<&HashMap<String, Vec<u8>>>,
 ) -> Result<DecodedAudio, DecodeAudioError> {
-    if let Some(map) = source_map {
-        if let Some(bytes) = map.get(source_path) {
+    if let Some(map) = source_map
+        && let Some(bytes) = map.get(source_path) {
             return decode_audio_f32_bytes(bytes, extension_hint_from_path(source_path));
         }
-    }
 
     decode_audio_f32(Path::new(source_path))
 }

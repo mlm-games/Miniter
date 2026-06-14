@@ -554,15 +554,15 @@ mod web_ffi {
     fn probe_video_path(path: &std::path::Path) -> Result<String, JsValue> {
         let info = miniter_media_native::probe::probe_media(path)
             .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
-        Ok(serde_json::to_string(&to_wasm_probe_result(&info))
-            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))?)
+        serde_json::to_string(&to_wasm_probe_result(&info))
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
     }
 
     fn probe_video_bytes(bytes: &[u8], ext_hint: Option<&str>) -> Result<String, JsValue> {
         let info = miniter_media_native::probe::probe_media_bytes(bytes, ext_hint)
             .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
-        Ok(serde_json::to_string(&to_wasm_probe_result(&info))
-            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))?)
+        serde_json::to_string(&to_wasm_probe_result(&info))
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
     }
 
     fn to_wasm_probe_result(info: &miniter_media_native::MediaInfo) -> WasmVideoProbeResult {
@@ -737,7 +737,7 @@ mod web_ffi {
             .body()
             .ok_or_else(|| JsValue::from_str("Missing body"))?;
 
-        let a = document.create_element("a").map_err(|e| JsValue::from(e))?;
+        let a = document.create_element("a")?;
         let a = a.dyn_into::<HtmlAnchorElement>()?;
         a.set_href(blob_url);
         a.set_download(file_name);
@@ -756,11 +756,10 @@ mod web_ffi {
         parts.push(&data);
         let bag = BlobPropertyBag::new();
         bag.set_type(&artifact.mime_type);
-        let blob = Blob::new_with_u8_array_sequence_and_options(&parts, &bag)
-            .map_err(|e| JsValue::from(e))?;
-        let url = Url::create_object_url_with_blob(&blob).map_err(|e| JsValue::from(e))?;
+        let blob = Blob::new_with_u8_array_sequence_and_options(&parts, &bag)?;
+        let url = Url::create_object_url_with_blob(&blob)?;
         trigger_download(&url, &artifact.file_name)?;
-        Url::revoke_object_url(&url).map_err(|e| JsValue::from(e))?;
+        Url::revoke_object_url(&url)?;
         Ok(true)
     }
 
@@ -850,9 +849,8 @@ mod web_ffi {
             .unwrap_or("application/octet-stream");
         let bag = BlobPropertyBag::new();
         bag.set_type(mime);
-        let blob = Blob::new_with_u8_array_sequence_and_options(&parts, &bag)
-            .map_err(|e| JsValue::from(e))?;
-        Url::create_object_url_with_blob(&blob).map_err(|e| JsValue::from(e))
+        let blob = Blob::new_with_u8_array_sequence_and_options(&parts, &bag)?;
+        Url::create_object_url_with_blob(&blob)
     }
 
     fn guess_mime_type_from_extension(ext: &str) -> &'static str {
@@ -885,7 +883,7 @@ mod web_ffi {
 
     #[wasm_bindgen(js_name = revokeBlobUrl)]
     pub fn revoke_blob_url(url: String) -> Result<(), JsValue> {
-        Url::revoke_object_url(&url).map_err(|e| JsValue::from(e))
+        Url::revoke_object_url(&url)
     }
 
     /// Specific codec support is probed on the Kotlin/JS side.
@@ -962,7 +960,7 @@ mod web_ffi {
                     let inner = self.inner.borrow();
                     inner
                         .as_ref()
-                        .map_or(false, |c| c.check_hw_encoder_error().is_err())
+                        .is_some_and(|c| c.check_hw_encoder_error().is_err())
                 };
                 if needs_fallback {
                     self.hw_fallback_tried.set(true);
@@ -974,11 +972,10 @@ mod web_ffi {
                     let sw_project_json =
                         match serde_json::from_str::<serde_json::Value>(&self.project_json)
                             .and_then(|mut v| {
-                                if let Some(profile) = v.get_mut("export_profile") {
-                                    if let Some(hw) = profile.get_mut("hardware_acceleration") {
+                                if let Some(profile) = v.get_mut("export_profile")
+                                    && let Some(hw) = profile.get_mut("hardware_acceleration") {
                                         *hw = serde_json::Value::Bool(false);
                                     }
-                                }
                                 serde_json::to_string(&v)
                             }) {
                             Ok(json) => json,
@@ -1128,7 +1125,7 @@ mod web_ffi {
         #[wasm_bindgen(js_name = isDone)]
         pub fn is_done(&self) -> bool {
             self.result.borrow().is_some()
-                || self.inner.borrow().as_ref().map_or(true, |c| c.is_done())
+                || self.inner.borrow().as_ref().is_none_or(|c| c.is_done())
         }
     }
 }

@@ -51,7 +51,7 @@ pub fn scan_loudness(
         .as_ref()
         .map(|c| c.count())
         .unwrap_or(1)
-        .max(1) as usize;
+        .max(1);
 
     let samples_per_chunk = (sample_rate as f64 * chunk_duration_us as f64 / 1_000_000.0)
         .round()

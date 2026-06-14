@@ -156,14 +156,13 @@ pub fn extract_sps_pps(annex_b: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         let mut nalu_end = len;
         let mut j = i;
         while j + 3 <= len {
-            if annex_b[j] == 0 && annex_b[j + 1] == 0 {
-                if (j + 3 <= len && annex_b[j + 2] == 1)
-                    || (j + 4 <= len && annex_b[j + 2] == 0 && annex_b[j + 3] == 1)
+            if annex_b[j] == 0 && annex_b[j + 1] == 0
+                && ((j + 3 <= len && annex_b[j + 2] == 1)
+                    || (j + 4 <= len && annex_b[j + 2] == 0 && annex_b[j + 3] == 1))
                 {
                     nalu_end = j;
                     break;
                 }
-            }
             j += 1;
         }
 

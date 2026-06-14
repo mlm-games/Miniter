@@ -967,10 +967,10 @@ fn find_clip_mut(state: &mut EditorState, clip_id: ClipId) -> Result<&mut Clip, 
         .ok_or(ApplyError::ClipNotFound(clip_id))
 }
 
-fn audio_filters_mut<'a>(
-    kind: &'a mut ClipKind,
+fn audio_filters_mut(
+    kind: &mut ClipKind,
     clip_id: ClipId,
-) -> Result<&'a mut Vec<AudioFilter>, ApplyError> {
+) -> Result<&mut Vec<AudioFilter>, ApplyError> {
     match kind {
         ClipKind::Video(v) => Ok(&mut v.audio_filters),
         ClipKind::Audio(a) => Ok(&mut a.filters),

@@ -1,4 +1,4 @@
-use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
+use crate::encoder::{EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::Av1EncodeSession;
 use crate::encoder_hw::HwEncodeSession;
 use crate::frame::RgbaFrame;

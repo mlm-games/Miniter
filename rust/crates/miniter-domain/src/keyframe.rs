@@ -15,18 +15,15 @@ pub mod param {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum Easing {
+    #[default]
     Linear,
     EaseIn,
     EaseOut,
     EaseInOut,
 }
 
-impl Default for Easing {
-    fn default() -> Self {
-        Self::Linear
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keyframe {
@@ -38,6 +35,7 @@ pub struct Keyframe {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct KeyframeCurve {
     pub keyframes: Vec<Keyframe>,
 }
@@ -93,13 +91,6 @@ impl KeyframeCurve {
     }
 }
 
-impl Default for KeyframeCurve {
-    fn default() -> Self {
-        Self {
-            keyframes: Vec::new(),
-        }
-    }
-}
 
 pub fn ease_linear(t: f32) -> f32 {
     t

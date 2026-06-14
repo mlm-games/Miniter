@@ -130,7 +130,7 @@ fn read_mp4_into_media_info<R: Read + Seek>(
                     codec: format!("{}", track.media_type().unwrap_or(mp4::MediaType::H264)),
                     width: track.width() as u32,
                     height: track.height() as u32,
-                    frame_rate: fps as f64,
+                    frame_rate: fps,
                     bitrate: track.bitrate(),
                 });
             }
@@ -310,7 +310,7 @@ pub fn probe_image_bytes(
 ) -> Result<MediaInfo, MediaProbeError> {
     use std::io::Cursor;
     let fmt = extension_hint
-        .and_then(|e| image::ImageFormat::from_extension(e))
+        .and_then(image::ImageFormat::from_extension)
         .unwrap_or(image::ImageFormat::Png);
     let img = image::load(Cursor::new(bytes), fmt)
         .map_err(|e| MediaProbeError::Io(std::io::Error::other(e.to_string())))?;

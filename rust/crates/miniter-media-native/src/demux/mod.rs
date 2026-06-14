@@ -13,7 +13,7 @@ pub mod mp4_demux;
 pub mod symphonia_demux;
 
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::BufReader;
 use std::path::Path;
 
 pub use ivf_demux::IvfDemuxer;

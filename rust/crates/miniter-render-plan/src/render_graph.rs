@@ -60,11 +60,10 @@ pub fn plan_frame(
         if track.muted {
             continue;
         }
-        if let Some(clip) = track.clip_at(t) {
-            if let Some(node) = node_for_clip(clip, t, track, subtitle_mode) {
+        if let Some(clip) = track.clip_at(t)
+            && let Some(node) = node_for_clip(clip, t, track, subtitle_mode) {
                 layers.push(node);
             }
-        }
     }
 
     let root = if layers.len() == 1 {
@@ -157,8 +156,8 @@ fn node_for_clip(
                 opacity,
             };
 
-            if let Some(ref trans) = clip.transition_in {
-                if let Some(prev) = find_previous_clip(track, clip) {
+            if let Some(ref trans) = clip.transition_in
+                && let Some(prev) = find_previous_clip(track, clip) {
                     let progress = transition_progress(clip, trans, t);
                     let prev_pts = Timestamp::from_micros(
                         prev.source_start.as_micros()
@@ -181,13 +180,12 @@ fn node_for_clip(
                         });
                     }
                 }
-            }
 
             if let Some(ref trans) = clip.transition_out {
                 let out_progress = transition_out_progress(clip, trans, t);
-                if out_progress < 1.0 {
-                    if let Some(next) = find_next_clip(track, clip) {
-                        if let ClipKind::Video(nv) = &next.kind {
+                if out_progress < 1.0
+                    && let Some(next) = find_next_clip(track, clip)
+                        && let ClipKind::Video(nv) = &next.kind {
                             let clip_end = clip.timeline_end();
                             let fade_start = Timestamp::from_micros(
                                 clip_end.as_micros() - trans.duration.as_micros(),
@@ -216,8 +214,6 @@ fn node_for_clip(
                                 progress: out_progress,
                             });
                         }
-                    }
-                }
             }
             Some(base)
         }

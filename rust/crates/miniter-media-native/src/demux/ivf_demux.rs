@@ -1,7 +1,7 @@
 //! raw AV1/VP8 bitstreams.
 
 use super::{DemuxError, DemuxResult, DemuxedSample, Demuxer, VideoContainer};
-use crate::decoders::{AV1_IVF_FOURCC, VP8_FOURCC};
+use crate::decoders::AV1_IVF_FOURCC;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 
 pub struct IvfDemuxer<R: Read + Seek> {
@@ -20,7 +20,7 @@ impl<R: Read + Seek> IvfDemuxer<R> {
         let mut header = [0u8; 32];
         reader
             .read_exact(&mut header)
-            .map_err(|e| DemuxError::Io(e))?;
+            .map_err(DemuxError::Io)?;
 
         if &header[0..4] != b"DKIF" {
             return Err(DemuxError::Other("Not an IVF file".into()));
@@ -132,7 +132,7 @@ impl<R: Read + Seek + Send> Demuxer for IvfDemuxer<R> {
         let mut _pts_buf = [0u8; 8];
         self.reader
             .read_exact(&mut _pts_buf)
-            .map_err(|e| DemuxError::Io(e))?;
+            .map_err(DemuxError::Io)?;
 
         let mut data = vec![0u8; size];
         match self.reader.read_exact(&mut data) {

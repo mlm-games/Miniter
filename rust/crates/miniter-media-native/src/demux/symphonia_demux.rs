@@ -1,6 +1,6 @@
 //! MKV, WebM, AVI, OGG, and other containers via symphonia.
 
-use std::io::{BufReader, Read, Seek};
+use std::io::Seek;
 
 use symphonia::core::codecs::video::VideoCodecId;
 use symphonia::core::formats::FormatOptions;
@@ -28,7 +28,7 @@ impl SymphoniaDemuxer {
     pub fn from_file(file: std::fs::File, _size: u64) -> DemuxResult<Self> {
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-        let mut format = symphonia::default::get_probe().probe(
+        let format = symphonia::default::get_probe().probe(
             &Hint::new(),
             mss,
             FormatOptions::default(),
@@ -119,7 +119,7 @@ impl Demuxer for SymphoniaDemuxer {
                 continue;
             }
 
-            let pts = (packet.pts.get() / 1_000_000) as i64;
+            let pts = (packet.pts.get() / 1_000_000);
             let data: Vec<u8> = packet.data.to_vec();
             let is_sync = false;
 

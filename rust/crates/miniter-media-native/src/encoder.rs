@@ -44,7 +44,7 @@ fn next_multiple(value: usize, base: usize) -> usize {
 
 impl VideoEncodeSession {
     pub fn new(width: u32, height: u32, _bitrate_bps: u32, _fps: f32) -> Result<Self, EncodeError> {
-        if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
+        if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             return Err(EncodeError::InvalidDimensions);
         }
         let y_stride = next_multiple(width as usize, 16);

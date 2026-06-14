@@ -26,7 +26,7 @@ pub struct AudioDecoder {
 impl AudioDecoder {
     pub fn new(path: &Path) -> Result<Self, AudioDecodeError> {
         let (mss, ext) = util::open_mss_from_path(path)?;
-        let mut format = util::probe(mss, ext.as_deref())?;
+        let format = util::probe(mss, ext.as_deref())?;
 
         let track = format
             .tracks()

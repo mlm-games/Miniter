@@ -142,7 +142,7 @@ fn frame_to_rgba(frame: &videoson::VideoFrame) -> Result<RgbaFrame, DecodeBacken
             let r = (yy + 1.402 * vv).clamp(0.0, 255.0) as u8;
             let g = (yy - 0.344 * uu - 0.714 * vv).clamp(0.0, 255.0) as u8;
             let b = (yy + 1.772 * uu).clamp(0.0, 255.0) as u8;
-            rgba[(y * w + x) * 4 + 0] = r;
+            rgba[((y * w + x) * 4)] = r;
             rgba[(y * w + x) * 4 + 1] = g;
             rgba[(y * w + x) * 4 + 2] = b;
             rgba[(y * w + x) * 4 + 3] = 255;

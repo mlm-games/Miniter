@@ -41,7 +41,7 @@ impl Av1EncodeSession {
         fps: f64,
         bitrate_kbps: u32,
     ) -> Result<Self, Av1EncodeError> {
-        if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
+        if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             return Err(Av1EncodeError::InvalidDimensions);
         }
 

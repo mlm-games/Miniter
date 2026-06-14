@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{BufReader, Cursor, Seek, SeekFrom, Write};
+use std::io::{Cursor, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
@@ -35,11 +35,10 @@ use crate::mux::{
     VideoTrackCodecOut, extract_sps_pps,
 };
 use crate::wasm_export::encoder::{EncodedPacket, EncoderBackend, create_encoder_backend};
-use miniter_audio::mix::{MixConfig, MixedAudio, mix_project_audio_with_source_map};
+use miniter_audio::mix::{MixConfig, mix_project_audio_with_source_map};
 use miniter_domain::clip::{ClipId, ClipKind, VideoClip};
 use miniter_domain::ease_in_out;
 use miniter_domain::export::{ExportFormat, SubtitleMode};
-use miniter_domain::filter::VideoFilter;
 use miniter_domain::project::Project;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay, TextStyle};
 use miniter_domain::time::Timestamp;
@@ -216,11 +215,10 @@ impl<'a> ExportDecodeCache<'a> {
                 entry.pending_frame = None;
             }
 
-            if let Some(ref current) = entry.last_frame {
-                if current.pts_us == target_us {
+            if let Some(ref current) = entry.last_frame
+                && current.pts_us == target_us {
                     return Ok(current.clone());
                 }
-            }
         }
 
         loop {
@@ -1118,11 +1116,10 @@ fn resolve_render_settings(project: &Project) -> RenderSettings {
 fn first_video_dimensions(project: &Project) -> (u32, u32) {
     for track in &project.timeline.tracks {
         for clip in &track.clips {
-            if let ClipKind::Video(VideoClip { width, height, .. }) = &clip.kind {
-                if *width > 0 && *height > 0 {
+            if let ClipKind::Video(VideoClip { width, height, .. }) = &clip.kind
+                && *width > 0 && *height > 0 {
                     return (*width, *height);
                 }
-            }
         }
     }
 
@@ -1202,10 +1199,10 @@ impl WasmExportChunker {
             unsafe { &*(&*files_box as *const HashMap<String, Vec<u8>>) };
         let decode_cache = ExportDecodeCache::new(files_ref);
 
-        let audio_encoded = prepare_audio_track(project, &*files_box)
+        let audio_encoded = prepare_audio_track(project, &files_box)
             .map_err(|e| format!("Audio prep failed: {e}"))?;
         let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
-            collect_soft_subtitle_samples(project, &*files_box)
+            collect_soft_subtitle_samples(project, &files_box)
         } else {
             Vec::new()
         };
@@ -1358,7 +1355,7 @@ impl WasmExportChunker {
     }
 
     fn encode_one_frame(&mut self, frame: &RgbaFrame) -> Result<(), String> {
-        let pts = frame.pts_us.max(0) as u64;
+        let _pts = frame.pts_us.max(0) as u64;
         let packets = self.encoder.encode_frame(frame)?;
 
         for packet in packets {

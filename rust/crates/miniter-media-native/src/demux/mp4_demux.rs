@@ -150,18 +150,16 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
 
         if !saw_sps || !saw_pps {
             let mut prefixed = Vec::new();
-            if !saw_sps {
-                if let Some(sps_nal) = self.sps.as_deref() {
+            if !saw_sps
+                && let Some(sps_nal) = self.sps.as_deref() {
                     prefixed.extend_from_slice(start_code);
                     prefixed.extend_from_slice(sps_nal);
                 }
-            }
-            if !saw_pps {
-                if let Some(pps_nal) = self.pps.as_deref() {
+            if !saw_pps
+                && let Some(pps_nal) = self.pps.as_deref() {
                     prefixed.extend_from_slice(start_code);
                     prefixed.extend_from_slice(pps_nal);
                 }
-            }
             prefixed.extend_from_slice(&output);
             prefixed
         } else {
