@@ -241,7 +241,7 @@ dependencies = [
 [[package]]
 name = "ass-core"
 version = "0.1.1"
-source = "git+https://github.com/mlm-games/ass-rs#337cfdbe013a6db18de890c636eedda3ca29844b"
+source = "git+https://github.com/mlm-games/ass-rs#add2968f328de0a246048d4908928db25112ef95"
 dependencies = [
  "ahash",
  "bitflags 2.13.0",
@@ -255,7 +255,7 @@ dependencies = [
 [[package]]
 name = "ass-renderer"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/ass-rs#337cfdbe013a6db18de890c636eedda3ca29844b"
+source = "git+https://github.com/mlm-games/ass-rs#add2968f328de0a246048d4908928db25112ef95"
 dependencies = [
  "ahash",
  "ass-core",
@@ -386,7 +386,7 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#7885dd5ec6c7ce493d1f6b77b3c3d419ac6e42be"
+source = "git+https://github.com/mlm-games/baa4bababab2baa#e740d31e7c5faf8e5b917d93d9852c380de81f7c"
 dependencies = [
  "bytes",
  "cros-codecs",
@@ -396,6 +396,7 @@ dependencies = [
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-codecs",
  "web-sys",
 ]
 
@@ -569,9 +570,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.63"
+version = "1.2.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "556e016178bb5662a08681bbe0f00f8e17631781a4dfc8c45e466e4b185ec27f"
+checksum = "dad887fd958be91b5098c0248def011f4523ab786cd411be668777e55063501f"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1413,13 +1414,12 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
-version = "0.3.99"
+version = "0.3.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "142bc4740e452c1e57ade0cbc129f139c9093e354346f0872ef985f4f5cf5f11"
+checksum = "03d04c30968dffe80775bd4d7fb676131cd04a1fb46d2686dbffbaec2d9dfd31"
 dependencies = [
  "cfg-if",
  "futures-util",
- "once_cell",
  "wasm-bindgen",
 ]
 
@@ -1546,7 +1546,7 @@ dependencies = [
 [[package]]
 name = "mediacodec"
 version = "0.1.5"
-source = "git+https://github.com/mlm-games/rust_mediacodec?branch=main#5fcc3539ca39f367269b0120ea411e0e767366e7"
+source = "git+https://github.com/mlm-games/rust_mediacodec?branch=main#f74a897c1e3cbd56f58b0773f96db60919647e4c"
 dependencies = [
  "android_logger",
  "jni",
@@ -1556,9 +1556,9 @@ dependencies = [
 
 [[package]]
 name = "memchr"
-version = "2.8.1"
+version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
+checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
 name = "memmap2"
@@ -2628,9 +2628,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.15.1"
+version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
 name = "smawk"
@@ -3336,7 +3336,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "videoson"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#becb0433cc30fb7873f0088181c8b5ff9c03f1a3"
+source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
 dependencies = [
  "videoson-codec-h264",
  "videoson-codec-rav1d",
@@ -3348,7 +3348,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-h264"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#becb0433cc30fb7873f0088181c8b5ff9c03f1a3"
+source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
 dependencies = [
  "rust_h264",
  "videoson-common",
@@ -3358,7 +3358,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-rav1d"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#becb0433cc30fb7873f0088181c8b5ff9c03f1a3"
+source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
 dependencies = [
  "rav1d-safe",
  "videoson-core",
@@ -3367,17 +3367,17 @@ dependencies = [
 [[package]]
 name = "videoson-common"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#becb0433cc30fb7873f0088181c8b5ff9c03f1a3"
+source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
 
 [[package]]
 name = "videoson-core"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#becb0433cc30fb7873f0088181c8b5ff9c03f1a3"
+source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
 
 [[package]]
 name = "videoson-format-ivf"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#becb0433cc30fb7873f0088181c8b5ff9c03f1a3"
+source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
 dependencies = [
  "videoson-common",
  "videoson-core",
@@ -3395,9 +3395,9 @@ dependencies = [
 
 [[package]]
 name = "wasip2"
-version = "1.0.3+wasi-0.2.9"
+version = "1.0.4+wasi-0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20064672db26d7cdc89c7798c48a0fdfac8213434a1186e5ef29fd560ae223d6"
+checksum = "b67efb37e106e55ce722a510d6b5f9c17f083e5fc79afc2badeb12cc313d9487"
 dependencies = [
  "wit-bindgen 0.57.1",
 ]
@@ -3413,9 +3413,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.122"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ed04576f974d2b2fba0f38c51dbc5518011e38c36bf1143164be765528fd409"
+checksum = "8ddb3f79143bced6de84270411622a2699cee572fc0875aeaf1e7867cf9fca1a"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -3426,9 +3426,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.72"
+version = "0.4.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9473dbd2991ae90b6291c3c32c30c6187ac49aa32f9905d1cce280ec1e110b0f"
+checksum = "503b14d284f2c8dac03b819967e155ea753f573586193b2b2c95990cb5d69280"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -3436,9 +3436,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.122"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "916151b09da36bd82f6615cbf3a419e2f0ba23a03c6160e8e92eb6bd4aa1dec6"
+checksum = "4e21a184b13fb19e157296e2c46056aec9092264fab83e4ba59e68c61b323c3d"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -3446,9 +3446,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.122"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "299047362ccbfce148b67ab7e73349f77748e00c8296f9542adfad2ad82c5c5e"
+checksum = "fecefd9c35bd935a20fc3fc344b5f29138961e4f47fb03297d88f2587afb5ebd"
 dependencies = [
  "bumpalo",
  "proc-macro2",
@@ -3459,9 +3459,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.122"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a929b2c61f11ba3e9bc35b50c1f25cb38e0e892c0c231ae2b8cf78d5dad4437"
+checksum = "23939e44bb9a5d7576fa2b563dc2e136628f1224e88a8deed09e04858b77871f"
 dependencies = [
  "unicode-ident",
 ]
@@ -3503,7 +3503,7 @@ dependencies = [
 [[package]]
 name = "web-codecs"
 version = "0.3.10"
-source = "git+https://github.com/mlm-games/web-rs.git?branch=main#fccb727f3000bd2f2bfc359050f8ff4e1f8d3475"
+source = "git+https://github.com/mlm-games/web-rs.git?branch=main#a00ddeff80122b516a5db0136d344cc9de523156"
 dependencies = [
  "bytemuck",
  "bytes",
@@ -3518,9 +3518,9 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.99"
+version = "0.3.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d621441cfc37b84979402712047321980c178f299193a3589d05b99e8763436"
+checksum = "a6430a72df5eb332242960fe84b3002a241163998241eb596d4f739b9757061d"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -3873,4 +3873,4 @@ source = "git+https://github.com/mlm-games/cros-libva#ba36b968231402071b2e344d4d
 [[patch.unused]]
 name = "mediacodec"
 version = "0.1.5"
-source = "git+https://github.com/mlm-games/rust_mediacodec#5fcc3539ca39f367269b0120ea411e0e767366e7"
+source = "git+https://github.com/mlm-games/rust_mediacodec#f74a897c1e3cbd56f58b0773f96db60919647e4c"

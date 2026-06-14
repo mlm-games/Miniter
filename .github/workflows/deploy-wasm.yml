@@ -36,7 +36,7 @@ jobs:
           echo "RUSTFLAGS=--cfg=web_sys_unstable_apis" >> $GITHUB_ENV
 
       - name: Install wasm-bindgen CLI
-        run: cargo install wasm-bindgen-cli --version 0.2.122 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.125 --locked
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
