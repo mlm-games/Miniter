@@ -821,8 +821,14 @@ mod web_ffi {
         let bytes = registered_file_content(path.to_str()?)?;
         let content = String::from_utf8(bytes).ok()?;
         match ext.as_str() {
-            "srt" => miniter_media_native::export_shared::subtitle_text_at_from_srt(&content, timestamp_us as i64),
-            "ass" | "ssa" => miniter_media_native::export_shared::subtitle_text_at_from_ass(&content, timestamp_us as i64),
+            "srt" => miniter_media_native::export_shared::subtitle_text_at_from_srt(
+                &content,
+                timestamp_us as i64,
+            ),
+            "ass" | "ssa" => miniter_media_native::export_shared::subtitle_text_at_from_ass(
+                &content,
+                timestamp_us as i64,
+            ),
             _ => None,
         }
     }

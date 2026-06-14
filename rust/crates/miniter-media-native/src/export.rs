@@ -861,7 +861,11 @@ fn render_node(
             match ext.as_deref() {
                 Some("ass" | "ssa") => {
                     let time_cs = (source_pts.as_micros() / 10_000) as i64;
-                    match decode_cache.get_subtitle_renderer(source_path, width as u32, height as u32) {
+                    match decode_cache.get_subtitle_renderer(
+                        source_path,
+                        width as u32,
+                        height as u32,
+                    ) {
                         Ok(renderer) => match renderer.render_frame(time_cs) {
                             Ok(frame) => {
                                 let mut img = frame.into_buffer();
@@ -880,7 +884,9 @@ fn render_node(
                     }
                 }
                 _ => {
-                    if let Some(text) = crate::export_shared::subtitle_text_at(source_path, source_pts.as_micros()) {
+                    if let Some(text) =
+                        crate::export_shared::subtitle_text_at(source_path, source_pts.as_micros())
+                    {
                         let subtitle_style = TextStyle {
                             font_family: "sans-serif".to_string(),
                             font_size: ((height as f32) * 0.045).clamp(22.0, 56.0),
@@ -900,7 +906,8 @@ fn render_node(
                             style: subtitle_style,
                         };
                         let fp = font_path.as_deref();
-                        let mut img = crate::export_shared::render_text_overlay(&overlay, width, height, fp);
+                        let mut img =
+                            crate::export_shared::render_text_overlay(&overlay, width, height, fp);
                         filters::scale_alpha(&mut img, *opacity);
                         return Ok(img);
                     }

@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
 use videoson::{
-    codec_rav1d::Rav1dSafeDecoder, CodecRegistry, CodecType, Packet as VideoPacket,
-    VideoCodecParams, VideoDecoder, VideoDecoderOptions,
+    CodecRegistry, CodecType, Packet as VideoPacket, VideoCodecParams, VideoDecoder,
+    VideoDecoderOptions, codec_rav1d::Rav1dSafeDecoder,
 };
 
 use crate::decoders::{AV1_FOURCC, AV1_IVF_FOURCC, DecodeError};
@@ -37,7 +37,11 @@ impl Av1Backend {
             .make_video_decoder(CodecType::AV1, &params, &VideoDecoderOptions::default())
             .ok_or(DecodeError::DecoderNotAvailable("AV1".into()))?
             .map_err(|e| DecodeError::Videoson(format!("{:?}", e)))?;
-        Ok(Self { inner, width, height })
+        Ok(Self {
+            inner,
+            width,
+            height,
+        })
     }
 }
 

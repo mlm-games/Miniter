@@ -31,12 +31,7 @@ impl AudioDecoder {
         let track = format
             .tracks()
             .iter()
-            .find(|t| {
-                t.codec_params
-                    .as_ref()
-                    .and_then(|p| p.audio())
-                    .is_some()
-            })
+            .find(|t| t.codec_params.as_ref().and_then(|p| p.audio()).is_some())
             .ok_or(AudioDecodeError::NoAudioTrack)?;
 
         let track_id = track.id;

@@ -35,12 +35,7 @@ pub fn scan_loudness(
     let track = reader
         .tracks()
         .iter()
-        .find(|t| {
-            t.codec_params
-                .as_ref()
-                .and_then(|p| p.audio())
-                .is_some()
-        })
+        .find(|t| t.codec_params.as_ref().and_then(|p| p.audio()).is_some())
         .ok_or(LoudnessError::NoAudioTrack)?;
 
     let track_id = track.id;

@@ -287,7 +287,8 @@ fn probe_audio_only_bytes(
 }
 
 fn probe_image(path: &Path) -> Result<MediaInfo, MediaProbeError> {
-    let img = image::open(path).map_err(|e| MediaProbeError::Io(std::io::Error::other(e.to_string())))?;
+    let img =
+        image::open(path).map_err(|e| MediaProbeError::Io(std::io::Error::other(e.to_string())))?;
     let (width, height) = img.dimensions();
     Ok(MediaInfo {
         duration_us: None,
@@ -303,7 +304,10 @@ fn probe_image(path: &Path) -> Result<MediaInfo, MediaProbeError> {
     })
 }
 
-pub fn probe_image_bytes(bytes: &[u8], extension_hint: Option<&str>) -> Result<MediaInfo, MediaProbeError> {
+pub fn probe_image_bytes(
+    bytes: &[u8],
+    extension_hint: Option<&str>,
+) -> Result<MediaInfo, MediaProbeError> {
     use std::io::Cursor;
     let fmt = extension_hint
         .and_then(|e| image::ImageFormat::from_extension(e))

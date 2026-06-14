@@ -15,5 +15,3 @@ pub fn slide_offset(kind: TransitionKind, progress: f32) -> f32 {
         _ => 0.0,
     }
 }
-
-

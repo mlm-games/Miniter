@@ -16,11 +16,21 @@ impl RgbaFrame {
         if data.len() != (width as usize) * (height as usize) * 4 {
             return None;
         }
-        Some(Self { width, height, data, pts_us })
+        Some(Self {
+            width,
+            height,
+            data,
+            pts_us,
+        })
     }
 
     /// Create a new `RgbaFrame` without validation (internal use).
     pub(crate) fn new_unchecked(width: u32, height: u32, data: Vec<u8>, pts_us: i64) -> Self {
-        Self { width, height, data, pts_us }
+        Self {
+            width,
+            height,
+            data,
+            pts_us,
+        }
     }
 }

@@ -53,12 +53,7 @@ fn extract_waveform_stream(
     let track = reader
         .tracks()
         .iter()
-        .find(|t| {
-            t.codec_params
-                .as_ref()
-                .and_then(|p| p.audio())
-                .is_some()
-        })
+        .find(|t| t.codec_params.as_ref().and_then(|p| p.audio()).is_some())
         .ok_or(WaveformError::NoAudioTrack)?;
 
     let track_id = track.id;
@@ -76,9 +71,7 @@ fn extract_waveform_stream(
         .unwrap_or(1);
 
     let channels_usize = channels.max(1) as usize;
-    let total_samples = track
-        .num_frames
-        .unwrap_or(sample_rate as u64 * 300);
+    let total_samples = track.num_frames.unwrap_or(sample_rate as u64 * 300);
     let samples_per_bucket = (total_samples / target_buckets as u64).max(1);
 
     let mut decoder = crate::codecs::get_codecs()

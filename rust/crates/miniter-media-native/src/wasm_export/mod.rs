@@ -34,7 +34,7 @@ use crate::mux::{
     ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
     VideoTrackCodecOut, extract_sps_pps,
 };
-use crate::wasm_export::encoder::{EncoderBackend, EncodedPacket, create_encoder_backend};
+use crate::wasm_export::encoder::{EncodedPacket, EncoderBackend, create_encoder_backend};
 use miniter_audio::mix::{MixConfig, MixedAudio, mix_project_audio_with_source_map};
 use miniter_domain::clip::{ClipId, ClipKind, VideoClip};
 use miniter_domain::ease_in_out;
@@ -1132,14 +1132,18 @@ fn first_video_dimensions(project: &Project) -> (u32, u32) {
 struct NoopBackend;
 
 impl EncoderBackend for NoopBackend {
-    fn name(&self) -> &'static str { "noop" }
+    fn name(&self) -> &'static str {
+        "noop"
+    }
     fn encode_frame(&mut self, _frame: &RgbaFrame) -> Result<Vec<EncodedPacket>, String> {
         Ok(Vec::new())
     }
     fn finish(&mut self) -> Result<Vec<EncodedPacket>, String> {
         Ok(Vec::new())
     }
-    fn check_error(&self) -> Option<String> { None }
+    fn check_error(&self) -> Option<String> {
+        None
+    }
 }
 
 /// An encoded video frame buffered in memory.
@@ -1228,14 +1232,13 @@ impl WasmExportChunker {
         let fps_int = settings.fps.round().max(1.0) as u32;
 
         if format == ExportFormat::Opus {
-            let (ogg_sample_rate, ogg_total_samples_48k) =
-                if let Some(ref audio) = audio_encoded {
-                    let samples_per_packet = 960u64;
-                    let total = audio.packets.len() as u64 * samples_per_packet;
-                    (48_000, total)
-                } else {
-                    (48_000, 0)
-                };
+            let (ogg_sample_rate, ogg_total_samples_48k) = if let Some(ref audio) = audio_encoded {
+                let samples_per_packet = 960u64;
+                let total = audio.packets.len() as u64 * samples_per_packet;
+                (48_000, total)
+            } else {
+                (48_000, 0)
+            };
 
             return Ok(WasmExportChunker {
                 decode_cache,

@@ -1,4 +1,4 @@
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::Value;
 
 #[allow(dead_code)]

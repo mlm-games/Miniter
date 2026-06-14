@@ -44,11 +44,7 @@ pub struct KeyframeCurve {
 
 impl KeyframeCurve {
     pub fn evaluate(&self, param: &str, local_time: MediaDuration) -> Option<f32> {
-        let relevant: Vec<&Keyframe> = self
-            .keyframes
-            .iter()
-            .filter(|k| k.param == param)
-            .collect();
+        let relevant: Vec<&Keyframe> = self.keyframes.iter().filter(|k| k.param == param).collect();
 
         if relevant.is_empty() {
             return None;

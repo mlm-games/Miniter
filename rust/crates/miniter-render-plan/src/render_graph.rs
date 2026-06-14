@@ -1,6 +1,6 @@
 use crate::transition_blend::opacity_pair;
-use miniter_domain::ease_in_out;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
+use miniter_domain::ease_in_out;
 use miniter_domain::export::SubtitleMode;
 use miniter_domain::filter::{VideoEffect, VideoFilter};
 use miniter_domain::keyframe::KeyframeCurve;
@@ -189,13 +189,17 @@ fn node_for_clip(
                     if let Some(next) = find_next_clip(track, clip) {
                         if let ClipKind::Video(nv) = &next.kind {
                             let clip_end = clip.timeline_end();
-                            let fade_start = Timestamp::from_micros(clip_end.as_micros() - trans.duration.as_micros());
+                            let fade_start = Timestamp::from_micros(
+                                clip_end.as_micros() - trans.duration.as_micros(),
+                            );
                             let offset = (t - fade_start).as_micros();
-                            let next_t = Timestamp::from_micros(next.timeline_start.as_micros() + offset);
-                            
+                            let next_t =
+                                Timestamp::from_micros(next.timeline_start.as_micros() + offset);
+
                             let next_pts = Timestamp::from_micros(
                                 next.source_start.as_micros()
-                                    + ((next_t - next.timeline_start).as_micros() as f64 * next.speed) as i64,
+                                    + ((next_t - next.timeline_start).as_micros() as f64
+                                        * next.speed) as i64,
                             );
                             let next_opacity = clip_opacity_at(next, next_t - next.timeline_start);
                             let next_node = RenderNode::VideoFrame {
@@ -221,10 +225,16 @@ fn node_for_clip(
         ClipKind::Text(overlay) => {
             let mut opacity = clip_opacity_at(clip, local_offset);
             let mut modified = overlay.clone();
-            if let Some(x) = clip.keyframes.evaluate(param::TEXT_POSITION_X, local_offset) {
+            if let Some(x) = clip
+                .keyframes
+                .evaluate(param::TEXT_POSITION_X, local_offset)
+            {
                 modified.style.position_x = x;
             }
-            if let Some(y) = clip.keyframes.evaluate(param::TEXT_POSITION_Y, local_offset) {
+            if let Some(y) = clip
+                .keyframes
+                .evaluate(param::TEXT_POSITION_Y, local_offset)
+            {
                 modified.style.position_y = y;
             }
             if let Some(fs) = clip.keyframes.evaluate(param::TEXT_FONT_SIZE, local_offset) {
@@ -282,10 +292,7 @@ fn active_filters(filters: &[VideoEffect]) -> Vec<VideoFilter> {
         .collect()
 }
 
-fn find_next_clip<'a>(
-    track: &'a miniter_domain::track::Track,
-    clip: &Clip,
-) -> Option<&'a Clip> {
+fn find_next_clip<'a>(track: &'a miniter_domain::track::Track, clip: &Clip) -> Option<&'a Clip> {
     let idx = track.clip_index(clip.id)?;
     if idx + 1 < track.clips.len() {
         Some(&track.clips[idx + 1])

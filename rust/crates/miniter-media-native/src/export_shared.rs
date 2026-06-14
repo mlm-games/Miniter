@@ -474,12 +474,10 @@ pub(crate) fn render_text_overlay(
     }
 
     let font_data: Vec<u8> = match font_path {
-        Some(path) if std::path::Path::new(path).exists() => {
-            match std::fs::read(path) {
-                Ok(data) => data,
-                Err(_) => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
-            }
-        }
+        Some(path) if std::path::Path::new(path).exists() => match std::fs::read(path) {
+            Ok(data) => data,
+            Err(_) => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
+        },
         _ => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
     };
     let font = Font::from_bytes(font_data.as_slice(), FontSettings::default())
@@ -605,7 +603,15 @@ pub(crate) fn render_text_overlay(
             }
 
             blit_glyph(
-                &mut canvas, width, height, &g.bitmap, m.width, m.height, gx as i32, gy as i32, fg,
+                &mut canvas,
+                width,
+                height,
+                &g.bitmap,
+                m.width,
+                m.height,
+                gx as i32,
+                gy as i32,
+                fg,
             );
 
             if overlay.style.bold {

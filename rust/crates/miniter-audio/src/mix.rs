@@ -145,8 +145,12 @@ fn mix_project_audio_internal(
                 break;
             }
 
-            let fade_gain =
-                calculate_fade_gain(dst_offset, clip.timeline_len_frames, config.sample_rate, &clip.audio_filters);
+            let fade_gain = calculate_fade_gain(
+                dst_offset,
+                clip.timeline_len_frames,
+                config.sample_rate,
+                &clip.audio_filters,
+            );
             let effective_gain = clip.gain * fade_gain;
 
             if effective_gain > 0.0 {
@@ -266,7 +270,12 @@ fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<Schedule
     scheduled
 }
 
-fn calculate_fade_gain(current_frame: usize, total_frames: usize, sample_rate: u32, filters: &[AudioFilter]) -> f32 {
+fn calculate_fade_gain(
+    current_frame: usize,
+    total_frames: usize,
+    sample_rate: u32,
+    filters: &[AudioFilter],
+) -> f32 {
     let mut fade_in_gain = 1.0f32;
     let mut fade_out_gain = 1.0f32;
 

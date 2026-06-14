@@ -123,9 +123,11 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
 
-        EditCommand::MoveClip { clip_id, new_track_id, new_start } => {
-            apply_move_clip(state, clip_id, new_track_id, new_start)
-        }
+        EditCommand::MoveClip {
+            clip_id,
+            new_track_id,
+            new_start,
+        } => apply_move_clip(state, clip_id, new_track_id, new_start),
 
         EditCommand::DuplicateClip {
             source_clip_id,
@@ -158,17 +160,20 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
 
-        EditCommand::TrimClipStart { clip_id, new_start, .. } => {
-            apply_trim_clip_start(state, clip_id, new_start)
-        }
+        EditCommand::TrimClipStart {
+            clip_id, new_start, ..
+        } => apply_trim_clip_start(state, clip_id, new_start),
 
-        EditCommand::TrimClipEnd { clip_id, new_duration } => {
-            apply_trim_clip_end(state, clip_id, new_duration)
-        }
+        EditCommand::TrimClipEnd {
+            clip_id,
+            new_duration,
+        } => apply_trim_clip_end(state, clip_id, new_duration),
 
-        EditCommand::SplitClip { clip_id, at, new_clip_id } => {
-            apply_split_clip(state, clip_id, at, new_clip_id)
-        }
+        EditCommand::SplitClip {
+            clip_id,
+            at,
+            new_clip_id,
+        } => apply_split_clip(state, clip_id, at, new_clip_id),
 
         EditCommand::SetClipSpeed { clip_id, speed } => {
             if speed <= 0.0 {
@@ -368,7 +373,11 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             }
         }
 
-        EditCommand::UpdateAudioFilterDuration { clip_id, index, duration_us } => {
+        EditCommand::UpdateAudioFilterDuration {
+            clip_id,
+            index,
+            duration_us,
+        } => {
             let clip = find_clip_mut(state, clip_id)?;
             let filters = audio_filters_mut(&mut clip.kind, clip_id)?;
             let old_duration_us = swap_audio_filter_duration(filters, index, duration_us)?;
@@ -379,7 +388,11 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
 
-        EditCommand::UpdateAudioFilterDurationInverse { clip_id, index, old_duration_us } => {
+        EditCommand::UpdateAudioFilterDurationInverse {
+            clip_id,
+            index,
+            old_duration_us,
+        } => {
             let clip = find_clip_mut(state, clip_id)?;
             let filters = audio_filters_mut(&mut clip.kind, clip_id)?;
             swap_audio_filter_duration(filters, index, old_duration_us)?;
@@ -458,7 +471,10 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
         EditCommand::AddKeyframe { clip_id, keyframe } => {
             let clip = find_clip_mut(state, clip_id)?;
             let idx = clip.keyframes.insert_sorted(keyframe);
-            Ok(EditCommand::RemoveKeyframe { clip_id, index: idx })
+            Ok(EditCommand::RemoveKeyframe {
+                clip_id,
+                index: idx,
+            })
         }
 
         EditCommand::RemoveKeyframe { clip_id, index } => {
@@ -599,8 +615,8 @@ fn apply_trim_clip_start(
     }
 
     let delta_timeline_us = clamped_start.as_micros() - original.timeline_start.as_micros();
-    let mut recalculated_source_start = original.source_start.as_micros()
-        + (delta_timeline_us as f64 * original.speed) as i64;
+    let mut recalculated_source_start =
+        original.source_start.as_micros() + (delta_timeline_us as f64 * original.speed) as i64;
     if recalculated_source_start < 0 {
         recalculated_source_start = 0;
     }
@@ -648,9 +664,7 @@ fn apply_trim_clip_end(
     let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
 
     let max_duration = match &original.kind {
-        ClipKind::Text(_) | ClipKind::Subtitle(_) => {
-            new_duration
-        }
+        ClipKind::Text(_) | ClipKind::Subtitle(_) => new_duration,
         _ => {
             let max_source_end = original.source_total_duration;
             MediaDuration::from_micros(
@@ -716,16 +730,14 @@ fn apply_split_clip(
     }
 
     let left_dur = at - original.timeline_start;
-    let right_dur = MediaDuration::from_micros(
-        original.timeline_duration.as_micros() - left_dur.as_micros(),
-    );
+    let right_dur =
+        MediaDuration::from_micros(original.timeline_duration.as_micros() - left_dur.as_micros());
 
     ensure_positive_duration(left_dur)?;
     ensure_positive_duration(right_dur)?;
 
     let split_source_start = MediaDuration::from_micros(
-        original.source_start.as_micros()
-            + (left_dur.as_micros() as f64 * original.speed) as i64,
+        original.source_start.as_micros() + (left_dur.as_micros() as f64 * original.speed) as i64,
     );
 
     let mut left = original.clone();
@@ -978,7 +990,7 @@ fn swap_audio_filter_duration(
         _ => {
             return Err(ApplyError::InvalidCommand(
                 "Only fade filters have duration",
-            ))
+            ));
         }
     };
     match filter {

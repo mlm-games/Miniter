@@ -74,8 +74,6 @@ pub fn extract_thumbnails(
     Ok(results)
 }
 
-
-
 fn load_image_as_frame(path: &Path) -> Result<RgbaFrame, DecodeError> {
     let img = image::open(path).map_err(|e| DecodeError::NoVideoStream)?;
     let rgba = img.to_rgba8();

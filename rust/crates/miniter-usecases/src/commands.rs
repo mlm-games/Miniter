@@ -1,7 +1,7 @@
+use miniter_domain::Keyframe;
 use miniter_domain::clip::{Clip, ClipId};
 use miniter_domain::export::ExportProfile;
 use miniter_domain::filter::{AudioFilter, VideoEffect};
-use miniter_domain::Keyframe;
 use miniter_domain::text_overlay::TextStyle;
 use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::track::{TrackId, TrackKind};

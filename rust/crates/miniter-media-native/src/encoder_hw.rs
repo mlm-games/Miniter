@@ -29,7 +29,7 @@ mod hw {
 
     #[cfg(target_os = "linux")]
     use baabaabaabaabababbababbaa::platform::linux::{
-        CrosVideoEncoderInput, CrosVideoEncoderOutput, CrosCodecsHost,
+        CrosCodecsHost, CrosVideoEncoderInput, CrosVideoEncoderOutput,
     };
 
     #[cfg(not(target_arch = "wasm32"))]

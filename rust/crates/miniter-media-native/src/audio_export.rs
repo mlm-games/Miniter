@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use miniter_audio::mix::{mix_project_audio, AudioMixError, MixConfig};
-use miniter_audio::wav::{write_pcm16_wav, WavWriteError};
-use miniter_domain::clip::ClipKind;
+use miniter_audio::mix::{AudioMixError, MixConfig, mix_project_audio};
+use miniter_audio::wav::{WavWriteError, write_pcm16_wav};
 use miniter_domain::Project;
+use miniter_domain::clip::ClipKind;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AudioSidecarExportError {

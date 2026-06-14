@@ -82,7 +82,8 @@ impl Av1EncodeSession {
         let frame_w = frame.width as usize;
         let frame_h = frame.height as usize;
 
-        let (y_plane, u_plane, v_plane) = if frame_w != self.enc_width || frame_h != self.enc_height {
+        let (y_plane, u_plane, v_plane) = if frame_w != self.enc_width || frame_h != self.enc_height
+        {
             let stride = self.enc_width * 4;
             let mut padded = vec![0u8; self.enc_width * self.enc_height * 4];
             for row in 0..frame_h.min(self.enc_height) {

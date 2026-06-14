@@ -75,8 +75,8 @@ pub fn resample_linear_interleaved(
         return Vec::new();
     }
 
-    let out_frames = ((in_frames as u64 * out_sample_rate as u64) / in_sample_rate as u64)
-        .max(1) as usize;
+    let out_frames =
+        ((in_frames as u64 * out_sample_rate as u64) / in_sample_rate as u64).max(1) as usize;
 
     let mut out = vec![0.0f32; out_frames * channels];
 
