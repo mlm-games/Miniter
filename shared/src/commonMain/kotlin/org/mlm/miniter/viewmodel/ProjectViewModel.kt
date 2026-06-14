@@ -1039,6 +1039,7 @@ class ProjectViewModel(
         positionY: Float? = null,
         isBold: Boolean? = null,
         isItalic: Boolean? = null,
+        fontFamily: String? = null,
     ) {
         val clip = findRustClip(clipId)?.kind as? RustTextClipKind ?: return
         val style = clip.style.copy(
@@ -1049,6 +1050,7 @@ class ProjectViewModel(
             positionY = positionY ?: clip.style.positionY,
             bold = isBold ?: clip.style.bold,
             italic = isItalic ?: clip.style.italic,
+            fontFamily = fontFamily ?: clip.style.fontFamily,
         )
 
         rustStore.dispatch(

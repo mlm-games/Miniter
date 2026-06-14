@@ -461,16 +461,29 @@ pub(crate) fn strip_ass_override_tags(text: &str) -> String {
     out
 }
 
-pub(crate) fn render_text_overlay(overlay: &TextOverlay, width: usize, height: usize) -> Vec<u8> {
+pub(crate) fn render_text_overlay(
+    overlay: &TextOverlay,
+    width: usize,
+    height: usize,
+    font_path: Option<&str>,
+) -> Vec<u8> {
     let mut canvas = transparent_rgba(width, height);
     let lines: Vec<&str> = overlay.text.lines().collect();
     if lines.is_empty() {
         return canvas;
     }
 
-    let font_data: &[u8] = include_bytes!("../fonts/NotoSans-Regular.ttf");
-    let font = Font::from_bytes(font_data, FontSettings::default())
-        .expect("Failed to load bundled font");
+    let font_data: Vec<u8> = match font_path {
+        Some(path) if std::path::Path::new(path).exists() => {
+            match std::fs::read(path) {
+                Ok(data) => data,
+                Err(_) => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
+            }
+        }
+        _ => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
+    };
+    let font = Font::from_bytes(font_data.as_slice(), FontSettings::default())
+        .expect("Failed to load font");
     let font_size = overlay.style.font_size.max(1.0);
 
     let fg = parse_argb_hex(&overlay.style.color, [255, 255, 255, 255]);

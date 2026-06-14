@@ -1650,7 +1650,15 @@ fn render_node(
             Ok(fitted)
         }
         RenderNode::Text { overlay, opacity } => {
-            let mut img = render_text_overlay(overlay, width, height);
+            let font_path = if !overlay.style.font_family.is_empty()
+                && overlay.style.font_family != "sans-serif"
+                && std::path::Path::new(&overlay.style.font_family).exists()
+            {
+                Some(overlay.style.font_family.as_str())
+            } else {
+                None
+            };
+            let mut img = render_text_overlay(overlay, width, height, font_path);
             filters::scale_alpha(&mut img, *opacity);
             Ok(img)
         }
@@ -1658,6 +1666,7 @@ fn render_node(
             source_path,
             source_pts,
             opacity,
+            font_path,
         } => {
             let Some(text) = decode_cache.subtitle_text_at(source_path, source_pts.as_micros())?
             else {
@@ -1683,7 +1692,8 @@ fn render_node(
                 style: subtitle_style,
             };
 
-            let mut img = render_text_overlay(&overlay, width, height);
+            let fp = font_path.as_deref();
+            let mut img = render_text_overlay(&overlay, width, height, fp);
             filters::scale_alpha(&mut img, *opacity);
             Ok(img)
         }

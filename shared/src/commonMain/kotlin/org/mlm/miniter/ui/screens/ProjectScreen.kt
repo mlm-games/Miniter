@@ -267,8 +267,8 @@ fun ProjectScreen(
                 onSetTransitionIn = vm::setTransitionIn,
                 onSetTransitionOut = vm::setTransitionOut,
                 onUpdateText = vm::updateTextClip,
-                onUpdateTextStyle = { clipId, fontSize, color, bgColor, posX, posY, bold, italic ->
-                    vm.updateTextClipStyle(clipId, fontSize, color, bgColor, posX, posY, bold, italic)
+                onUpdateTextStyle = { clipId, fontSize, color, bgColor, posX, posY, bold, italic, fontFamily ->
+                    vm.updateTextClipStyle(clipId, fontSize, color, bgColor, posX, posY, bold, italic, fontFamily)
                 },
                 onSetOpacity = vm::setClipOpacity,
                 onSetTextTransitionIn = vm::setTextTransitionIn,

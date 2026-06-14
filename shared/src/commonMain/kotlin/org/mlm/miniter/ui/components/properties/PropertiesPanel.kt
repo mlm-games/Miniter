@@ -68,7 +68,7 @@ fun PropertiesPanel(
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
+    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
@@ -494,7 +494,7 @@ private fun TextClipProperties(
     kind: RustTextClipKind,
     playheadMs: Long = 0L,
     onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
+    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
@@ -554,7 +554,7 @@ private fun TextClipProperties(
                     FilterChip(
                         selected = isSelected,
                         onClick = {
-                            onUpdateTextStyle(clip.id, null, null, null, pos.first, pos.second, null, null)
+                            onUpdateTextStyle(clip.id, null, null, null, pos.first, pos.second, null, null, null)
                         },
                         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         modifier = Modifier.size(40.dp),
@@ -574,7 +574,7 @@ private fun TextClipProperties(
     Slider(
         value = posX,
         onValueChange = { posX = it },
-        onValueChangeFinished = { onUpdateTextStyle(clip.id, null, null, null, posX, null, null, null) },
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, null, null, null, posX, null, null, null, null) },
         valueRange = 0f..1f,
         modifier = Modifier.height(28.dp),
     )
@@ -587,7 +587,7 @@ private fun TextClipProperties(
     Slider(
         value = posY,
         onValueChange = { posY = it },
-        onValueChangeFinished = { onUpdateTextStyle(clip.id, null, null, null, null, posY, null, null) },
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, null, null, null, null, posY, null, null, null) },
         valueRange = 0f..1f,
         modifier = Modifier.height(28.dp),
     )
@@ -602,11 +602,45 @@ private fun TextClipProperties(
     Slider(
         value = fontSize,
         onValueChange = { fontSize = it },
-        onValueChangeFinished = { onUpdateTextStyle(clip.id, fontSize, null, null, null, null, null, null) },
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, fontSize, null, null, null, null, null, null, null) },
         valueRange = 12f..120f,
         steps = 26,
     )
     Text("${fontSize.toInt()}sp", style = MaterialTheme.typography.labelSmall)
+
+    Spacer(Modifier.height(12.dp))
+
+    val fontPickerText = rememberFilePickerLauncher(
+        type = FileKitType.File(extensions = SupportedFormats.fontExtensions),
+    ) { file: PlatformFile? ->
+        file?.let { onUpdateTextStyle(clip.id, null, null, null, null, null, null, null, it.platformPath()) }
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Font", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
+        val fontLabel = style.fontFamily.takeIf { it != "sans-serif" }
+        Text(
+            fontLabel?.substringAfterLast("/")?.substringAfterLast("\\") ?: "Default",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (fontLabel != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (fontLabel != null) {
+            IconButton(
+                onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, null, null, "sans-serif") },
+                modifier = Modifier.size(24.dp),
+            ) {
+                Icon(Icons.Filled.Close, contentDescription = "Reset font", modifier = Modifier.size(16.dp))
+            }
+        }
+        Spacer(Modifier.width(4.dp))
+        OutlinedButton(
+            onClick = { fontPickerText.launch() },
+            modifier = Modifier.height(32.dp),
+        ) {
+            Text(if (fontLabel != null) "Change" else "Select", style = MaterialTheme.typography.labelSmall)
+        }
+    }
 
     Spacer(Modifier.height(12.dp))
 
@@ -615,19 +649,19 @@ private fun TextClipProperties(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(
             selected = style.bold,
-            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, !style.bold, null) },
+            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, !style.bold, null, null) },
             label = { Text("B", fontWeight = FontWeight.ExtraBold) },
         )
         FilterChip(
             selected = style.italic,
-            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, null, !style.italic) },
+            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, null, !style.italic, null) },
             label = { Text("I", fontStyle = FontStyle.Italic) },
         )
         FilterChip(
             selected = style.backgroundColor != null,
             onClick = {
                 val newBg = if (style.backgroundColor != null) null else "#000000"
-                onUpdateTextStyle(clip.id, null, null, newBg, null, null, null, null)
+                onUpdateTextStyle(clip.id, null, null, newBg, null, null, null, null, null)
             },
             label = { Text("BG") },
         )
@@ -656,7 +690,7 @@ private fun TextClipProperties(
             Surface(
                 modifier = Modifier
                     .size(32.dp)
-                    .clickable { onUpdateTextStyle(clip.id, null, hex, null, null, null, null, null) },
+                    .clickable { onUpdateTextStyle(clip.id, null, hex, null, null, null, null, null, null) },
                 shape = CircleShape,
                 color = c,
                 border = if (style.color.removePrefix("FF").let { "#$it" }.equals(hex, ignoreCase = true))

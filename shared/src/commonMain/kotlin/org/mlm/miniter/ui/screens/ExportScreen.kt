@@ -264,6 +264,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
                     Text("Frame Rate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)

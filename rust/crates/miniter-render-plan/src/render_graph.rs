@@ -34,6 +34,7 @@ pub enum RenderNode {
         source_path: String,
         source_pts: Timestamp,
         opacity: f32,
+        font_path: Option<String>,
     },
     Stack(Vec<RenderNode>),
 }
@@ -243,6 +244,7 @@ fn node_for_clip(
                     source_path: sub.source_path.clone(),
                     source_pts,
                     opacity,
+                    font_path: sub.font_path.clone(),
                 }),
                 SubtitleMode::Soft => None,
                 _ => None,

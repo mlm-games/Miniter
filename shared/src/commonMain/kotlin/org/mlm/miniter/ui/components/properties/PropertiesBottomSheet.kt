@@ -29,7 +29,7 @@ fun PropertiesBottomSheet(
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?) -> Unit,
+    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
     onSetOpacity: (String, Float) -> Unit,
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit,

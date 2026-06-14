@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -116,6 +117,7 @@ sealed interface VisibleMedia {
         override val sourceStartMs: Long,
         override val opacity: Float,
         val text: String,
+        val fontPath: String?,
     ) : VisibleMedia
 }
 
@@ -192,6 +194,7 @@ private fun collectVisibleMedia(
                                 sourceStartMs = clip.sourceStartUs / 1000L,
                                 opacity = clip.opacity,
                                 text = text,
+                                fontPath = kind.fontPath,
                             )
                         )
                     }
@@ -940,6 +943,7 @@ fun EditorVideoPreview(
                             text = textOverlay.text,
                             color = textColor.copy(alpha = textColor.alpha * textOverlay.opacity),
                             fontSize = style.fontSize.sp,
+                            fontFamily = resolveFontFamily(style.fontFamily),
                             fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
                             fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
                             textAlign = TextAlign.Start,
@@ -1055,6 +1059,16 @@ private fun BackgroundVideoFrame(
             if (frame != null) {
                 onFrameLoaded(frame)
             }
-        } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
     }
+}
+
+private fun resolveFontFamily(fontFamily: String): FontFamily = when {
+    fontFamily.equals("sans-serif", ignoreCase = true) -> FontFamily.SansSerif
+    fontFamily.equals("serif", ignoreCase = true) -> FontFamily.Serif
+    fontFamily.equals("monospace", ignoreCase = true) -> FontFamily.Monospace
+    fontFamily.equals("cursive", ignoreCase = true) -> FontFamily.Cursive
+    fontFamily.equals("default", ignoreCase = true) -> FontFamily.Default
+    // For font file paths, falls back to default (runtime font loading needs platform-specific code)
+    else -> FontFamily.Default
 }

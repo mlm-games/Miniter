@@ -47,9 +47,7 @@ ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-ren
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 
 [target.'cfg(all(target_os = "android", target_arch = "aarch64"))'.dependencies]
-baabaabaabaabababbababbaa = { workspace = true, features = [
-    "android",
-], optional = true }
+baabaabaabaabababbababbaa = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 baabaabaabaabababbababbaa = { workspace = true, features = [
@@ -57,9 +55,7 @@ baabaabaabaabababbababbaa = { workspace = true, features = [
 ], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-baabaabaabaabababbababbaa = { workspace = true, features = [
-    "web-codecs",
-], optional = true }
+baabaabaabaabababbababbaa = { workspace = true, optional = true }
 web-codecs = "0.3"
 tokio = { version = "1", features = ["rt", "sync", "macros"] }
 web-sys = { workspace = true, features = ["Window", "Document", "Storage"] }

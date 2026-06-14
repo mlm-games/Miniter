@@ -830,7 +830,15 @@ fn render_node(
         }
 
         RenderNode::Text { overlay, opacity } => {
-            let mut img = render_text_overlay(overlay, width, height);
+            let font_path = if !overlay.style.font_family.is_empty()
+                && overlay.style.font_family != "sans-serif"
+                && Path::new(&overlay.style.font_family).exists()
+            {
+                Some(overlay.style.font_family.as_str())
+            } else {
+                None
+            };
+            let mut img = render_text_overlay(overlay, width, height, font_path);
             filters::scale_alpha(&mut img, *opacity);
             Ok(img)
         }
@@ -839,6 +847,7 @@ fn render_node(
             source_path,
             source_pts,
             opacity,
+            font_path,
         } => {
             if !Path::new(source_path).exists() {
                 return Ok(transparent_rgba(width, height));
@@ -890,7 +899,8 @@ fn render_node(
                             text,
                             style: subtitle_style,
                         };
-                        let mut img = crate::export_shared::render_text_overlay(&overlay, width, height);
+                        let fp = font_path.as_deref();
+                        let mut img = crate::export_shared::render_text_overlay(&overlay, width, height, fp);
                         filters::scale_alpha(&mut img, *opacity);
                         return Ok(img);
                     }
