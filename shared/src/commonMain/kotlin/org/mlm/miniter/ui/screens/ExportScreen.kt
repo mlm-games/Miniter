@@ -235,38 +235,39 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 }
             }
 
-            Text("Resolution", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = customWidth,
-                    onValueChange = { customWidth = it.filter { c -> c.isDigit() } },
-                    label = { Text("Width") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    enabled = !isExporting,
-                    supportingText = { Text(sourceHintText) },
-                )
-                Text("×", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(
-                    value = customHeight,
-                    onValueChange = { customHeight = it.filter { c -> c.isDigit() } },
-                    label = { Text("Height") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    enabled = !isExporting,
-                    supportingText = { Text(sourceHintText) },
-                )
-            }
-
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Resolution", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = customWidth,
+                            onValueChange = { customWidth = it.filter { c -> c.isDigit() } },
+                            label = { Text("Width") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            enabled = !isExporting,
+                            supportingText = { Text(sourceHintText) },
+                        )
+                        Text("×", style = MaterialTheme.typography.titleMedium)
+                        OutlinedTextField(
+                            value = customHeight,
+                            onValueChange = { customHeight = it.filter { c -> c.isDigit() } },
+                            label = { Text("Height") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            enabled = !isExporting,
+                            supportingText = { Text(sourceHintText) },
+                        )
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Frame Rate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     OutlinedTextField(
                         value = customFps,
@@ -277,34 +278,34 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         enabled = !isExporting,
                     )
                 }
-                Column(Modifier.weight(1f)) {
-                    Text("Subtitles", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        val subtitleOptions = listOf(RustSubtitleMode.Soft, RustSubtitleMode.Hard)
-                        subtitleOptions.forEachIndexed { index, mode ->
-                            SegmentedButton(
-                                selected = subtitleMode == mode,
-                                onClick = { subtitleMode = mode },
-                                shape = SegmentedButtonDefaults.itemShape(index, subtitleOptions.size),
-                                enabled = !isExporting,
-                            ) {
-                                Text(
-                                    when (mode) {
-                                        RustSubtitleMode.Hard -> "Burn in"
-                                        RustSubtitleMode.Soft -> "Embed (soft)"
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    if (subtitleMode == RustSubtitleMode.Soft && format == RustExportFormat.Mp4) {
+            }
+
+            Text("Subtitles", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                val subtitleOptions = listOf(RustSubtitleMode.Soft, RustSubtitleMode.Hard)
+                subtitleOptions.forEachIndexed { index, mode ->
+                    SegmentedButton(
+                        selected = subtitleMode == mode,
+                        onClick = { subtitleMode = mode },
+                        shape = SegmentedButtonDefaults.itemShape(index, subtitleOptions.size),
+                        enabled = !isExporting,
+                    ) {
                         Text(
-                            "ASS/SSA styling is converted to plain text in MP4 soft subtitles.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
+                            when (mode) {
+                                RustSubtitleMode.Hard -> "Burn in"
+                                RustSubtitleMode.Soft -> "Embed (soft)"
+                            }
                         )
                     }
                 }
+            }
+
+            if (subtitleMode == RustSubtitleMode.Soft && format == RustExportFormat.Mp4) {
+                Text(
+                    "ASS/SSA styling is converted to plain text in MP4 soft subtitles.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
 
             HorizontalDivider()
