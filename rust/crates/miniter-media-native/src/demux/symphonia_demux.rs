@@ -1,10 +1,12 @@
 //! MKV, WebM, AVI, OGG, and other containers via symphonia.
 
+use std::io::Read;
 use std::io::Seek;
 
 use symphonia::core::codecs::video::VideoCodecId;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::formats::probe::Hint;
+use symphonia::core::io::MediaSource;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 
@@ -25,8 +27,8 @@ pub struct SymphoniaDemuxer {
 }
 
 impl SymphoniaDemuxer {
-    pub fn from_file(file: std::fs::File, _size: u64) -> DemuxResult<Self> {
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    pub fn from_reader<R: MediaSource + 'static>(reader: R, _size: u64) -> DemuxResult<Self> {
+        let mss = MediaSourceStream::new(Box::new(reader), Default::default());
 
         let format = symphonia::default::get_probe().probe(
             &Hint::new(),
@@ -66,6 +68,10 @@ impl SymphoniaDemuxer {
             codec_name,
             container,
         })
+    }
+
+    pub fn from_file(file: std::fs::File, size: u64) -> DemuxResult<Self> {
+        Self::from_reader(file, size)
     }
 
     pub fn set_dimensions(&mut self, w: u32, h: u32) {
@@ -203,7 +209,7 @@ fn codec_to_fourcc(codec: VideoCodecId) -> u32 {
     }
 }
 
-fn format_codec_name(codec: VideoCodecId) -> String {
+pub fn format_codec_name(codec: VideoCodecId) -> String {
     use symphonia::core::codecs::video::well_known::*;
     if codec == CODEC_ID_VP8 {
         "VP8"

@@ -4,6 +4,7 @@ use mp4::Mp4Reader;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek};
 use std::path::Path;
+use symphonia::core::io::MediaSourceStream;
 
 #[derive(Debug, Clone)]
 pub struct MediaInfo {
@@ -41,6 +42,8 @@ pub enum MediaProbeError {
     Ivf(String),
     #[error("Audio parse error: {0}")]
     Audio(String),
+    #[error("Symphonia probe error: {0}")]
+    Symphonia(String),
     #[error("No video track found")]
     NoVideoTrack,
 }
@@ -57,7 +60,13 @@ pub fn probe_media(path: &Path) -> Result<MediaInfo, MediaProbeError> {
         "wav" => probe_wav(path),
         "mp3" | "ogg" | "m4a" | "aac" | "flac" => probe_audio_only(path),
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" => probe_image(path),
-        _ => probe_mp4(path),
+        "mkv" | "webm" | "avi" | "ogv" => probe_symphonia(path),
+        _ => {
+            if let Ok(info) = probe_mp4(path) {
+                return Ok(info);
+            }
+            probe_symphonia(path)
+        }
     }
 }
 
@@ -74,7 +83,13 @@ pub fn probe_media_bytes(
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" => {
             probe_image_bytes(bytes, extension_hint)
         }
-        _ => probe_mp4_bytes(bytes),
+        "mkv" | "webm" | "avi" | "ogv" => probe_symphonia_bytes(bytes, extension_hint),
+        _ => {
+            if let Ok(info) = probe_mp4_bytes(bytes) {
+                return Ok(info);
+            }
+            probe_symphonia_bytes(bytes, extension_hint)
+        }
     }
 }
 
@@ -144,6 +159,67 @@ fn read_mp4_into_media_info<R: Read + Seek>(
                 });
             }
             _ => {}
+        }
+    }
+
+    Ok(MediaInfo {
+        duration_us,
+        video_streams,
+        audio_streams,
+    })
+}
+
+fn probe_symphonia(path: &Path) -> Result<MediaInfo, MediaProbeError> {
+    let (mss, ext) = miniter_audio::util::open_mss_from_path(path)?;
+    probe_media_info_from_mss(mss, ext.as_deref())
+}
+
+fn probe_symphonia_bytes(
+    bytes: &[u8],
+    extension_hint: Option<&str>,
+) -> Result<MediaInfo, MediaProbeError> {
+    let (mss, _ext) = miniter_audio::util::open_mss_from_bytes(bytes, extension_hint);
+    probe_media_info_from_mss(mss, extension_hint)
+}
+
+fn probe_media_info_from_mss(
+    mss: MediaSourceStream<'_>,
+    ext: Option<&str>,
+) -> Result<MediaInfo, MediaProbeError> {
+    let mut reader = miniter_audio::util::probe(mss, ext)
+        .map_err(|e| MediaProbeError::Symphonia(e.to_string()))?;
+
+    let duration_us = reader.tracks().iter().find_map(|t| {
+        let tb = t.time_base?;
+        let frames = t.num_frames?;
+        let ts = symphonia::core::units::Timestamp::try_from(frames).ok()?;
+        let tb_dur = tb.calc_time(ts)?;
+        Some(tb_dur.as_micros() as i64)
+    });
+
+    let mut video_streams = Vec::new();
+    let mut audio_streams = Vec::new();
+
+    for track in reader.tracks() {
+        if let Some(v) = track.codec_params.as_ref().and_then(|p| p.video()) {
+            let codec_name =
+                crate::demux::symphonia_demux::format_codec_name(v.codec);
+            video_streams.push(VideoStreamInfo {
+                track_id: track.id,
+                codec: codec_name,
+                width: v.width.unwrap_or(0) as u32,
+                height: v.height.unwrap_or(0) as u32,
+                frame_rate: 0.0,
+                bitrate: 0,
+            });
+        } else if let Some(a) = track.codec_params.as_ref().and_then(|p| p.audio()) {
+            audio_streams.push(AudioStreamInfo {
+                track_id: track.id,
+                codec: format!("{:?}", a.codec),
+                sample_rate: a.sample_rate.unwrap_or(0),
+                channels: a.channels.as_ref().map(|c| c.count() as u32).unwrap_or(0),
+                bitrate: 0,
+            });
         }
     }
 

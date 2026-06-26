@@ -1,9 +1,9 @@
-use std::io::{Read, Seek};
 use std::path::Path;
 
 use crate::decoders::{DecodeError, create_backend};
-use crate::demux::open_demuxer;
+use crate::demux::{open_demuxer, open_demuxer_from_reader};
 use crate::frame::RgbaFrame;
+use symphonia::core::io::MediaSource;
 
 /// A session that pulls demuxed samples from a [`Demuxer`] and decodes them
 /// through a [`VideoDecoderBackend`].
@@ -20,14 +20,15 @@ impl VideoDecodeSession {
         Self::from_demuxer(demuxer, hardware_acceleration)
     }
 
-    /// Open from an in-memory byte buffer (WASM path, MP4  only).
-    pub fn from_reader<R: Read + Seek + Send + 'static>(
+    /// Open from an in-memory byte buffer (WASM path).
+    /// Auto-detects container via content sniffing: MP4, MKV, WebM, IVF, etc.
+    pub fn from_reader<R: MediaSource + 'static>(
         reader: R,
         size: u64,
         hardware_acceleration: bool,
     ) -> Result<Self, DecodeError> {
-        let d = crate::demux::Mp4Demuxer::from_reader(reader, size)?;
-        Self::from_demuxer(Box::new(d), hardware_acceleration)
+        let d = open_demuxer_from_reader(reader, size)?;
+        Self::from_demuxer(d, hardware_acceleration)
     }
 
     fn from_demuxer(
