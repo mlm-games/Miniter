@@ -1,3 +1,15 @@
+## v0.7.1
+
+- fix mkv support (wire symphonia vid demuxing properly)
+- custom font support for text and subs (export)
+- move subtitles and frame rate to one column in export
+- enable hard subs export
+- path to git
+- text previews
+- subtitles preview rendering
+- add an ogg export option
+
+
 ## v0.6.4
 
 - provide an option to select custom resolution & fps on project creation
