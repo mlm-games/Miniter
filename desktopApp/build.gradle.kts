@@ -27,7 +27,8 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "Miniter"
-            packageVersion = System.getenv("APP_VERSION") ?: "1.0.1"
+            packageVersion = (System.getenv("APP_VERSION") ?: "1.0.1")
+                .replace(Regex("^0+"), "").let { if (it.startsWith(".") || it.isEmpty()) "1$it" else it }
             description = "Miniter Video Editor"
             vendor = "MLM Games"
 
