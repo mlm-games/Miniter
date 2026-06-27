@@ -13,8 +13,8 @@ pub fn fourcc_to_mime(fourcc: u32) -> Option<&'static str> {
         H264_FOURCC => Some("video/avc"),
         H265_FOURCC => Some("video/hevc"),
         AV1_FOURCC | AV1_IVF_FOURCC => Some("video/av01"),
-        VP8_FOURCC => Some("video/x-vnd.on2.vp8"),
-        VP9_FOURCC => Some("video/x-vnd.on2.vp9"),
+        VP8_FOURCC => Some("video/vp8"),
+        VP9_FOURCC => Some("video/vp9"),
         _ => None,
     }
 }

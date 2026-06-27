@@ -183,15 +183,15 @@ impl SymphoniaDemuxer {
 fn codec_to_fourcc(codec: VideoCodecId) -> u32 {
     use symphonia::core::codecs::video::well_known::*;
     if codec == CODEC_ID_VP8 {
-        0x31475661
+        0x30385056
     } else if codec == CODEC_ID_VP9 {
-        0x31475639
+        0x30395056
     } else if codec == CODEC_ID_AV1 {
         0x31305641
     } else if codec == CODEC_ID_H264 {
         0x31637661
     } else if codec == CODEC_ID_HEVC {
-        0x68657631
+        0x31766568
     } else if codec == CODEC_ID_THEORA {
         0x316854
     } else if codec == CODEC_ID_MPEG1 {
