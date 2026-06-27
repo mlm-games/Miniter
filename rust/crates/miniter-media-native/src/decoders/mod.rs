@@ -8,6 +8,17 @@ pub const VP8_FOURCC: u32 = 0x30385056; // "VP80"
 pub const VP9_FOURCC: u32 = 0x30395056; // "VP90"
 pub const AV1_IVF_FOURCC: u32 = 0x31495641; // "AVI1"
 
+pub fn fourcc_to_mime(fourcc: u32) -> Option<&'static str> {
+    match fourcc {
+        H264_FOURCC => Some("video/avc"),
+        H265_FOURCC => Some("video/hevc"),
+        AV1_FOURCC | AV1_IVF_FOURCC => Some("video/av01"),
+        VP8_FOURCC => Some("video/x-vnd.on2.vp8"),
+        VP9_FOURCC => Some("video/x-vnd.on2.vp9"),
+        _ => None,
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
     #[error("IO: {0}")]
@@ -36,7 +47,8 @@ impl From<crate::demux::DecodeBackendError> for DecodeError {
     feature = "hw-decoder",
     any(
         all(target_os = "android", target_arch = "aarch64"),
-        target_arch = "wasm32"
+        target_arch = "wasm32",
+        target_os = "linux"
     )
 ))]
 pub mod baaba;
@@ -60,11 +72,13 @@ pub fn create_backend(
         feature = "hw-decoder",
         any(
             all(target_os = "android", target_arch = "aarch64"),
-            target_arch = "wasm32"
+            target_arch = "wasm32",
+            target_os = "linux"
         )
     ))]
     if hardware_acceleration {
-        match baaba::BaabaBackend::new(width, height, codec_mime) {
+        let mime = fourcc_to_mime(fourcc).unwrap_or(codec_mime);
+        match baaba::BaabaBackend::new(width, height, mime) {
             Ok(dec) => {
                 if dec.is_supported(fourcc) {
                     return Some(Box::new(dec));
