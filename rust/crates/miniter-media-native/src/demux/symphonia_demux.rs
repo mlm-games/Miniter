@@ -25,6 +25,9 @@ pub struct SymphoniaDemuxer {
     fourcc: u32,
     codec_name: String,
     container: VideoContainer,
+    /// AnnexB-formatted codec configuration (VPS/SPS/PPS for HEVC, etc.)
+    /// Prepended to the first sample.
+    codec_config: Vec<u8>,
 }
 
 impl SymphoniaDemuxer {
@@ -38,6 +41,8 @@ impl SymphoniaDemuxer {
             MetadataOptions::default(),
         )?;
 
+        use symphonia::core::codecs::video::well_known::extra_data::VIDEO_EXTRA_DATA_ID_HEVC_DECODER_CONFIG;
+
         let ext = format
             .tracks()
             .iter()
@@ -50,11 +55,19 @@ impl SymphoniaDemuxer {
                     symphonia::core::units::TimeBase::try_new(1, 1000).unwrap(),
                 );
                 let samples = t.num_frames.unwrap_or(0) as u32;
-                Some((t.id, fourcc, codec_name, tb.numer.get(), tb.denom.get(), samples))
+                let hvcc = video_params
+                    .extra_data
+                    .iter()
+                    .find(|d| d.id == VIDEO_EXTRA_DATA_ID_HEVC_DECODER_CONFIG)
+                    .map(|d| d.data.clone());
+                Some((t.id, fourcc, codec_name, tb.numer.get(), tb.denom.get(), samples, hvcc))
             })
             .ok_or(DemuxError::NoVideoTrack)?;
 
-        let (track_id, fourcc, codec_name, time_base_numer, time_base_denom, total_samples) = ext;
+        let (track_id, fourcc, codec_name, time_base_numer, time_base_denom, total_samples, hvcc) = ext;
+
+        eprintln!("[Symphonia] HEVC decoder config found: {:?}, parsed size: {}", hvcc.is_some(), hvcc.as_deref().map(|d| parse_hvcc(d).len()).unwrap_or(0));
+        let codec_config = hvcc.as_deref().map(parse_hvcc).unwrap_or_default();
 
         let container = VideoContainer::Unknown;
 
@@ -71,6 +84,7 @@ impl SymphoniaDemuxer {
             fourcc,
             codec_name,
             container,
+            codec_config,
         })
     }
 
@@ -132,8 +146,15 @@ impl Demuxer for SymphoniaDemuxer {
             // Convert track timebase ticks to microseconds.
             let pts = (packet.pts.get() as i64 * self.time_base_numer as i64 * 1_000_000)
                 / self.time_base_denom as i64;
-            let data: Vec<u8> = packet.data.to_vec();
+            let mut data: Vec<u8> = packet.data.to_vec();
             let is_sync = false;
+
+            // Prepend codec config (VPS/SPS/PPS) to the first sample.
+            if !self.codec_config.is_empty() {
+                let mut prefixed = std::mem::take(&mut self.codec_config);
+                prefixed.extend_from_slice(&data);
+                data = prefixed;
+            }
 
             self.last_pts_us = pts;
             self.current_sample += 1;
@@ -213,6 +234,43 @@ fn codec_to_fourcc(codec: VideoCodecId) -> u32 {
     } else {
         0
     }
+}
+
+/// Parse an HEVC hvcC (HEVCDecoderConfigurationRecord) and return the
+/// VPS/SPS/PPS NAL units as a single AnnexB byte buffer.
+fn parse_hvcc(data: &[u8]) -> Vec<u8> {
+    if data.len() < 23 || data[0] != 1 {
+        return Vec::new();
+    }
+    let num_arrays = data[22] as usize;
+    let mut out = Vec::new();
+    let mut pos = 23usize;
+    for _ in 0..num_arrays {
+        if pos >= data.len() {
+            break;
+        }
+        let _nal_type = data[pos] & 0x3F;
+        pos += 1;
+        if pos + 2 > data.len() {
+            break;
+        }
+        let num_nalus = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+        pos += 2;
+        for _ in 0..num_nalus {
+            if pos + 2 > data.len() {
+                break;
+            }
+            let len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+            pos += 2;
+            if pos + len > data.len() {
+                break;
+            }
+            out.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
+            out.extend_from_slice(&data[pos..pos + len]);
+            pos += len;
+        }
+    }
+    out
 }
 
 pub fn format_codec_name(codec: VideoCodecId) -> String {

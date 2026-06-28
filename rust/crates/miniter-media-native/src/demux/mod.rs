@@ -148,10 +148,7 @@ pub fn open_demuxer(path: &Path) -> DemuxResult<Box<dyn Demuxer>> {
     }
 
     if matches!(ext.as_deref(), Some("mp4" | "m4v" | "mov" | "3gp")) {
-        let file = std::fs::File::open(path)?;
-        let size = file.metadata()?.len();
-        let reader = BufReader::new(file);
-        if let Ok(d) = Mp4Demuxer::from_reader(reader, size) {
+        if let Ok(d) = Mp4Demuxer::open(path) {
             return Ok(Box::new(d) as Box<dyn Demuxer>);
         }
     }
