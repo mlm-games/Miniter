@@ -1,6 +1,5 @@
 use image::GenericImageView;
 use miniter_audio::probe;
-use mp4::Mp4Reader;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek};
 use std::path::Path;
@@ -36,8 +35,6 @@ pub struct AudioStreamInfo {
 pub enum MediaProbeError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("MP4 parse error: {0}")]
-    Mp4(#[from] mp4::Error),
     #[error("IVF parse error: {0}")]
     Ivf(String),
     #[error("Audio parse error: {0}")]
@@ -60,13 +57,8 @@ pub fn probe_media(path: &Path) -> Result<MediaInfo, MediaProbeError> {
         "wav" => probe_wav(path),
         "mp3" | "ogg" | "m4a" | "aac" | "flac" => probe_audio_only(path),
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" => probe_image(path),
-        "mkv" | "webm" | "avi" | "ogv" => probe_symphonia(path),
-        _ => {
-            if let Ok(info) = probe_mp4(path) {
-                return Ok(info);
-            }
-            probe_symphonia(path)
-        }
+        "mp4" | "m4v" | "mov" | "3gp" | "mkv" | "webm" | "avi" | "ogv" => probe_symphonia(path),
+        _ => probe_symphonia(path),
     }
 }
 
@@ -83,90 +75,11 @@ pub fn probe_media_bytes(
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" => {
             probe_image_bytes(bytes, extension_hint)
         }
-        "mkv" | "webm" | "avi" | "ogv" => probe_symphonia_bytes(bytes, extension_hint),
-        _ => {
-            if let Ok(info) = probe_mp4_bytes(bytes) {
-                return Ok(info);
-            }
+        "mp4" | "m4v" | "mov" | "3gp" | "mkv" | "webm" | "avi" | "ogv" => {
             probe_symphonia_bytes(bytes, extension_hint)
         }
+        _ => probe_symphonia_bytes(bytes, extension_hint),
     }
-}
-
-fn probe_mp4(path: &Path) -> Result<MediaInfo, MediaProbeError> {
-    let file = File::open(path)?;
-    let size = file.metadata()?.len();
-    read_mp4_into_media_info(BufReader::new(file), size)
-}
-
-fn probe_mp4_bytes(bytes: &[u8]) -> Result<MediaInfo, MediaProbeError> {
-    let size = bytes.len() as u64;
-    read_mp4_into_media_info(BufReader::new(Cursor::new(bytes.to_vec())), size)
-}
-
-fn read_mp4_into_media_info<R: Read + Seek>(
-    reader: BufReader<R>,
-    size: u64,
-) -> Result<MediaInfo, MediaProbeError> {
-    let mp4 = match Mp4Reader::read_header(reader, size) {
-        Ok(m) => m,
-        Err(e) => {
-            if e.to_string().contains("larger size than") || e.to_string().contains("invalid size")
-            {
-                return Ok(MediaInfo {
-                    duration_us: None,
-                    video_streams: Vec::new(),
-                    audio_streams: Vec::new(),
-                });
-            }
-            return Err(MediaProbeError::Mp4(e));
-        }
-    };
-
-    let duration_us = {
-        let dur = mp4.duration();
-        Some((dur.as_secs_f64() * 1_000_000.0) as i64)
-    };
-
-    let mut video_streams = Vec::new();
-    let mut audio_streams = Vec::new();
-
-    for track in mp4.tracks().values() {
-        let track_type = match track.track_type() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-
-        match track_type {
-            mp4::TrackType::Video => {
-                let fps = track.frame_rate();
-                video_streams.push(VideoStreamInfo {
-                    track_id: track.track_id(),
-                    codec: format!("{}", track.media_type().unwrap_or(mp4::MediaType::H264)),
-                    width: track.width() as u32,
-                    height: track.height() as u32,
-                    frame_rate: fps,
-                    bitrate: track.bitrate(),
-                });
-            }
-            mp4::TrackType::Audio => {
-                audio_streams.push(AudioStreamInfo {
-                    track_id: track.track_id(),
-                    codec: format!("{}", track.media_type().unwrap_or(mp4::MediaType::AAC)),
-                    sample_rate: track.sample_freq_index().map(|s| s.freq()).unwrap_or(44100),
-                    channels: track.channel_config().map(|c| c as u32).unwrap_or(2),
-                    bitrate: track.bitrate(),
-                });
-            }
-            _ => {}
-        }
-    }
-
-    Ok(MediaInfo {
-        duration_us,
-        video_streams,
-        audio_streams,
-    })
 }
 
 fn probe_symphonia(path: &Path) -> Result<MediaInfo, MediaProbeError> {

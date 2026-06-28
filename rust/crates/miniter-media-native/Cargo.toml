@@ -13,7 +13,6 @@ web-time.workspace = true
 
 image.workspace = true
 
-mp4 = "0.14"
 muxide = "0.2"
 
 less-avc = { version = "0.1.5" }

@@ -1,7 +1,7 @@
 //! formats: MP4, MKV, WebM, AVI, IVF, OGG (Theora), and raw bitstream.
 //!
 //! ```text
-//! [Demuxer trait] ← backends: Mp4Demuxer, SymphoniaDemuxer, IvfDemuxer
+//! [Demuxer trait] ← backends: SymphoniaDemuxer, IvfDemuxer
 //!        ↓
 //! [VideoDecoderBackend trait] ← backends in crate::decoders
 //!        ↓
@@ -9,7 +9,6 @@
 //! ```
 
 pub mod ivf_demux;
-pub mod mp4_demux;
 pub mod symphonia_demux;
 
 use std::fs::File;
@@ -18,7 +17,6 @@ use std::path::Path;
 use symphonia::core::io::MediaSource;
 
 pub use ivf_demux::IvfDemuxer;
-pub use mp4_demux::Mp4Demuxer;
 pub use symphonia_demux::SymphoniaDemuxer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
