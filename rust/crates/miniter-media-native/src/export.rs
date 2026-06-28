@@ -467,9 +467,10 @@ impl ExportDecodeCache {
             } else {
                 let mut session = VideoDecodeSession::open(path, self.hardware_acceleration)?;
                 let first_frame = session.next_frame()?;
+                let first_pts = first_frame.as_ref().map_or(0, |f| f.pts_us);
                 let entry = ExportDecodeSession {
                     session,
-                    last_pts: first_frame.as_ref().map_or(0, |f| f.pts_us),
+                    last_pts: first_pts,
                     last_frame: first_frame,
                     pending_frame: None,
                 };
@@ -482,25 +483,24 @@ impl ExportDecodeCache {
         ))? {
             ExportSession::Image(entry) => Ok(entry.frame.clone()),
             ExportSession::Video(entry) => {
-                if let Some(ref last) = entry.last_frame {
-                    if target_us < last.pts_us {
-                        entry.session.reset()?;
-                        entry.last_pts = 0;
-                        entry.last_frame = None;
+                if target_us < entry.last_pts {
+                    entry.session.reset()?;
+                    entry.last_pts = 0;
+                    entry.last_frame = None;
+                    entry.pending_frame = None;
+                }
+                if let Some(ref pending) = entry.pending_frame {
+                    if target_us < pending.pts_us {
+                        return entry.last_frame.clone().ok_or(DecodeError::NoVideoStream);
+                    } else {
+                        entry.last_frame = Some(pending.clone());
+                        entry.last_pts = pending.pts_us;
                         entry.pending_frame = None;
-                    } else if let Some(ref pending) = entry.pending_frame {
-                        if target_us < pending.pts_us {
-                            return Ok(last.clone());
-                        } else {
-                            entry.last_frame = Some(pending.clone());
-                            entry.last_pts = pending.pts_us;
-                            entry.pending_frame = None;
-                        }
                     }
-                    if let Some(ref last) = entry.last_frame {
-                        if last.pts_us == target_us {
-                            return Ok(last.clone());
-                        }
+                }
+                if let Some(ref last) = entry.last_frame {
+                    if last.pts_us == target_us {
+                        return Ok(last.clone());
                     }
                 }
 
@@ -514,11 +514,14 @@ impl ExportDecodeCache {
                                 return Ok(frame);
                             }
                             if frame.pts_us > target_us {
+                                let has_last = entry.last_frame.is_some();
                                 if let Some(ref last) = entry.last_frame {
                                     entry.pending_frame = Some(frame.clone());
                                     return Ok(last.clone());
                                 }
-                                entry.last_pts = frame.pts_us;
+                                // use target_us rather than frame.pts_us so the
+                                // next call doesn't see a backward jump and reset.
+                                entry.last_pts = target_us;
                                 entry.last_frame = Some(frame.clone());
                                 return Ok(frame);
                             }
@@ -533,7 +536,8 @@ impl ExportDecodeCache {
                                 entry.pending_frame = None;
                                 return Ok(p);
                             }
-                            return entry.last_frame.clone().ok_or(DecodeError::NoVideoStream);
+                            let last = entry.last_frame.clone();
+                            return last.ok_or(DecodeError::NoVideoStream);
                         }
                     }
                 }

@@ -17,7 +17,8 @@ pub struct SymphoniaDemuxer {
     track_id: u32,
     width: u32,
     height: u32,
-    timescale: u32,
+    time_base_numer: u32,
+    time_base_denom: u32,
     total_samples: u32,
     current_sample: u32,
     last_pts_us: i64,
@@ -45,13 +46,15 @@ impl SymphoniaDemuxer {
                 let codec = video_params.codec;
                 let fourcc = codec_to_fourcc(codec);
                 let codec_name = format_codec_name(codec);
-                let ts = t.time_base.map(|_| 1000u32).unwrap_or(1000);
+                let tb = t.time_base.unwrap_or(
+                    symphonia::core::units::TimeBase::try_new(1, 1000).unwrap(),
+                );
                 let samples = t.num_frames.unwrap_or(0) as u32;
-                Some((t.id, fourcc, codec_name, ts, samples))
+                Some((t.id, fourcc, codec_name, tb.numer.get(), tb.denom.get(), samples))
             })
             .ok_or(DemuxError::NoVideoTrack)?;
 
-        let (track_id, fourcc, codec_name, timescale, total_samples) = ext;
+        let (track_id, fourcc, codec_name, time_base_numer, time_base_denom, total_samples) = ext;
 
         let container = VideoContainer::Unknown;
 
@@ -60,7 +63,8 @@ impl SymphoniaDemuxer {
             track_id,
             width: 0,
             height: 0,
-            timescale,
+            time_base_numer,
+            time_base_denom,
             total_samples,
             current_sample: 0,
             last_pts_us: -1,
@@ -94,7 +98,7 @@ impl Demuxer for SymphoniaDemuxer {
     }
 
     fn timescale(&self) -> u32 {
-        self.timescale
+        self.time_base_denom / self.time_base_numer
     }
 
     fn total_samples(&self) -> u32 {
@@ -125,7 +129,9 @@ impl Demuxer for SymphoniaDemuxer {
                 continue;
             }
 
-            let pts = (packet.pts.get() / 1_000_000);
+            // Convert track timebase ticks to microseconds.
+            let pts = (packet.pts.get() as i64 * self.time_base_numer as i64 * 1_000_000)
+                / self.time_base_denom as i64;
             let data: Vec<u8> = packet.data.to_vec();
             let is_sync = false;
 

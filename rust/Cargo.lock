@@ -386,7 +386,6 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#e740d31e7c5faf8e5b917d93d9852c380de81f7c"
 dependencies = [
  "bytes",
  "cros-codecs",
@@ -729,7 +728,6 @@ dependencies = [
 [[package]]
 name = "cros-codecs"
 version = "0.0.10"
-source = "git+https://github.com/mlm-games/cros-codecs?branch=main#5f57b086f0bb6cae29adaeb8fa7f237a0bbcc9ea"
 dependencies = [
  "anyhow",
  "byteorder",

@@ -74,7 +74,10 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
         } else if track.trak.mdia.minf.stbl.stsd.vp09.is_some() {
             Codec::Vp9
         } else {
-            Codec::Unknown
+            // Fall back to Symphonia which handles more codecs.
+            return Err(DemuxError::Other(format!(
+                "Unsupported sample entry in video track"
+            )));
         };
 
         let (nalu_length_size, sps, pps) =
@@ -150,16 +153,14 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
 
         if !saw_sps || !saw_pps {
             let mut prefixed = Vec::new();
-            if !saw_sps
-                && let Some(sps_nal) = self.sps.as_deref() {
-                    prefixed.extend_from_slice(start_code);
-                    prefixed.extend_from_slice(sps_nal);
-                }
-            if !saw_pps
-                && let Some(pps_nal) = self.pps.as_deref() {
-                    prefixed.extend_from_slice(start_code);
-                    prefixed.extend_from_slice(pps_nal);
-                }
+            if !saw_sps && let Some(sps_nal) = self.sps.as_deref() {
+                prefixed.extend_from_slice(start_code);
+                prefixed.extend_from_slice(sps_nal);
+            }
+            if !saw_pps && let Some(pps_nal) = self.pps.as_deref() {
+                prefixed.extend_from_slice(start_code);
+                prefixed.extend_from_slice(pps_nal);
+            }
             prefixed.extend_from_slice(&output);
             prefixed
         } else {

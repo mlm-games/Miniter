@@ -110,6 +110,7 @@ impl DecodeSession {
 
 struct ExportDecodeSession {
     session: DecodeSession,
+    last_pts: i64,
     last_frame: Option<RgbaFrame>,
     pending_frame: Option<RgbaFrame>,
 }
@@ -188,6 +189,7 @@ impl<'a> ExportDecodeCache<'a> {
                 clip_id,
                 ExportDecodeSession {
                     session,
+                    last_pts: first_frame.as_ref().map_or(0, |f| f.pts_us),
                     last_frame: first_frame,
                     pending_frame: None,
                 },
@@ -199,27 +201,28 @@ impl<'a> ExportDecodeCache<'a> {
             .get_mut(&clip_id)
             .ok_or_else(|| "decode cache internal error".to_string())?;
 
-        if let Some(ref last) = entry.last_frame {
-            if target_us < last.pts_us {
-                entry
-                    .session
-                    .reset()
-                    .map_err(|e| format!("decode reset failed: {e}"))?;
-                entry.last_frame = None;
-                entry.pending_frame = None;
-            } else if let Some(ref pending) = entry.pending_frame {
-                if target_us < pending.pts_us {
-                    return Ok(last.clone());
-                }
-                entry.last_frame = Some(pending.clone());
-                entry.pending_frame = None;
-            }
-
-            if let Some(ref current) = entry.last_frame
-                && current.pts_us == target_us {
-                    return Ok(current.clone());
-                }
+        if target_us < entry.last_pts {
+            entry
+                .session
+                .reset()
+                .map_err(|e| format!("decode reset failed: {e}"))?;
+            entry.last_pts = 0;
+            entry.last_frame = None;
+            entry.pending_frame = None;
         }
+        if let Some(ref pending) = entry.pending_frame {
+            if target_us < pending.pts_us {
+                return entry.last_frame.clone().ok_or_else(|| "pending without last_frame".to_string());
+            }
+            entry.last_pts = pending.pts_us;
+            entry.last_frame = Some(pending.clone());
+            entry.pending_frame = None;
+        }
+
+        if let Some(ref current) = entry.last_frame
+            && current.pts_us == target_us {
+                return Ok(current.clone());
+            }
 
         loop {
             match entry
@@ -229,6 +232,7 @@ impl<'a> ExportDecodeCache<'a> {
             {
                 Some(frame) => {
                     if frame.pts_us == target_us {
+                        entry.last_pts = frame.pts_us;
                         entry.last_frame = Some(frame.clone());
                         entry.pending_frame = None;
                         return Ok(frame);
@@ -239,15 +243,18 @@ impl<'a> ExportDecodeCache<'a> {
                             entry.pending_frame = Some(frame);
                             return Ok(last.clone());
                         }
+                        entry.last_pts = target_us;
                         entry.last_frame = Some(frame.clone());
                         return Ok(frame);
                     }
 
+                    entry.last_pts = frame.pts_us;
                     entry.last_frame = Some(frame);
                 }
                 None => {
                     if let Some(ref pending) = entry.pending_frame {
                         let p = pending.clone();
+                        entry.last_pts = pending.pts_us;
                         entry.last_frame = Some(p.clone());
                         entry.pending_frame = None;
                         return Ok(p);
