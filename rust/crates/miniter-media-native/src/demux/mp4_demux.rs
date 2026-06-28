@@ -1,4 +1,7 @@
 //! mp4 crate demuxer.
+//!
+//! This demuxer handles H.264 and VP9 in MP4 containers.
+//! HEVC (H.265) in MP4 is handled by the Symphonia demuxer.
 
 use super::{DemuxError, DemuxResult, DemuxedSample, Demuxer, VideoContainer};
 use crate::decoders::{AV1_FOURCC, H264_FOURCC, H265_FOURCC, VP9_FOURCC};
@@ -49,240 +52,11 @@ pub struct Mp4Demuxer<R: Read + Seek> {
     nalu_length_size: u8,
     sps: Option<Vec<u8>>,
     pps: Option<Vec<u8>>,
-    /// AnnexB-formatted codec configuration (VPS/SPS/PPS for HEVC, etc.)
-    /// Prepended to the first sample.
-    codec_config: Vec<u8>,
     last_pts_us: i64,
-}
-
-/// Parse an HEVC hvcC configuration record and return the VPS/SPS/PPS NAL
-/// units as a single AnnexB byte buffer.
-fn parse_hvcc(data: &[u8]) -> Vec<u8> {
-    if data.len() < 23 || data[0] != 1 {
-        return Vec::new();
-    }
-    let num_arrays = data[22] as usize;
-    let mut out = Vec::new();
-    let mut pos = 23usize;
-    for _ in 0..num_arrays {
-        if pos >= data.len() {
-            break;
-        }
-        let _nal_type = data[pos] & 0x3F;
-        pos += 1;
-        if pos + 2 > data.len() {
-            break;
-        }
-        let num_nalus = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-        pos += 2;
-        for _ in 0..num_nalus {
-            if pos + 2 > data.len() {
-                break;
-            }
-            let len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-            pos += 2;
-            if pos + len > data.len() {
-                break;
-            }
-            out.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
-            out.extend_from_slice(&data[pos..pos + len]);
-            pos += len;
-        }
-    }
-    out
-}
-
-fn read_hvcc_from_path(path: &Path) -> DemuxResult<Vec<u8>> {
-    use std::io::Read;
-    let mut f = std::fs::File::open(path).map_err(DemuxError::Io)?;
-    let file_size = f.metadata().map_err(DemuxError::Io)?.len();
-    let mut pos = 0u64;
-
-    while pos + 8 <= file_size {
-        f.seek(std::io::SeekFrom::Start(pos)).map_err(DemuxError::Io)?;
-        let mut hdr = [0u8; 8];
-        f.read_exact(&mut hdr).map_err(DemuxError::Io)?;
-        let box_size = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
-        if box_size < 8 {
-            break;
-        }
-        let next_pos = pos + box_size;
-        if &hdr[4..8] == b"moov" {
-            if let Ok(data) = find_hvcc_in_moov(&mut f, pos, box_size) {
-                return Ok(data);
-            }
-        }
-        pos = next_pos;
-    }
-    Err(DemuxError::Other("hvcc box not found".into()))
-}
-
-fn find_hvcc_in_moov(f: &mut std::fs::File, moov_start: u64, moov_size: u64) -> DemuxResult<Vec<u8>> {
-    use std::io::Read;
-    let moov_end = moov_start + moov_size;
-    let mut pos = moov_start + 8;
-    while pos + 8 <= moov_end {
-        f.seek(std::io::SeekFrom::Start(pos)).map_err(DemuxError::Io)?;
-        let mut hdr = [0u8; 8];
-        f.read_exact(&mut hdr).map_err(DemuxError::Io)?;
-        let bs = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
-        if bs < 8 {
-            break;
-        }
-        let next = pos + bs;
-        if &hdr[4..8] == b"trak" {
-            if let Ok(data) = find_hvcc_in_trak(f, pos, bs) {
-                return Ok(data);
-            }
-        }
-        pos = next;
-    }
-    Err(DemuxError::Other("hvcc box not found in moov".into()))
-}
-
-fn find_hvcc_in_trak(f: &mut std::fs::File, trak_start: u64, trak_size: u64) -> DemuxResult<Vec<u8>> {
-    use std::io::Read;
-    let trak_end = trak_start + trak_size;
-    let mut pos = trak_start + 8;
-    while pos + 8 <= trak_end {
-        f.seek(std::io::SeekFrom::Start(pos)).map_err(DemuxError::Io)?;
-        let mut hdr = [0u8; 8];
-        f.read_exact(&mut hdr).map_err(DemuxError::Io)?;
-        let bs = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
-        if bs < 8 {
-            break;
-        }
-        let next = pos + bs;
-        if &hdr[4..8] == b"mdia" {
-            if let Ok(data) = find_hvcc_in_mdia(f, pos, bs) {
-                return Ok(data);
-            }
-        }
-        pos = next;
-    }
-    Err(DemuxError::Other("hvcc box not found in trak".into()))
-}
-
-fn find_hvcc_in_mdia(f: &mut std::fs::File, mdia_start: u64, mdia_size: u64) -> DemuxResult<Vec<u8>> {
-    use std::io::Read;
-    let mdia_end = mdia_start + mdia_size;
-    let mut pos = mdia_start + 8;
-    while pos + 8 <= mdia_end {
-        f.seek(std::io::SeekFrom::Start(pos)).map_err(DemuxError::Io)?;
-        let mut hdr = [0u8; 8];
-        f.read_exact(&mut hdr).map_err(DemuxError::Io)?;
-        let bs = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
-        if bs < 8 {
-            break;
-        }
-        let next = pos + bs;
-        if &hdr[4..8] == b"minf" {
-            if let Ok(data) = find_hvcc_in_minf(f, pos, bs) {
-                return Ok(data);
-            }
-        }
-        pos = next;
-    }
-    Err(DemuxError::Other("hvcc box not found in mdia".into()))
-}
-
-fn find_hvcc_in_minf(f: &mut std::fs::File, minf_start: u64, minf_size: u64) -> DemuxResult<Vec<u8>> {
-    use std::io::Read;
-    let minf_end = minf_start + minf_size;
-    let mut pos = minf_start + 8;
-    while pos + 8 <= minf_end {
-        f.seek(std::io::SeekFrom::Start(pos)).map_err(DemuxError::Io)?;
-        let mut hdr = [0u8; 8];
-        f.read_exact(&mut hdr).map_err(DemuxError::Io)?;
-        let bs = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
-        if bs < 8 {
-            break;
-        }
-        let next = pos + bs;
-        if &hdr[4..8] == b"stbl" {
-            if let Ok(data) = find_hvcc_in_stbl(f, pos, bs) {
-                return Ok(data);
-            }
-        }
-        pos = next;
-    }
-    Err(DemuxError::Other("hvcc box not found in minf".into()))
-}
-
-fn find_hvcc_in_stbl(f: &mut std::fs::File, stbl_start: u64, stbl_size: u64) -> DemuxResult<Vec<u8>> {
-    use std::io::Read;
-    let stbl_end = stbl_start + stbl_size;
-    let mut pos = stbl_start + 8;
-    while pos + 8 <= stbl_end {
-        f.seek(std::io::SeekFrom::Start(pos)).map_err(DemuxError::Io)?;
-        let mut hdr = [0u8; 8];
-        f.read_exact(&mut hdr).map_err(DemuxError::Io)?;
-        let bs = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
-        if bs < 8 {
-            break;
-        }
-        let next = pos + bs;
-        if &hdr[4..8] == b"stsd" {
-            if let Ok(data) = find_hvcc_in_stsd(f, pos, bs) {
-                return Ok(data);
-            }
-        }
-        pos = next;
-    }
-    Err(DemuxError::Other("hvcc box not found in stbl".into()))
-}
-
-fn find_hvcc_in_stsd(f: &mut std::fs::File, stsd_start: u64, stsd_size: u64) -> DemuxResult<Vec<u8>> {
-    use std::io::Read;
-    let stsd_end = stsd_start + stsd_size;
-    let mut pos = stsd_start + 8 + 8; // skip stsd header (version + entry_count)
-    while pos + 8 <= stsd_end {
-        f.seek(std::io::SeekFrom::Start(pos)).map_err(DemuxError::Io)?;
-        let mut hdr = [0u8; 8];
-        f.read_exact(&mut hdr).map_err(DemuxError::Io)?;
-        let bs = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
-        if bs < 8 {
-            break;
-        }
-        let next = pos + bs;
-        let bt = &hdr[4..8];
-        if bt == b"hev1" || bt == b"hvc1" {
-            let entry_end = next;
-            // VisualSampleEntry fields after 16-byte box+SampleEntry header:
-            // pre_defined1(2)+reserved1(2)+pre_defined2(12)+width(2)+height(2)
-            // +horizresolution(4)+vertresolution(4)+reserved2(4)+frame_count(2)
-            // +compressorname(32)+depth(2)+pre_defined3(2) = 70 bytes
-            const HEADER_SKIP: u64 = 8 + 8 + 70;
-            let mut p = pos + HEADER_SKIP;
-            while p + 8 <= entry_end {
-                f.seek(std::io::SeekFrom::Start(p)).map_err(DemuxError::Io)?;
-                f.read_exact(&mut hdr).map_err(DemuxError::Io)?;
-                let child_bs = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
-                if child_bs < 8 {
-                    break;
-                }
-                let child_next = p + child_bs;
-                if &hdr[4..8] == b"hvcC" {
-                    let payload_len = child_bs - 8;
-                    let mut buf = vec![0u8; payload_len as usize];
-                    f.seek(std::io::SeekFrom::Start(p + 8)).map_err(DemuxError::Io)?;
-                    f.read_exact(&mut buf).map_err(DemuxError::Io)?;
-                    return Ok(buf);
-                }
-                p = child_next;
-            }
-        }
-        pos = next;
-    }
-    Err(DemuxError::Other("hvcc box not found in stsd".into()))
 }
 
 impl<R: Read + Seek> Mp4Demuxer<R> {
     pub fn from_reader(reader: R, size: u64) -> DemuxResult<Self> {
-        Self::from_reader_hvcc(reader, size, Vec::new())
-    }
-
-    pub fn from_reader_hvcc(reader: R, size: u64, hvcc_data: Vec<u8>) -> DemuxResult<Self> {
         let mp4 = mp4::Mp4Reader::read_header(reader, size)
             .map_err(|e| DemuxError::Other(e.to_string()))?;
         let track = mp4
@@ -300,7 +74,10 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
         let codec = if track.trak.mdia.minf.stbl.stsd.avc1.is_some() {
             Codec::H264
         } else if track.trak.mdia.minf.stbl.stsd.hev1.is_some() {
-            Codec::H265
+            // HEVC is handled by the Symphonia demuxer.
+            return Err(DemuxError::Other(format!(
+                "HEVC in MP4 requires Symphonia demuxer"
+            )));
         } else if track.trak.mdia.minf.stbl.stsd.vp09.is_some() {
             Codec::Vp9
         } else {
@@ -326,12 +103,6 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
                 (4, None, None)
             };
 
-        let codec_config = if codec == Codec::H265 {
-            parse_hvcc(&hvcc_data)
-        } else {
-            Vec::new()
-        };
-
         Ok(Self {
             mp4,
             track_id,
@@ -344,7 +115,6 @@ impl<R: Read + Seek> Mp4Demuxer<R> {
             nalu_length_size,
             sps,
             pps,
-            codec_config,
             last_pts_us: -1,
         })
     }
@@ -460,18 +230,11 @@ impl<R: Read + Seek + Send> Demuxer for Mp4Demuxer<R> {
         self.last_pts_us = pts;
         self.current_sample += 1;
 
-        let mut data = if self.codec.needs_annex_b() {
+        let data = if self.codec.needs_annex_b() {
             self.to_annex_b(&sample.bytes)
         } else {
             sample.bytes.to_vec()
         };
-
-        // Prepend codec config (VPS/SPS/PPS for HEVC) to the first sample.
-        if !self.codec_config.is_empty() {
-            let mut prefixed = std::mem::take(&mut self.codec_config);
-            prefixed.extend_from_slice(&data);
-            data = prefixed;
-        }
 
         Ok(Some(DemuxedSample::new(data, pts, sample.is_sync)))
     }
@@ -490,10 +253,9 @@ impl<R: Read + Seek + Send> Demuxer for Mp4Demuxer<R> {
 }
 
 impl Mp4Demuxer<BufReader<std::fs::File>> {
-    pub fn open(path: &std::path::Path) -> DemuxResult<Self> {
-        let hvcc_data = read_hvcc_from_path(path).unwrap_or_default();
+    pub fn open(path: &Path) -> DemuxResult<Self> {
         let file = std::fs::File::open(path)?;
         let size = file.metadata()?.len();
-        Self::from_reader_hvcc(BufReader::new(file), size, hvcc_data)
+        Self::from_reader(BufReader::new(file), size)
     }
 }

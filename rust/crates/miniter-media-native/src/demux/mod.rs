@@ -147,12 +147,6 @@ pub fn open_demuxer(path: &Path) -> DemuxResult<Box<dyn Demuxer>> {
         return IvfDemuxer::from_reader(reader, size).map(|d| Box::new(d) as Box<dyn Demuxer>);
     }
 
-    if matches!(ext.as_deref(), Some("mp4" | "m4v" | "mov" | "3gp")) {
-        if let Ok(d) = Mp4Demuxer::open(path) {
-            return Ok(Box::new(d) as Box<dyn Demuxer>);
-        }
-    }
-
     let file = File::open(path)?;
     let size = file.metadata()?.len();
 
@@ -160,11 +154,7 @@ pub fn open_demuxer(path: &Path) -> DemuxResult<Box<dyn Demuxer>> {
 }
 
 pub fn open_demuxer_with_fallback(path: &Path) -> DemuxResult<Box<dyn Demuxer>> {
-    open_demuxer(path).or_else(|_| {
-        let file = File::open(path)?;
-        let size = file.metadata()?.len();
-        SymphoniaDemuxer::from_file(file, size).map(|d| Box::new(d) as Box<dyn Demuxer>)
-    })
+    open_demuxer(path)
 }
 
 /// Open a demuxer from a generic reader with content-based detection.
@@ -183,14 +173,6 @@ pub fn open_demuxer_from_reader<R: MediaSource + 'static>(
         return IvfDemuxer::from_reader(reader, size).map(|d| Box::new(d) as Box<dyn Demuxer>);
     }
 
-    // MP4/ MOV files start with an ftyp box
-    if &magic[4..8] == b"ftyp" {
-        if let Ok(d) = Mp4Demuxer::from_reader(reader, size) {
-            return Ok(Box::new(d) as Box<dyn Demuxer>);
-        }
-        return Err(DemuxError::UnsupportedFormat("MP4 parse failed".into()));
-    }
-
-    // Symphonia handles MKV, WebM, AVI, OGG, and any other container
+    // Symphonia handles MP4, MKV, WebM, AVI, OGG, and any other container
     SymphoniaDemuxer::from_reader(reader, size).map(|d| Box::new(d) as Box<dyn Demuxer>)
 }
