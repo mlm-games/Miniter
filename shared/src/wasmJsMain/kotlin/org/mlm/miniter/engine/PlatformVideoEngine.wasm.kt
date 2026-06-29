@@ -114,13 +114,15 @@ actual class PlatformVideoEngine actual constructor() {
                 kotlinx.coroutines.delay(0)
             }
         } catch (e: Throwable) {
+            println("Export failed: $e")
             val cancelled = exportCancelled ||
                 e.message?.contains("cancel", ignoreCase = true) == true
 
             _exportProgress.value = if (cancelled) {
                 ExportProgress(phase = "Export cancelled", isCancelled = true)
             } else {
-                ExportProgress(error = e.message ?: "Export failed")
+                val detail = e.message?.removePrefix("detail=") ?: e.toString()
+                ExportProgress(error = detail)
             }
         } finally {
             activeSession = null
@@ -173,7 +175,8 @@ actual class PlatformVideoEngine actual constructor() {
             }
             ThumbnailResult.Success(image)
         } catch (e: Throwable) {
-            ThumbnailResult.Error(e.message?.removePrefix("detail=") ?: "Unknown error")
+            println("extractSingleThumbnail failed: $e")
+            ThumbnailResult.Error(e.message?.removePrefix("detail=") ?: e.toString())
         }
     }
 

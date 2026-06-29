@@ -229,7 +229,11 @@ mod native_ffi {
     }
 
     #[uniffi::export]
-    pub fn extract_thumbnail(path: String, target_us: i64, hardware_acceleration: bool) -> Result<FrameData, MiniterError> {
+    pub fn extract_thumbnail(
+        path: String,
+        target_us: i64,
+        hardware_acceleration: bool,
+    ) -> Result<FrameData, MiniterError> {
         let frame = miniter_media_native::thumbnailer::extract_thumbnail(
             std::path::Path::new(&path),
             target_us,
@@ -585,26 +589,41 @@ mod web_ffi {
     }
 
     async fn yield_to_js() {
-        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(
+        let has_window = web_sys::window().is_some();
+        if !has_window {
+            // Not in a browser -> skip yielding.
+            return;
+        }
+        if let Err(e) = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(
             &mut |resolve: js_sys::Function, _reject: js_sys::Function| {
-                web_sys::window()
-                    .unwrap_throw()
-                    .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 0)
-                    .unwrap_throw();
+                let _ = web_sys::window().and_then(|w| {
+                    w.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 0)
+                        .ok()
+                });
             },
         ))
         .await
-        .unwrap_throw();
+        {
+            let msg = format!("yield_to_js failed: {e:?}");
+            log::warn!("{msg}");
+        }
     }
 
     #[wasm_bindgen(js_name = extractThumbnail)]
-    pub async fn extract_thumbnail(path: String, target_us: f64, hardware_acceleration: bool) -> Result<String, JsValue> {
+    pub async fn extract_thumbnail(
+        path: String,
+        target_us: f64,
+        hardware_acceleration: bool,
+    ) -> Result<String, JsValue> {
         let frame = if let Some(file) = get_registered_file(&path) {
             let size = file.bytes.len() as u64;
             let reader = Cursor::new(file.bytes);
-            let mut session =
-                miniter_media_native::decoder::VideoDecodeSession::from_reader(reader, size, hardware_acceleration)
-                    .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
+            let mut session = miniter_media_native::decoder::VideoDecodeSession::from_reader(
+                reader,
+                size,
+                hardware_acceleration,
+            )
+            .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
             let mut last_frame: Option<RgbaFrame> = None;
             loop {
                 yield_to_js().await;
@@ -651,7 +670,9 @@ mod web_ffi {
                 let size = file.bytes.len() as u64;
                 let reader = Cursor::new(file.bytes);
                 let mut session = miniter_media_native::decoder::VideoDecodeSession::from_reader(
-                    reader, size, hardware_acceleration,
+                    reader,
+                    size,
+                    hardware_acceleration,
                 )
                 .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
 
@@ -979,9 +1000,10 @@ mod web_ffi {
                         match serde_json::from_str::<serde_json::Value>(&self.project_json)
                             .and_then(|mut v| {
                                 if let Some(profile) = v.get_mut("export_profile")
-                                    && let Some(hw) = profile.get_mut("hardware_acceleration") {
-                                        *hw = serde_json::Value::Bool(false);
-                                    }
+                                    && let Some(hw) = profile.get_mut("hardware_acceleration")
+                                {
+                                    *hw = serde_json::Value::Bool(false);
+                                }
                                 serde_json::to_string(&v)
                             }) {
                             Ok(json) => json,
