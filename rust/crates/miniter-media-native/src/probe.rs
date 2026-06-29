@@ -104,10 +104,10 @@ fn probe_media_info_from_mss(
 
     let duration_us = reader.tracks().iter().find_map(|t| {
         let tb = t.time_base?;
-        let frames = t.num_frames?;
-        let ts = symphonia::core::units::Timestamp::try_from(frames).ok()?;
-        let tb_dur = tb.calc_time(ts)?;
-        Some(tb_dur.as_micros() as i64)
+        let dur = t.duration?;
+        let ts = symphonia::core::units::Timestamp::new(dur.get() as i64);
+        let time = tb.calc_time(ts)?;
+        Some(time.as_micros() as i64)
     });
 
     let mut video_streams = Vec::new();
