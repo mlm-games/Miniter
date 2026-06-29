@@ -1661,7 +1661,6 @@ dependencies = [
  "log",
  "miniter-domain",
  "serde",
- "uuid",
 ]
 
 [[package]]
@@ -3461,8 +3460,7 @@ dependencies = [
 [[package]]
 name = "web-codecs"
 version = "0.3.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fdd5f8c59ed41ff62937d00ed17965eb842a1dfca4016b89991c53041d2c311"
+source = "git+https://github.com/mlm-games/web-rs.git?branch=main#a00ddeff80122b516a5db0136d344cc9de523156"
 dependencies = [
  "bytemuck",
  "bytes",
