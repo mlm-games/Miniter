@@ -65,12 +65,9 @@ impl SymphoniaDemuxer {
         )?;
 
         use symphonia::core::codecs::video::well_known::{
-            CODEC_ID_AV1,
-            CODEC_ID_H264,
-            CODEC_ID_HEVC,
+            CODEC_ID_AV1, CODEC_ID_H264, CODEC_ID_HEVC,
             extra_data::{
-                VIDEO_EXTRA_DATA_ID_AVC_DECODER_CONFIG,
-                VIDEO_EXTRA_DATA_ID_HEVC_DECODER_CONFIG,
+                VIDEO_EXTRA_DATA_ID_AVC_DECODER_CONFIG, VIDEO_EXTRA_DATA_ID_HEVC_DECODER_CONFIG,
             },
         };
 
@@ -82,11 +79,15 @@ impl SymphoniaDemuxer {
                 let codec = video_params.codec;
                 let fourcc = codec_to_fourcc(codec);
                 let codec_name = format_codec_name(codec);
-                let tb = t.time_base.unwrap_or(
-                    symphonia::core::units::TimeBase::try_new(1, 1000).unwrap(),
-                );
+                let tb = t
+                    .time_base
+                    .unwrap_or(symphonia::core::units::TimeBase::try_new(1, 1000).unwrap());
                 let samples = t.duration.map(|d| d.get() as u32).unwrap_or_else(|| {
-                    format.media_info().duration.map(|d| d.get() as u32).unwrap_or(0)
+                    format
+                        .media_info()
+                        .duration
+                        .map(|d| d.get() as u32)
+                        .unwrap_or(0)
                 });
                 let w = video_params.width.unwrap_or(0) as u32;
                 let h = video_params.height.unwrap_or(0) as u32;
@@ -99,7 +100,8 @@ impl SymphoniaDemuxer {
                             .find(|d| d.id == VIDEO_EXTRA_DATA_ID_AVC_DECODER_CONFIG)
                             .map(|d| &*d.data);
                         let nls = avcc.map(extract_nalu_length_size_h264).unwrap_or(4);
-                        (nls, Vec::new())
+                        let annexb = avcc.map(parse_avcc).unwrap_or_default();
+                        (nls, annexb)
                     }
                     CODEC_ID_HEVC => {
                         let hvcc = video_params
@@ -114,11 +116,33 @@ impl SymphoniaDemuxer {
                     _ => (0, Vec::new()),
                 };
 
-                Some((t.id, fourcc, codec_name, tb.numer.get(), tb.denom.get(), samples, w, h, nalu_len_size, codec_config))
+                Some((
+                    t.id,
+                    fourcc,
+                    codec_name,
+                    tb.numer.get(),
+                    tb.denom.get(),
+                    samples,
+                    w,
+                    h,
+                    nalu_len_size,
+                    codec_config,
+                ))
             })
             .ok_or(DemuxError::NoVideoTrack)?;
 
-        let (track_id, fourcc, codec_name, time_base_numer, time_base_denom, total_samples, width, height, nalu_length_size, codec_config) = ext;
+        let (
+            track_id,
+            fourcc,
+            codec_name,
+            time_base_numer,
+            time_base_denom,
+            total_samples,
+            width,
+            height,
+            nalu_length_size,
+            codec_config,
+        ) = ext;
         let container = VideoContainer::Unknown;
 
         Ok(Self {
@@ -355,6 +379,47 @@ pub fn parse_hvcc(data: &[u8]) -> Vec<u8> {
     out
 }
 
+fn parse_avcc(data: &[u8]) -> Vec<u8> {
+    if data.len() < 6 || data[0] != 1 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut pos = 6usize;
+    let num_sps = (data[5] & 0x1F) as usize;
+    for _ in 0..num_sps {
+        if pos + 2 > data.len() {
+            break;
+        }
+        let len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+        pos += 2;
+        if pos + len > data.len() {
+            break;
+        }
+        out.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
+        out.extend_from_slice(&data[pos..pos + len]);
+        pos += len;
+    }
+    if pos >= data.len() {
+        return out;
+    }
+    let num_pps = data[pos] as usize;
+    pos += 1;
+    for _ in 0..num_pps {
+        if pos + 2 > data.len() {
+            break;
+        }
+        let len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+        pos += 2;
+        if pos + len > data.len() {
+            break;
+        }
+        out.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
+        out.extend_from_slice(&data[pos..pos + len]);
+        pos += len;
+    }
+    out
+}
+
 pub fn format_codec_name(codec: VideoCodecId) -> String {
     use symphonia::core::codecs::video::well_known::*;
     if codec == CODEC_ID_VP8 {
@@ -386,21 +451,27 @@ pub fn format_codec_name(codec: VideoCodecId) -> String {
 }
 
 fn detect_is_sync(data: &[u8], fourcc: u32) -> bool {
-    let Some(&first) = data.first() else { return false };
+    let Some(&first) = data.first() else {
+        return false;
+    };
     match fourcc {
-        0x30385056 => (first & 0x01) == 0,                  // VP8: bit 0 = keyframe flag
+        0x30385056 => (first & 0x01) == 0, // VP8: bit 0 = keyframe flag
         0x30395056 => (first & 0xC0) == 0x80 && (first & 0x04) == 0, // VP9
-        0x31305641 | 0x31495641 => {                        // AV1
+        0x31305641 | 0x31495641 => {
+            // AV1
             let obu_type = (first >> 3) & 0x0F;
-            matches!(obu_type, 1)  // SEQUENCE_HEADER OBU
+            matches!(obu_type, 1) // SEQUENCE_HEADER OBU
         }
-        0x31637661 => {                                      // H264
+        0x31637661 => {
+            // H264
             let nal = skip_annexb_start_code(data);
             nal.first().is_some_and(|&b| (b & 0x1F) == 5)
         }
-        0x31766568 => {                                      // HEVC
+        0x31766568 => {
+            // HEVC
             let nal = skip_annexb_start_code(data);
-            nal.first().is_some_and(|&b| matches!((b >> 1) & 0x3F, 16..=21 | 32))
+            nal.first()
+                .is_some_and(|&b| matches!((b >> 1) & 0x3F, 16..=21 | 32))
         }
         _ => false,
     }
