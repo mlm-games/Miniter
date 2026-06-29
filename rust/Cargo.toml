@@ -38,18 +38,21 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 oporus = "0.2.4"
 ivf = "0.1"
 fontdue = "0.9"
-web-sys = "0.3.99"
+web-sys = "0.3"
 wasm-bindgen-futures = "0.4"
+
+ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-renderer", default-features = false }
+ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
 
 [patch.crates-io]
 muxide = { git = "https://github.com/mlm-games/muxide" }
-ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-renderer" }
-ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
 videoson = { git = "https://github.com/mlm-games/videoson" }
-web-codecs = { git = "https://github.com/mlm-games/web-rs.git", branch = "main" }
-cros-codecs = { git = "https://github.com/mlm-games/cros-codecs" }
-cros-libva = { git = "https://github.com/mlm-games/cros-libva" }
-mediacodec = { git = "https://github.com/mlm-games/rust_mediacodec", package = "mediacodec" }
+# web-codecs = { git = "https://github.com/mlm-games/web-rs.git", branch = "main" }
+# cros-codecs = { git = "https://github.com/mlm-games/cros-codecs" }
+# cros-libva = { git = "https://github.com/mlm-games/cros-libva" }
+# mediacodec = { git = "https://github.com/mlm-games/rust_mediacodec", package = "mediacodec" }
+
+symphonia-format-isomp4 = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-isomp4" }
 
 # web-codecs = { path = "../../../Documents/Repos/web-rs/web-codecs" }
 # baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baabaabaabaabababbababbaa" }
@@ -59,6 +62,15 @@ mediacodec = { git = "https://github.com/mlm-games/rust_mediacodec", package = "
 # ass-core = { path = "../../../Documents/Repos/ass-rs/crates/ass-core" }
 # cros-libva = { path = "../../../Documents/Repos/cros-libva/lib" }
 # cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
+
+# [patch."https://github.com/mlm-games/cros-codecs?branch=main"]
+# cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
+
+# [patch."https://github.com/mlm-games/cros-codecs"]
+# cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
+
+# [patch."https://github.com/mlm-games/baa4bababab2baa"]
+# baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa" }
 
 [profile.release] # for fdroid
 opt-level = 3

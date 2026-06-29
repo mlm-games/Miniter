@@ -386,6 +386,7 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
+source = "git+https://github.com/mlm-games/baa4bababab2baa#d4a56da5b37fe7f9161d663c2555d4422d8130ca"
 dependencies = [
  "bytes",
  "cros-codecs",
@@ -738,6 +739,7 @@ dependencies = [
 [[package]]
 name = "cros-codecs"
 version = "0.0.10"
+source = "git+https://github.com/mlm-games/cros-codecs?branch=main#3273b171cda80f8f6c86df6615d96ab9d2a574d1"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -1648,7 +1650,6 @@ dependencies = [
  "tokio",
  "videoson",
  "wasm-bindgen-futures",
- "web-codecs",
  "web-sys",
  "web-time",
 ]
@@ -2682,7 +2683,7 @@ dependencies = [
  "symphonia-codec-alac",
  "symphonia-codec-pcm",
  "symphonia-codec-vorbis",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "symphonia-format-isomp4",
  "symphonia-format-mkv",
  "symphonia-format-ogg",
@@ -2698,7 +2699,7 @@ checksum = "2b2c9fc1c54fac0729f76075ec6cb4143d50233ba2af47be169e341e964c27aa"
 dependencies = [
  "log",
  "oporus",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2709,7 +2710,7 @@ checksum = "ee69ad01236a67260b82fd1ff9790dd75ead29f2f46af145e63b7e72273e0e03"
 dependencies = [
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "symphonia-metadata 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2721,7 +2722,7 @@ checksum = "350f1f2f2e19ad4dd315db94304d1eb361b29af070681f94e51b8fdaad769546"
 dependencies = [
  "lazy_static",
  "log",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2733,7 +2734,7 @@ dependencies = [
  "lazy_static",
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2743,7 +2744,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ebbdfd76d6cc5a601c6292a44357c5b7c82f2cd7cdc0f171421f5c5cff0ea1f"
 dependencies = [
  "log",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2754,7 +2755,7 @@ checksum = "3a149cbfc7fb5c405d123a273227d31de17138419552112bf1aa7b73e65827b8"
 dependencies = [
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2764,7 +2765,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50baee168f0e9dcf6ba7fc06e8b57eb62072a4490cc7cf13af77e72baae5d328"
 dependencies = [
  "log",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2775,16 +2776,7 @@ checksum = "45b07b4423cd8e0fc472575909a5554b12c2f58e3c190b38c24f042e732fd8de"
 dependencies = [
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core",
-]
-
-[[package]]
-name = "symphonia-common"
-version = "0.6.0"
-dependencies = [
- "log",
- "symphonia-core",
- "symphonia-metadata 0.6.0",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2794,13 +2786,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8257891ffa7f05e02b58f4761e2abf7e5278c8744fd59e981559e050f86eef55"
 dependencies = [
  "log",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "symphonia-metadata 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "symphonia-common"
+version = "0.6.0"
+source = "git+https://github.com/mlm-games/symphonia#e58e4c8e062e050e8a641fc633c7e0e6b543d4c1"
+dependencies = [
+ "log",
+ "symphonia-core 0.6.0 (git+https://github.com/mlm-games/symphonia)",
+ "symphonia-metadata 0.6.0 (git+https://github.com/mlm-games/symphonia)",
 ]
 
 [[package]]
 name = "symphonia-core"
 version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95ec293b5f288383b72a7bffcade6b2860b642cf66f28b3bd5967349a49938b1"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",
@@ -2812,13 +2816,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "symphonia-core"
+version = "0.6.0"
+source = "git+https://github.com/mlm-games/symphonia#e58e4c8e062e050e8a641fc633c7e0e6b543d4c1"
+dependencies = [
+ "bitflags 2.13.0",
+ "bytemuck",
+ "lazy_static",
+ "log",
+ "num-complex",
+ "smallvec",
+]
+
+[[package]]
 name = "symphonia-format-isomp4"
 version = "0.6.0"
+source = "git+https://github.com/mlm-games/symphonia#e58e4c8e062e050e8a641fc633c7e0e6b543d4c1"
 dependencies = [
  "log",
- "symphonia-common 0.6.0",
- "symphonia-core",
- "symphonia-metadata 0.6.0",
+ "symphonia-common 0.6.0 (git+https://github.com/mlm-games/symphonia)",
+ "symphonia-core 0.6.0 (git+https://github.com/mlm-games/symphonia)",
+ "symphonia-metadata 0.6.0 (git+https://github.com/mlm-games/symphonia)",
 ]
 
 [[package]]
@@ -2830,7 +2848,7 @@ dependencies = [
  "lazy_static",
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2841,7 +2859,7 @@ checksum = "b05a67e02b1e4fca1a261ba4fe06910a9357489ad8c36aafdd2960e9c6559433"
 dependencies = [
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "symphonia-metadata 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2853,19 +2871,8 @@ checksum = "17424452a777666d3eaf09a5c651029b15b6a333812fcc5b5474f2a3f0cff3f0"
 dependencies = [
  "extended",
  "log",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "symphonia-metadata 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "symphonia-metadata"
-version = "0.6.0"
-dependencies = [
- "lazy_static",
- "log",
- "regex-lite",
- "smallvec",
- "symphonia-core",
 ]
 
 [[package]]
@@ -2878,7 +2885,19 @@ dependencies = [
  "log",
  "regex-lite",
  "smallvec",
- "symphonia-core",
+ "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "symphonia-metadata"
+version = "0.6.0"
+source = "git+https://github.com/mlm-games/symphonia#e58e4c8e062e050e8a641fc633c7e0e6b543d4c1"
+dependencies = [
+ "lazy_static",
+ "log",
+ "regex-lite",
+ "smallvec",
+ "symphonia-core 0.6.0 (git+https://github.com/mlm-games/symphonia)",
 ]
 
 [[package]]
@@ -3455,7 +3474,8 @@ dependencies = [
 [[package]]
 name = "web-codecs"
 version = "0.3.10"
-source = "git+https://github.com/mlm-games/web-rs.git?branch=main#a00ddeff80122b516a5db0136d344cc9de523156"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fdd5f8c59ed41ff62937d00ed17965eb842a1dfca4016b89991c53041d2c311"
 dependencies = [
  "bytemuck",
  "bytes",
@@ -3723,18 +3743,3 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
-
-[[patch.unused]]
-name = "cros-codecs"
-version = "0.0.10"
-source = "git+https://github.com/mlm-games/cros-codecs#3273b171cda80f8f6c86df6615d96ab9d2a574d1"
-
-[[patch.unused]]
-name = "cros-libva"
-version = "0.0.13"
-source = "git+https://github.com/mlm-games/cros-libva#ba36b968231402071b2e344d4dad5974040a74a2"
-
-[[patch.unused]]
-name = "mediacodec"
-version = "0.1.5"
-source = "git+https://github.com/mlm-games/rust_mediacodec#f74a897c1e3cbd56f58b0773f96db60919647e4c"

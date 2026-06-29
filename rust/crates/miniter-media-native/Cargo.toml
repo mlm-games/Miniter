@@ -33,10 +33,10 @@ libblur = "0.24"
 palette = "0.7"
 bytemuck = "1"
 
-videoson = { version = "0.1", optional = true }
+videoson = { version = "*", optional = true }
 
-ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
-ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-renderer", default-features = false, features = [
+ass-core.workspace = true
+ass-renderer = { workspace = true, package = "ass-renderer", default-features = false, features = [
     "software-backend",
     "image",
     "simd",
@@ -55,7 +55,6 @@ baabaabaabaabababbababbaa = { workspace = true, features = [
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 baabaabaabaabababbababbaa = { workspace = true, optional = true }
-web-codecs = "0.3"
 tokio = { version = "1", features = ["rt", "sync", "macros"] }
 web-sys = { workspace = true, features = ["Window", "Document", "Storage"] }
 getrandom.workspace = true
