@@ -85,7 +85,9 @@ impl SymphoniaDemuxer {
                 let tb = t.time_base.unwrap_or(
                     symphonia::core::units::TimeBase::try_new(1, 1000).unwrap(),
                 );
-                let samples = t.duration.map(|d| d.get() as u32).unwrap_or(0);
+                let samples = t.duration.map(|d| d.get() as u32).unwrap_or_else(|| {
+                    format.media_info().duration.map(|d| d.get() as u32).unwrap_or(0)
+                });
                 let w = video_params.width.unwrap_or(0) as u32;
                 let h = video_params.height.unwrap_or(0) as u32;
 

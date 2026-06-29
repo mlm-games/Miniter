@@ -102,13 +102,25 @@ fn probe_media_info_from_mss(
     let mut reader = miniter_audio::util::probe(mss, ext)
         .map_err(|e| MediaProbeError::Symphonia(e.to_string()))?;
 
-    let duration_us = reader.tracks().iter().find_map(|t| {
-        let tb = t.time_base?;
-        let dur = t.duration?;
-        let ts = symphonia::core::units::Timestamp::new(dur.get() as i64);
-        let time = tb.calc_time(ts)?;
-        Some(time.as_micros() as i64)
-    });
+    let duration_us = reader
+        .tracks()
+        .iter()
+        .find_map(|t| {
+            let tb = t.time_base?;
+            let dur = t.duration?;
+            let ts = symphonia::core::units::Timestamp::new(dur.get() as i64);
+            let time = tb.calc_time(ts)?;
+            Some(time.as_micros() as i64)
+        })
+        // Fallback to media-level duration for formats like MKV/WebM
+        .or_else(|| {
+            let mi = reader.media_info();
+            let tb = mi.time_base?;
+            let dur = mi.duration?;
+            let ts = symphonia::core::units::Timestamp::new(dur.get() as i64);
+            let time = tb.calc_time(ts)?;
+            Some(time.as_micros() as i64)
+        });
 
     let mut video_streams = Vec::new();
     let mut audio_streams = Vec::new();
