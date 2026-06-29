@@ -452,76 +452,102 @@ sealed interface RustExportResolution {
 }
 
 object RustExportResolutionSerializer : KSerializer<RustExportResolution> {
-    override val descriptor: SerialDescriptor =
-        buildClassSerialDescriptor("RustExportResolution")
+    @Serializable
+    private data class Surrogate(val type: String, val width: Int? = null, val height: Int? = null)
+
+    private fun RustExportResolution.toSurrogate() = when (this) {
+        RustExportResolution.Source -> Surrogate("Source")
+        RustExportResolution.Sd480 -> Surrogate("Sd480")
+        RustExportResolution.Hd720 -> Surrogate("Hd720")
+        RustExportResolution.Hd1080 -> Surrogate("Hd1080")
+        RustExportResolution.Uhd4k -> Surrogate("Uhd4k")
+        is RustExportResolution.Custom -> Surrogate("Custom", width, height)
+    }
+
+    private fun Surrogate.toResolution() = when (type) {
+        "Source" -> RustExportResolution.Source
+        "Sd480" -> RustExportResolution.Sd480
+        "Hd720" -> RustExportResolution.Hd720
+        "Hd1080" -> RustExportResolution.Hd1080
+        "Uhd4k" -> RustExportResolution.Uhd4k
+        "Custom" -> RustExportResolution.Custom(
+            width = width ?: throw SerializationException("Missing Custom.width"),
+            height = height ?: throw SerializationException("Missing Custom.height"),
+        )
+        else -> throw SerializationException("Unknown export resolution type: $type")
+    }
+
+    override val descriptor: SerialDescriptor = Surrogate.serializer().descriptor
 
     override fun serialize(encoder: Encoder, value: RustExportResolution) {
-        val jsonEncoder = encoder as? JsonEncoder
-            ?: throw SerializationException("RustExportResolutionSerializer only supports JSON")
-
-        val element = when (value) {
-            RustExportResolution.Source -> JsonPrimitive("Source")
-            RustExportResolution.Sd480 -> JsonPrimitive("Sd480")
-            RustExportResolution.Hd720 -> JsonPrimitive("Hd720")
-            RustExportResolution.Hd1080 -> JsonPrimitive("Hd1080")
-            RustExportResolution.Uhd4k -> JsonPrimitive("Uhd4k")
-            is RustExportResolution.Custom -> buildJsonObject {
-                putJsonObject("Custom") {
-                    put("width", value.width)
-                    put("height", value.height)
+        if (encoder is JsonEncoder) {
+            val element = when (value) {
+                RustExportResolution.Source -> JsonPrimitive("Source")
+                RustExportResolution.Sd480 -> JsonPrimitive("Sd480")
+                RustExportResolution.Hd720 -> JsonPrimitive("Hd720")
+                RustExportResolution.Hd1080 -> JsonPrimitive("Hd1080")
+                RustExportResolution.Uhd4k -> JsonPrimitive("Uhd4k")
+                is RustExportResolution.Custom -> buildJsonObject {
+                    putJsonObject("Custom") {
+                        put("width", value.width)
+                        put("height", value.height)
+                    }
                 }
             }
+            encoder.encodeJsonElement(element)
+            return
         }
 
-        jsonEncoder.encodeJsonElement(element)
+        Surrogate.serializer().serialize(encoder, value.toSurrogate())
     }
 
     override fun deserialize(decoder: Decoder): RustExportResolution {
-        val jsonDecoder = decoder as? JsonDecoder
-            ?: throw SerializationException("RustExportResolutionSerializer only supports JSON")
-
-        return when (val element = jsonDecoder.decodeJsonElement()) {
-            is JsonPrimitive -> when (element.content) {
-                "Source" -> RustExportResolution.Source
-                "Sd480" -> RustExportResolution.Sd480
-                "Hd720" -> RustExportResolution.Hd720
-                "Hd1080" -> RustExportResolution.Hd1080
-                "Uhd4k" -> RustExportResolution.Uhd4k
-                else -> throw SerializationException(
-                    "Unknown export resolution: ${element.content}"
-                )
-            }
-
-            is JsonObject -> {
-                element["Custom"]?.jsonObject?.let { custom ->
-                    RustExportResolution.Custom(
-                        width = custom["width"]?.jsonPrimitive?.int
-                            ?: throw SerializationException("Missing Custom.width"),
-                        height = custom["height"]?.jsonPrimitive?.int
-                            ?: throw SerializationException("Missing Custom.height"),
-                    )
-                }
-                ?: when (element["type"]?.jsonPrimitive?.content) {
+        if (decoder is JsonDecoder) {
+            return when (val element = decoder.decodeJsonElement()) {
+                is JsonPrimitive -> when (element.content) {
                     "Source" -> RustExportResolution.Source
                     "Sd480" -> RustExportResolution.Sd480
                     "Hd720" -> RustExportResolution.Hd720
                     "Hd1080" -> RustExportResolution.Hd1080
                     "Uhd4k" -> RustExportResolution.Uhd4k
-                    "Custom" -> RustExportResolution.Custom(
-                        width = element["width"]?.jsonPrimitive?.int
-                            ?: throw SerializationException("Missing width"),
-                        height = element["height"]?.jsonPrimitive?.int
-                            ?: throw SerializationException("Missing height"),
-                    )
                     else -> throw SerializationException(
-                        "Unsupported export resolution JSON: $element"
+                        "Unknown export resolution: ${element.content}"
                     )
                 }
-            }
 
-            else -> throw SerializationException(
-                "Unsupported export resolution JSON: $element"
-            )
+                is JsonObject -> {
+                    element["Custom"]?.jsonObject?.let { custom ->
+                        RustExportResolution.Custom(
+                            width = custom["width"]?.jsonPrimitive?.int
+                                ?: throw SerializationException("Missing Custom.width"),
+                            height = custom["height"]?.jsonPrimitive?.int
+                                ?: throw SerializationException("Missing Custom.height"),
+                        )
+                    }
+                        ?: when (element["type"]?.jsonPrimitive?.content) {
+                            "Source" -> RustExportResolution.Source
+                            "Sd480" -> RustExportResolution.Sd480
+                            "Hd720" -> RustExportResolution.Hd720
+                            "Hd1080" -> RustExportResolution.Hd1080
+                            "Uhd4k" -> RustExportResolution.Uhd4k
+                            "Custom" -> RustExportResolution.Custom(
+                                width = element["width"]?.jsonPrimitive?.int
+                                    ?: throw SerializationException("Missing width"),
+                                height = element["height"]?.jsonPrimitive?.int
+                                    ?: throw SerializationException("Missing height"),
+                            )
+                            else -> throw SerializationException(
+                                "Unsupported export resolution JSON: $element"
+                            )
+                        }
+                }
+
+                else -> throw SerializationException(
+                    "Unsupported export resolution JSON: $element"
+                )
+            }
         }
+
+        return Surrogate.serializer().deserialize(decoder).toResolution()
     }
 }
