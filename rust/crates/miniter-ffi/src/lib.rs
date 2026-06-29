@@ -229,10 +229,11 @@ mod native_ffi {
     }
 
     #[uniffi::export]
-    pub fn extract_thumbnail(path: String, target_us: i64) -> Result<FrameData, MiniterError> {
+    pub fn extract_thumbnail(path: String, target_us: i64, hardware_acceleration: bool) -> Result<FrameData, MiniterError> {
         let frame = miniter_media_native::thumbnailer::extract_thumbnail(
             std::path::Path::new(&path),
             target_us,
+            hardware_acceleration,
         )
         .map_err(|e| MiniterError::Media {
             detail: e.to_string(),
@@ -251,11 +252,13 @@ mod native_ffi {
         path: String,
         count: u32,
         duration_us: i64,
+        hardware_acceleration: bool,
     ) -> Result<Vec<FrameData>, MiniterError> {
         let frames = miniter_media_native::thumbnailer::extract_thumbnails(
             std::path::Path::new(&path),
             count as usize,
             duration_us,
+            hardware_acceleration,
         )
         .map_err(|e| MiniterError::Media {
             detail: e.to_string(),
@@ -595,12 +598,12 @@ mod web_ffi {
     }
 
     #[wasm_bindgen(js_name = extractThumbnail)]
-    pub async fn extract_thumbnail(path: String, target_us: f64) -> Result<String, JsValue> {
+    pub async fn extract_thumbnail(path: String, target_us: f64, hardware_acceleration: bool) -> Result<String, JsValue> {
         let frame = if let Some(file) = get_registered_file(&path) {
             let size = file.bytes.len() as u64;
             let reader = Cursor::new(file.bytes);
             let mut session =
-                miniter_media_native::decoder::VideoDecodeSession::from_reader(reader, size, false)
+                miniter_media_native::decoder::VideoDecodeSession::from_reader(reader, size, hardware_acceleration)
                     .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
             let mut last_frame: Option<RgbaFrame> = None;
             loop {
@@ -625,6 +628,7 @@ mod web_ffi {
             miniter_media_native::thumbnailer::extract_thumbnail(
                 std::path::Path::new(&path),
                 target_us as i64,
+                hardware_acceleration,
             )
             .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?
         };
@@ -638,6 +642,7 @@ mod web_ffi {
         path: String,
         count: u32,
         duration_us: f64,
+        hardware_acceleration: bool,
     ) -> Result<String, JsValue> {
         let frames = if let Some(file) = get_registered_file(&path) {
             if count == 0 || duration_us <= 0.0 {
@@ -646,7 +651,7 @@ mod web_ffi {
                 let size = file.bytes.len() as u64;
                 let reader = Cursor::new(file.bytes);
                 let mut session = miniter_media_native::decoder::VideoDecodeSession::from_reader(
-                    reader, size, false,
+                    reader, size, hardware_acceleration,
                 )
                 .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
 
@@ -691,6 +696,7 @@ mod web_ffi {
                 std::path::Path::new(&path),
                 count as usize,
                 duration_us as i64,
+                hardware_acceleration,
             )
             .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?
         };

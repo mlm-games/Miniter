@@ -74,8 +74,8 @@ actual class RustCoreSession private constructor(
             )
         }
 
-        actual suspend fun extractThumbnail(path: String, timestampUs: Long): ImageData {
-            val frame = nativeExtractThumbnail(path, timestampUs)
+        actual suspend fun extractThumbnail(path: String, timestampUs: Long, hardwareAcceleration: Boolean): ImageData {
+            val frame = nativeExtractThumbnail(path, timestampUs, hardwareAcceleration)
             return ImageData.create(
                 width = frame.width.toInt(),
                 height = frame.height.toInt(),
@@ -83,8 +83,8 @@ actual class RustCoreSession private constructor(
             )
         }
 
-        actual suspend fun extractThumbnails(path: String, count: Int, durationUs: Long): List<ImageData> {
-            return nativeExtractThumbnails(path, count.toUInt(), durationUs).map { frame ->
+        actual suspend fun extractThumbnails(path: String, count: Int, durationUs: Long, hardwareAcceleration: Boolean): List<ImageData> {
+            return nativeExtractThumbnails(path, count.toUInt(), durationUs, hardwareAcceleration).map { frame ->
                 ImageData.create(
                     width = frame.width.toInt(),
                     height = frame.height.toInt(),

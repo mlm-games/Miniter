@@ -25,11 +25,12 @@ actual class PlatformFrameGrabber actual constructor() {
         opacity: Float,
         width: Int,
         height: Int,
+        hardwareAcceleration: Boolean,
     ): ImageData? = withContext(Dispatchers.Default) {
         val path = mutex.withLock { currentPath } ?: return@withContext null
 
         try {
-            val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L)
+            val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L, hardwareAcceleration)
             var rgba = frame.pixels
             var fw = frame.width
             var fh = frame.height

@@ -18,6 +18,7 @@ expect class PlatformVideoEngine() {
         count: Int,
         width: Int,
         height: Int,
+        hardwareAcceleration: Boolean = true,
     ): List<ImageData>
 
     suspend fun extractSingleThumbnail(
@@ -25,6 +26,7 @@ expect class PlatformVideoEngine() {
         timestampMs: Long,
         width: Int,
         height: Int,
+        hardwareAcceleration: Boolean = true,
     ): ThumbnailResult
 
     fun cancelExport()

@@ -12,6 +12,7 @@ expect class PlatformFrameGrabber() {
         opacity: Float = 1f,
         width: Int = 0,
         height: Int = 0,
+        hardwareAcceleration: Boolean = true,
     ): ImageData?
 
     fun release()

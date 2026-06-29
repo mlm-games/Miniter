@@ -3,11 +3,11 @@ use crate::frame::RgbaFrame;
 use miniter_audio::util;
 use std::path::Path;
 
-pub fn extract_thumbnail(path: &Path, target_us: i64) -> Result<RgbaFrame, DecodeError> {
+pub fn extract_thumbnail(path: &Path, target_us: i64, hardware_acceleration: bool) -> Result<RgbaFrame, DecodeError> {
     if util::is_image_file(path) {
         return load_image_as_frame(path);
     }
-    let mut session = VideoDecodeSession::open(path, true)?;
+    let mut session = VideoDecodeSession::open(path, hardware_acceleration)?;
     let mut last_frame: Option<RgbaFrame> = None;
 
     loop {
@@ -29,6 +29,7 @@ pub fn extract_thumbnails(
     path: &Path,
     count: usize,
     duration_us: i64,
+    hardware_acceleration: bool,
 ) -> Result<Vec<RgbaFrame>, DecodeError> {
     if util::is_image_file(path) {
         let frame = load_image_as_frame(path)?;
@@ -43,7 +44,7 @@ pub fn extract_thumbnails(
     let targets: Vec<i64> = (0..count as i64).map(|i| i * interval_us).collect();
     let mut results = Vec::with_capacity(count);
 
-    let mut session = VideoDecodeSession::open(path, true)?;
+    let mut session = VideoDecodeSession::open(path, hardware_acceleration)?;
     let mut target_idx = 0;
     let mut last_frame: Option<RgbaFrame> = None;
 

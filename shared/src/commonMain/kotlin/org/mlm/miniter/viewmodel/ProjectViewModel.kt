@@ -2,6 +2,7 @@ package org.mlm.miniter.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.mlmgames.settings.core.SettingsRepository
 import io.github.vinceglb.filekit.PlatformFile
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -47,6 +48,7 @@ import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.ThumbnailResult
 import org.mlm.miniter.engine.VideoInfo
+import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.msToUs
 import org.mlm.miniter.platform.usToMs
@@ -80,6 +82,7 @@ class ProjectViewModel(
     private val engine: PlatformVideoEngine,
     private val snackbarManager: SnackbarManager,
     private val rustStore: RustProjectStore,
+    private val settingsRepository: SettingsRepository<AppSettings>,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ProjectUiState())
@@ -114,10 +117,19 @@ class ProjectViewModel(
         private const val SNAP_THRESHOLD_BASE = 200
     }
 
+    private var hardwareAccelerationEnabled: Boolean = true
     private var sourceDurationMs: Long = 0L
     private var autoSaveJob: Job? = null
     private var preDragSnapshot: RustProjectSnapshot? = null
     private var continuousEditCommandCount = 0
+
+    init {
+        viewModelScope.launch {
+            settingsRepository.flow.collect { settings ->
+                hardwareAccelerationEnabled = settings.hardwareAccelerationEnabled
+            }
+        }
+    }
 
     fun newProject(name: String, initialVideoPath: String, savePath: String? = null) {
         viewModelScope.launch {
@@ -134,7 +146,7 @@ class ProjectViewModel(
                 val hasAudio = info.hasAudio
 
                 if (hasVideo) {
-                    when (val result = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90)) {
+                    when (val result = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90, hardwareAccelerationEnabled)) {
                         is ThumbnailResult.Error -> {
                             handleError(result.message)
                             return@launch
@@ -729,7 +741,7 @@ class ProjectViewModel(
         viewModelScope.launch {
             _state.update { it.copy(isLoadingThumbnails = true) }
             try {
-                val thumbs = engine.extractThumbnails(videoPath, 12, 160, 90)
+                val thumbs = engine.extractThumbnails(videoPath, 12, 160, 90, hardwareAccelerationEnabled)
                 _state.update { it.copy(thumbnails = thumbs, isLoadingThumbnails = false) }
             } catch (_: Exception) {
                 _state.update { it.copy(isLoadingThumbnails = false) }
@@ -749,7 +761,7 @@ class ProjectViewModel(
                         exportError = "'${path.substringAfterLast("/")}' has no video stream"
                         break
                     }
-                    when (val result = engine.extractSingleThumbnail(path, 0L, 160, 90)) {
+                    when (val result = engine.extractSingleThumbnail(path, 0L, 160, 90, hardwareAccelerationEnabled)) {
                         is ThumbnailResult.Error -> {
                             exportError = "'${path.substringAfterLast("/")}': ${result.message}"
                             break

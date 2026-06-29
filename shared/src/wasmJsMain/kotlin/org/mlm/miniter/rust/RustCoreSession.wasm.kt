@@ -185,10 +185,10 @@ actual class RustCoreSession private constructor(
             )
         }
 
-        actual suspend fun extractThumbnail(path: String, timestampUs: Long): ImageData {
+        actual suspend fun extractThumbnail(path: String, timestampUs: Long, hardwareAcceleration: Boolean): ImageData {
             val payload = try {
                 wasmBridgeJson.decodeFromString<WasmFramePayload>(
-                    wasmExtractThumbnail(path, timestampUs.toDouble()).await<JsAny?>()?.toString() ?: ""
+                    wasmExtractThumbnail(path, timestampUs.toDouble(), hardwareAcceleration).await<JsAny?>()?.toString() ?: ""
                 )
             } catch (_: SerializationException) {
                 return ImageData.create(1, 1, byteArrayOf(0, 0, 0, 0xFF.toByte()))
@@ -196,10 +196,10 @@ actual class RustCoreSession private constructor(
             return payload.toImageData()
         }
 
-        actual suspend fun extractThumbnails(path: String, count: Int, durationUs: Long): List<ImageData> {
+        actual suspend fun extractThumbnails(path: String, count: Int, durationUs: Long, hardwareAcceleration: Boolean): List<ImageData> {
             val payload = try {
                 wasmBridgeJson.decodeFromString<List<WasmFramePayload>>(
-                    wasmExtractThumbnails(path, count.toDouble(), durationUs.toDouble()).await<JsAny?>()?.toString() ?: ""
+                    wasmExtractThumbnails(path, count.toDouble(), durationUs.toDouble(), hardwareAcceleration).await<JsAny?>()?.toString() ?: ""
                 )
             } catch (_: SerializationException) {
                 return emptyList()

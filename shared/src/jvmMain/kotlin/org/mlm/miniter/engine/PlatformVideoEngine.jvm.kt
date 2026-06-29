@@ -105,6 +105,7 @@ actual class PlatformVideoEngine actual constructor() {
         count: Int,
         width: Int,
         height: Int,
+        hardwareAcceleration: Boolean,
     ): List<ImageData> = withContext(Dispatchers.IO) {
         try {
             val info = RustCoreSession.probeVideo(path)
@@ -112,7 +113,7 @@ actual class PlatformVideoEngine actual constructor() {
 
             if (durationUs <= 0L) return@withContext emptyList()
 
-            val frames = RustCoreSession.extractThumbnails(path, count, durationUs)
+            val frames = RustCoreSession.extractThumbnails(path, count, durationUs, hardwareAcceleration)
 
             frames.map { frame ->
                 ensureActive()
@@ -137,9 +138,10 @@ actual class PlatformVideoEngine actual constructor() {
         timestampMs: Long,
         width: Int,
         height: Int,
+        hardwareAcceleration: Boolean,
     ): ThumbnailResult = withContext(Dispatchers.IO) {
         try {
-            val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L)
+            val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L, hardwareAcceleration)
             val rgba = frame.pixels
             val fw = frame.width
             val fh = frame.height

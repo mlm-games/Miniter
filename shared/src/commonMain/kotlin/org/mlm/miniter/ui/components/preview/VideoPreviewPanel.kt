@@ -38,13 +38,16 @@ import androidx.compose.ui.unit.sp
 import io.github.kdroidfilter.composemediaplayer.InitialPlayerState
 import io.github.kdroidfilter.composemediaplayer.VideoPlayerSurface
 import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
+import io.github.mlmgames.settings.core.SettingsRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import org.koin.compose.koinInject
 import org.mlm.miniter.editor.model.*
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.rust.RustCoreSession
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
+import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
@@ -253,6 +256,8 @@ fun EditorVideoPreview(
     autoKeyframeEnabled: Boolean = false,
     onSetKeyframe: ((clipId: String, playheadMs: Long, scale: Float, tx: Float, ty: Float, rot: Float) -> Unit)? = null,
 ) {
+    val settingsRepository: SettingsRepository<AppSettings> = koinInject()
+    val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
     val playerState = rememberVideoPlayerState()
     val frameGrabber = remember { PlatformFrameGrabber() }
 
@@ -474,6 +479,7 @@ fun EditorVideoPreview(
                     timestampMs = sourceTimeMs,
                     filters = nonTransformFilters,
                     opacity = primaryEffectiveOpacity,
+                    hardwareAcceleration = settings.hardwareAccelerationEnabled,
                 )
             } catch (_: Exception) {}
         } else if (grabberReady) {
@@ -482,6 +488,7 @@ fun EditorVideoPreview(
                     timestampMs = sourceTimeMs,
                     filters = emptyList(),
                     opacity = 1f,
+                    hardwareAcceleration = settings.hardwareAccelerationEnabled,
                 )
             } catch (_: Exception) {}
         }

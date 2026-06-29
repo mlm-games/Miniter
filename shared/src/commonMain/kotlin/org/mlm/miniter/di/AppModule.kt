@@ -30,7 +30,7 @@ val coreModule = module {
 
     single { PlatformVideoEngine() }
 
-    single { ProjectViewModel(get(), get(), get(), get()) }
+    single { ProjectViewModel(get(), get(), get(), get(), get()) }
     factory { EditorViewModel(get()) }
 }
 
