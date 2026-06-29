@@ -47,7 +47,7 @@ ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
 [patch.crates-io]
 muxide = { git = "https://github.com/mlm-games/muxide" }
 videoson = { git = "https://github.com/mlm-games/videoson" }
-web-codecs = { git = "https://github.com/mlm-games/web-rs.git", branch = "main" }
+# web-codecs = { git = "https://github.com/mlm-games/web-rs.git", branch = "main" }
 # cros-codecs = { git = "https://github.com/mlm-games/cros-codecs" }
 # cros-libva = { git = "https://github.com/mlm-games/cros-libva" }
 # mediacodec = { git = "https://github.com/mlm-games/rust_mediacodec", package = "mediacodec" }
