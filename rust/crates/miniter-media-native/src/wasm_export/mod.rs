@@ -128,16 +128,18 @@ struct ExportDecodeCache<'a> {
     first_decoded_video_pts_us: Option<i64>,
     registered_files: &'a HashMap<String, Vec<u8>>,
     image_cache: ImageCache,
+    hardware_acceleration: bool,
 }
 
 impl<'a> ExportDecodeCache<'a> {
-    fn new(registered_files: &'a HashMap<String, Vec<u8>>) -> Self {
+    fn new(registered_files: &'a HashMap<String, Vec<u8>>, hardware_acceleration: bool) -> Self {
         Self {
             sessions: HashMap::new(),
             subtitle_cues: HashMap::new(),
             first_decoded_video_pts_us: None,
             registered_files,
             image_cache: ImageCache::new(),
+            hardware_acceleration,
         }
     }
 
@@ -170,12 +172,12 @@ impl<'a> ExportDecodeCache<'a> {
                 let size = bytes.len() as u64;
                 let reader = Cursor::new(bytes.clone());
                 DecodeSession::Memory(
-                    VideoDecodeSession::from_reader(reader, size, false)
+                    VideoDecodeSession::from_reader(reader, size, self.hardware_acceleration)
                         .map_err(|e| format!("decode init failed for '{path}': {e}"))?,
                 )
             } else {
                 DecodeSession::File(
-                    VideoDecodeSession::open(Path::new(path), false)
+                    VideoDecodeSession::open(Path::new(path), self.hardware_acceleration)
                         .map_err(|e| format!("decode init failed for '{path}': {e}"))?,
                 )
             };
@@ -431,11 +433,10 @@ fn export_h264_mp4_bytes(
         })
     };
 
-    let mut decode_cache = ExportDecodeCache::new(registered_files);
+    let hw_requested = project.export_profile.hardware_acceleration;
+    let mut decode_cache = ExportDecodeCache::new(registered_files, hw_requested);
     on_progress(1);
     on_progress(5);
-
-    let hw_requested = project.export_profile.hardware_acceleration;
     let mut encoder: AnyH264Encoder = if hw_requested {
         match HwEncodeSession::new(
             settings.width,
@@ -629,7 +630,8 @@ fn export_av1_mp4_bytes(
         })
     };
 
-    let mut decode_cache = ExportDecodeCache::new(registered_files);
+    let hw_requested = project.export_profile.hardware_acceleration;
+    let mut decode_cache = ExportDecodeCache::new(registered_files, hw_requested);
     on_progress(1);
     on_progress(5);
 
@@ -737,7 +739,8 @@ fn export_av1_ivf_bytes(
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
     let fps_int = settings.fps.round().max(1.0) as u32;
 
-    let mut decode_cache = ExportDecodeCache::new(registered_files);
+    let hw_requested = project.export_profile.hardware_acceleration;
+    let mut decode_cache = ExportDecodeCache::new(registered_files, hw_requested);
     on_progress(1);
 
     let mut encoder =
@@ -1204,7 +1207,8 @@ impl WasmExportChunker {
         // drop order ensures decode_cache is dropped before _registered_files.
         let files_ref: &'static HashMap<String, Vec<u8>> =
             unsafe { &*(&*files_box as *const HashMap<String, Vec<u8>>) };
-        let decode_cache = ExportDecodeCache::new(files_ref);
+        let hw_requested = project.export_profile.hardware_acceleration;
+        let decode_cache = ExportDecodeCache::new(files_ref, hw_requested);
 
         let audio_encoded = prepare_audio_track(project, &files_box)
             .map_err(|e| format!("Audio prep failed: {e}"))?;
