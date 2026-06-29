@@ -168,6 +168,8 @@ mod native_ffi {
         pub audio_sample_rate: u32,
         pub audio_channels: u32,
         pub video_bitrate: u32,
+        pub video_decoder_available: bool,
+        pub hardware_acceleration_required: bool,
     }
 
     #[derive(uniffi::Record)]
@@ -225,6 +227,8 @@ mod native_ffi {
             audio_sample_rate: aus.map(|a| a.sample_rate).unwrap_or(0),
             audio_channels: aus.map(|a| a.channels).unwrap_or(0),
             video_bitrate: vs.map(|v| v.bitrate).unwrap_or(0),
+            video_decoder_available: vs.map(|v| v.decoder_available).unwrap_or(true),
+            hardware_acceleration_required: vs.map(|v| v.hardware_acceleration_required).unwrap_or(false),
         })
     }
 
@@ -484,6 +488,8 @@ mod web_ffi {
         audio_sample_rate: u32,
         audio_channels: u32,
         video_bitrate: u32,
+                video_decoder_available: bool,
+        hardware_acceleration_required: bool,
     }
 
     #[derive(Serialize, Deserialize)]
@@ -497,6 +503,8 @@ mod web_ffi {
 
     #[derive(Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
+
+
     struct WasmExportPayload {
         ok: bool,
         bytes_base64: String,
@@ -585,6 +593,8 @@ mod web_ffi {
             audio_sample_rate: aus.map(|a| a.sample_rate).unwrap_or(0),
             audio_channels: aus.map(|a| a.channels).unwrap_or(0),
             video_bitrate: vs.map(|v| v.bitrate).unwrap_or(0),
+            video_decoder_available: vs.map(|v| v.decoder_available).unwrap_or(true),
+            hardware_acceleration_required: vs.map(|v| v.hardware_acceleration_required).unwrap_or(false),
         }
     }
 
@@ -637,9 +647,12 @@ mod web_ffi {
                         }
                         last_frame = Some(frame);
                     }
-                    None => {
+                    None if session.is_eos() => {
                         break last_frame
                             .ok_or_else(|| JsValue::from_str("Media error: No video stream"))?;
+                    }
+                    None => {
+                        // Decoder not ready yet; yield and retry.
                     }
                 }
             }

@@ -743,8 +743,11 @@ class ProjectViewModel(
             try {
                 val thumbs = engine.extractThumbnails(videoPath, 12, 160, 90, hardwareAccelerationEnabled)
                 _state.update { it.copy(thumbnails = thumbs, isLoadingThumbnails = false) }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 _state.update { it.copy(isLoadingThumbnails = false) }
+                val msg = e.message?.removePrefix("detail=")?.removePrefix("Non-Kotlin exception ")
+                    ?: "Failed to load thumbnails"
+                snackbarManager.showError(msg)
             }
         }
     }
@@ -759,6 +762,14 @@ class ProjectViewModel(
                     val info = engine.probeVideo(path)
                     if (!info.hasVideo) {
                         exportError = "'${path.substringAfterLast("/")}' has no video stream"
+                        break
+                    }
+                    if (!info.videoDecoderAvailable) {
+                        exportError = "'${path.substringAfterLast("/")}': no decoder available for ${info.videoCodecName ?: "unknown codec"}"
+                        break
+                    }
+                    if (info.hardwareAccelerationRequired && !hardwareAccelerationEnabled) {
+                        exportError = "'${path.substringAfterLast("/")}': ${info.videoCodecName ?: "unknown codec"} requires hardware acceleration (currently disabled)"
                         break
                     }
                     when (val result = engine.extractSingleThumbnail(path, 0L, 160, 90, hardwareAccelerationEnabled)) {

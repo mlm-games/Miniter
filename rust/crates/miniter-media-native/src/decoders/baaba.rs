@@ -1,3 +1,4 @@
+#[cfg(target_arch = "wasm32")]
 use std::collections::VecDeque;
 use std::time::Duration;
 
@@ -34,13 +35,16 @@ use baabaabaabaabababbababbaa::platform::wasm::{
 use tokio::runtime::Runtime;
 
 #[cfg(target_arch = "wasm32")]
-use std::sync::LazyLock;
+use wasm_bindgen_futures::spawn_local;
+
 #[cfg(target_arch = "wasm32")]
-static WASM_RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
-    tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("WASM tokio runtime for baaba decoder")
-});
+struct PendingFrame {
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
+    format: PixelFormat,
+    pts_us: i64,
+}
 
 pub struct BaabaBackend {
     input: PlatformVideoDecoderInput,
@@ -50,6 +54,10 @@ pub struct BaabaBackend {
     allowed_fourccs: Vec<u32>,
     #[cfg(target_arch = "wasm32")]
     frame_buffer: VecDeque<RgbaFrame>,
+    #[cfg(target_arch = "wasm32")]
+    copy_rx: tokio::sync::mpsc::UnboundedReceiver<PendingFrame>,
+    #[cfg(target_arch = "wasm32")]
+    copy_tx: tokio::sync::mpsc::UnboundedSender<PendingFrame>,
 }
 
 impl BaabaBackend {
@@ -68,6 +76,9 @@ impl BaabaBackend {
         #[cfg(not(target_arch = "wasm32"))]
         let rt = Runtime::new().map_err(|e| DecodeError::Other(format!("tokio: {e}")))?;
 
+        #[cfg(target_arch = "wasm32")]
+        let (copy_tx, copy_rx) = tokio::sync::mpsc::unbounded_channel();
+
         Ok(Self {
             input,
             output,
@@ -76,6 +87,10 @@ impl BaabaBackend {
             allowed_fourccs: Vec::new(),
             #[cfg(target_arch = "wasm32")]
             frame_buffer: VecDeque::new(),
+            #[cfg(target_arch = "wasm32")]
+            copy_rx,
+            #[cfg(target_arch = "wasm32")]
+            copy_tx,
         })
     }
 }
@@ -138,45 +153,51 @@ fn wc_pixel_format_to_baaba(fmt: web_sys::VideoPixelFormat) -> PixelFormat {
     }
 }
 
-/// Drain all available raw `web_codecs::VideoFrame`s and convert them to
-/// `RgbaFrame`s by copying pixel data to CPU memory.
-///
-/// This is safe to call after `flush()` has resolved: all frames are already
-/// in the channel, so the async `copy_to_cpu()` inside `block_on` will not
-/// park indefinitely.
+/// Collect raw frames from the WebCodecs output channel, schedule async
+/// copy-to-CPU via `spawn_local`, and check for previously completed copies.
 #[cfg(target_arch = "wasm32")]
 fn drain_raw_frames(
     output: &mut PlatformVideoDecoderOutput,
-    buffer: &mut VecDeque<RgbaFrame>,
+    copy_tx: &tokio::sync::mpsc::UnboundedSender<PendingFrame>,
+    copy_rx: &mut tokio::sync::mpsc::UnboundedReceiver<PendingFrame>,
+    frame_buffer: &mut VecDeque<RgbaFrame>,
 ) -> Result<(), DecodeBackendError> {
-    let mut raw_frames = Vec::new();
     while let Some(raw_frame) = output
         .try_frame_raw()
         .map_err(|e| DecodeBackendError::Other(format!("baaba try_frame_raw: {e}")))?
     {
-        raw_frames.push(raw_frame);
-    }
-
-    for raw in raw_frames {
-        let dims = raw.dimensions();
-        let ts = raw.timestamp();
-        let fmt = raw
+        let dims = raw_frame.dimensions();
+        let ts = raw_frame.timestamp();
+        let fmt = raw_frame
             .format()
             .map(wc_pixel_format_to_baaba)
             .unwrap_or(PixelFormat::Nv12);
+        let pts_us = ts.as_micros().min(i64::MAX as u128) as i64;
+        let width = dims.width;
+        let height = dims.height;
 
-        let data = WASM_RT
-            .block_on(raw.copy_to_cpu())
-            .map_err(|e| DecodeBackendError::Other(format!("copy_to_cpu: {e:?}")))?;
+        let tx = copy_tx.clone();
+        spawn_local(async move {
+            if let Ok(data) = raw_frame.copy_to_cpu().await {
+                let _ = tx.send(PendingFrame {
+                    data,
+                    width,
+                    height,
+                    format: fmt,
+                    pts_us,
+                });
+            }
+        });
+    }
 
+    while let Ok(pending) = copy_rx.try_recv() {
         let baaba_frame = BaabaFrame {
-            dimensions: Dimensions::new(dims.width, dims.height),
-            format: fmt,
-            timestamp: ts,
-            planes: VideoPlanes::Cpu(data),
+            dimensions: Dimensions::new(pending.width, pending.height),
+            format: pending.format,
+            timestamp: Duration::from_micros(pending.pts_us as u64),
+            planes: VideoPlanes::Cpu(pending.data),
         };
-
-        buffer.push_back(convert_baaba_frame(baaba_frame)?);
+        frame_buffer.push_back(convert_baaba_frame(baaba_frame)?);
     }
 
     Ok(())
@@ -199,7 +220,7 @@ impl VideoDecoderBackend for BaabaBackend {
         &mut self,
         data: &[u8],
         pts_us: i64,
-        _is_sync: bool,
+        is_sync: bool,
     ) -> Result<Option<RgbaFrame>, DecodeBackendError> {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -213,11 +234,28 @@ impl VideoDecoderBackend for BaabaBackend {
         let packet = EncodedVideoPacket {
             payload: data.to_vec().into(),
             timestamp: Duration::from_micros(pts_us as u64),
-            keyframe: false,
+            keyframe: is_sync,
         };
+
+        #[cfg(not(target_arch = "wasm32"))]
         self.input
             .decode(packet)
             .map_err(|e| DecodeBackendError::Other(format!("baaba decode: {e}")))?;
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Decoder might not be ready yet (e.g., configure promise pending).
+            // Treat decode errors as "not ready" and return None — caller will retry.
+            if self.input.decode(packet).is_err() {
+                drain_raw_frames(
+                    &mut self.output,
+                    &self.copy_tx,
+                    &mut self.copy_rx,
+                    &mut self.frame_buffer,
+                )?;
+                return Ok(self.frame_buffer.pop_front());
+            }
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -238,6 +276,12 @@ impl VideoDecoderBackend for BaabaBackend {
 
         #[cfg(target_arch = "wasm32")]
         {
+            drain_raw_frames(
+                &mut self.output,
+                &self.copy_tx,
+                &mut self.copy_rx,
+                &mut self.frame_buffer,
+            )?;
             Ok(self.frame_buffer.pop_front())
         }
     }
@@ -255,10 +299,12 @@ impl VideoDecoderBackend for BaabaBackend {
 
         #[cfg(target_arch = "wasm32")]
         {
-            WASM_RT
-                .block_on(self.input.flush())
-                .map_err(|e| DecodeBackendError::Other(format!("baaba flush: {e}")))?;
-            drain_raw_frames(&mut self.output, &mut self.frame_buffer)?;
+            drain_raw_frames(
+                &mut self.output,
+                &self.copy_tx,
+                &mut self.copy_rx,
+                &mut self.frame_buffer,
+            )?;
             Ok(self.frame_buffer.pop_front())
         }
     }

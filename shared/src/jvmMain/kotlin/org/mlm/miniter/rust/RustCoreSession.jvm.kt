@@ -71,6 +71,8 @@ actual class RustCoreSession private constructor(
                 videoCodecName = result.videoCodec,
                 hasAudio = result.hasAudio,
                 hasVideo = result.width > 0u && result.height > 0u,
+                videoDecoderAvailable = result.videoDecoderAvailable,
+                hardwareAccelerationRequired = result.hardwareAccelerationRequired,
             )
         }
 

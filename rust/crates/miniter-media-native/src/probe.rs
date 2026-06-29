@@ -3,7 +3,49 @@ use miniter_audio::probe;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek};
 use std::path::Path;
+use symphonia::core::codecs::video::VideoCodecId;
 use symphonia::core::io::MediaSourceStream;
+
+use symphonia::core::codecs::video::well_known::{
+    CODEC_ID_AV1, CODEC_ID_H264, CODEC_ID_HEVC, CODEC_ID_VP8, CODEC_ID_VP9,
+};
+
+/// Check whether a decoder is available for a given Symphonia codec at compile time.
+/// This does NOT instantiate a decoder — it only checks feature flags and platform cfg.
+fn decoder_supported(codec: VideoCodecId) -> bool {
+    #[cfg(not(any(
+        feature = "hw-decoder",
+        feature = "videoson",
+        feature = "av1"
+    )))]
+    return false;
+
+    if codec == CODEC_ID_H264 {
+        #[cfg(feature = "videoson")]
+        return true;
+        return false;
+    }
+    if codec == CODEC_ID_HEVC || codec == CODEC_ID_VP8 || codec == CODEC_ID_VP9 {
+        #[cfg(all(
+            feature = "hw-decoder",
+            any(target_arch = "wasm32", target_os = "linux", target_os = "android")
+        ))]
+        return true;
+        return false;
+    }
+    if codec == CODEC_ID_AV1 {
+        #[cfg(feature = "av1")]
+        return true;
+        return false;
+    }
+    false
+}
+
+fn requires_hardware_acceleration(codec: VideoCodecId) -> bool {
+    codec == CODEC_ID_HEVC
+        || codec == CODEC_ID_VP8
+        || codec == CODEC_ID_VP9
+}
 
 #[derive(Debug, Clone)]
 pub struct MediaInfo {
@@ -20,6 +62,8 @@ pub struct VideoStreamInfo {
     pub height: u32,
     pub frame_rate: f64,
     pub bitrate: u32,
+    pub decoder_available: bool,
+    pub hardware_acceleration_required: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +180,8 @@ fn probe_media_info_from_mss(
                 height: v.height.unwrap_or(0) as u32,
                 frame_rate: 0.0,
                 bitrate: 0,
+                decoder_available: decoder_supported(v.codec),
+                hardware_acceleration_required: requires_hardware_acceleration(v.codec),
             });
         } else if let Some(a) = track.codec_params.as_ref().and_then(|p| p.audio()) {
             audio_streams.push(AudioStreamInfo {
@@ -213,6 +259,11 @@ fn read_ivf_into_media_info<R: Read + Seek>(
             height,
             frame_rate: fps,
             bitrate,
+            decoder_available: cfg!(feature = "av1") || cfg!(all(
+                feature = "hw-decoder",
+                any(target_arch = "wasm32", target_os = "linux", target_os = "android")
+            )),
+            hardware_acceleration_required: false,
         }],
         audio_streams: Vec::new(),
     })
@@ -300,6 +351,8 @@ fn probe_image(path: &Path) -> Result<MediaInfo, MediaProbeError> {
             height,
             frame_rate: 0.0,
             bitrate: 0,
+            decoder_available: true,
+            hardware_acceleration_required: false,
         }],
         audio_streams: Vec::new(),
     })
@@ -325,6 +378,8 @@ pub fn probe_image_bytes(
             height,
             frame_rate: 0.0,
             bitrate: 0,
+            decoder_available: true,
+            hardware_acceleration_required: false,
         }],
         audio_streams: Vec::new(),
     })

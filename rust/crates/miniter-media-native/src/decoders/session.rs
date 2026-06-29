@@ -10,6 +10,7 @@ use symphonia::core::io::MediaSource;
 pub struct VideoDecodeSession {
     demuxer: Box<dyn crate::demux::Demuxer>,
     backend: Box<dyn crate::demux::VideoDecoderBackend>,
+    finished: bool,
 }
 
 impl VideoDecodeSession {
@@ -52,14 +53,33 @@ impl VideoDecodeSession {
             backend.name(),
         );
 
-        Ok(Self { demuxer, backend })
+        Ok(Self { demuxer, backend, finished: false })
     }
 
     /// Decode the next frame from the stream.
+    ///
+    /// On native backends this sends all remaining demuxed packets to the decoder
+    /// and returns the first available decoded frame. On WASM (async WebCodecs)
+    /// the loop is bounded: after processing a batch of packets the method returns
+    /// either a frame or `None` to give the caller a chance to yield to the JS
+    /// event loop so that async decode callbacks can fire.
     pub fn next_frame(&mut self) -> Result<Option<RgbaFrame>, DecodeError> {
+        if self.finished {
+            return Ok(None);
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        const MAX_PACKETS: u32 = 16;
+        #[cfg(not(target_arch = "wasm32"))]
+        const MAX_PACKETS: u32 = u32::MAX;
+
+        let mut packets_sent = 0u32;
         loop {
             match self.demuxer.next_sample()? {
-                Some(sample) if sample.is_eos => break,
+                Some(sample) if sample.is_eos => {
+                    self.finished = true;
+                    return self.backend.finish().map_err(DecodeError::from);
+                }
                 Some(sample) => {
                     if let Some(frame) =
                         self.backend
@@ -67,15 +87,27 @@ impl VideoDecodeSession {
                     {
                         return Ok(Some(frame));
                     }
+                    packets_sent += 1;
+                    if packets_sent >= MAX_PACKETS {
+                        return Ok(None);
+                    }
                 }
-                None => break,
+                None => {
+                    self.finished = true;
+                    return self.backend.finish().map_err(DecodeError::from);
+                }
             }
         }
-        self.backend.finish().map_err(DecodeError::from)
+    }
+
+    /// Returns `true` once the stream has been fully consumed.
+    pub fn is_eos(&self) -> bool {
+        self.finished
     }
 
     /// Reset the stream to the beginning.
     pub fn reset(&mut self) -> Result<(), DecodeError> {
+        self.finished = false;
         self.demuxer.reset()?;
         self.backend.reset();
         Ok(())
@@ -108,6 +140,7 @@ impl VideoDecodeSession {
     /// Seek to a specific sample index (1-based).
     pub fn seek_to_sample(&mut self, sample_id: u32) -> Result<(), DecodeError> {
         self.demuxer.seek_to_sample(sample_id)?;
+        self.finished = false;
         self.backend.reset();
         Ok(())
     }

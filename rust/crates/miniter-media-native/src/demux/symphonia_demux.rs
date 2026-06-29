@@ -236,27 +236,7 @@ impl Demuxer for SymphoniaDemuxer {
                 data = prefixed;
             }
 
-            let is_sync = data
-                .first()
-                .map(|&b| {
-                    // AnnexB start code (00 00 00 01) followed by NAL header.
-                    // Detect common keyframe NAL types:
-                    // H264: IDR (5)
-                    // HEVC: IDR_W_RADL (19), IDR_N_LP (20), CRA (21), BLA (16-18), VPS (32)
-                    let nal_type = match b {
-                        0x00 => {
-                            // Could be leading zeros of a start code.
-                            let mut nal = &data[..];
-                            while nal.first() == Some(&0x00) {
-                                nal = &nal[1..];
-                            }
-                            nal.first().copied().unwrap_or(0) & 0x1F
-                        }
-                        _ => b & 0x1F,
-                    };
-                    matches!(nal_type, 5 | 16..=21 | 32)
-                })
-                .unwrap_or(false);
+            let is_sync = detect_is_sync(&data, self.fourcc);
 
             self.last_pts_us = pts;
             self.current_sample += 1;
@@ -403,4 +383,35 @@ pub fn format_codec_name(codec: VideoCodecId) -> String {
         "Unknown"
     }
     .into()
+}
+
+fn detect_is_sync(data: &[u8], fourcc: u32) -> bool {
+    let Some(&first) = data.first() else { return false };
+    match fourcc {
+        0x30385056 => (first & 0x01) == 0,                  // VP8: bit 0 = keyframe flag
+        0x30395056 => (first & 0xC0) == 0x80 && (first & 0x04) == 0, // VP9
+        0x31305641 | 0x31495641 => {                        // AV1
+            let obu_type = (first >> 3) & 0x0F;
+            matches!(obu_type, 1)  // SEQUENCE_HEADER OBU
+        }
+        0x31637661 => {                                      // H264
+            let nal = skip_annexb_start_code(data);
+            nal.first().is_some_and(|&b| (b & 0x1F) == 5)
+        }
+        0x31766568 => {                                      // HEVC
+            let nal = skip_annexb_start_code(data);
+            nal.first().is_some_and(|&b| matches!((b >> 1) & 0x3F, 16..=21 | 32))
+        }
+        _ => false,
+    }
+}
+
+fn skip_annexb_start_code(data: &[u8]) -> &[u8] {
+    if data.len() >= 4 && data[..4] == [0x00, 0x00, 0x00, 0x01] {
+        &data[4..]
+    } else if data.len() >= 3 && data[..3] == [0x00, 0x00, 0x01] {
+        &data[3..]
+    } else {
+        data
+    }
 }

@@ -29,6 +29,8 @@ private data class WasmVideoProbePayload(
     val audioSampleRate: Int,
     val audioChannels: Int,
     val videoBitrate: Int,
+    val videoDecoderAvailable: Boolean = true,
+    val hardwareAccelerationRequired: Boolean = false,
 )
 
 @Serializable
@@ -182,6 +184,8 @@ actual class RustCoreSession private constructor(
                 videoCodecName = payload.videoCodec,
                 hasAudio = payload.hasAudio,
                 hasVideo = payload.width > 0 && payload.height > 0,
+                videoDecoderAvailable = payload.videoDecoderAvailable,
+                hardwareAccelerationRequired = payload.hardwareAccelerationRequired,
             )
         }
 

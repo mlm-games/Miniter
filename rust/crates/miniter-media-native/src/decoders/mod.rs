@@ -105,6 +105,11 @@ pub fn create_backend(
         return None;
     }
 
+    if fourcc == VP8_FOURCC || fourcc == VP9_FOURCC {
+        // No SW decoder available for VP8/VP9.
+        return None;
+    }
+
     if fourcc == AV1_FOURCC || fourcc == AV1_IVF_FOURCC {
         #[cfg(feature = "av1")]
         {

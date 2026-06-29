@@ -12,4 +12,6 @@ data class VideoInfo(
     val videoCodecName: String?,
     val hasAudio: Boolean,
     val hasVideo: Boolean,
+    val videoDecoderAvailable: Boolean = true,
+    val hardwareAccelerationRequired: Boolean = false,
 )

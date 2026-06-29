@@ -108,29 +108,25 @@ actual class PlatformVideoEngine actual constructor() {
         height: Int,
         hardwareAcceleration: Boolean,
     ): List<ImageData> = withContext(Dispatchers.IO) {
-        try {
-            val localPath = PlatformFileSystem.stageForNativeAccess(path)
-            val info = RustCoreSession.probeVideo(localPath)
-            val durationUs = info.durationMs * 1000L
+        val localPath = PlatformFileSystem.stageForNativeAccess(path)
+        val info = RustCoreSession.probeVideo(localPath)
+        val durationUs = info.durationMs * 1000L
 
-            if (durationUs <= 0L) return@withContext emptyList()
+        if (durationUs <= 0L) return@withContext emptyList()
 
-            val frames = RustCoreSession.extractThumbnails(localPath, count, durationUs, hardwareAcceleration)
+        val frames = RustCoreSession.extractThumbnails(localPath, count, durationUs, hardwareAcceleration)
 
-            frames.map { frame ->
-                ensureActive()
-                val rgba = frame.pixels
-                val fw = frame.width
-                val fh = frame.height
+        frames.map { frame ->
+            ensureActive()
+            val rgba = frame.pixels
+            val fw = frame.width
+            val fh = frame.height
 
-                if (width > 0 && height > 0 && (fw != width || fh != height)) {
-                    scaleRgba(rgba, fw, fh, width, height)
-                } else {
-                    ImageData(fw, fh, rgba)
-                }
+            if (width > 0 && height > 0 && (fw != width || fh != height)) {
+                scaleRgba(rgba, fw, fh, width, height)
+            } else {
+                ImageData(fw, fh, rgba)
             }
-        } catch (e: Exception) {
-            emptyList()
         }
     }
 

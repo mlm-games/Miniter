@@ -18,7 +18,12 @@ pub fn extract_thumbnail(path: &Path, target_us: i64, hardware_acceleration: boo
                 }
                 last_frame = Some(frame);
             }
-            None => return last_frame.ok_or(DecodeError::NoVideoStream),
+            None if session.is_eos() => {
+                return last_frame.ok_or(DecodeError::NoVideoStream);
+            }
+            None => {
+                // Decoder not ready yet; retry.
+            }
         }
     }
 }
@@ -61,13 +66,16 @@ pub fn extract_thumbnails(
                 }
                 last_frame = Some(frame);
             }
-            None => {
+            None if session.is_eos() => {
                 if let Some(ref f) = last_frame {
                     while results.len() < count {
                         results.push(f.clone());
                     }
                 }
                 break;
+            }
+            None => {
+                // Decoder not ready yet; retry.
             }
         }
     }
