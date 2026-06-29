@@ -65,6 +65,7 @@ impl SymphoniaDemuxer {
         )?;
 
         use symphonia::core::codecs::video::well_known::{
+            CODEC_ID_AV1,
             CODEC_ID_H264,
             CODEC_ID_HEVC,
             extra_data::{
