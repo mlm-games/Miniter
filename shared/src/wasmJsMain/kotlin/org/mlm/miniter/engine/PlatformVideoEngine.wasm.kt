@@ -172,8 +172,8 @@ actual class PlatformVideoEngine actual constructor() {
                 frame
             }
             ThumbnailResult.Success(image)
-        } catch (_: Throwable) {
-            ThumbnailResult.Error("Unknown error")
+        } catch (e: Throwable) {
+            ThumbnailResult.Error(e.message?.removePrefix("detail=") ?: "Unknown error")
         }
     }
 
