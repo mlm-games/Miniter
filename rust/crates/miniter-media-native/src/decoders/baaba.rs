@@ -236,26 +236,9 @@ impl VideoDecoderBackend for BaabaBackend {
             timestamp: Duration::from_micros(pts_us as u64),
             keyframe: is_sync,
         };
-
-        #[cfg(not(target_arch = "wasm32"))]
         self.input
             .decode(packet)
             .map_err(|e| DecodeBackendError::Other(format!("baaba decode: {e}")))?;
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            // Decoder might not be ready yet (e.g., configure promise pending).
-            // Treat decode errors as "not ready" and return None — caller will retry.
-            if self.input.decode(packet).is_err() {
-                drain_raw_frames(
-                    &mut self.output,
-                    &self.copy_tx,
-                    &mut self.copy_rx,
-                    &mut self.frame_buffer,
-                )?;
-                return Ok(self.frame_buffer.pop_front());
-            }
-        }
 
         #[cfg(not(target_arch = "wasm32"))]
         {

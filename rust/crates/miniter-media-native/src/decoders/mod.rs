@@ -67,7 +67,10 @@ pub fn create_backend(
     hardware_acceleration: bool,
     codec_mime: &str,
 ) -> Option<Box<dyn VideoDecoderBackend>> {
-    // HW decoder (baaba) – tried first when flag is on
+    // HACK: HW decoder (baaba) – only for codecs with NO SW fallback (VP8, VP9, H265).
+    // because its is_supported() can falsely report success when the browser
+    // doesn't actually support the codec (async configure rejection).
+    // Remove it when solved (far future)
     #[cfg(all(
         feature = "hw-decoder",
         any(
@@ -76,7 +79,9 @@ pub fn create_backend(
             target_os = "linux"
         )
     ))]
-    if hardware_acceleration {
+    if hardware_acceleration
+        && (fourcc == H265_FOURCC || fourcc == VP8_FOURCC || fourcc == VP9_FOURCC)
+    {
         let mime = fourcc_to_mime(fourcc).unwrap_or(codec_mime);
         match baaba::BaabaBackend::new(width, height, mime) {
             Ok(dec) => {
