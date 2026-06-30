@@ -181,6 +181,7 @@ mod hw {
         ) -> Result<EncodedVideoOutput, EncodeError> {
             let idx = self.frame_index;
             self.frame_index += 1;
+            let is_first = idx == 0;
 
             #[cfg(target_arch = "wasm32")]
             {
@@ -189,7 +190,7 @@ mod hw {
                 match completed.first_mut() {
                     Some(f) => Ok(EncodedVideoOutput::Sample {
                         bytes: std::mem::take(&mut f.bytes),
-                        is_keyframe: f.is_keyframe,
+                        is_keyframe: is_first || f.is_keyframe,
                     }),
                     None => Err(EncodeError::SkippedFrame { frame_index: idx }),
                 }
@@ -217,7 +218,7 @@ mod hw {
                         }
                         Ok(EncodedVideoOutput::Sample {
                             bytes,
-                            is_keyframe: pkt.keyframe,
+                            is_keyframe: is_first || pkt.keyframe,
                         })
                     }
                     None => Err(EncodeError::SkippedFrame { frame_index: idx }),

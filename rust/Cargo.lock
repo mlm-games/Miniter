@@ -2793,7 +2793,7 @@ dependencies = [
 [[package]]
 name = "symphonia-common"
 version = "0.6.0"
-source = "git+https://github.com/mlm-games/symphonia#e58e4c8e062e050e8a641fc633c7e0e6b543d4c1"
+source = "git+https://github.com/mlm-games/symphonia#76784078aa808bb537d6b0da37f39fbd3491e091"
 dependencies = [
  "log",
  "symphonia-core",
@@ -2803,7 +2803,7 @@ dependencies = [
 [[package]]
 name = "symphonia-core"
 version = "0.6.0"
-source = "git+https://github.com/mlm-games/symphonia#e58e4c8e062e050e8a641fc633c7e0e6b543d4c1"
+source = "git+https://github.com/mlm-games/symphonia#76784078aa808bb537d6b0da37f39fbd3491e091"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",
@@ -2817,7 +2817,7 @@ dependencies = [
 [[package]]
 name = "symphonia-format-isomp4"
 version = "0.6.0"
-source = "git+https://github.com/mlm-games/symphonia#e58e4c8e062e050e8a641fc633c7e0e6b543d4c1"
+source = "git+https://github.com/mlm-games/symphonia#76784078aa808bb537d6b0da37f39fbd3491e091"
 dependencies = [
  "log",
  "symphonia-common 0.6.0 (git+https://github.com/mlm-games/symphonia)",
@@ -2877,7 +2877,7 @@ dependencies = [
 [[package]]
 name = "symphonia-metadata"
 version = "0.6.0"
-source = "git+https://github.com/mlm-games/symphonia#e58e4c8e062e050e8a641fc633c7e0e6b543d4c1"
+source = "git+https://github.com/mlm-games/symphonia#76784078aa808bb537d6b0da37f39fbd3491e091"
 dependencies = [
  "lazy_static",
  "log",
@@ -3336,7 +3336,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "videoson"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
+source = "git+https://github.com/mlm-games/videoson#02c1ebb2300137acc372577348422c795b90ac1c"
 dependencies = [
  "videoson-codec-h264",
  "videoson-codec-rav1d",
@@ -3348,7 +3348,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-h264"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
+source = "git+https://github.com/mlm-games/videoson#02c1ebb2300137acc372577348422c795b90ac1c"
 dependencies = [
  "rust_h264",
  "videoson-common",
@@ -3358,7 +3358,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-rav1d"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
+source = "git+https://github.com/mlm-games/videoson#02c1ebb2300137acc372577348422c795b90ac1c"
 dependencies = [
  "rav1d-safe",
  "videoson-core",
@@ -3367,17 +3367,17 @@ dependencies = [
 [[package]]
 name = "videoson-common"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
+source = "git+https://github.com/mlm-games/videoson#02c1ebb2300137acc372577348422c795b90ac1c"
 
 [[package]]
 name = "videoson-core"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
+source = "git+https://github.com/mlm-games/videoson#02c1ebb2300137acc372577348422c795b90ac1c"
 
 [[package]]
 name = "videoson-format-ivf"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/videoson#53c63b516b4ad2af597e6c49b9f2f8d68039cbc5"
+source = "git+https://github.com/mlm-games/videoson#02c1ebb2300137acc372577348422c795b90ac1c"
 dependencies = [
  "videoson-common",
  "videoson-core",
