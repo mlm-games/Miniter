@@ -232,6 +232,10 @@ impl Demuxer for SymphoniaDemuxer {
         self.fourcc
     }
 
+    fn codec_description(&self) -> &[u8] {
+        &self.initial_codec_config
+    }
+
     fn format_name(&self) -> &'static str {
         self.container.name()
     }

@@ -1,6 +1,6 @@
 #[cfg(target_arch = "wasm32")]
 use std::collections::VecDeque;
-use std::time::Duration;
+use web_time::Duration;
 
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
@@ -12,6 +12,7 @@ use baabaabaabaabababbababbaa::{
     Dimensions, EncodedVideoPacket, PixelFormat, VideoCodecId, VideoDecoderConfig,
     VideoFrame as BaabaFrame, VideoPlanes,
 };
+use bytes::Bytes;
 
 #[cfg(target_os = "linux")]
 use baabaabaabaabababbababbaa::platform::linux::{
@@ -61,11 +62,20 @@ pub struct BaabaBackend {
 }
 
 impl BaabaBackend {
-    pub fn new(width: u32, height: u32, mime: &str) -> Result<Self, DecodeError> {
+    pub fn new(
+        width: u32,
+        height: u32,
+        mime: &str,
+        description: &[u8],
+    ) -> Result<Self, DecodeError> {
         let config = VideoDecoderConfig {
             codec: VideoCodecId(mime.to_string()),
             resolution: Some(Dimensions::new(width, height)),
-            description: None,
+            description: if description.is_empty() {
+                None
+            } else {
+                Some(Bytes::copy_from_slice(description))
+            },
             hardware_acceleration: None,
         };
         let host = PlatformHost::new();
@@ -272,7 +282,23 @@ impl VideoDecoderBackend for BaabaBackend {
     fn finish(&mut self) -> Result<Option<RgbaFrame>, DecodeBackendError> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let _ = self.rt.block_on(self.input.flush());
+            let timeout_dur = Duration::from_secs(10);
+            match self
+                .rt
+                .block_on(tokio::time::timeout(timeout_dur, self.input.flush()))
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    return Err(DecodeBackendError::Other(format!(
+                        "baaba flush error: {e:?}"
+                    )));
+                }
+                Err(_) => {
+                    return Err(DecodeBackendError::Other(
+                        "baaba flush timed out (10s)".into(),
+                    ));
+                }
+            }
             let mut last = None;
             while let Ok(Some(frame)) = self.output.try_frame() {
                 last = Some(convert_baaba_frame(frame)?);

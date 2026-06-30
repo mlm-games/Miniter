@@ -107,6 +107,7 @@ pub trait Demuxer: Send {
     fn total_samples(&self) -> u32;
     fn codec_name(&self) -> &str;
     fn fourcc(&self) -> u32;
+    fn codec_description(&self) -> &[u8];
     fn next_sample(&mut self) -> DemuxResult<Option<DemuxedSample>>;
     fn seek_to_sample(&mut self, sample_id: u32) -> DemuxResult<()>;
     fn reset(&mut self) -> DemuxResult<()>;

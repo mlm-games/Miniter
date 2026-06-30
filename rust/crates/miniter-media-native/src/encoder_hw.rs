@@ -2,7 +2,7 @@ use crate::encoder::{EncodeError, EncodedVideoOutput};
 use crate::frame::RgbaFrame;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::yuv::rgba_to_yuv420;
-use std::time::Duration;
+use web_time::Duration;
 
 #[cfg(all(
     feature = "hw-decoder",

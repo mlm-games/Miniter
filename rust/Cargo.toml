@@ -72,6 +72,9 @@ symphonia-core = { git = "https://github.com/mlm-games/symphonia", package = "sy
 # [patch."https://github.com/mlm-games/baa4bababab2baa"]
 # baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa" }
 
+# [patch."https://github.com/mlm-games/rust_mediacodec"]
+# mediacodec = { path = "../../../Documents/Repos/rust_mediacodec" }
+
 [profile.release] # for fdroid
 opt-level = 3
 lto = "fat"

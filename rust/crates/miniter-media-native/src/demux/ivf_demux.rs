@@ -103,6 +103,10 @@ impl<R: Read + Seek + Send> Demuxer for IvfDemuxer<R> {
         AV1_IVF_FOURCC
     }
 
+    fn codec_description(&self) -> &[u8] {
+        &[]
+    }
+
     fn format_name(&self) -> &'static str {
         "IVF"
     }

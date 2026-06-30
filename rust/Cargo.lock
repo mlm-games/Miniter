@@ -386,7 +386,7 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#5666773490a0afdc1c8335d9f482959b66b0db66"
+source = "git+https://github.com/mlm-games/baa4bababab2baa#7750fc6ae585996214ca8003b9d8ae89819a81e7"
 dependencies = [
  "bytes",
  "cros-codecs",
@@ -1542,7 +1542,7 @@ dependencies = [
 [[package]]
 name = "mediacodec"
 version = "0.1.5"
-source = "git+https://github.com/mlm-games/rust_mediacodec?branch=main#f74a897c1e3cbd56f58b0773f96db60919647e4c"
+source = "git+https://github.com/mlm-games/rust_mediacodec?branch=main#2b61678254f79fbfb22ee4f1ee5cef6239637a6c"
 dependencies = [
  "android_logger",
  "jni",
@@ -1630,6 +1630,7 @@ dependencies = [
  "av-ivf",
  "baabaabaabaabababbababbaa",
  "bytemuck",
+ "bytes",
  "fast_image_resize",
  "fontdue",
  "getrandom 0.4.3",

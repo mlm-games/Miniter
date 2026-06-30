@@ -66,6 +66,7 @@ pub fn create_backend(
     height: u32,
     hardware_acceleration: bool,
     codec_mime: &str,
+    description: &[u8],
 ) -> Option<Box<dyn VideoDecoderBackend>> {
     // HACK: HW decoder (baaba) – only for codecs with NO SW fallback (VP8, VP9, H265).
     // because its is_supported() can falsely report success when the browser
@@ -83,7 +84,7 @@ pub fn create_backend(
         && (fourcc == H265_FOURCC || fourcc == VP8_FOURCC || fourcc == VP9_FOURCC)
     {
         let mime = fourcc_to_mime(fourcc).unwrap_or(codec_mime);
-        match baaba::BaabaBackend::new(width, height, mime) {
+        match baaba::BaabaBackend::new(width, height, mime, description) {
             Ok(dec) => {
                 if dec.is_supported(fourcc) {
                     return Some(Box::new(dec));

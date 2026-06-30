@@ -41,8 +41,15 @@ impl VideoDecodeSession {
         let height = demuxer.height();
         let codec_name = demuxer.codec_name().to_string();
 
-        let backend = create_backend(fourcc, width, height, hardware_acceleration, &codec_name)
-            .ok_or_else(|| DecodeError::DecoderNotAvailable(codec_name.clone()))?;
+        let backend = create_backend(
+            fourcc,
+            width,
+            height,
+            hardware_acceleration,
+            &codec_name,
+            demuxer.codec_description(),
+        )
+        .ok_or_else(|| DecodeError::DecoderNotAvailable(codec_name.clone()))?;
 
         log::info!(
             "Session: container={}, codec={}, {}x{}, backend={}",
