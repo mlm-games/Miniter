@@ -483,6 +483,7 @@ pub(crate) fn render_text_overlay(
     let font = Font::from_bytes(font_data.as_slice(), FontSettings::default())
         .expect("Failed to load font");
     let font_size = overlay.style.font_size.max(1.0);
+    let italic_shear = if overlay.style.italic { 0.2 } else { 0.0 };
 
     let fg = parse_argb_hex(&overlay.style.color, [255, 255, 255, 255]);
     let bg = overlay
@@ -506,13 +507,13 @@ pub(crate) fn render_text_overlay(
     let (ascent, descent, line_gap) = font
         .horizontal_line_metrics(font_size)
         .map(|lm| (lm.ascent, lm.descent, lm.line_gap))
-        .unwrap_or((font_size * 0.8, font_size * 0.2, 0.0));
+        .unwrap_or((font_size * 0.8, -font_size * 0.2, 0.0));
     let line_height = (ascent - descent + line_gap).ceil().max(font_size);
 
     let anchor_x = (overlay.style.position_x.clamp(0.0, 1.0) * width as f32) as i32;
     let anchor_y = (overlay.style.position_y.clamp(0.0, 1.0) * height as f32) as i32;
-    let total_text_h = line_height * lines.len() as f32;
-    let start_y = anchor_y - (total_text_h / 2.0) as i32;
+    let total_text_h = (line_height * lines.len() as f32 - line_gap.max(0.0)).max(0.0);
+    let start_y = anchor_y - (total_text_h / 2.0).round() as i32;
 
     struct GlyphInfo {
         metrics: fontdue::Metrics,
@@ -525,10 +526,17 @@ pub(crate) fn render_text_overlay(
     for line in &lines {
         let mut glyphs = Vec::with_capacity(line.chars().count());
         let mut w = 0.0f32;
+        let mut prev_ch: Option<char> = None;
         for ch in line.chars() {
+            if let Some(prev) = prev_ch {
+                if let Some(kern) = font.horizontal_kern(prev, ch, font_size) {
+                    w += kern;
+                }
+            }
             let (metrics, bitmap) = font.rasterize(ch, font_size);
             w += metrics.advance_width;
             glyphs.push(GlyphInfo { metrics, bitmap });
+            prev_ch = Some(ch);
         }
         line_widths.push(w);
         line_glyphs.push(glyphs);
@@ -540,11 +548,11 @@ pub(crate) fn render_text_overlay(
         let bg_w = (max_line_w.ceil() as i32) + pad * 2;
         let bg_h = (line_height * lines.len() as f32).ceil() as i32 + pad * 2;
         let bg_x = match overlay.style.alignment {
-            TextAlignment::Left => anchor_x,
+            TextAlignment::Left => anchor_x - pad,
             TextAlignment::Center => anchor_x - bg_w / 2,
-            TextAlignment::Right => anchor_x - bg_w,
-            _ => anchor_x,
-        } - pad;
+            TextAlignment::Right => anchor_x - bg_w + pad,
+            _ => anchor_x - pad,
+        };
         let bg_y = start_y - pad;
         draw_rect(&mut canvas, width, height, bg_x, bg_y, bg_w, bg_h, bg_color);
     }
@@ -560,10 +568,18 @@ pub(crate) fn render_text_overlay(
         let baseline_y = start_y as f32 + (line_idx as f32 * line_height) + ascent;
 
         let mut pen_x = base_x;
-        for g in glyphs {
+        let line_chars: Vec<char> = lines[line_idx].chars().collect();
+        let mut prev_char: Option<char> = None;
+        for (ch_idx, g) in glyphs.iter().enumerate() {
+            let ch = line_chars[ch_idx];
+            if let Some(prev) = prev_char {
+                if let Some(kern) = font.horizontal_kern(prev, ch, font_size) {
+                    pen_x += kern;
+                }
+            }
             let m = &g.metrics;
             let gx = pen_x + m.xmin as f32;
-            let gy = baseline_y + m.ymin as f32;
+            let gy = baseline_y - m.height as f32 - m.ymin as f32;
 
             if overlay.style.shadow {
                 let soff = 1.max((font_size / 20.0).round() as i32);
@@ -577,6 +593,7 @@ pub(crate) fn render_text_overlay(
                     gx as i32 + soff,
                     gy as i32 + soff,
                     [0, 0, 0, 128],
+                    italic_shear,
                 );
             }
 
@@ -597,6 +614,7 @@ pub(crate) fn render_text_overlay(
                             gx as i32 + ox,
                             gy as i32 + oy,
                             oc,
+                            italic_shear,
                         );
                     }
                 }
@@ -612,6 +630,7 @@ pub(crate) fn render_text_overlay(
                 gx as i32,
                 gy as i32,
                 fg,
+                italic_shear,
             );
 
             if overlay.style.bold {
@@ -625,10 +644,12 @@ pub(crate) fn render_text_overlay(
                     gx as i32 + 1,
                     gy as i32,
                     fg,
+                    italic_shear,
                 );
             }
 
             pen_x += m.advance_width;
+            prev_char = Some(ch);
         }
     }
 
@@ -645,15 +666,17 @@ fn blit_glyph(
     x: i32,
     y: i32,
     color: [u8; 4],
+    shear_x: f32,
 ) {
     for row in 0..gh {
+        let x_shift = (row as f32 * shear_x).round() as i32;
         for col in 0..gw {
             let cov = bitmap[row * gw + col];
             if cov == 0 {
                 continue;
             }
 
-            let px = x + col as i32;
+            let px = x + col as i32 + x_shift;
             let py = y + row as i32;
             if px < 0 || py < 0 || px >= cw as i32 || py >= ch as i32 {
                 continue;
@@ -739,12 +762,7 @@ pub(crate) fn encode_opus(
         if mixed.sample_rate == 0 {
             return Err("Unsupported sample rate: 0".to_string());
         }
-        util::resample_linear_interleaved(
-            &mixed.samples,
-            mixed.sample_rate,
-            sample_rate,
-            channels,
-        )
+        util::resample_linear_interleaved(&mixed.samples, mixed.sample_rate, sample_rate, channels)
     };
 
     let mut encoder =
