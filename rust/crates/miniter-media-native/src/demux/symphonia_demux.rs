@@ -28,8 +28,10 @@ pub struct SymphoniaDemuxer {
     /// Number of bytes in the NAL unit length prefix (0 for codecs without NAL framing).
     nalu_length_size: u8,
     /// AnnexB-formatted codec configuration (VPS/SPS/PPS for HEVC, SPS/PPS for H264).
-    /// Prepended to the first sample.
+    /// Prepended to the first sample after each seek.
     codec_config: Vec<u8>,
+    /// Retained copy to restore `codec_config` after seek/reset.
+    initial_codec_config: Vec<u8>,
 }
 
 // H264 AVCDecoderConfigurationRecord: byte 4 has lengthSizeMinusOne in bottom 2 bits.
@@ -159,7 +161,8 @@ impl SymphoniaDemuxer {
             codec_name,
             container,
             nalu_length_size,
-            codec_config,
+            codec_config: codec_config.clone(),
+            initial_codec_config: codec_config,
         })
     }
 
@@ -254,13 +257,13 @@ impl Demuxer for SymphoniaDemuxer {
                 packet.data.to_vec()
             };
 
+            let is_sync = detect_is_sync(&data, self.fourcc);
+
             if !self.codec_config.is_empty() {
                 let mut prefixed = std::mem::take(&mut self.codec_config);
                 prefixed.extend_from_slice(&data);
                 data = prefixed;
             }
-
-            let is_sync = detect_is_sync(&data, self.fourcc);
 
             self.last_pts_us = pts;
             self.current_sample += 1;
@@ -284,6 +287,7 @@ impl Demuxer for SymphoniaDemuxer {
             .map_err(|e| DemuxError::Other(e.to_string()))?;
         self.current_sample = sample_id;
         self.last_pts_us = -1;
+        self.codec_config = self.initial_codec_config.clone();
         Ok(())
     }
 
@@ -301,6 +305,7 @@ impl Demuxer for SymphoniaDemuxer {
             .map_err(|e| DemuxError::Other(e.to_string()))?;
         self.current_sample = 0;
         self.last_pts_us = -1;
+        self.codec_config = self.initial_codec_config.clone();
         Ok(())
     }
 }
