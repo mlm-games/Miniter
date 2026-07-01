@@ -1,0 +1,4 @@
+- try fixing freeze for hevc
+- fix text not being aligned as intended in export
+- add flags for codecs that require hardware acceleration
+- linux: hw decode cfg (missed)

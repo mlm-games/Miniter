@@ -1,3 +1,11 @@
+## v0.7.2
+
+- try fixing freeze for hevc
+- fix text not being aligned as intended in export
+- add flags for codecs that require hardware acceleration
+- linux: hw decode cfg (missed)
+
+
 ## v0.7.1
 
 - fix mkv support (wire symphonia vid demuxing properly)
