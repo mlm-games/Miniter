@@ -282,23 +282,9 @@ impl VideoDecoderBackend for BaabaBackend {
     fn finish(&mut self) -> Result<Option<RgbaFrame>, DecodeBackendError> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let timeout_dur = Duration::from_secs(10);
-            match self
-                .rt
-                .block_on(tokio::time::timeout(timeout_dur, self.input.flush()))
-            {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    return Err(DecodeBackendError::Other(format!(
-                        "baaba flush error: {e:?}"
-                    )));
-                }
-                Err(_) => {
-                    return Err(DecodeBackendError::Other(
-                        "baaba flush timed out (10s)".into(),
-                    ));
-                }
-            }
+            self.rt
+                .block_on(self.input.flush())
+                .map_err(|e| DecodeBackendError::Other(format!("baaba flush error: {e:?}")))?;
             let mut last = None;
             while let Ok(Some(frame)) = self.output.try_frame() {
                 last = Some(convert_baaba_frame(frame)?);
