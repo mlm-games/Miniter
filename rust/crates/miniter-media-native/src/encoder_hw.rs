@@ -15,7 +15,7 @@ use web_time::Duration;
 mod hw {
     use super::*;
     use baabaabaabaabababbababbaa::{
-        Dimensions, VideoCodecId, VideoEncoderConfig, VideoEncoderInput, VideoFrame, VideoPlanes,
+        Dimensions, VideoEncoderConfig, VideoEncoderInput, VideoFrame, VideoPlanes,
     };
 
     #[cfg(target_os = "android")]
@@ -74,7 +74,7 @@ mod hw {
             mime: &str,
         ) -> Result<Self, EncodeError> {
             let config = VideoEncoderConfig {
-                codec: VideoCodecId(mime.to_string()),
+                codec: mime.into(),
                 dimensions: Dimensions::new(width, height),
                 bitrate: Some(bitrate_bps),
                 framerate: Some(fps as f64),

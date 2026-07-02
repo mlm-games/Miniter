@@ -9,8 +9,8 @@ use baabaabaabaabababbababbaa::VideoDecoderInput as _;
 #[cfg(not(target_arch = "wasm32"))]
 use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
 use baabaabaabaabababbababbaa::{
-    Dimensions, EncodedVideoPacket, PixelFormat, VideoCodecId, VideoDecoderConfig,
-    VideoFrame as BaabaFrame, VideoPlanes,
+    Dimensions, EncodedVideoPacket, PixelFormat, VideoDecoderConfig, VideoFrame as BaabaFrame,
+    VideoPlanes,
 };
 use bytes::Bytes;
 
@@ -69,7 +69,7 @@ impl BaabaBackend {
         description: &[u8],
     ) -> Result<Self, DecodeError> {
         let config = VideoDecoderConfig {
-            codec: VideoCodecId(mime.to_string()),
+            codec: mime.into(),
             resolution: Some(Dimensions::new(width, height)),
             description: if description.is_empty() {
                 None
