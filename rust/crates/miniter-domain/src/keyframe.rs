@@ -11,6 +11,20 @@ pub mod param {
     pub const TEXT_POSITION_X: &str = "text.position_x";
     pub const TEXT_POSITION_Y: &str = "text.position_y";
     pub const TEXT_FONT_SIZE: &str = "text.font_size";
+
+    pub const MASK_FEATHER: &str = "mask.feather";
+    pub const MASK_SCALE: &str = "mask.scale";
+    pub const MASK_TRANSLATE_X: &str = "mask.translate_x";
+    pub const MASK_TRANSLATE_Y: &str = "mask.translate_y";
+    pub const MASK_ROTATE: &str = "mask.rotate";
+    pub const MASK_SHAPE_LEFT: &str = "mask.shape.left";
+    pub const MASK_SHAPE_TOP: &str = "mask.shape.top";
+    pub const MASK_SHAPE_RIGHT: &str = "mask.shape.right";
+    pub const MASK_SHAPE_BOTTOM: &str = "mask.shape.bottom";
+    pub const MASK_SHAPE_CENTER_X: &str = "mask.shape.center_x";
+    pub const MASK_SHAPE_CENTER_Y: &str = "mask.shape.center_y";
+    pub const MASK_SHAPE_RADIUS_X: &str = "mask.shape.radius_x";
+    pub const MASK_SHAPE_RADIUS_Y: &str = "mask.shape.radius_y";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

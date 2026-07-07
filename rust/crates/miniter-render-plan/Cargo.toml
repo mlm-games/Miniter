@@ -7,3 +7,4 @@ edition.workspace = true
 miniter-domain = { path = "../miniter-domain" }
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
+uuid.workspace = true

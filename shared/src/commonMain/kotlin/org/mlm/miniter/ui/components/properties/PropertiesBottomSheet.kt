@@ -9,6 +9,7 @@ import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
+import org.mlm.miniter.editor.model.RustMaskEffect
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,6 +41,10 @@ fun PropertiesBottomSheet(
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
     onSetSubtitleFont: (String, String?) -> Unit = { _, _ -> },
+    onAddMask: (String, RustMaskEffect) -> Unit = { _, _ -> },
+    onRemoveMask: (String, Int) -> Unit = { _, _ -> },
+    onUpdateMask: (String, Int, RustMaskEffect) -> Unit = { _, _, _ -> },
+    onSetMaskEnabled: (String, Int, Boolean) -> Unit = { _, _, _ -> },
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -77,6 +82,10 @@ fun PropertiesBottomSheet(
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
                 onSetSubtitleFont = onSetSubtitleFont,
+                onAddMask = onAddMask,
+                onRemoveMask = onRemoveMask,
+                onUpdateMask = onUpdateMask,
+                onSetMaskEnabled = onSetMaskEnabled,
             )
         }
     }

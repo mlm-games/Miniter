@@ -28,6 +28,7 @@ import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustKeyframe
+import org.mlm.miniter.editor.model.RustMaskEffect
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
@@ -1087,6 +1088,26 @@ class ProjectViewModel(
         rustStore.dispatch(
             rustStore.commands.setSubtitleFont(clipId, fontPath),
         )
+        syncFromRust()
+    }
+
+    fun addMask(clipId: String, mask: RustMaskEffect) {
+        rustStore.dispatch(rustStore.commands.addMask(clipId, mask))
+        syncFromRust()
+    }
+
+    fun removeMask(clipId: String, index: Int) {
+        rustStore.dispatch(rustStore.commands.removeMask(clipId, index))
+        syncFromRust()
+    }
+
+    fun updateMask(clipId: String, index: Int, mask: RustMaskEffect) {
+        rustStore.dispatch(rustStore.commands.updateMask(clipId, index, mask))
+        syncFromRust()
+    }
+
+    fun setMaskEnabled(clipId: String, index: Int, enabled: Boolean) {
+        rustStore.dispatch(rustStore.commands.setMaskEnabled(clipId, index, enabled))
         syncFromRust()
     }
 

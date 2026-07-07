@@ -39,6 +39,7 @@ use miniter_audio::mix::{MixConfig, mix_project_audio_with_source_map};
 use miniter_domain::clip::{ClipId, ClipKind, VideoClip};
 use miniter_domain::ease_in_out;
 use miniter_domain::export::{ExportFormat, SubtitleMode};
+use miniter_domain::mask::{BlendMode, MaskOperation, MaskSource};
 use miniter_domain::project::Project;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay, TextStyle};
 use miniter_domain::time::Timestamp;
@@ -1645,6 +1646,7 @@ fn render_node(
             source_pts,
             filters,
             opacity,
+            blend_mode: _,
         } => {
             let frame =
                 decode_cache.extract_frame(*clip_id, source_path, source_pts.as_micros().max(0))?;
@@ -1712,7 +1714,12 @@ fn render_node(
             let mut canvas = transparent_rgba(width, height);
             for child in children {
                 let layer = render_node(child, width, height, decode_cache)?;
-                alpha_over(&mut canvas, &layer);
+                let bm = miniter_render_plan::render_graph::node_blend_mode(child);
+                if bm == BlendMode::Normal {
+                    alpha_over(&mut canvas, &layer);
+                } else {
+                    blend_over(&mut canvas, &layer, bm);
+                }
             }
             Ok(canvas)
         }
@@ -1755,6 +1762,42 @@ fn render_node(
                 }
                 _ => Ok(bottom_img),
             }
+        }
+
+        RenderNode::Masked {
+            source,
+            mask_source,
+            operation,
+            composition,
+            transform,
+        } => {
+            let mut pixels = render_node(source, width, height, decode_cache)?;
+
+            let mask_rgba = match mask_source {
+                MaskSource::Shape {
+                    shape,
+                    feather,
+                    invert,
+                } => {
+                    let mut mask = render_mask_shape(shape, transform, width, height);
+                    if *feather > 0.0 {
+                        feather_mask(&mut mask, width, height, *feather);
+                    }
+                    if *invert {
+                        for px in mask.chunks_exact_mut(4) {
+                            px[0] = 255 - px[0];
+                            px[1] = 255 - px[1];
+                            px[2] = 255 - px[2];
+                            px[3] = 255 - px[3];
+                        }
+                    }
+                    mask
+                }
+                _ => transparent_rgba(width, height),
+            };
+
+            apply_mask_to_alpha(&mut pixels, &mask_rgba, *operation, *composition);
+            Ok(pixels)
         }
     }
 }

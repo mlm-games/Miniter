@@ -1,5 +1,6 @@
 use crate::filter::{AudioFilter, VideoEffect};
 use crate::keyframe::KeyframeCurve;
+use crate::mask::{BlendMode, MaskEffect};
 use crate::text_overlay::TextOverlay;
 use crate::time::{MediaDuration, Timestamp};
 use crate::transition::Transition;
@@ -61,6 +62,9 @@ pub struct Clip {
 
     #[serde(default)]
     pub keyframes: KeyframeCurve,
+
+    #[serde(default)]
+    pub blend_mode: BlendMode,
 }
 
 impl Clip {
@@ -112,6 +116,8 @@ pub struct VideoClip {
     pub fps: f64,
     pub filters: Vec<VideoEffect>,
     pub audio_filters: Vec<AudioFilter>,
+    #[serde(default)]
+    pub masks: Vec<MaskEffect>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

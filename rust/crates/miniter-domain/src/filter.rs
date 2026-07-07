@@ -1,3 +1,4 @@
+use crate::mask::BlendMode;
 use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::Value;
 
@@ -97,6 +98,9 @@ pub enum VideoFilter {
     },
     Opacity {
         value: f32,
+    },
+    BlendMode {
+        mode: BlendMode,
     },
 }
 

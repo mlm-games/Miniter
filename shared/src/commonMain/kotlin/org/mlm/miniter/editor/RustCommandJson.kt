@@ -235,6 +235,38 @@ class RustCommandJson(
             put("profile", json.encodeToJsonElement(RustExportProfileSnapshot.serializer(), profile))
         }
 
+    fun setClipBlendMode(clipId: String, blendMode: String): String =
+        wrap("SetClipBlendMode") {
+            put("clip_id", uuid(clipId))
+            put("blend_mode", JsonPrimitive(blendMode))
+        }
+
+    fun addMask(clipId: String, mask: org.mlm.miniter.editor.model.RustMaskEffect): String =
+        wrap("AddMask") {
+            put("clip_id", uuid(clipId))
+            put("mask", json.encodeToJsonElement(org.mlm.miniter.editor.model.RustMaskEffect.serializer(), mask))
+        }
+
+    fun updateMask(clipId: String, index: Int, mask: org.mlm.miniter.editor.model.RustMaskEffect): String =
+        wrap("UpdateMask") {
+            put("clip_id", uuid(clipId))
+            put("index", JsonPrimitive(index))
+            put("mask", json.encodeToJsonElement(org.mlm.miniter.editor.model.RustMaskEffect.serializer(), mask))
+        }
+
+    fun removeMask(clipId: String, index: Int): String =
+        wrap("RemoveMask") {
+            put("clip_id", uuid(clipId))
+            put("index", JsonPrimitive(index))
+        }
+
+    fun setMaskEnabled(clipId: String, index: Int, enabled: Boolean): String =
+        wrap("SetMaskEnabled") {
+            put("clip_id", uuid(clipId))
+            put("index", JsonPrimitive(index))
+            put("enabled", JsonPrimitive(enabled))
+        }
+
     fun addKeyframe(clipId: String, keyframe: RustKeyframe): String =
         wrap("AddKeyframe") {
             put("clip_id", uuid(clipId))

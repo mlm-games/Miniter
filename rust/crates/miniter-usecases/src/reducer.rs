@@ -214,6 +214,19 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
 
+        EditCommand::SetClipBlendMode {
+            clip_id,
+            blend_mode,
+        } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            let old = clip.blend_mode;
+            clip.blend_mode = blend_mode;
+            Ok(EditCommand::SetClipBlendMode {
+                clip_id,
+                blend_mode: old,
+            })
+        }
+
         EditCommand::SetClipMuted { clip_id, muted } => {
             let clip = find_clip_mut(state, clip_id)?;
             let old = clip.muted;
@@ -272,6 +285,83 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                     Ok(EditCommand::AddVideoFilter {
                         clip_id,
                         filter: removed,
+                    })
+                }
+                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            }
+        }
+
+        EditCommand::AddMask { clip_id, mask } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            match &mut clip.kind {
+                ClipKind::Video(v) => {
+                    v.masks.push(mask);
+                    let idx = v.masks.len() - 1;
+                    Ok(EditCommand::RemoveMask {
+                        clip_id,
+                        index: idx,
+                    })
+                }
+                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            }
+        }
+
+        EditCommand::UpdateMask {
+            clip_id,
+            index,
+            mask,
+        } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            match &mut clip.kind {
+                ClipKind::Video(v) => {
+                    if index >= v.masks.len() {
+                        return Err(ApplyError::IndexOutOfBounds);
+                    }
+                    let old = std::mem::replace(&mut v.masks[index], mask);
+                    Ok(EditCommand::UpdateMask {
+                        clip_id,
+                        index,
+                        mask: old,
+                    })
+                }
+                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            }
+        }
+
+        EditCommand::RemoveMask { clip_id, index } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            match &mut clip.kind {
+                ClipKind::Video(v) => {
+                    if index >= v.masks.len() {
+                        return Err(ApplyError::IndexOutOfBounds);
+                    }
+                    let removed = v.masks.remove(index);
+                    Ok(EditCommand::AddMask {
+                        clip_id,
+                        mask: removed,
+                    })
+                }
+                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            }
+        }
+
+        EditCommand::SetMaskEnabled {
+            clip_id,
+            index,
+            enabled,
+        } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            match &mut clip.kind {
+                ClipKind::Video(v) => {
+                    if index >= v.masks.len() {
+                        return Err(ApplyError::IndexOutOfBounds);
+                    }
+                    let old = v.masks[index].enabled;
+                    v.masks[index].enabled = enabled;
+                    Ok(EditCommand::SetMaskEnabled {
+                        clip_id,
+                        index,
+                        enabled: old,
                     })
                 }
                 _ => Err(ApplyError::WrongClipKind(clip_id)),
@@ -1085,6 +1175,7 @@ mod tests {
             volume: 1.0,
             opacity: 1.0,
             muted: false,
+            blend_mode: Default::default(),
             transition_in: None,
             transition_out: None,
             kind: ClipKind::Video(VideoClip {
@@ -1093,6 +1184,7 @@ mod tests {
                 height: 1080,
                 fps: 30.0,
                 filters: Vec::<VideoEffect>::new(),
+                masks: Default::default(),
                 audio_filters: Vec::<AudioFilter>::new(),
             }),
             keyframes: Default::default(),

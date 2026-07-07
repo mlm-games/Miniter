@@ -132,6 +132,8 @@ data class RustClipSnapshot(
     val volume: Float = 1.0f,
     val opacity: Float = 1.0f,
     val muted: Boolean = false,
+    @SerialName("blend_mode")
+    val blendMode: RustBlendMode = RustBlendMode.Normal,
     @SerialName("transition_in")
     val transitionIn: RustTransitionSnapshot? = null,
     @SerialName("transition_out")
@@ -165,6 +167,7 @@ data class RustVideoClipKind(
     val filters: List<RustVideoEffectSnapshot> = emptyList(),
     @SerialName("audio_filters")
     val audioFilters: List<RustAudioFilterSnapshot> = emptyList(),
+    val masks: List<RustMaskEffect> = emptyList(),
 ) : RustClipKindPayload
 
 @Serializable
@@ -359,6 +362,91 @@ data class RustSpeedFilterSnapshot(val factor: Double) : RustVideoFilterSnapshot
 @Serializable
 @SerialName("Opacity")
 data class RustOpacityFilterSnapshot(val value: Float) : RustVideoFilterSnapshot
+
+@Serializable
+@SerialName("BlendMode")
+data class RustBlendModeFilterSnapshot(val mode: RustBlendMode) : RustVideoFilterSnapshot
+
+@Serializable
+enum class RustBlendMode {
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+}
+
+@Serializable
+sealed interface RustMaskShape
+
+@Serializable
+@SerialName("Rectangle")
+data class RustRectangleMaskShape(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+) : RustMaskShape
+
+@Serializable
+@SerialName("Ellipse")
+data class RustEllipseMaskShape(
+    @SerialName("center_x")
+    val centerX: Float,
+    @SerialName("center_y")
+    val centerY: Float,
+    @SerialName("radius_x")
+    val radiusX: Float,
+    @SerialName("radius_y")
+    val radiusY: Float,
+) : RustMaskShape
+
+@Serializable
+sealed interface RustMaskSource
+
+@Serializable
+@SerialName("Shape")
+data class RustShapeMaskSource(
+    val shape: RustMaskShape,
+    val feather: Float,
+    val invert: Boolean,
+) : RustMaskSource
+
+@Serializable
+enum class RustMaskOperation {
+    Alpha,
+    Luma,
+    InvertAlpha,
+    InvertLuma,
+}
+
+@Serializable
+enum class RustMaskComposition {
+    Replace,
+    Union,
+    Intersect,
+    Subtract,
+}
+
+@Serializable
+data class RustMaskTransform(
+    val scale: Float,
+    @SerialName("translate_x")
+    val translateX: Float,
+    @SerialName("translate_y")
+    val translateY: Float,
+    val rotate: Float,
+)
+
+@Serializable
+data class RustMaskEffect(
+    val enabled: Boolean,
+    val source: RustMaskSource,
+    @SerialName("operation")
+    val operation: RustMaskOperation = RustMaskOperation.Alpha,
+    @SerialName("composition")
+    val composition: RustMaskComposition = RustMaskComposition.Replace,
+    val transform: RustMaskTransform = RustMaskTransform(1f, 0f, 0f, 0f),
+)
 
 @Serializable
 sealed interface RustAudioFilterSnapshot

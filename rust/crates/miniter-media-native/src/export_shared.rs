@@ -5,6 +5,9 @@ use fast_image_resize::{PixelType, Resizer};
 use fontdue::{Font, FontSettings};
 use miniter_audio::util;
 use miniter_domain::filter::VideoFilter;
+use miniter_domain::mask::{
+    BlendMode, MaskComposition, MaskOperation, MaskShape, MaskTransform,
+};
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use std::io::Write;
 
@@ -114,23 +117,256 @@ pub(crate) fn alpha_over_with_offset(
 }
 
 pub(crate) fn alpha_over_pixel(dst: &mut [u8], src: &[u8]) {
+    blend_over_pixel(dst, src, BlendMode::Normal);
+}
+
+pub fn blend_over(dst: &mut [u8], src: &[u8], mode: BlendMode) {
+    for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+        blend_over_pixel(d, s, mode);
+    }
+}
+
+pub fn blend_over_pixel(dst: &mut [u8], src: &[u8], mode: BlendMode) {
     let sa = src[3] as f32 / 255.0;
     let da = dst[3] as f32 / 255.0;
-    let out_a = sa + da * (1.0 - sa);
 
-    if out_a <= 0.0 {
-        dst.copy_from_slice(&[0, 0, 0, 0]);
+    if sa <= 0.0 {
         return;
     }
 
-    for c in 0..3 {
-        let sv = src[c] as f32 / 255.0;
-        let dv = dst[c] as f32 / 255.0;
-        let out = (sv * sa + dv * da * (1.0 - sa)) / out_a;
-        dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
+    match mode {
+        BlendMode::Normal => {
+            let out_a = sa + da * (1.0 - sa);
+            if out_a <= 0.0 {
+                dst.copy_from_slice(&[0, 0, 0, 0]);
+                return;
+            }
+            for c in 0..3 {
+                let sv = src[c] as f32 / 255.0;
+                let dv = dst[c] as f32 / 255.0;
+                let out = (sv * sa + dv * da * (1.0 - sa)) / out_a;
+                dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+            dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        BlendMode::Multiply => {
+            let out_a = sa + da * (1.0 - sa);
+            if out_a <= 0.0 {
+                dst.copy_from_slice(&[0, 0, 0, 0]);
+                return;
+            }
+            for c in 0..3 {
+                let sv = src[c] as f32 / 255.0;
+                let dv = dst[c] as f32 / 255.0;
+                let out = (sv * dv * sa + dv * da * (1.0 - sa)) / out_a;
+                dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+            dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        BlendMode::Screen => {
+            let out_a = sa + da * (1.0 - sa);
+            if out_a <= 0.0 {
+                dst.copy_from_slice(&[0, 0, 0, 0]);
+                return;
+            }
+            for c in 0..3 {
+                let sv = src[c] as f32 / 255.0;
+                let dv = dst[c] as f32 / 255.0;
+                let out = ((1.0 - (1.0 - sv) * (1.0 - dv)) * sa + dv * da * (1.0 - sa)) / out_a;
+                dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+            dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        BlendMode::Overlay => {
+            let out_a = sa + da * (1.0 - sa);
+            if out_a <= 0.0 {
+                dst.copy_from_slice(&[0, 0, 0, 0]);
+                return;
+            }
+            for c in 0..3 {
+                let sv = src[c] as f32 / 255.0;
+                let dv = dst[c] as f32 / 255.0;
+                let blended = if dv < 0.5 {
+                    2.0 * sv * dv
+                } else {
+                    1.0 - 2.0 * (1.0 - sv) * (1.0 - dv)
+                };
+                let out = (blended * sa + dv * da * (1.0 - sa)) / out_a;
+                dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+            dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        _ => {}
+    }
+}
+
+/// Render a mask shape to a grayscale RGBA buffer.
+/// White (255,255,255,255) = fully opaque mask, Black (0,0,0,0) = fully transparent.
+pub(crate) fn render_mask_shape(
+    shape: &MaskShape,
+    transform: &MaskTransform,
+    width: usize,
+    height: usize,
+) -> Vec<u8> {
+    let mut mask = vec![0u8; width * height * 4];
+
+    match shape {
+        MaskShape::Rectangle {
+            left,
+            top,
+            right,
+            bottom,
+        } => {
+            let rad = transform.rotate.to_radians();
+            let (sin_r, cos_r) = rad.sin_cos();
+            let wf = width as f32;
+            let hf = height as f32;
+
+            let nl = left.clamp(0.0, 1.0);
+            let nt = top.clamp(0.0, 1.0);
+            let nr = right.clamp(0.0, 1.0);
+            let nb = bottom.clamp(0.0, 1.0);
+            let ncx = (nl + nr) / 2.0;
+            let ncy = (nt + nb) / 2.0;
+            let nhw = (nr - nl) * transform.scale / 2.0;
+            let nhh = (nb - nt) * transform.scale / 2.0;
+
+            let tcx = ncx + transform.translate_x;
+            let tcy = ncy + transform.translate_y;
+
+            let corners = [
+                (tcx - nhw, tcy - nhh),
+                (tcx + nhw, tcy - nhh),
+                (tcx + nhw, tcy + nhh),
+                (tcx - nhw, tcy + nhh),
+            ];
+
+            let mut min_x = wf;
+            let mut max_x = 0.0f32;
+            let mut min_y = hf;
+            let mut max_y = 0.0f32;
+
+            for (nx, ny) in corners {
+                let rx = (nx - 0.5) * cos_r - (ny - 0.5) * sin_r + 0.5;
+                let ry = (nx - 0.5) * sin_r + (ny - 0.5) * cos_r + 0.5;
+                let sx = rx * wf;
+                let sy = ry * hf;
+                min_x = min_x.min(sx);
+                max_x = max_x.max(sx);
+                min_y = min_y.min(sy);
+                max_y = max_y.max(sy);
+            }
+
+            let l = (min_x.round() as i32).clamp(0, width as i32 - 1) as usize;
+            let t = (min_y.round() as i32).clamp(0, height as i32 - 1) as usize;
+            let r = ((max_x.round() as i32) + 1).clamp(l as i32 + 1, width as i32) as usize;
+            let b = ((max_y.round() as i32) + 1).clamp(t as i32 + 1, height as i32) as usize;
+
+            for y in t..b {
+                for x in l..r {
+                    let i = (y * width + x) * 4;
+                    mask[i] = 255;
+                    mask[i + 1] = 255;
+                    mask[i + 2] = 255;
+                    mask[i + 3] = 255;
+                }
+            }
+        }
+        MaskShape::Ellipse {
+            center_x,
+            center_y,
+            radius_x,
+            radius_y,
+        } => {
+            let rad = transform.rotate.to_radians();
+            let (sin_r, cos_r) = rad.sin_cos();
+            let wf = width as f32;
+            let hf = height as f32;
+
+            let ncx = center_x.clamp(0.0, 1.0);
+            let ncy = center_y.clamp(0.0, 1.0);
+            let tcx = (ncx - 0.5) * transform.scale + 0.5 + transform.translate_x;
+            let tcy = (ncy - 0.5) * transform.scale + 0.5 + transform.translate_y;
+
+            let rcx = (tcx - 0.5) * cos_r - (tcy - 0.5) * sin_r + 0.5;
+            let rcy = (tcx - 0.5) * sin_r + (tcy - 0.5) * cos_r + 0.5;
+
+            let rrx = (radius_x.clamp(0.0, 0.5) * transform.scale).max(0.001);
+            let rry = (radius_y.clamp(0.0, 0.5) * transform.scale).max(0.001);
+
+            let scx = rcx * wf;
+            let scy = rcy * hf;
+            let srx = rrx * wf;
+            let sry = rry * hf;
+
+            for y in 0..height {
+                for x in 0..width {
+                    let px = x as f32 - scx;
+                    let py = y as f32 - scy;
+                    let u = px * cos_r + py * sin_r;
+                    let v = -px * sin_r + py * cos_r;
+                    let dx = u / srx;
+                    let dy = v / sry;
+                    if dx * dx + dy * dy <= 1.0 {
+                        let i = (y * width + x) * 4;
+                        mask[i] = 255;
+                        mask[i + 1] = 255;
+                        mask[i + 2] = 255;
+                        mask[i + 3] = 255;
+                    }
+                }
+            }
+        }
+        _ => {}
     }
 
-    dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+    mask
+}
+
+/// Apply a mask buffer to modulate the alpha channel of an RGBA image.
+/// mask is a grayscale RGBA buffer where luminance determines opacity.
+pub(crate) fn apply_mask_to_alpha(
+    pixels: &mut [u8],
+    mask: &[u8],
+    operation: MaskOperation,
+    composition: MaskComposition,
+) {
+    for (p, m) in pixels.chunks_exact_mut(4).zip(mask.chunks_exact(4)) {
+        let mask_value = match operation {
+            MaskOperation::Alpha => m[3] as f32 / 255.0,
+            MaskOperation::Luma => {
+                let r = m[0] as f32 / 255.0;
+                let g = m[1] as f32 / 255.0;
+                let b = m[2] as f32 / 255.0;
+                0.299 * r + 0.587 * g + 0.114 * b
+            }
+            MaskOperation::InvertAlpha => 1.0 - m[3] as f32 / 255.0,
+            MaskOperation::InvertLuma => {
+                let r = m[0] as f32 / 255.0;
+                let g = m[1] as f32 / 255.0;
+                let b = m[2] as f32 / 255.0;
+                1.0 - (0.299 * r + 0.587 * g + 0.114 * b)
+            }
+            _ => m[3] as f32 / 255.0,
+        };
+        let current_alpha = p[3] as f32 / 255.0;
+        let new_alpha = match composition {
+            MaskComposition::Replace => current_alpha * mask_value,
+            MaskComposition::Union => current_alpha.max(mask_value),
+            MaskComposition::Intersect => current_alpha.min(mask_value),
+            MaskComposition::Subtract => (current_alpha - mask_value).max(0.0),
+            _ => current_alpha * mask_value,
+        };
+        p[3] = (new_alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+}
+
+/// Apply feather (blur) to a mask buffer in-place.
+pub(crate) fn feather_mask(mask: &mut [u8], width: usize, height: usize, feather_px: f32) {
+    if feather_px <= 0.0 {
+        return;
+    }
+    filters::blur_rgba(mask, width, height, feather_px);
 }
 
 pub(crate) fn flatten_on_black(img: &mut [u8]) {

@@ -280,6 +280,10 @@ fun ProjectScreen(
                 onRemoveKeyframe = vm::removeKeyframe,
                 onUpdateKeyframe = vm::updateKeyframe,
                 onSetSubtitleFont = vm::setSubtitleFont,
+                onAddMask = vm::addMask,
+                onRemoveMask = vm::removeMask,
+                onUpdateMask = vm::updateMask,
+                onSetMaskEnabled = vm::setMaskEnabled,
             )
 
     }

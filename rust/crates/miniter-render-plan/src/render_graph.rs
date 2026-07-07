@@ -4,6 +4,9 @@ use miniter_domain::ease_in_out;
 use miniter_domain::export::SubtitleMode;
 use miniter_domain::filter::{VideoEffect, VideoFilter};
 use miniter_domain::keyframe::KeyframeCurve;
+use miniter_domain::mask::{
+    BlendMode, MaskComposition, MaskEffect, MaskOperation, MaskShape, MaskSource, MaskTransform,
+};
 use miniter_domain::param;
 use miniter_domain::text_overlay::TextOverlay;
 use miniter_domain::time::{MediaDuration, Timestamp};
@@ -19,6 +22,8 @@ pub enum RenderNode {
         source_pts: Timestamp,
         filters: Vec<VideoFilter>,
         opacity: f32,
+        #[serde(default)]
+        blend_mode: BlendMode,
     },
     TransitionBlend {
         bottom: Box<RenderNode>,
@@ -37,6 +42,13 @@ pub enum RenderNode {
         font_path: Option<String>,
     },
     Stack(Vec<RenderNode>),
+    Masked {
+        source: Box<RenderNode>,
+        mask_source: MaskSource,
+        operation: MaskOperation,
+        composition: MaskComposition,
+        transform: MaskTransform,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -61,9 +73,10 @@ pub fn plan_frame(
             continue;
         }
         if let Some(clip) = track.clip_at(t)
-            && let Some(node) = node_for_clip(clip, t, track, subtitle_mode) {
-                layers.push(node);
-            }
+            && let Some(node) = node_for_clip(clip, t, track, subtitle_mode, timeline)
+        {
+            layers.push(node);
+        }
     }
 
     let root = if layers.len() == 1 {
@@ -77,6 +90,95 @@ pub fn plan_frame(
         width,
         height,
         root,
+    }
+}
+
+pub fn node_blend_mode(node: &RenderNode) -> BlendMode {
+    match node {
+        RenderNode::VideoFrame { blend_mode, .. } => *blend_mode,
+        _ => BlendMode::Normal,
+    }
+}
+
+fn apply_mask_transform_keyframes(
+    mask: &mut MaskEffect,
+    curve: &KeyframeCurve,
+    local_time: MediaDuration,
+) {
+    if let Some(feather) = curve.evaluate(param::MASK_FEATHER, local_time) {
+        if let MaskSource::Shape { feather: f, .. } = &mut mask.source {
+            *f = feather.max(0.0);
+        }
+    }
+    let scale = curve.evaluate(param::MASK_SCALE, local_time);
+    let tx = curve.evaluate(param::MASK_TRANSLATE_X, local_time);
+    let ty = curve.evaluate(param::MASK_TRANSLATE_Y, local_time);
+    let rotate = curve.evaluate(param::MASK_ROTATE, local_time);
+
+    if let Some(v) = scale {
+        mask.transform.scale = v;
+    }
+    if let Some(v) = tx {
+        mask.transform.translate_x = v;
+    }
+    if let Some(v) = ty {
+        mask.transform.translate_y = v;
+    }
+    if let Some(v) = rotate {
+        mask.transform.rotate = v;
+    }
+
+    if let MaskSource::Shape { shape, .. } = &mut mask.source {
+        let left = curve.evaluate(param::MASK_SHAPE_LEFT, local_time);
+        let top = curve.evaluate(param::MASK_SHAPE_TOP, local_time);
+        let right = curve.evaluate(param::MASK_SHAPE_RIGHT, local_time);
+        let bottom = curve.evaluate(param::MASK_SHAPE_BOTTOM, local_time);
+        let cx = curve.evaluate(param::MASK_SHAPE_CENTER_X, local_time);
+        let cy = curve.evaluate(param::MASK_SHAPE_CENTER_Y, local_time);
+        let rx = curve.evaluate(param::MASK_SHAPE_RADIUS_X, local_time);
+        let ry = curve.evaluate(param::MASK_SHAPE_RADIUS_Y, local_time);
+
+        match shape {
+            MaskShape::Rectangle {
+                left: l,
+                top: t,
+                right: r,
+                bottom: b,
+            } => {
+                if let Some(v) = left {
+                    *l = v;
+                }
+                if let Some(v) = top {
+                    *t = v;
+                }
+                if let Some(v) = right {
+                    *r = v;
+                }
+                if let Some(v) = bottom {
+                    *b = v;
+                }
+            }
+            MaskShape::Ellipse {
+                center_x,
+                center_y,
+                radius_x,
+                radius_y,
+            } => {
+                if let Some(v) = cx {
+                    *center_x = v;
+                }
+                if let Some(v) = cy {
+                    *center_y = v;
+                }
+                if let Some(v) = rx {
+                    *radius_x = v;
+                }
+                if let Some(v) = ry {
+                    *radius_y = v;
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -133,6 +235,7 @@ fn node_for_clip(
     t: Timestamp,
     track: &miniter_domain::track::Track,
     subtitle_mode: SubtitleMode,
+    _timeline: &Timeline,
 ) -> Option<RenderNode> {
     if clip.muted {
         return None;
@@ -148,74 +251,95 @@ fn node_for_clip(
             let opacity = clip_opacity_at(clip, local_offset);
             let mut filters = active_filters(&v.filters);
             apply_transform_keyframes(&mut filters, &clip.keyframes, local_offset);
-            let base = RenderNode::VideoFrame {
+            let mut base_node = RenderNode::VideoFrame {
                 clip_id: clip.id,
                 source_path: v.source_path.clone(),
                 source_pts,
                 filters,
                 opacity,
+                blend_mode: clip.blend_mode,
             };
 
-            if let Some(ref trans) = clip.transition_in
-                && let Some(prev) = find_previous_clip(track, clip) {
-                    let progress = transition_progress(clip, trans, t);
-                    let prev_pts = Timestamp::from_micros(
-                        prev.source_start.as_micros()
-                            + ((t - prev.timeline_start).as_micros() as f64 * prev.speed) as i64,
-                    );
-                    if let ClipKind::Video(pv) = &prev.kind {
-                        let prev_opacity = clip_opacity_at(prev, t - prev.timeline_start);
-                        let prev_node = RenderNode::VideoFrame {
-                            clip_id: prev.id,
-                            source_path: pv.source_path.clone(),
-                            source_pts: prev_pts,
-                            filters: active_filters(&pv.filters),
-                            opacity: prev_opacity,
-                        };
-                        return Some(RenderNode::TransitionBlend {
-                            bottom: Box::new(prev_node),
-                            top: Box::new(base),
-                            kind: trans.kind,
-                            progress,
-                        });
-                    }
+            let active_masks: Vec<&MaskEffect> = v.masks.iter().filter(|m| m.enabled).collect();
+            if !active_masks.is_empty() {
+                for mask_effect in active_masks {
+                    let mut mask = mask_effect.clone();
+                    apply_mask_transform_keyframes(&mut mask, &clip.keyframes, local_offset);
+
+                    base_node = RenderNode::Masked {
+                        source: Box::new(base_node),
+                        mask_source: mask.source,
+                        operation: mask.operation,
+                        composition: mask.composition,
+                        transform: mask.transform,
+                    };
                 }
+            }
+
+            if let Some(ref trans) = clip.transition_in
+                && let Some(prev) = find_previous_clip(track, clip)
+            {
+                let progress = transition_progress(clip, trans, t);
+                let prev_pts = Timestamp::from_micros(
+                    prev.source_start.as_micros()
+                        + ((t - prev.timeline_start).as_micros() as f64 * prev.speed) as i64,
+                );
+                if let ClipKind::Video(pv) = &prev.kind {
+                    let prev_opacity = clip_opacity_at(prev, t - prev.timeline_start);
+                    let prev_node = RenderNode::VideoFrame {
+                        clip_id: prev.id,
+                        source_path: pv.source_path.clone(),
+                        source_pts: prev_pts,
+                        filters: active_filters(&pv.filters),
+                        opacity: prev_opacity,
+                        blend_mode: prev.blend_mode,
+                    };
+                    return Some(RenderNode::TransitionBlend {
+                        bottom: Box::new(prev_node),
+                        top: Box::new(base_node),
+                        kind: trans.kind,
+                        progress,
+                    });
+                }
+            }
 
             if let Some(ref trans) = clip.transition_out {
                 let out_progress = transition_out_progress(clip, trans, t);
                 if out_progress < 1.0
                     && let Some(next) = find_next_clip(track, clip)
-                        && let ClipKind::Video(nv) = &next.kind {
-                            let clip_end = clip.timeline_end();
-                            let fade_start = Timestamp::from_micros(
-                                clip_end.as_micros() - trans.duration.as_micros(),
-                            );
-                            let offset = (t - fade_start).as_micros();
-                            let next_t =
-                                Timestamp::from_micros(next.timeline_start.as_micros() + offset);
+                        && let ClipKind::Video(nv) = &next.kind
+                {
+                    let clip_end = clip.timeline_end();
+                    let fade_start = Timestamp::from_micros(
+                        clip_end.as_micros() - trans.duration.as_micros(),
+                    );
+                    let offset = (t - fade_start).as_micros();
+                    let next_t =
+                        Timestamp::from_micros(next.timeline_start.as_micros() + offset);
 
-                            let next_pts = Timestamp::from_micros(
-                                next.source_start.as_micros()
-                                    + ((next_t - next.timeline_start).as_micros() as f64
-                                        * next.speed) as i64,
-                            );
-                            let next_opacity = clip_opacity_at(next, next_t - next.timeline_start);
-                            let next_node = RenderNode::VideoFrame {
-                                clip_id: next.id,
-                                source_path: nv.source_path.clone(),
-                                source_pts: next_pts,
-                                filters: active_filters(&nv.filters),
-                                opacity: next_opacity,
-                            };
-                            return Some(RenderNode::TransitionBlend {
-                                bottom: Box::new(base),
-                                top: Box::new(next_node),
-                                kind: trans.kind,
-                                progress: out_progress,
-                            });
-                        }
+                    let next_pts = Timestamp::from_micros(
+                        next.source_start.as_micros()
+                            + ((next_t - next.timeline_start).as_micros() as f64 * next.speed)
+                                as i64,
+                    );
+                    let next_opacity = clip_opacity_at(next, next_t - next.timeline_start);
+                    let next_node = RenderNode::VideoFrame {
+                        clip_id: next.id,
+                        source_path: nv.source_path.clone(),
+                        source_pts: next_pts,
+                        filters: active_filters(&nv.filters),
+                        opacity: next_opacity,
+                        blend_mode: next.blend_mode,
+                    };
+                    return Some(RenderNode::TransitionBlend {
+                        bottom: Box::new(base_node),
+                        top: Box::new(next_node),
+                        kind: trans.kind,
+                        progress: out_progress,
+                    });
+                }
             }
-            Some(base)
+            Some(base_node)
         }
         ClipKind::Audio(_) => None,
         ClipKind::Text(overlay) => {

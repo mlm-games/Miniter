@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,9 +48,18 @@ import org.mlm.miniter.editor.model.RustVideoClipKind
 
 import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
+import org.mlm.miniter.editor.model.RustMaskComposition
+import org.mlm.miniter.editor.model.RustMaskEffect
+import org.mlm.miniter.editor.model.RustMaskOperation
+import org.mlm.miniter.editor.model.RustMaskSource
+import org.mlm.miniter.editor.model.RustMaskTransform
+import org.mlm.miniter.editor.model.RustEllipseMaskShape
+import org.mlm.miniter.editor.model.RustRectangleMaskShape
+import org.mlm.miniter.editor.model.RustShapeMaskSource
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.project.KeyframeParams
+import org.mlm.miniter.project.MASK_PARAM_DEFS
 import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.project.paramDefOrUnknown
 
@@ -79,6 +89,10 @@ fun PropertiesPanel(
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
     onSetSubtitleFont: (String, String?) -> Unit = { _, _ -> },
+    onAddMask: (String, RustMaskEffect) -> Unit = { _, _ -> },
+    onRemoveMask: (String, Int) -> Unit = { _, _ -> },
+    onUpdateMask: (String, Int, RustMaskEffect) -> Unit = { _, _, _ -> },
+    onSetMaskEnabled: (String, Int, Boolean) -> Unit = { _, _, _ -> },
 ) {
     val clip = snapshot?.timeline?.tracks
         ?.flatMap { it.clips }
@@ -130,6 +144,10 @@ fun PropertiesPanel(
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
+                onAddMask = onAddMask,
+                onRemoveMask = onRemoveMask,
+                onUpdateMask = onUpdateMask,
+                onSetMaskEnabled = onSetMaskEnabled,
             )
             is RustAudioClipKind -> AudioClipProperties(clip, kind, playheadMs, onSetVolume, onAddAudioFilter, onRemoveAudioFilter, onUpdateAudioFilterDuration, onAddKeyframe, onRemoveKeyframe, onUpdateKeyframe)
             is RustTextClipKind -> TextClipProperties(
@@ -178,6 +196,10 @@ private fun VideoClipProperties(
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
+    onAddMask: (String, RustMaskEffect) -> Unit = { _, _ -> },
+    onRemoveMask: (String, Int) -> Unit = { _, _ -> },
+    onUpdateMask: (String, Int, RustMaskEffect) -> Unit = { _, _, _ -> },
+    onSetMaskEnabled: (String, Int, Boolean) -> Unit = { _, _, _ -> },
 ) {
     val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
     val fileName = kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
@@ -323,6 +345,18 @@ private fun VideoClipProperties(
             )
         }
     }
+
+    Spacer(Modifier.height(16.dp))
+    Text("Masks", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    MasksSection(
+        clipId = clip.id,
+        masks = kind.masks,
+        onAddMask = { mask -> onAddMask(clip.id, mask) },
+        onRemoveMask = { index -> onRemoveMask(clip.id, index) },
+        onUpdateMask = { index, mask -> onUpdateMask(clip.id, index, mask) },
+        onSetMaskEnabled = { index, enabled -> onSetMaskEnabled(clip.id, index, enabled) },
+    )
 
     KeyframeSection(
         clip = clip,
@@ -1044,4 +1078,276 @@ internal fun formatFixed(value: Float, decimals: Int): String {
 
     val fracPart = rounded % scale
     return (if (negative) "-" else "") + intPart.toString() + "." + fracPart.toString().padStart(safeDecimals, '0')
+}
+
+private fun fmtPct(v: Float) = "${(v * 100).toInt()}%"
+private fun fmt1d(v: Float) = "${(v * 10).toInt() / 10f}x"
+private fun fmtDeg(v: Float) = "${v.toInt()}°"
+
+@Composable
+private fun MasksSection(
+    clipId: String,
+    masks: List<RustMaskEffect>,
+    onAddMask: (RustMaskEffect) -> Unit,
+    onRemoveMask: (Int) -> Unit,
+    onUpdateMask: (Int, RustMaskEffect) -> Unit,
+    onSetMaskEnabled: (Int, Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        masks.forEachIndexed { index, mask ->
+            MaskChipRow(
+                index = index,
+                mask = mask,
+                onRemove = { onRemoveMask(index) },
+                onToggleEnabled = { enabled -> onSetMaskEnabled(index, enabled) },
+            )
+            MaskEditor(
+                mask = mask,
+                onUpdate = { updated -> onUpdateMask(index, updated) },
+            )
+        }
+
+        var expanded by remember { mutableStateOf(false) }
+        Box {
+            AssistChip(
+                onClick = { expanded = true },
+                label = { Text("+ Add Mask") },
+            )
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                DropdownMenuItem(
+                    text = { Text("Rectangle Shape") },
+                    onClick = {
+                        onAddMask(RustMaskEffect(
+                            enabled = true,
+                            source = RustShapeMaskSource(RustRectangleMaskShape(0.1f, 0.1f, 0.9f, 0.9f), feather = 0f, invert = false),
+                        ))
+                        expanded = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Ellipse Shape") },
+                    onClick = {
+                        onAddMask(RustMaskEffect(
+                            enabled = true,
+                            source = RustShapeMaskSource(RustEllipseMaskShape(0.5f, 0.5f, 0.3f, 0.3f), feather = 0f, invert = false),
+                        ))
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MaskChipRow(
+    index: Int,
+    mask: RustMaskEffect,
+    onRemove: () -> Unit,
+    onToggleEnabled: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Switch(
+            checked = mask.enabled,
+            onCheckedChange = onToggleEnabled,
+        )
+        Text(
+            maskLabel(mask),
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onRemove, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "Remove mask", modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+private fun maskLabel(mask: RustMaskEffect): String = when (val s = mask.source) {
+    is RustShapeMaskSource -> when (s.shape) {
+        is RustRectangleMaskShape -> "Rectangle"
+        is RustEllipseMaskShape -> "Ellipse"
+    }
+}
+
+@Composable
+private fun MaskEditor(
+    mask: RustMaskEffect,
+    onUpdate: (RustMaskEffect) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+
+            val src = mask.source as? RustShapeMaskSource
+            if (src != null) {
+                ShapeTypeEditor(
+                    shape = src.shape,
+                    onShapeChange = { newShape ->
+                        onUpdate(mask.copy(source = src.copy(shape = newShape)))
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            val t = mask.transform
+            Text("Transform", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            MaskSlider("Scale", t.scale, 0.1f..5f, 24, ::fmt1d) { onUpdate(mask.copy(transform = t.copy(scale = it))) }
+            MaskSlider("Pan X", t.translateX, -1f..1f, format = ::fmtPct) { onUpdate(mask.copy(transform = t.copy(translateX = it))) }
+            MaskSlider("Pan Y", t.translateY, -1f..1f, format = ::fmtPct) { onUpdate(mask.copy(transform = t.copy(translateY = it))) }
+            MaskSlider("Rotate", t.rotate, -180f..180f, format = ::fmtDeg) { onUpdate(mask.copy(transform = t.copy(rotate = it))) }
+
+            Spacer(Modifier.height(8.dp))
+
+            Text("Operation", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                RustMaskOperation.entries.forEach { op ->
+                    FilterChip(
+                        selected = mask.operation == op,
+                        onClick = { onUpdate(mask.copy(operation = op)) },
+                        label = { Text(opLabel(op), style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.height(28.dp),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Text("Composition", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                RustMaskComposition.entries.forEach { comp ->
+                    FilterChip(
+                        selected = mask.composition == comp,
+                        onClick = { onUpdate(mask.copy(composition = comp)) },
+                        label = { Text(compLabel(comp), style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.height(28.dp),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Feather", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                Text(fmtPct(src?.feather ?: 0f), style = MaterialTheme.typography.labelSmall)
+            }
+            var featherLocal by remember(src?.feather ?: 0f) { mutableFloatStateOf(src?.feather ?: 0f) }
+            Slider(
+                value = featherLocal,
+                onValueChange = { featherLocal = it },
+                onValueChangeFinished = {
+                    if (src != null) {
+                        onUpdate(mask.copy(source = src.copy(feather = featherLocal)))
+                    }
+                },
+                valueRange = 0f..0.2f,
+                modifier = Modifier.height(24.dp),
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Invert", style = MaterialTheme.typography.labelSmall)
+                Switch(
+                    checked = src?.invert ?: false,
+                    onCheckedChange = {
+                        if (src != null) {
+                            onUpdate(mask.copy(source = src.copy(invert = it)))
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShapeTypeEditor(
+    shape: org.mlm.miniter.editor.model.RustMaskShape,
+    onShapeChange: (org.mlm.miniter.editor.model.RustMaskShape) -> Unit,
+) {
+    Text("Shape", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        FilterChip(
+            selected = shape is RustRectangleMaskShape,
+            onClick = { onShapeChange(RustRectangleMaskShape(0.1f, 0.1f, 0.9f, 0.9f)) },
+            label = { Text("Rect", style = MaterialTheme.typography.labelSmall) },
+            modifier = Modifier.height(28.dp),
+        )
+        FilterChip(
+            selected = shape is RustEllipseMaskShape,
+            onClick = { onShapeChange(RustEllipseMaskShape(0.5f, 0.5f, 0.3f, 0.3f)) },
+            label = { Text("Ellipse", style = MaterialTheme.typography.labelSmall) },
+            modifier = Modifier.height(28.dp),
+        )
+    }
+
+    Spacer(Modifier.height(4.dp))
+
+    when (shape) {
+        is RustRectangleMaskShape -> {
+            MaskSlider("Left", shape.left, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(left = it)) }
+            MaskSlider("Top", shape.top, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(top = it)) }
+            MaskSlider("Right", shape.right, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(right = it)) }
+            MaskSlider("Bottom", shape.bottom, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(bottom = it)) }
+        }
+        is RustEllipseMaskShape -> {
+            MaskSlider("Center X", shape.centerX, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(centerX = it)) }
+            MaskSlider("Center Y", shape.centerY, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(centerY = it)) }
+            MaskSlider("Radius X", shape.radiusX, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(radiusX = it)) }
+            MaskSlider("Radius Y", shape.radiusY, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(radiusY = it)) }
+        }
+    }
+}
+
+@Composable
+private fun MaskSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int = 0,
+    format: (Float) -> String = { formatFixed(it, 2) },
+    onValueChangeFinished: (Float) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "$label: ${format(value)}",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    var local by remember(value) { mutableFloatStateOf(value) }
+    Slider(
+        value = local,
+        onValueChange = { local = it },
+        onValueChangeFinished = { onValueChangeFinished(local) },
+        valueRange = range,
+        steps = steps,
+        modifier = Modifier.height(24.dp),
+    )
+}
+
+private fun opLabel(op: RustMaskOperation): String = when (op) {
+    RustMaskOperation.Alpha -> "Alpha"
+    RustMaskOperation.Luma -> "Luma"
+    RustMaskOperation.InvertAlpha -> "α⁻¹"
+    RustMaskOperation.InvertLuma -> "L⁻¹"
+}
+
+private fun compLabel(comp: RustMaskComposition): String = when (comp) {
+    RustMaskComposition.Replace -> "Replace"
+    RustMaskComposition.Union -> "Union"
+    RustMaskComposition.Intersect -> "Intersect"
+    RustMaskComposition.Subtract -> "Subtract"
 }

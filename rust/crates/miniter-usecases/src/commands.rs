@@ -2,6 +2,7 @@ use miniter_domain::Keyframe;
 use miniter_domain::clip::{Clip, ClipId};
 use miniter_domain::export::ExportProfile;
 use miniter_domain::filter::{AudioFilter, VideoEffect};
+use miniter_domain::mask::{BlendMode, MaskEffect};
 use miniter_domain::text_overlay::TextStyle;
 use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::track::{TrackId, TrackKind};
@@ -156,6 +157,28 @@ pub enum EditCommand {
         clip_id: ClipId,
         index: usize,
         keyframe: Keyframe,
+    },
+    SetClipBlendMode {
+        clip_id: ClipId,
+        blend_mode: BlendMode,
+    },
+    AddMask {
+        clip_id: ClipId,
+        mask: MaskEffect,
+    },
+    UpdateMask {
+        clip_id: ClipId,
+        index: usize,
+        mask: MaskEffect,
+    },
+    RemoveMask {
+        clip_id: ClipId,
+        index: usize,
+    },
+    SetMaskEnabled {
+        clip_id: ClipId,
+        index: usize,
+        enabled: bool,
     },
     Batch {
         label: String,
