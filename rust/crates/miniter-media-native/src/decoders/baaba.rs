@@ -1,4 +1,3 @@
-#[cfg(target_arch = "wasm32")]
 use std::collections::VecDeque;
 use web_time::Duration;
 
@@ -53,8 +52,8 @@ pub struct BaabaBackend {
     #[cfg(not(target_arch = "wasm32"))]
     rt: Runtime,
     allowed_fourccs: Vec<u32>,
-    #[cfg(target_arch = "wasm32")]
     frame_buffer: VecDeque<RgbaFrame>,
+    flushed: bool,
     #[cfg(target_arch = "wasm32")]
     copy_rx: tokio::sync::mpsc::UnboundedReceiver<PendingFrame>,
     #[cfg(target_arch = "wasm32")]
@@ -95,13 +94,43 @@ impl BaabaBackend {
             #[cfg(not(target_arch = "wasm32"))]
             rt,
             allowed_fourccs: Vec::new(),
-            #[cfg(target_arch = "wasm32")]
             frame_buffer: VecDeque::new(),
+            flushed: false,
             #[cfg(target_arch = "wasm32")]
             copy_rx,
             #[cfg(target_arch = "wasm32")]
             copy_tx,
         })
+    }
+
+    fn drain_available(&mut self) -> Result<(), DecodeBackendError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        loop {
+            match self.output.try_frame() {
+                Ok(Some(frame)) => {
+                    self.frame_buffer.push_back(convert_baaba_frame(frame)?);
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    return Err(DecodeBackendError::Other(format!("baaba try_frame: {e}")));
+                }
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        drain_raw_frames(
+            &mut self.output,
+            &self.copy_tx,
+            &mut self.copy_rx,
+            &mut self.frame_buffer,
+        )?;
+
+        Ok(())
+    }
+
+    fn pop_frame(&mut self) -> Result<Option<RgbaFrame>, DecodeBackendError> {
+        self.drain_available()?;
+        Ok(self.frame_buffer.pop_front())
     }
 }
 
@@ -232,6 +261,10 @@ impl VideoDecoderBackend for BaabaBackend {
         pts_us: i64,
         is_sync: bool,
     ) -> Result<Option<RgbaFrame>, DecodeBackendError> {
+        if let Some(frame) = self.pop_frame()? {
+            return Ok(Some(frame));
+        }
+
         let packet = EncodedVideoPacket {
             payload: data.to_vec().into(),
             timestamp: Duration::from_micros(pts_us as u64),
@@ -241,60 +274,59 @@ impl VideoDecoderBackend for BaabaBackend {
             .decode(packet)
             .map_err(|e| DecodeBackendError::Other(format!("baaba decode: {e}")))?;
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            match self.output.try_frame() {
-                Ok(Some(frame)) => {
-                    let result = convert_baaba_frame(frame)?;
-                    return Ok(Some(result));
-                }
-                Ok(None) => {
-                    return Ok(None);
-                }
-                Err(e) => {
-                    return Err(DecodeBackendError::Other(format!("baaba try_frame: {e}")));
-                }
-            }
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            drain_raw_frames(
-                &mut self.output,
-                &self.copy_tx,
-                &mut self.copy_rx,
-                &mut self.frame_buffer,
-            )?;
-            Ok(self.frame_buffer.pop_front())
-        }
+        self.pop_frame()
     }
 
     fn finish(&mut self) -> Result<Option<RgbaFrame>, DecodeBackendError> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
+        if let Some(frame) = self.pop_frame()? {
+            return Ok(Some(frame));
+        }
+
+        if !self.flushed {
+            #[cfg(not(target_arch = "wasm32"))]
             self.rt
                 .block_on(self.input.flush())
                 .map_err(|e| DecodeBackendError::Other(format!("baaba flush error: {e:?}")))?;
-            let mut last = None;
-            while let Ok(Some(frame)) = self.output.try_frame() {
-                last = Some(convert_baaba_frame(frame)?);
-            }
-            Ok(last)
-        }
 
-        #[cfg(target_arch = "wasm32")]
-        {
+            #[cfg(target_arch = "wasm32")]
             drain_raw_frames(
                 &mut self.output,
                 &self.copy_tx,
                 &mut self.copy_rx,
                 &mut self.frame_buffer,
             )?;
-            Ok(self.frame_buffer.pop_front())
+
+            self.flushed = true;
+            self.drain_available()?;
         }
+
+        Ok(self.frame_buffer.pop_front())
     }
 
     fn reset(&mut self) {
-        // no-op; baaba doesn't expose reset
+        self.frame_buffer.clear();
+        self.flushed = false;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Err(e) = self.rt.block_on(self.input.flush()) {
+                log::warn!("BaabaBackend::reset flush error: {e:?}");
+            }
+            loop {
+                match self.output.try_frame() {
+                    Ok(Some(_)) => {}
+                    Ok(None) => break,
+                    Err(e) => {
+                        log::warn!("BaabaBackend::reset drain error: {e}");
+                        break;
+                    }
+                }
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            while self.copy_rx.try_recv().is_ok() {}
+        }
     }
 }

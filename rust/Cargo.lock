@@ -397,11 +397,11 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#13a30a10b1c2e7e6121e881c080daa28c74ae098"
 dependencies = [
  "bytes",
  "cros-codecs",
  "js-sys",
+ "log",
  "mediacodec",
  "thiserror 2.0.18",
  "tokio",

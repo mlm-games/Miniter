@@ -10,6 +10,7 @@ use symphonia::core::io::MediaSource;
 pub struct VideoDecodeSession {
     demuxer: Box<dyn crate::demux::Demuxer>,
     backend: Box<dyn crate::demux::VideoDecoderBackend>,
+    demux_eos: bool,
     finished: bool,
 }
 
@@ -60,7 +61,7 @@ impl VideoDecodeSession {
             backend.name(),
         );
 
-        Ok(Self { demuxer, backend, finished: false })
+        Ok(Self { demuxer, backend, demux_eos: false, finished: false })
     }
 
     /// Decode the next frame from the stream.
@@ -75,6 +76,17 @@ impl VideoDecodeSession {
             return Ok(None);
         }
 
+        // Demuxer has reached EOS; drain remaining frames from the decoder.
+        if self.demux_eos {
+            match self.backend.finish().map_err(DecodeError::from)? {
+                Some(frame) => return Ok(Some(frame)),
+                None => {
+                    self.finished = true;
+                    return Ok(None);
+                }
+            }
+        }
+
         #[cfg(target_arch = "wasm32")]
         const MAX_PACKETS: u32 = 16;
         #[cfg(not(target_arch = "wasm32"))]
@@ -84,8 +96,8 @@ impl VideoDecodeSession {
         loop {
             match self.demuxer.next_sample()? {
                 Some(sample) if sample.is_eos => {
-                    self.finished = true;
-                    return self.backend.finish().map_err(DecodeError::from);
+                    self.demux_eos = true;
+                    return self.next_frame();
                 }
                 Some(sample) => {
                     if let Some(frame) =
@@ -100,8 +112,8 @@ impl VideoDecodeSession {
                     }
                 }
                 None => {
-                    self.finished = true;
-                    return self.backend.finish().map_err(DecodeError::from);
+                    self.demux_eos = true;
+                    return self.next_frame();
                 }
             }
         }
@@ -115,6 +127,7 @@ impl VideoDecodeSession {
     /// Reset the stream to the beginning.
     pub fn reset(&mut self) -> Result<(), DecodeError> {
         self.finished = false;
+        self.demux_eos = false;
         self.demuxer.reset()?;
         self.backend.reset();
         Ok(())
@@ -148,6 +161,7 @@ impl VideoDecodeSession {
     pub fn seek_to_sample(&mut self, sample_id: u32) -> Result<(), DecodeError> {
         self.demuxer.seek_to_sample(sample_id)?;
         self.finished = false;
+        self.demux_eos = false;
         self.backend.reset();
         Ok(())
     }

@@ -69,8 +69,8 @@ symphonia-core = { git = "https://github.com/mlm-games/symphonia", package = "sy
 # [patch."https://github.com/mlm-games/cros-codecs"]
 # cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
 
-# [patch."https://github.com/mlm-games/baa4bababab2baa"]
-# baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa" }
+[patch."https://github.com/mlm-games/baa4bababab2baa"]
+baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa" }
 
 # [patch."https://github.com/mlm-games/rust_mediacodec"]
 # mediacodec = { path = "../../../Documents/Repos/rust_mediacodec" }
