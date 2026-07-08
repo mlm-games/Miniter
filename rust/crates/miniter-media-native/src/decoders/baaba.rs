@@ -232,15 +232,6 @@ impl VideoDecoderBackend for BaabaBackend {
         pts_us: i64,
         is_sync: bool,
     ) -> Result<Option<RgbaFrame>, DecodeBackendError> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            // Drain stale frames from previous packets before sending a new one.
-            while let Ok(Some(stale)) = self.output.try_frame() {
-                // discard stale frames
-                let _ = stale;
-            }
-        }
-
         let packet = EncodedVideoPacket {
             payload: data.to_vec().into(),
             timestamp: Duration::from_micros(pts_us as u64),
@@ -254,8 +245,7 @@ impl VideoDecoderBackend for BaabaBackend {
         {
             match self.output.try_frame() {
                 Ok(Some(frame)) => {
-                    let mut result = convert_baaba_frame(frame)?;
-                    result.pts_us = pts_us;
+                    let result = convert_baaba_frame(frame)?;
                     return Ok(Some(result));
                 }
                 Ok(None) => {
