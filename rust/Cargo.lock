@@ -397,7 +397,7 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#24d2c570270f7956f9a6781a46c0c553ee931fed"
+source = "git+https://github.com/mlm-games/baa4bababab2baa#13a30a10b1c2e7e6121e881c080daa28c74ae098"
 dependencies = [
  "bytes",
  "cros-codecs",
@@ -1564,9 +1564,9 @@ dependencies = [
 
 [[package]]
 name = "memchr"
-version = "2.8.2"
+version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
+checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "memmap2"
