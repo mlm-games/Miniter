@@ -1,3 +1,11 @@
+## v0.7.4
+
+- h265 and vp9 (slight) still stutter when exported on my devices, but they might work differently elsewhere so will wait... (though would recommend converting to AV1 always before importing)
+- fix h265 decode (though h265 hw decode will be mostly stuttery)
+- bump to uniffi 0.32
+- Add masks support
+
+
 ## v0.7.3
 
 - Update release notes for v0.7.2
