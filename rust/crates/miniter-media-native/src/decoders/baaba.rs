@@ -54,6 +54,7 @@ pub struct BaabaBackend {
     allowed_fourccs: Vec<u32>,
     frame_buffer: VecDeque<RgbaFrame>,
     flushed: bool,
+    reorder_depth: usize,
     #[cfg(target_arch = "wasm32")]
     copy_rx: tokio::sync::mpsc::UnboundedReceiver<PendingFrame>,
     #[cfg(target_arch = "wasm32")]
@@ -88,6 +89,14 @@ impl BaabaBackend {
         #[cfg(target_arch = "wasm32")]
         let (copy_tx, copy_rx) = tokio::sync::mpsc::unbounded_channel();
 
+        //TODO: HEVC B-frame heavy streams need PTS reordering (It still stutters in output)
+        let reorder_depth =
+            if mime.contains("hevc") || mime.contains("hev1") || mime.contains("265") {
+                8
+            } else {
+                1
+            };
+
         Ok(Self {
             input,
             output,
@@ -96,6 +105,7 @@ impl BaabaBackend {
             allowed_fourccs: Vec::new(),
             frame_buffer: VecDeque::new(),
             flushed: false,
+            reorder_depth,
             #[cfg(target_arch = "wasm32")]
             copy_rx,
             #[cfg(target_arch = "wasm32")]
@@ -130,7 +140,15 @@ impl BaabaBackend {
 
     fn pop_frame(&mut self) -> Result<Option<RgbaFrame>, DecodeBackendError> {
         self.drain_available()?;
-        Ok(self.frame_buffer.pop_front())
+
+        if self.frame_buffer.len() >= self.reorder_depth || self.flushed {
+            self.frame_buffer
+                .make_contiguous()
+                .sort_by_key(|f| f.pts_us);
+            Ok(self.frame_buffer.pop_front())
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -261,13 +279,23 @@ impl VideoDecoderBackend for BaabaBackend {
         pts_us: i64,
         is_sync: bool,
     ) -> Result<Option<RgbaFrame>, DecodeBackendError> {
+        let pts_clamped = pts_us.max(0) as u64;
+
         if let Some(frame) = self.pop_frame()? {
+            let packet = EncodedVideoPacket {
+                payload: data.to_vec().into(),
+                timestamp: Duration::from_micros(pts_clamped),
+                keyframe: is_sync,
+            };
+            self.input
+                .decode(packet)
+                .map_err(|e| DecodeBackendError::Other(format!("baaba decode: {e}")))?;
             return Ok(Some(frame));
         }
 
         let packet = EncodedVideoPacket {
             payload: data.to_vec().into(),
-            timestamp: Duration::from_micros(pts_us as u64),
+            timestamp: Duration::from_micros(pts_clamped),
             keyframe: is_sync,
         };
         self.input
@@ -278,27 +306,30 @@ impl VideoDecoderBackend for BaabaBackend {
     }
 
     fn finish(&mut self) -> Result<Option<RgbaFrame>, DecodeBackendError> {
-        if let Some(frame) = self.pop_frame()? {
-            return Ok(Some(frame));
+        if self.flushed {
+            return Ok(self.frame_buffer.pop_front());
         }
 
-        if !self.flushed {
-            #[cfg(not(target_arch = "wasm32"))]
-            self.rt
-                .block_on(self.input.flush())
-                .map_err(|e| DecodeBackendError::Other(format!("baaba flush error: {e:?}")))?;
+        #[cfg(not(target_arch = "wasm32"))]
+        self.rt
+            .block_on(self.input.flush())
+            .map_err(|e| DecodeBackendError::Other(format!("baaba flush error: {e:?}")))?;
 
-            #[cfg(target_arch = "wasm32")]
-            drain_raw_frames(
-                &mut self.output,
-                &self.copy_tx,
-                &mut self.copy_rx,
-                &mut self.frame_buffer,
-            )?;
+        #[cfg(target_arch = "wasm32")]
+        drain_raw_frames(
+            &mut self.output,
+            &self.copy_tx,
+            &mut self.copy_rx,
+            &mut self.frame_buffer,
+        )?;
 
-            self.flushed = true;
-            self.drain_available()?;
-        }
+        self.flushed = true;
+        self.drain_available()?;
+
+        // Sort all remaining frames by PTS
+        self.frame_buffer
+            .make_contiguous()
+            .sort_by_key(|f| f.pts_us);
 
         Ok(self.frame_buffer.pop_front())
     }

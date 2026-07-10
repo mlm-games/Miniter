@@ -201,7 +201,7 @@ mod hw {
                 let video_frame = self.build_video_frame(frame);
                 use baabaabaabaabababbababbaa::VideoEncoderInput;
                 self.input
-                    .encode(video_frame, Some(true))
+                    .encode(video_frame, None)
                     .map_err(|e| EncodeError::LessAvc(format!("HwEncoder encode: {e:?}")))?;
 
                 use baabaabaabaabababbababbaa::VideoEncoderOutput;

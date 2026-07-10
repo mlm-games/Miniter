@@ -50,7 +50,7 @@ impl VideoDecodeSession {
             &codec_name,
             demuxer.codec_description(),
         )
-        .ok_or_else(|| DecodeError::DecoderNotAvailable(codec_name.clone()))?;
+        .map_err(|reason| DecodeError::DecoderNotAvailable(format!("{codec_name}: {reason}")))?;
 
         log::info!(
             "Session: container={}, codec={}, {}x{}, backend={}",
