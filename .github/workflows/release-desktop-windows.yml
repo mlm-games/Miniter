@@ -32,7 +32,7 @@ jobs:
     env:
       APP_VERSION: ${{ inputs.version_tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ inputs.version_tag }}
@@ -70,7 +70,7 @@ jobs:
           Get-ChildItem dist
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-desktop-x64
           path: dist/*
@@ -79,7 +79,7 @@ jobs:
     needs: build-windows
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: windows-desktop-*
           merge-multiple: true
@@ -89,7 +89,7 @@ jobs:
         run: ls -la dist/
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.version_tag }}
           name: ${{ inputs.version_tag }}

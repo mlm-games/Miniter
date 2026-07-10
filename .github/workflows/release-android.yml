@@ -44,7 +44,7 @@ jobs:
       commit_sha: ${{ steps.commit.outputs.commit_sha }}
       release_notes: ${{ steps.notes.outputs.release-notes }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-java@v5
@@ -117,7 +117,7 @@ jobs:
           echo "=== After cleanup ==="
           df -h
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare-version.outputs.commit_sha }}
 
@@ -128,7 +128,7 @@ jobs:
           cache: gradle
 
       - name: Set up Android SDK/NDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android platforms + NDK
         run: |
@@ -197,14 +197,14 @@ jobs:
 
       - name: Upload artifacts (CI only)
         if: github.event_name != 'workflow_dispatch' || inputs.upload_releases == false
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-${{ needs.prepare-version.outputs.version_name }}
           path: artifacts/*
 
       - name: Create GitHub Release
         if: github.event_name == 'workflow_dispatch' && inputs.upload_releases == true
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*
           name: ${{ env.APP_NAME }} ${{ needs.prepare-version.outputs.version_name }}
