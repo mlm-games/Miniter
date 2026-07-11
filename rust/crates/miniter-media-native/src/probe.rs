@@ -13,38 +13,41 @@ use symphonia::core::codecs::video::well_known::{
 /// Check whether a decoder is available for a given Symphonia codec at compile time.
 /// This does NOT instantiate a decoder — it only checks feature flags and platform cfg.
 fn decoder_supported(codec: VideoCodecId) -> bool {
-    #[cfg(not(any(
+    let hw_avail = cfg!(all(
         feature = "hw-decoder",
-        feature = "videoson",
-        feature = "av1"
-    )))]
-    return false;
-
-    if codec == CODEC_ID_H264 {
-        #[cfg(feature = "videoson")]
-        return true;
-        return false;
+        any(target_arch = "wasm32", target_os = "linux", target_os = "android")
+    ));
+    match codec {
+        CODEC_ID_H264 => cfg!(feature = "videoson"),
+        CODEC_ID_HEVC => {
+            cfg!(any(feature = "videoson", feature = "videoson-h265")) || hw_avail
+        }
+        CODEC_ID_VP8 => {
+            cfg!(any(feature = "videoson", feature = "videoson-vp8")) || hw_avail
+        }
+        CODEC_ID_VP9 => {
+            cfg!(any(feature = "videoson", feature = "videoson-vp9")) || hw_avail
+        }
+        CODEC_ID_AV1 => cfg!(feature = "av1"),
+        _ => false,
     }
-    if codec == CODEC_ID_HEVC || codec == CODEC_ID_VP8 || codec == CODEC_ID_VP9 {
-        #[cfg(all(
-            feature = "hw-decoder",
-            any(target_arch = "wasm32", target_os = "linux", target_os = "android")
-        ))]
-        return true;
-        return false;
-    }
-    if codec == CODEC_ID_AV1 {
-        #[cfg(feature = "av1")]
-        return true;
-        return false;
-    }
-    false
 }
 
 fn requires_hardware_acceleration(codec: VideoCodecId) -> bool {
-    codec == CODEC_ID_HEVC
-        || codec == CODEC_ID_VP8
-        || codec == CODEC_ID_VP9
+    match codec {
+        CODEC_ID_H264 => false,
+        CODEC_ID_HEVC => {
+            !cfg!(any(feature = "videoson", feature = "videoson-h265"))
+        }
+        CODEC_ID_VP8 => {
+            !cfg!(any(feature = "videoson", feature = "videoson-vp8"))
+        }
+        CODEC_ID_VP9 => {
+            !cfg!(any(feature = "videoson", feature = "videoson-vp9"))
+        }
+        CODEC_ID_AV1 => false,
+        _ => true,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -259,11 +262,16 @@ fn read_ivf_into_media_info<R: Read + Seek>(
             height,
             frame_rate: fps,
             bitrate,
-            decoder_available: cfg!(feature = "av1") || cfg!(all(
-                feature = "hw-decoder",
-                any(target_arch = "wasm32", target_os = "linux", target_os = "android")
-            )),
-            hardware_acceleration_required: false,
+            decoder_available: cfg!(feature = "av1")
+                || cfg!(all(
+                    feature = "hw-decoder",
+                    any(
+                        target_arch = "wasm32",
+                        target_os = "linux",
+                        target_os = "android"
+                    )
+                )),
+            hardware_acceleration_required: !cfg!(feature = "av1"),
         }],
         audio_streams: Vec::new(),
     })
