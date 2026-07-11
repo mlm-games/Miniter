@@ -52,9 +52,13 @@ impl From<crate::demux::DecodeBackendError> for DecodeError {
     )
 ))]
 pub mod baaba;
-#[cfg(feature = "av1")]
-pub mod rav1d;
-#[cfg(feature = "videoson")]
+#[cfg(any(
+    feature = "videoson",
+    feature = "videoson-h265",
+    feature = "videoson-vp8",
+    feature = "videoson-vp9",
+    feature = "av1"
+))]
 pub mod videoson;
 
 pub mod session;
@@ -68,8 +72,9 @@ pub fn create_backend(
     codec_mime: &str,
     description: &[u8],
 ) -> Result<Box<dyn VideoDecoderBackend>, String> {
-    // HW decoder (baaba) – used for codecs with NO SW fallback (VP8, VP9, H265).
     let mut hw_attempted = false;
+
+    // HW decoder (baaba) – tried first for codecs where available.
     #[cfg(all(
         feature = "hw-decoder",
         any(
@@ -78,9 +83,7 @@ pub fn create_backend(
             target_os = "linux"
         )
     ))]
-    if hardware_acceleration
-        && (fourcc == H265_FOURCC || fourcc == VP8_FOURCC || fourcc == VP9_FOURCC)
-    {
+    if hardware_acceleration {
         hw_attempted = true;
         let mime = fourcc_to_mime(fourcc).unwrap_or(codec_mime);
         match baaba::BaabaBackend::new(width, height, mime, description) {
@@ -91,44 +94,83 @@ pub fn create_backend(
                 crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
             }
             Err(e) => {
+                log::warn!("HW decoder init failed, falling back to SW: {e:?}");
                 crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
-                return Err(format!("HW decoder init failed: {e:?}"));
             }
         }
     }
 
+    // SW decoder fallback (videoson) – tried for every codec with a feature flag.
     if fourcc == H264_FOURCC {
         #[cfg(feature = "videoson")]
         {
-            if let Ok(dec) = videoson::VideosonBackend::new(width, height) {
+            if let Ok(dec) = videoson::VideosonBackend::new_h264(width, height) {
                 return Ok(Box::new(dec));
             }
         }
         return Err("no H.264 decoder available".into());
     }
 
+    if fourcc == H265_FOURCC {
+        #[cfg(any(feature = "videoson", feature = "videoson-h265"))]
+        {
+            if let Ok(dec) = videoson::VideosonBackend::new_h265(width, height) {
+                return Ok(Box::new(dec));
+            }
+        }
+        let hw_suffix = hw_suffix(hw_attempted);
+        return Err(format!("no HEVC decoder available{hw_suffix}"));
+    }
+
+    if fourcc == VP8_FOURCC {
+        #[cfg(any(feature = "videoson", feature = "videoson-vp8"))]
+        {
+            if let Ok(dec) = videoson::VideosonBackend::new_vp8(width, height) {
+                return Ok(Box::new(dec));
+            }
+        }
+        let hw_suffix = hw_suffix(hw_attempted);
+        return Err(format!("no VP8 decoder available{hw_suffix}"));
+    }
+
+    if fourcc == VP9_FOURCC {
+        #[cfg(any(feature = "videoson", feature = "videoson-vp9"))]
+        {
+            if let Ok(dec) = videoson::VideosonBackend::new_vp9(width, height) {
+                return Ok(Box::new(dec));
+            }
+        }
+        let hw_suffix = hw_suffix(hw_attempted);
+        return Err(format!("no VP9 decoder available{hw_suffix}"));
+    }
+
+    if fourcc == AV1_FOURCC || fourcc == AV1_IVF_FOURCC {
+        #[cfg(feature = "av1")]
+        {
+            if let Ok(dec) = videoson::VideosonBackend::new_av1(width, height) {
+                return Ok(Box::new(dec));
+            }
+        }
+        let hw_suffix = hw_suffix(hw_attempted);
+        return Err(format!("no AV1 decoder available{hw_suffix}"));
+    }
+
+    Err(format!("unsupported codec 0x{fourcc:08x}"))
+}
+
+fn hw_suffix(hw_attempted: bool) -> &'static str {
     let hw_feature = cfg!(feature = "hw-decoder");
-    let hw_compiled = hw_feature && cfg!(any(target_os = "android", target_arch = "wasm32", target_os = "linux"));
-    let hw_suffix = if hw_attempted {
+    let hw_compiled = hw_feature
+        && cfg!(any(
+            target_os = "android",
+            target_arch = "wasm32",
+            target_os = "linux"
+        ));
+    if hw_attempted {
         " (HW decoder attempted)"
     } else if hw_compiled {
         " (HW decoder available but not entered)"
     } else {
         " (HW decoder not compiled)"
-    };
-    if fourcc == H265_FOURCC {
-        Err(format!("no HEVC decoder available{hw_suffix}"))
-    } else if fourcc == VP8_FOURCC || fourcc == VP9_FOURCC {
-        Err(format!("no {codec_mime} decoder available{hw_suffix}"))
-    } else if fourcc == AV1_FOURCC || fourcc == AV1_IVF_FOURCC {
-        #[cfg(feature = "av1")]
-        {
-            if let Ok(dec) = rav1d::Av1Backend::new(width, height) {
-                return Ok(Box::new(dec));
-            }
-        }
-        Err("no AV1 decoder available".into())
-    } else {
-        Err(format!("unsupported codec 0x{fourcc:08x}"))
     }
 }
