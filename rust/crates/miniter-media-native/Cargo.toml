@@ -37,7 +37,7 @@ bytes = "1"
 videoson = { version = "*", default-features = false, optional = true }
 
 ass-core.workspace = true
-ass-renderer = { workspace = true, package = "ass-renderer", default-features = false, features = [
+ass-renderer = { workspace = true, default-features = false, features = [
     "software-backend",
     "image",
     "simd",

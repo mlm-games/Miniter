@@ -13,6 +13,16 @@ pub struct VideosonBackend {
     eos_sent: bool,
     backend_name: &'static str,
     allowed_fourccs: Vec<u32>,
+    /// Buffer of recent PTS values used to derive frame duration from the
+    /// minimum positive delta between sorted PTS values (display order).
+    pts_buffer: Vec<i64>,
+    /// Used to derive the true frame_duration_us for POC-based PTS correction.
+    min_pts_delta_us: i64,
+    /// Number of non-zero PTS values seen.  Once >= 2 the minimum delta
+    /// gives a reliable frame duration and POC correction is activated.
+    non_zero_pts_seen: u64,
+    /// Cached duration derived from min_pts_delta_us.
+    frame_duration_us: u64,
 }
 
 impl VideosonBackend {
@@ -27,6 +37,10 @@ impl VideosonBackend {
             eos_sent: false,
             backend_name,
             allowed_fourccs,
+            pts_buffer: Vec::new(),
+            min_pts_delta_us: i64::MAX,
+            non_zero_pts_seen: 0,
+            frame_duration_us: 0,
         }
     }
 
@@ -279,6 +293,32 @@ impl VideoDecoderBackend for VideosonBackend {
         pts_us: i64,
         is_sync: bool,
     ) -> Result<Option<RgbaFrame>, DecodeBackendError> {
+        // We use minimum delta rather because µs-precision PTS values
+        // have truncation noise (e.g. 33333.333 becomes 33333)
+        if pts_us > 0 {
+            self.pts_buffer.push(pts_us);
+            self.non_zero_pts_seen += 1;
+        }
+        if self.non_zero_pts_seen >= 2 && self.pts_buffer.len() >= 2 {
+            let mut sorted = self.pts_buffer.clone();
+            sorted.sort_unstable();
+            let mut min_delta = i64::MAX;
+            for pair in sorted.windows(2) {
+                let d = pair[1] - pair[0];
+                if d > 0 && d < min_delta {
+                    min_delta = d;
+                }
+            }
+            if min_delta < self.min_pts_delta_us {
+                self.min_pts_delta_us = min_delta;
+                let new_fd = min_delta as u64;
+                if new_fd != self.frame_duration_us {
+                    self.frame_duration_us = new_fd;
+                    self.inner.set_frame_duration_micros(new_fd);
+                }
+            }
+        }
+
         let packet = VideoPacket {
             track_id: 0,
             pts: Some(pts_us * 1000),
@@ -307,8 +347,12 @@ impl VideoDecoderBackend for VideosonBackend {
     }
 
     fn reset(&mut self) {
-        self.inner.reset();
+        let _ = self.inner.reset();
         self.queued.clear();
         self.eos_sent = false;
+        self.pts_buffer.clear();
+        self.min_pts_delta_us = i64::MAX;
+        self.non_zero_pts_seen = 0;
+        self.frame_duration_us = 0;
     }
 }

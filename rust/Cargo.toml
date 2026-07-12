@@ -54,6 +54,8 @@ videoson = { git = "https://github.com/mlm-games/videoson" }
 
 symphonia-format-isomp4 = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-isomp4" }
 symphonia-core = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-core" }
+
+# videoson = { path = "../../../Documents/Repos/videoson/videoson", package = "videoson" }
 # web-codecs = { path = "../../../Documents/Repos/web-rs/web-codecs" }
 # baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baabaabaabaabababbababbaa" }
 

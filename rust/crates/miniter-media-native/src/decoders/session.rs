@@ -12,6 +12,7 @@ pub struct VideoDecodeSession {
     backend: Box<dyn crate::demux::VideoDecoderBackend>,
     demux_eos: bool,
     finished: bool,
+    reorder: Vec<RgbaFrame>,
 }
 
 impl VideoDecodeSession {
@@ -61,7 +62,7 @@ impl VideoDecodeSession {
             backend.name(),
         );
 
-        Ok(Self { demuxer, backend, demux_eos: false, finished: false })
+        Ok(Self { demuxer, backend, demux_eos: false, finished: false, reorder: Vec::new() })
     }
 
     /// Decode the next frame from the stream.
@@ -76,21 +77,27 @@ impl VideoDecodeSession {
             return Ok(None);
         }
 
-        // Demuxer has reached EOS; drain remaining frames from the decoder.
+        // Drain remaining frames from the decoder into the reorder buffer.
         if self.demux_eos {
-            match self.backend.finish().map_err(DecodeError::from)? {
-                Some(frame) => return Ok(Some(frame)),
-                None => {
-                    self.finished = true;
-                    return Ok(None);
-                }
+            while let Some(frame) = self.backend.finish().map_err(DecodeError::from)? {
+                let pos = self
+                    .reorder
+                    .binary_search_by(|f| f.pts_us.cmp(&frame.pts_us))
+                    .unwrap_or_else(|e| e);
+                self.reorder.insert(pos, frame);
             }
+            if !self.reorder.is_empty() {
+                return Ok(Some(self.reorder.remove(0)));
+            }
+            self.finished = true;
+            return Ok(None);
         }
 
         #[cfg(target_arch = "wasm32")]
         const MAX_PACKETS: u32 = 16;
         #[cfg(not(target_arch = "wasm32"))]
         const MAX_PACKETS: u32 = u32::MAX;
+        const REORDER_DEPTH: usize = 2;
 
         let mut packets_sent = 0u32;
         loop {
@@ -104,7 +111,17 @@ impl VideoDecodeSession {
                         self.backend
                             .decode_frame(&sample.data, sample.pts_us, sample.is_sync)?
                     {
-                        return Ok(Some(frame));
+                        let pos = self
+                            .reorder
+                            .binary_search_by(|f| f.pts_us.cmp(&frame.pts_us))
+                            .unwrap_or_else(|e| e);
+                        self.reorder.insert(pos, frame);
+
+                        // First frame: emit immediately (it always has the smallest PTS).
+                        // After that, buffer at least 2 frames to resolve B-frame reorder.
+                        if self.reorder.len() >= REORDER_DEPTH {
+                            return Ok(Some(self.reorder.remove(0)));
+                        }
                     }
                     packets_sent += 1;
                     if packets_sent >= MAX_PACKETS {
@@ -128,6 +145,7 @@ impl VideoDecodeSession {
     pub fn reset(&mut self) -> Result<(), DecodeError> {
         self.finished = false;
         self.demux_eos = false;
+        self.reorder.clear();
         self.demuxer.reset()?;
         self.backend.reset();
         Ok(())
@@ -162,6 +180,7 @@ impl VideoDecodeSession {
         self.demuxer.seek_to_sample(sample_id)?;
         self.finished = false;
         self.demux_eos = false;
+        self.reorder.clear();
         self.backend.reset();
         Ok(())
     }
