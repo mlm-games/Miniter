@@ -23,6 +23,13 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.7.5" date="2026-07-12" type="stable">
+      <description>
+        <ul>
+          <li>Add h265, vp8, vp9 software decoders</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.7.4" date="2026-07-10" type="stable">
       <description>
         <ul>

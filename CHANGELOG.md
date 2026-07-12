@@ -1,3 +1,8 @@
+## v0.7.5
+
+- Add h265, vp8, vp9 software decoders
+
+
 ## v0.7.4
 
 - h265 and vp9 (slight) still stutter when exported on my devices, but they might work differently elsewhere so will wait... (though would recommend converting to AV1 always before importing)
