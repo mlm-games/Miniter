@@ -97,7 +97,7 @@ impl VideoDecodeSession {
         const MAX_PACKETS: u32 = 16;
         #[cfg(not(target_arch = "wasm32"))]
         const MAX_PACKETS: u32 = u32::MAX;
-        const REORDER_DEPTH: usize = 2;
+        const REORDER_DEPTH: usize = 8;
 
         let mut packets_sent = 0u32;
         loop {
