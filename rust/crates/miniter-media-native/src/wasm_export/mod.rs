@@ -512,7 +512,7 @@ fn export_h264_mp4_bytes(
         .encode_frame(&first_frame)
         .map_err(|e| format!("H.264 encode failed: {e}"))?;
     let (first_bytes, first_keyframe) = match first_output {
-        EncodedVideoOutput::Sample { bytes, is_keyframe } => (bytes, is_keyframe),
+        EncodedVideoOutput::Sample { bytes, is_keyframe, .. } => (bytes, is_keyframe),
         EncodedVideoOutput::Skipped => return Err("H.264 encoder skipped first frame".to_string()),
     };
 
@@ -569,7 +569,7 @@ fn export_h264_mp4_bytes(
                 .map_err(|e| format!("H.264 encode failed: {e}"))?;
 
             let (bytes, keyframe) = match encoded {
-                EncodedVideoOutput::Sample { bytes, is_keyframe } => (bytes, is_keyframe),
+                EncodedVideoOutput::Sample { bytes, is_keyframe, .. } => (bytes, is_keyframe),
                 EncodedVideoOutput::Skipped => {
                     return Err("H.264 encoder skipped frame".to_string());
                 }

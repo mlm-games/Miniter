@@ -280,20 +280,35 @@ fn encode_and_mux(
     };
 
     let mut encoded_packets: Vec<(u64, Vec<u8>, bool)> = Vec::new();
+    let mut encoder_pts_list: Vec<(u32, i64)> = Vec::new();
     let mut first = true;
     let mut sps_pps = None;
+    let mut enc_dips = 0u32;
+    let mut enc_prev_pts: Option<i64> = None;
+    let mut enc_frame_idx = 0u32;
 
     while let Some(frame) = session.next_frame()? {
         let output = match &mut encoder {
             Encoder::Sw(e) => e.encode_frame(&frame)?,
             Encoder::Hw(e) => e.encode_frame(&frame)?,
         };
-        let (bytes, keyframe) = match output {
-            miniter_media_native::encoder::EncodedVideoOutput::Sample { bytes, is_keyframe } => {
-                (bytes, is_keyframe)
+        let (bytes, keyframe, enc_pts_us) = match output {
+            miniter_media_native::encoder::EncodedVideoOutput::Sample { bytes, is_keyframe, pts_us } => {
+                (bytes, is_keyframe, pts_us)
             }
             miniter_media_native::encoder::EncodedVideoOutput::Skipped => continue,
         };
+
+        encoder_pts_list.push((enc_frame_idx, enc_pts_us));
+        if let Some(prev) = enc_prev_pts {
+            if enc_pts_us < prev && prev - enc_pts_us > 100 {
+                enc_dips += 1;
+                eprintln!("  ⚠️  Encoder PTS dip #{}: frame_idx={}, prev={}µs -> curr={}µs",
+                    enc_dips, enc_frame_idx, prev, enc_pts_us);
+            }
+        }
+        enc_prev_pts = Some(enc_pts_us);
+        enc_frame_idx += 1;
 
         if first {
             if let Some((sps, pps)) = extract_sps_pps(&bytes) {
@@ -304,7 +319,19 @@ fn encode_and_mux(
             first = false;
         }
 
-        encoded_packets.push((frame.pts_us as u64, bytes, keyframe));
+        encoded_packets.push((enc_pts_us as u64, bytes, keyframe));
+    }
+
+    if std::env::var("TRACE_ENCODER_PTS").is_ok() {
+        eprintln!("  Encoder PTS trace (all {} frames):", encoder_pts_list.len());
+        for &(idx, pts) in &encoder_pts_list {
+            eprintln!("    enc[{idx:>4}] = {pts:>10}µs");
+        }
+    }
+
+    if enc_dips > 0 {
+        eprintln!("  ❌ Encoder PTS FAIL: {enc_dips} dips in encoder output");
+        return Err(format!("encoder PTS: {enc_dips} dips >100µs in encoder output").into());
     }
 
     if let Some(dummy) = RgbaFrame::new(w, h, vec![0u8; (w * h * 4) as usize], 0) {
@@ -336,6 +363,36 @@ fn encode_and_mux(
         muxer.finish()?;
         eprintln!("  📦 Muxed {} packets to {out_path}", encoded_packets.len());
     }
+    drop(session);
+
+    // Re-decode the muxed output and verify PTS monotonicity
+    let mut re_session = VideoDecodeSession::open(Path::new(out_path), false)?;
+    let mut prev: Option<i64> = None;
+    let mut re_dips = 0u32;
+    let mut re_count = 0u32;
+    let mut re_frames: Vec<(u32, i64)> = Vec::new();
+    while let Some(f) = re_session.next_frame()? {
+        let pts = f.pts_us;
+        re_frames.push((re_count, pts));
+        if let Some(p) = prev {
+            if pts < p && p - pts > 100 {
+                re_dips += 1;
+            }
+        }
+        prev = Some(pts);
+        re_count += 1;
+    }
+    if re_dips > 0 || re_count == 0 {
+        eprintln!("  ❌ Encode round-trip PTS FAIL: {re_dips} dips, {re_count} frames");
+        for &(idx, pts) in re_frames.iter().take(10) {
+            eprintln!("    {idx:>4} {pts:>10}µs");
+        }
+        return Err(format!(
+            "encode round-trip: {re_dips} PTS dips >100µs in re-decoded output ({re_count} frames)"
+        )
+        .into());
+    }
+    eprintln!("  ✅ Encode round-trip: {re_count} frames, PTS OK");
 
     Ok(())
 }

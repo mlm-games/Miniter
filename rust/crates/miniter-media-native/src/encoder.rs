@@ -23,7 +23,7 @@ pub enum EncodeError {
 
 #[derive(Debug)]
 pub enum EncodedVideoOutput {
-    Sample { bytes: Vec<u8>, is_keyframe: bool },
+    Sample { bytes: Vec<u8>, is_keyframe: bool, pts_us: i64 },
     Skipped,
 }
 
@@ -112,6 +112,7 @@ impl VideoEncodeSession {
         Ok(EncodedVideoOutput::Sample {
             bytes,
             is_keyframe: true,
+            pts_us: frame.pts_us,
         })
     }
 

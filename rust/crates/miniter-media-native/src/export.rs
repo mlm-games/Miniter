@@ -700,7 +700,7 @@ where
     };
     let first_output = encoder.encode_frame(&first_frame)?;
     let (bytes, is_keyframe) = match first_output {
-        EncodedVideoOutput::Sample { bytes, is_keyframe } => (bytes, is_keyframe),
+        EncodedVideoOutput::Sample { bytes, is_keyframe, .. } => (bytes, is_keyframe),
         EncodedVideoOutput::Skipped => {
             return Err(EncodeError::SkippedFrame { frame_index: 0 }.into());
         }
@@ -743,7 +743,7 @@ where
         };
         let output = encoder.encode_frame(&frame)?;
         let (bytes, is_keyframe) = match output {
-            EncodedVideoOutput::Sample { bytes, is_keyframe } => (bytes, is_keyframe),
+            EncodedVideoOutput::Sample { bytes, is_keyframe, .. } => (bytes, is_keyframe),
             EncodedVideoOutput::Skipped => {
                 return Err(EncodeError::SkippedFrame {
                     frame_index: frame_count,

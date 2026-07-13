@@ -49,10 +49,10 @@ impl EncoderBackend for H264SwBackend {
             .encode_frame(frame)
             .map_err(|e| format!("H.264 encode failed: {e}"))?
         {
-            EncodedVideoOutput::Sample { bytes, is_keyframe } => Ok(vec![EncodedPacket {
+            EncodedVideoOutput::Sample { bytes, is_keyframe, pts_us } => Ok(vec![EncodedPacket {
                 data: bytes,
                 is_keyframe,
-                pts_us: frame.pts_us.max(0) as u64,
+                pts_us: pts_us.max(0) as u64,
             }]),
             EncodedVideoOutput::Skipped => Err("H.264 encoder skipped frame".to_string()),
         }

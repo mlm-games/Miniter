@@ -752,7 +752,6 @@ dependencies = [
 [[package]]
 name = "cros-codecs"
 version = "0.0.10"
-source = "git+https://github.com/mlm-games/cros-codecs?branch=main#86803dc9e7a5e18e06571a7b2709db375a94f09f"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3413,7 +3412,6 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "videoson"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#683ada93c899b9681d0b437053057e4eb58d662d"
 dependencies = [
  "videoson-codec-h264",
  "videoson-codec-h265",
@@ -3427,7 +3425,6 @@ dependencies = [
 [[package]]
 name = "videoson-codec-h264"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#683ada93c899b9681d0b437053057e4eb58d662d"
 dependencies = [
  "rust_h264",
  "videoson-core",
@@ -3436,7 +3433,6 @@ dependencies = [
 [[package]]
 name = "videoson-codec-h265"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#683ada93c899b9681d0b437053057e4eb58d662d"
 dependencies = [
  "rust_h265",
  "videoson-common",
@@ -3446,7 +3442,6 @@ dependencies = [
 [[package]]
 name = "videoson-codec-rav1d"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#683ada93c899b9681d0b437053057e4eb58d662d"
 dependencies = [
  "rav1d-safe",
  "videoson-core",
@@ -3455,7 +3450,6 @@ dependencies = [
 [[package]]
 name = "videoson-codec-vp8"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#683ada93c899b9681d0b437053057e4eb58d662d"
 dependencies = [
  "oxideav-vp8",
  "videoson-core",
@@ -3464,7 +3458,6 @@ dependencies = [
 [[package]]
 name = "videoson-codec-vp9"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#683ada93c899b9681d0b437053057e4eb58d662d"
 dependencies = [
  "oxideav-vp9",
  "videoson-core",
@@ -3473,12 +3466,10 @@ dependencies = [
 [[package]]
 name = "videoson-common"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#683ada93c899b9681d0b437053057e4eb58d662d"
 
 [[package]]
 name = "videoson-core"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#683ada93c899b9681d0b437053057e4eb58d662d"
 
 [[package]]
 name = "walkdir"

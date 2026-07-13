@@ -191,6 +191,7 @@ mod hw {
                     Some(f) => Ok(EncodedVideoOutput::Sample {
                         bytes: std::mem::take(&mut f.bytes),
                         is_keyframe: is_first || f.is_keyframe,
+                        pts_us: f.pts_us as i64,
                     }),
                     None => Err(EncodeError::SkippedFrame { frame_index: idx }),
                 }
@@ -219,6 +220,7 @@ mod hw {
                         Ok(EncodedVideoOutput::Sample {
                             bytes,
                             is_keyframe: is_first || pkt.keyframe,
+                            pts_us: pkt.timestamp.as_micros() as i64,
                         })
                     }
                     None => Err(EncodeError::SkippedFrame { frame_index: idx }),
