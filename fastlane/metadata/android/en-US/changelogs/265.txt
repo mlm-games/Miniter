@@ -1,0 +1,1 @@
+- add Dynamic Theme support (for android)

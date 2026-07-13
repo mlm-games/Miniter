@@ -23,6 +23,13 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.8.2" date="2026-07-13" type="stable">
+      <description>
+        <ul>
+          <li>add Dynamic Theme support (for android)</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.1" date="2026-07-13" type="stable">
       <description>
         <ul>

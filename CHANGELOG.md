@@ -1,3 +1,8 @@
+## v0.8.2
+
+- add Dynamic Theme support (for android)
+
+
 ## v0.8.1
 
 - move pts correction to the baa4ba crate
