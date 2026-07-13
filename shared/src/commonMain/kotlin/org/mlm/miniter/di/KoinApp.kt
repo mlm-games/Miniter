@@ -1,6 +1,8 @@
 package org.mlm.miniter.di
 
 import androidx.compose.runtime.Composable
+import io.github.aakira.napier.DebugAntilog
+import io.github.aakira.napier.Napier
 import io.github.mlmgames.settings.core.SettingsRepository
 import org.koin.compose.KoinApplication
 import org.koin.core.context.startKoin
@@ -28,6 +30,7 @@ fun initKoin(
     settingsRepository: SettingsRepository<AppSettings>,
     additionalModules: List<Module> = emptyList()
 ) {
+    Napier.base(DebugAntilog())
     startKoin {
         modules(appModules(settingsRepository) + additionalModules)
     }

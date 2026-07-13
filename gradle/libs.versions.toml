@@ -34,6 +34,7 @@ composeMediaPlayer = "0.10.0"
 apkDist = "0.5.2"
 rustUniffi = "0.2.3"
 jna = "5.18.1"
+napier = "2.7.1"
 
 
 [libraries]
@@ -79,6 +80,7 @@ okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 ffmpegkit-full = { module = "com.mrljdx:ffmpeg-kit-full", version.ref = "ffmpegkit" }
 compose-media-player = { module = "io.github.kdroidfilter:composemediaplayer", version.ref = "composeMediaPlayer" }
 net-jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
+napier = { module = "io.github.aakira:napier", version.ref = "napier" }
 
 
 [plugins]

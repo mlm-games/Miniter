@@ -1,5 +1,6 @@
 package org.mlm.miniter.rust
 
+import io.github.aakira.napier.Napier
 import kotlinx.coroutines.await
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
@@ -172,7 +173,7 @@ actual class RustCoreSession private constructor(
                 )
             }
             if (payload.durationUs == 0L && payload.width > 0) {
-                println("WARNING: probeVideo returned 0 duration for valid-dimension file: $path (codec=${payload.videoCodec})")
+                Napier.w("probeVideo returned 0 duration for valid-dimension file: $path (codec=${payload.videoCodec})")
             }
             return VideoInfo(
                 durationMs = payload.durationUs / 1000L,

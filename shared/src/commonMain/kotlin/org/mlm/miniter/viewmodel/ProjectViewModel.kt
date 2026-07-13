@@ -2,6 +2,7 @@ package org.mlm.miniter.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.aakira.napier.Napier
 import io.github.mlmgames.settings.core.SettingsRepository
 import io.github.vinceglb.filekit.PlatformFile
 import kotlinx.coroutines.Job
@@ -244,7 +245,7 @@ class ProjectViewModel(
                     recentProjectsRepository.addRecent(savePath, name)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Napier.e("Failed to open media", e)
                 handleError("Failed to open media: ${e.message}")
             }
         }
@@ -299,7 +300,7 @@ class ProjectViewModel(
                     sourceDurationMs = try {
                         engine.probeVideo(sourcePath).durationMs
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        Napier.e("Failed to probe video for thumbnails", e)
                         clip.timelineDurationUs / 1000L
                     }
                     loadThumbnails(sourcePath)
@@ -440,7 +441,7 @@ class ProjectViewModel(
                     recentProjectsRepository.addRecent(savePath, name)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Napier.e("Failed to create project", e)
                 handleError("Failed to create project: ${e.message}")
             }
         }
@@ -688,7 +689,7 @@ class ProjectViewModel(
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.show("Imported ${items.size} file(s)")
             } catch (e: Exception) {
-                e.printStackTrace()
+                Napier.e("Failed to import media", e)
                 handleError("Failed to import: ${e.message}")
             }
         }

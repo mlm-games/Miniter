@@ -1,5 +1,6 @@
 package org.mlm.miniter.rust
 
+import io.github.aakira.napier.Napier
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.ffi.EditorHandle as NativeEditorHandle
@@ -59,7 +60,7 @@ actual class RustCoreSession private constructor(
         actual fun probeVideo(path: String): VideoInfo {
             val result = nativeProbeVideo(path)
             if (result.durationUs == 0L && result.width > 0u) {
-                println("WARNING: probeVideo returned 0 duration for file with valid dimensions: $path (codec=${result.videoCodec})")
+                Napier.w("probeVideo returned 0 duration for file with valid dimensions: $path (codec=${result.videoCodec})")
             }
             return VideoInfo(
                 durationMs = result.durationUs / 1000L,

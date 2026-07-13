@@ -374,6 +374,7 @@ kotlin {
             implementation(libs.filekit.dialogs.compose)
             implementation(libs.compose.media.player)
             implementation(libs.okio)
+            implementation(libs.napier)
         }
 
         androidMain.dependencies {
