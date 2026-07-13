@@ -27,8 +27,12 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "Miniter"
-            packageVersion = (System.getenv("APP_VERSION") ?: "1.0.1")
-                .replace(Regex("^0+"), "").let { if (it.startsWith(".") || it.isEmpty()) "1$it" else it }
+            
+            // Common base version (strip leading zeros, needed for mac)
+            val rawVersion = System.getenv("APP_VERSION") ?: "1.0.1"
+            val strippedVersion = rawVersion.replace(Regex("^0+"), "")
+            packageVersion = if (strippedVersion.isEmpty()) "1.0.1" else strippedVersion   // or just strippedVersion / rawVersion?
+            
             description = "Miniter Video Editor"
             vendor = "MLM Games"
 
@@ -45,6 +49,11 @@ compose.desktop {
             macOS {
                 iconFile.set(project.file("../packaging/icon.icns"))
                 bundleID = "org.mlm.miniter"
+                
+                // Replace with 1 when it starts with . or is empty
+                packageVersion = strippedVersion.let { 
+                    if (it.startsWith(".") || it.isEmpty()) "1$it" else it 
+                }
             }
 
             linux {
