@@ -2,6 +2,27 @@
 
 use crate::frame::{ChromaSiting, ColorInfo, ColorRange, MatrixCoeffs};
 
+/// Bilinear-chroma coordinate for a given output (col, row).
+/// Returns the four nearest chroma-sample indices and fractional weights.
+#[derive(Clone, Copy)]
+struct ChromaCoord {
+    ix0: usize, ix1: usize, fx: f32,
+    iy0: usize, iy1: usize, fy: f32,
+}
+
+#[inline(always)]
+fn chroma_coord(col: usize, row: usize, cw: usize, ch: usize, siting: ChromaSiting) -> ChromaCoord {
+    let (cx, cy) = match siting {
+        ChromaSiting::Center => (col as f32 / 2.0 - 0.25, row as f32 / 2.0 - 0.25),
+        ChromaSiting::Left | ChromaSiting::TopLeft => (col as f32 / 2.0, row as f32 / 2.0),
+    };
+    let ix0 = (cx.floor() as usize).min(cw.saturating_sub(1));
+    let ix1 = (ix0 + 1).min(cw.saturating_sub(1));
+    let iy0 = (cy.floor() as usize).min(ch.saturating_sub(1));
+    let iy1 = (iy0 + 1).min(ch.saturating_sub(1));
+    ChromaCoord { ix0, ix1, fx: cx - cx.floor(), iy0, iy1, fy: cy - cy.floor() }
+}
+
 fn get_matrix_coeffs(matrix: MatrixCoeffs, _height: usize) -> (f32, f32, f32, f32, f32) {
     let (kr, kb) = match matrix {
         MatrixCoeffs::Bt601 => (0.299_f32, 0.114_f32),
@@ -15,43 +36,6 @@ fn get_matrix_coeffs(matrix: MatrixCoeffs, _height: usize) -> (f32, f32, f32, f3
     let gu = -2.0 * kb * (1.0 - kb) / kg;
     let gv = -2.0 * kr * (1.0 - kr) / kg;
     (rv, bu, gu, gv, kr + kb)
-}
-
-/// Bilinear-interpolated chroma sample for 4:2:0.
-fn sample_chroma(
-    plane: &[u8],
-    stride: usize,
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    siting: ChromaSiting,
-) -> f32 {
-    let cw = (width + 1) / 2;
-    let ch = (height + 1) / 2;
-
-    let (cx, cy) = match siting {
-        ChromaSiting::Center => {
-            (x as f32 / 2.0 - 0.25, y as f32 / 2.0 - 0.25)
-        }
-        ChromaSiting::Left | ChromaSiting::TopLeft => {
-            (x as f32 / 2.0, y as f32 / 2.0)
-        }
-    };
-
-    let ix = (cx.floor() as usize).min(cw.saturating_sub(2));
-    let iy = (cy.floor() as usize).min(ch.saturating_sub(2));
-    let fx = cx - cx.floor();
-    let fy = cy - cy.floor();
-
-    let p00 = plane.get(iy * stride + ix).copied().unwrap_or(128) as f32 - 128.0;
-    let p10 = plane.get(iy * stride + (ix + 1).min(stride.saturating_sub(1))).copied().unwrap_or(128) as f32 - 128.0;
-    let p01 = plane.get((iy + 1).min(ch.saturating_sub(1)) * stride + ix).copied().unwrap_or(128) as f32 - 128.0;
-    let p11 = plane.get((iy + 1).min(ch.saturating_sub(1)) * stride + (ix + 1).min(stride.saturating_sub(1))).copied().unwrap_or(128) as f32 - 128.0;
-
-    let top = lerp(p00, p10, fx);
-    let bot = lerp(p01, p11, fx);
-    lerp(top, bot, fy)
 }
 
 /// Convert a planar I420 (YUV 4:2:0) frame to packed RGBA.
@@ -88,12 +72,27 @@ pub fn yuv420_to_rgba(
         1.0
     };
 
+    let cw = (width + 1) / 2;
+    let ch = (height + 1) / 2;
+
     for row in 0..height {
         for col in 0..width {
             let yi = row * y_stride + col;
-            let y_val = (y.get(yi).copied().unwrap_or(0) as f32 - y_offset) * y_scale;
-            let u_val = sample_chroma(u, u_stride, col, row, width, height, color_info.chroma_siting) * chroma_scale;
-            let v_val = sample_chroma(v, v_stride, col, row, width, height, color_info.chroma_siting) * chroma_scale;
+            let y_val = (y[yi] as f32 - y_offset) * y_scale;
+
+            let cc = chroma_coord(col, row, cw, ch, color_info.chroma_siting);
+
+            let u00 = u[cc.iy0 * u_stride + cc.ix0] as f32 - 128.0;
+            let u10 = u[cc.iy0 * u_stride + cc.ix1] as f32 - 128.0;
+            let u01 = u[cc.iy1 * u_stride + cc.ix0] as f32 - 128.0;
+            let u11 = u[cc.iy1 * u_stride + cc.ix1] as f32 - 128.0;
+            let u_val = lerp(lerp(u00, u10, cc.fx), lerp(u01, u11, cc.fx), cc.fy) * chroma_scale;
+
+            let v00 = v[cc.iy0 * v_stride + cc.ix0] as f32 - 128.0;
+            let v10 = v[cc.iy0 * v_stride + cc.ix1] as f32 - 128.0;
+            let v01 = v[cc.iy1 * v_stride + cc.ix0] as f32 - 128.0;
+            let v11 = v[cc.iy1 * v_stride + cc.ix1] as f32 - 128.0;
+            let v_val = lerp(lerp(v00, v10, cc.fx), lerp(v01, v11, cc.fx), cc.fy) * chroma_scale;
 
             let r = (y_val + rv_coeff * v_val).clamp(0.0, 255.0) as u8;
             let g = (y_val + gu_coeff * u_val + gv_coeff * v_val).clamp(0.0, 255.0) as u8;
@@ -178,33 +177,21 @@ fn nv12_to_rgba_impl(
     for row in 0..height {
         for col in 0..width {
             let yi = row * y_stride + col;
-            let y_val = (y.get(yi).copied().unwrap_or(0) as f32 - y_offset) * y_scale;
+            let y_val = (y[yi] as f32 - y_offset) * y_scale;
 
-            let (cx, cy) = match color_info.chroma_siting {
-                ChromaSiting::Center => {
-                    (col as f32 / 2.0 - 0.25, row as f32 / 2.0 - 0.25)
-                }
-                ChromaSiting::Left | ChromaSiting::TopLeft => {
-                    (col as f32 / 2.0, row as f32 / 2.0)
-                }
-            };
+            let cc = chroma_coord(col, row, cw, ch, color_info.chroma_siting);
 
-            let ix = (cx.floor() as usize).min(cw.saturating_sub(2));
-            let iy = (cy.floor() as usize).min(ch.saturating_sub(2));
-            let fx = cx - cx.floor();
-            let fy = cy - cy.floor();
+            let u00 = uv[cc.iy0 * uv_stride + cc.ix0 * 2] as f32 - 128.0;
+            let v00 = uv[cc.iy0 * uv_stride + cc.ix0 * 2 + 1] as f32 - 128.0;
+            let u10 = uv[cc.iy0 * uv_stride + cc.ix1 * 2] as f32 - 128.0;
+            let v10 = uv[cc.iy0 * uv_stride + cc.ix1 * 2 + 1] as f32 - 128.0;
+            let u01 = uv[cc.iy1 * uv_stride + cc.ix0 * 2] as f32 - 128.0;
+            let v01 = uv[cc.iy1 * uv_stride + cc.ix0 * 2 + 1] as f32 - 128.0;
+            let u11 = uv[cc.iy1 * uv_stride + cc.ix1 * 2] as f32 - 128.0;
+            let v11 = uv[cc.iy1 * uv_stride + cc.ix1 * 2 + 1] as f32 - 128.0;
 
-            let u00 = uv.get(iy * uv_stride + ix * 2).copied().unwrap_or(128) as f32 - 128.0;
-            let v00 = uv.get(iy * uv_stride + ix * 2 + 1).copied().unwrap_or(128) as f32 - 128.0;
-            let u10 = uv.get(iy * uv_stride + (ix + 1).min(cw - 1) * 2).copied().unwrap_or(128) as f32 - 128.0;
-            let v10 = uv.get(iy * uv_stride + (ix + 1).min(cw - 1) * 2 + 1).copied().unwrap_or(128) as f32 - 128.0;
-            let u01 = uv.get((iy + 1).min(ch - 1) * uv_stride + ix * 2).copied().unwrap_or(128) as f32 - 128.0;
-            let v01 = uv.get((iy + 1).min(ch - 1) * uv_stride + ix * 2 + 1).copied().unwrap_or(128) as f32 - 128.0;
-            let u11 = uv.get((iy + 1).min(ch - 1) * uv_stride + (ix + 1).min(cw - 1) * 2).copied().unwrap_or(128) as f32 - 128.0;
-            let v11 = uv.get((iy + 1).min(ch - 1) * uv_stride + (ix + 1).min(cw - 1) * 2 + 1).copied().unwrap_or(128) as f32 - 128.0;
-
-            let u_val = lerp(lerp(u00, u10, fx), lerp(u01, u11, fx), fy) * chroma_scale;
-            let v_val = lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fy) * chroma_scale;
+            let u_val = lerp(lerp(u00, u10, cc.fx), lerp(u01, u11, cc.fx), cc.fy) * chroma_scale;
+            let v_val = lerp(lerp(v00, v10, cc.fx), lerp(v01, v11, cc.fx), cc.fy) * chroma_scale;
 
             let r = (y_val + rv_coeff * v_val).clamp(0.0, 255.0) as u8;
             let g = (y_val + gu_coeff * u_val + gv_coeff * v_val).clamp(0.0, 255.0) as u8;
