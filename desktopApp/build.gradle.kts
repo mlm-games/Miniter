@@ -28,10 +28,9 @@ compose.desktop {
             targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "Miniter"
             
-            // Common base version (strip leading zeros, needed for mac)
             val rawVersion = System.getenv("APP_VERSION") ?: "1.0.1"
             val strippedVersion = rawVersion.replace(Regex("^0+"), "")
-            packageVersion = if (strippedVersion.isEmpty()) "1.0.1" else strippedVersion   // or just strippedVersion / rawVersion?
+            packageVersion = rawVersion
             
             description = "Miniter Video Editor"
             vendor = "MLM Games"
