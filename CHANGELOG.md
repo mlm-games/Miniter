@@ -1,3 +1,14 @@
+## v0.8.1
+
+- move pts correction to the baa4ba crate
+- fix h265 cros-codecs issue
+- chorma speed inc. and deduping
+- add monochrome icon
+- colorProfile (to fix the mismatched chroma issue)
+- change REORDER_DEPTH to 8
+- fix h265 parsing (though seek shouldn't work for thumbnails?)
+
+
 ## v0.7.5
 
 - Add h265, vp8, vp9 software decoders

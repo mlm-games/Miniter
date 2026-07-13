@@ -23,6 +23,19 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.8.1" date="2026-07-13" type="stable">
+      <description>
+        <ul>
+          <li>move pts correction to the baa4ba crate</li>
+          <li>fix h265 cros-codecs issue</li>
+          <li>chorma speed inc. and deduping</li>
+          <li>add monochrome icon</li>
+          <li>colorProfile (to fix the mismatched chroma issue)</li>
+          <li>change REORDER_DEPTH to 8</li>
+          <li>fix h265 parsing (though seek shouldn't work for thumbnails?)</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.7.5" date="2026-07-12" type="stable">
       <description>
         <ul>
