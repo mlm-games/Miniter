@@ -29,6 +29,7 @@ impl ImageCache {
             height,
             data,
             pts_us: 0,
+            color_info: Default::default(),
         };
         self.cache.insert(key, frame.clone());
         Ok(frame)

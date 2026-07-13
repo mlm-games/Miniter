@@ -696,6 +696,7 @@ where
         height,
         data: first_rgba,
         pts_us: first_plan.timestamp.as_micros(),
+        color_info: Default::default(),
     };
     let first_output = encoder.encode_frame(&first_frame)?;
     let (bytes, is_keyframe) = match first_output {
@@ -738,6 +739,7 @@ where
             height,
             data: rgba,
             pts_us: plan.timestamp.as_micros(),
+            color_info: Default::default(),
         };
         let output = encoder.encode_frame(&frame)?;
         let (bytes, is_keyframe) = match output {
@@ -1181,6 +1183,7 @@ where
             height,
             data: rgba,
             pts_us: plan.timestamp.as_micros(),
+            color_info: Default::default(),
         };
 
         let packets = encoder.encode_frame(&frame)?;

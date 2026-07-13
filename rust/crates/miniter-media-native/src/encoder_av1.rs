@@ -1,4 +1,4 @@
-//! Encode RGBA frames → AV1 bitstream via rav1e.
+//! Encode RGBA frames -> AV1 bitstream via rav1e.
 
 use std::sync::Arc;
 

@@ -1,6 +1,6 @@
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
-use crate::frame::RgbaFrame;
+use crate::frame::{ColorInfo, RgbaFrame};
 use std::collections::VecDeque;
 use videoson::{
     CodecType, NalFormat, PixelFormat, Packet as VideoPacket, VideoCodecParams, VideoDecoder,
@@ -162,6 +162,8 @@ impl VideosonBackend {
         {
             let (w, h) = (frame.width as usize, frame.height as usize);
 
+            let color_info = ColorInfo::infer(h as u32);
+
             let rgba = match frame.pixfmt {
                 PixelFormat::Nv12 => {
                     let y = match &frame.plane_data[0].data {
@@ -180,24 +182,11 @@ impl VideosonBackend {
                             ));
                         }
                     };
+                    let y_stride = frame.plane_data[0].stride;
                     let uv_stride = frame.plane_data[1].stride;
-                    let mut rgba = vec![0u8; w * h * 4];
-                    for row in 0..h {
-                        for col in 0..w {
-                            let yi = row * frame.plane_data[0].stride + col;
-                            let uvi = (row / 2) * uv_stride + (col / 2) * 2;
-                            let yy = y[yi] as f32;
-                            let uu = uv.get(uvi).copied().unwrap_or(128) as f32 - 128.0;
-                            let vv = uv.get(uvi + 1).copied().unwrap_or(128) as f32 - 128.0;
-                            let base = (row * w + col) * 4;
-                            rgba[base] = (yy + 1.402 * vv).clamp(0.0, 255.0) as u8;
-                            rgba[base + 1] =
-                                (yy - 0.344136 * uu - 0.714136 * vv).clamp(0.0, 255.0) as u8;
-                            rgba[base + 2] = (yy + 1.772 * uu).clamp(0.0, 255.0) as u8;
-                            rgba[base + 3] = 255;
-                        }
-                    }
-                    rgba
+                    crate::yuv::nv12_to_rgba_separate(
+                        y, uv, w, h, y_stride, uv_stride, color_info,
+                    )
                 }
                 PixelFormat::Yuv420 => {
                     let y_stride = frame.plane_data[0].stride;
@@ -228,7 +217,7 @@ impl VideosonBackend {
                         })
                         .unwrap_or(&[]);
                     crate::yuv::yuv420_to_rgba(
-                        y_data, u_data, v_data, w, h, y_stride, u_stride, v_stride,
+                        y_data, u_data, v_data, w, h, y_stride, u_stride, v_stride, color_info,
                     )
                 }
                 PixelFormat::Gray => {
@@ -272,6 +261,7 @@ impl VideosonBackend {
                 } else {
                     fallback_pts_us
                 },
+                color_info,
             });
         }
         Ok(())

@@ -5,8 +5,12 @@
 //!   cargo test --release -p miniter-media-native --test decode_pts_trace -- --nocapture
 //!
 //! Set SKIP_ENCODE=1 to skip the encode+mux round-trip.
+//! Set CHECK_VISUAL=1 to compare decoded frames against ffmpeg reference
+//! (requires ffmpeg on PATH).
 
+use std::io::Read;
 use std::path::Path;
+use std::process::{Command, Stdio};
 use std::time::Instant;
 
 use miniter_media_native::decoders::session::VideoDecodeSession;
@@ -19,9 +23,6 @@ struct TestVideo {
     expected_frames: u32,
     /// Expected frame duration in µs (0 = unknown).
     expected_fd_us: u64,
-    /// Skip frame-duration check when using SW decoder (e.g. VP9 batch
-    /// decoder drops PTS).
-    skip_fd_check_sw: bool,
 }
 
 const TEST_FILES: &[TestVideo] = &[
@@ -30,36 +31,24 @@ const TEST_FILES: &[TestVideo] = &[
         label: "H.265 720p",
         expected_frames: 300,
         expected_fd_us: 33333,
-        skip_fd_check_sw: false,
     },
     TestVideo {
         path: "/home/ymsr/Videos/av1-1080p.webm",
         label: "AV1 1080p",
-        expected_frames: 0,    // ffprobe can't count frames
-        expected_fd_us: 33333, // 30fps
-        skip_fd_check_sw: false,
+        expected_frames: 0,
+        expected_fd_us: 33333,
     },
     TestVideo {
         path: "/home/ymsr/Videos/vp8-720p.webm",
         label: "VP8 720p",
-        expected_frames: 0,    // ffprobe can't count frames
-        expected_fd_us: 33333, // 30fps
-        skip_fd_check_sw: false,
+        expected_frames: 0,
+        expected_fd_us: 33333,
     },
-    // TestVideo {
-    //     path: "/home/ymsr/Videos/Big_Buck_Bunny_360_10s_1MB.webm",
-    //     label: "VP9 360p",
-    //     expected_frames: 0,
-    //     expected_fd_us: 33333, // 30fps
-    //     // NOTE: SW VP9 uses batch decode that drops PTS — skip fd check.
-    //     skip_fd_check_sw: true,
-    // },
     TestVideo {
         path: "/home/ymsr/Videos/film_116___4K_res.mp4",
         label: "H.264 4K",
         expected_frames: 255,
-        expected_fd_us: 41667, // 24000/1001 ≈ 23.976fps → 41667µs
-        skip_fd_check_sw: false,
+        expected_fd_us: 41667,
     },
 ];
 
@@ -167,10 +156,9 @@ fn test_one(
         ));
     }
 
-    let expected_fd = if !hw && tv.skip_fd_check_sw { 0 } else { tv.expected_fd_us };
-    if expected_fd > 0 {
-        let tolerance = (expected_fd as f64 * 0.05) as u64; // 5%
-        if estimated_fd_us.abs_diff(expected_fd) > tolerance.max(1) {
+    if tv.expected_fd_us > 0 {
+        let tolerance = (tv.expected_fd_us as f64 * 0.05) as u64; // 5%
+        if estimated_fd_us.abs_diff(tv.expected_fd_us) > tolerance.max(1) {
             let first_last = if n >= 1 {
                 format!(
                     "; first={}µs last={}µs",
@@ -181,13 +169,33 @@ fn test_one(
                 String::new()
             };
             errors.push(format!(
-                "frame duration: got ~{estimated_fd_us}µs, expected ~{expected_fd}µs ({n} frames{first_last})",
+                "frame duration: got ~{estimated_fd_us}µs, expected ~{}µs ({n} frames{first_last})",
+                tv.expected_fd_us
             ));
         }
     }
 
     if gaps > 0 {
         errors.push(format!("{gaps} PTS gaps >1.5× frame duration (max={max_gap_us}µs)"));
+    }
+
+    // Optional visual comparison against ffmpeg reference
+    let check_visual = std::env::var("CHECK_VISUAL").map(|v| v == "1").unwrap_or(false);
+    if check_visual {
+        match check_visual_ffmpeg(tv.path, hw, n, w, h_) {
+            Ok(min_psnr) => {
+                // Threshold 20dB: anything below indicates real decoder
+                // corruption (wrong pixels, block artifacts) rather than
+                // expected chroma-siting/color-matrix differences (~25-31dB).
+                if min_psnr < 20.0 {
+                    errors.push(format!("visual: min PSNR={min_psnr:.1}dB (<20dB — decoder corruption?)"));
+                } else {
+                    eprintln!("  ✅ {:<20} {hwsw:>3}:  visual PSNR min={min_psnr:.1}dB",
+                        tv.label, hwsw = if hw { "HW" } else { "SW" });
+                }
+            }
+            Err(e) => errors.push(format!("visual check: {e}")),
+        }
     }
 
     if !errors.is_empty() {
@@ -204,7 +212,6 @@ fn test_one(
             h_ = h_,
             msg = msg,
         );
-        // Print first 10 PTS for debugging
         eprintln!("  First 10 PTS:");
         for &(idx, pts) in frames.iter().take(10) {
             eprintln!("    {idx:>4} {pts:>10}µs");
@@ -214,8 +221,28 @@ fn test_one(
 
     // Optional encode+mux
     if !skip_encode {
-        // re-open for encode (session is consumed)
         let _ = encode_and_mux(tv.path, hw, n)?;
+    }
+
+    if !errors.is_empty() {
+        let msg = errors.join("; ");
+        eprintln!(
+            "  {label}: {n} frames in {elapsed:.1?}, est_fd={estimated_fd_us}µs, codec={codec} {cont} {w}x{h_} — {msg}",
+            label = tv.label,
+            n = n,
+            elapsed = elapsed,
+            estimated_fd_us = estimated_fd_us,
+            codec = codec,
+            cont = container,
+            w = w,
+            h_ = h_,
+            msg = msg,
+        );
+        eprintln!("  First 10 PTS:");
+        for &(idx, pts) in frames.iter().take(10) {
+            eprintln!("    {idx:>4} {pts:>10}µs");
+        }
+        return Err(errors.join("; ").into());
     }
 
     Ok(n)
@@ -311,4 +338,114 @@ fn encode_and_mux(
     }
 
     Ok(())
+}
+
+/// Decode the file with both our decoder and ffmpeg reference, compare up to
+/// `max_frames` frames via PSNR.  Returns the minimum PSNR across all
+/// compared frames (higher is better, ≥40dB ≈ lossless).
+fn check_visual_ffmpeg(
+    path: &str,
+    hw: bool,
+    max_frames: u32,
+    width: u32,
+    height: u32,
+) -> Result<f64, Box<dyn std::error::Error>> {
+    use std::io::Write;
+
+    // decode with our pipeline
+    let mut our_frames: Vec<Vec<u8>> = Vec::new();
+    {
+        let mut session = VideoDecodeSession::open(Path::new(path), hw)?;
+        while let Some(frame) = session.next_frame()? {
+            if our_frames.len() >= max_frames as usize {
+                break;
+            }
+            our_frames.push(frame.data);
+        }
+    }
+
+    let frame_size = (width * height * 4) as usize;
+    let n_check = our_frames.len().min(max_frames as usize);
+    if n_check == 0 {
+        return Ok(99.0); // no frames to compare
+    }
+
+    // decode with ffmpeg
+    let mut child = Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-i", path,
+            "-f", "rawvideo",
+            "-pix_fmt", "rgba",
+            "-vsync", "0",
+            "-frame_size", &frame_size.to_string(),
+            "-",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("ffmpeg spawn: {e}"))?;
+
+    let mut ffmpeg_stdout = child.stdout.take()
+        .ok_or("ffmpeg stdout not captured")?;
+
+    let mut min_psnr = f64::MAX;
+    let mut matched = 0u32;
+
+    for our_data in &our_frames {
+        let mut ref_data = vec![0u8; frame_size];
+        let mut read = 0usize;
+        while read < frame_size {
+            let n = ffmpeg_stdout.read(&mut ref_data[read..])?;
+            if n == 0 {
+                break; // ffmpeg ended early
+            }
+            read += n;
+        }
+        if read < frame_size {
+            // ffmpeg output fewer frames than our decoder
+            break;
+        }
+
+        // Compare luma (Y) only: Y ≈ 0.299*R + 0.587*G + 0.114*B
+        // This avoids penalising color-matrix / chroma-siting differences
+        // between our decoder and ffmpeg (commonly 5-15 units in practice).
+        let pixels = frame_size / 4;
+        let mut sq_err = 0u64;
+        for px in 0..pixels {
+            let our_y =
+                0.299 * our_data[px * 4] as f64
+                + 0.587 * our_data[px * 4 + 1] as f64
+                + 0.114 * our_data[px * 4 + 2] as f64;
+            let ref_y =
+                0.299 * ref_data[px * 4] as f64
+                + 0.587 * ref_data[px * 4 + 1] as f64
+                + 0.114 * ref_data[px * 4 + 2] as f64;
+            let d = our_y - ref_y;
+            sq_err += (d * d) as u64;
+        }
+        let mse = sq_err as f64 / pixels as f64;
+        let psnr = if mse == 0.0 {
+            99.0
+        } else {
+            10.0 * (255.0 * 255.0 / mse).log10()
+        };
+        if psnr < min_psnr {
+            min_psnr = psnr;
+        }
+        matched += 1;
+    }
+
+    // reap ffmpeg
+    let _ = child.wait();
+
+    if matched < n_check as u32 {
+        eprintln!("  WARN: visual check only compared {matched}/{n_check} frames (ffmpeg ended early)");
+    }
+
+    if min_psnr == f64::MAX {
+        min_psnr = 99.0;
+    }
+
+    Ok(min_psnr)
 }

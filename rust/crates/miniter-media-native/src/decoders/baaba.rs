@@ -3,7 +3,7 @@ use web_time::Duration;
 
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
-use crate::frame::RgbaFrame;
+use crate::frame::{ColorInfo, RgbaFrame};
 use baabaabaabaabababbababbaa::VideoDecoderInput as _;
 #[cfg(not(target_arch = "wasm32"))]
 use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
@@ -156,6 +156,7 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
     let pts_us = frame.timestamp.as_micros().min(i64::MAX as u128) as i64;
     let w = frame.dimensions.width as usize;
     let h = frame.dimensions.height as usize;
+    let color_info = ColorInfo::infer(frame.dimensions.height);
 
     match frame.planes {
         VideoPlanes::Cpu(data) => match frame.format {
@@ -165,12 +166,13 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 if data.len() >= luma + 2 * chroma {
                     let (y, rest) = data.split_at(luma);
                     let (u, v) = rest.split_at(chroma);
-                    let rgba = crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, w / 2, w / 2);
+                    let rgba = crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, w / 2, w / 2, color_info);
                     Ok(RgbaFrame {
                         width: frame.dimensions.width,
                         height: frame.dimensions.height,
                         data: rgba,
                         pts_us,
+                        color_info,
                     })
                 } else {
                     Err(DecodeBackendError::Other(
@@ -179,12 +181,13 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 }
             }
             PixelFormat::Nv12 => {
-                let rgba = crate::yuv::nv12_to_rgba(&data, w, h);
+                let rgba = crate::yuv::nv12_to_rgba(&data, w, h, color_info);
                 Ok(RgbaFrame {
                     width: frame.dimensions.width,
                     height: frame.dimensions.height,
                     data: rgba,
                     pts_us,
+                    color_info,
                 })
             }
             _ => Err(DecodeBackendError::Other(format!(

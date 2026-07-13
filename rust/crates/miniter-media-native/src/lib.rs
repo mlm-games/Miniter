@@ -33,6 +33,6 @@ pub mod yuv;
 pub use audio::{AudioDecodeError, AudioDecoder};
 pub use audio_export::{AudioSidecarExportError, write_audio_sidecar_if_present};
 pub use encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
-pub use frame::RgbaFrame;
+pub use frame::{ChromaSiting, ColorInfo, ColorRange, MatrixCoeffs, RgbaFrame};
 pub use probe::{MediaInfo, MediaProbeError};
 pub use thumbnailer::clear_session_cache;

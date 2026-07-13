@@ -1,5 +1,59 @@
 //! YUV ↔ RGBA pixel format helpers.
 
+use crate::frame::{ChromaSiting, ColorInfo, ColorRange, MatrixCoeffs};
+
+fn get_matrix_coeffs(matrix: MatrixCoeffs, _height: usize) -> (f32, f32, f32, f32, f32) {
+    let (kr, kb) = match matrix {
+        MatrixCoeffs::Bt601 => (0.299_f32, 0.114_f32),
+        MatrixCoeffs::Bt709 => (0.2126_f32, 0.0722_f32),
+        MatrixCoeffs::Bt2020Ncl => (0.2627_f32, 0.0593_f32),
+        MatrixCoeffs::Identity => return (1.0, 1.0, 0.0, 0.0, 0.0),
+    };
+    let kg = 1.0 - kr - kb;
+    let rv = 2.0 * (1.0 - kr);
+    let bu = 2.0 * (1.0 - kb);
+    let gu = -2.0 * kb * (1.0 - kb) / kg;
+    let gv = -2.0 * kr * (1.0 - kr) / kg;
+    (rv, bu, gu, gv, kr + kb)
+}
+
+/// Bilinear-interpolated chroma sample for 4:2:0.
+fn sample_chroma(
+    plane: &[u8],
+    stride: usize,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    siting: ChromaSiting,
+) -> f32 {
+    let cw = (width + 1) / 2;
+    let ch = (height + 1) / 2;
+
+    let (cx, cy) = match siting {
+        ChromaSiting::Center => {
+            (x as f32 / 2.0 - 0.25, y as f32 / 2.0 - 0.25)
+        }
+        ChromaSiting::Left | ChromaSiting::TopLeft => {
+            (x as f32 / 2.0, y as f32 / 2.0)
+        }
+    };
+
+    let ix = (cx.floor() as usize).min(cw.saturating_sub(2));
+    let iy = (cy.floor() as usize).min(ch.saturating_sub(2));
+    let fx = cx - cx.floor();
+    let fy = cy - cy.floor();
+
+    let p00 = plane.get(iy * stride + ix).copied().unwrap_or(128) as f32 - 128.0;
+    let p10 = plane.get(iy * stride + (ix + 1).min(stride.saturating_sub(1))).copied().unwrap_or(128) as f32 - 128.0;
+    let p01 = plane.get((iy + 1).min(ch.saturating_sub(1)) * stride + ix).copied().unwrap_or(128) as f32 - 128.0;
+    let p11 = plane.get((iy + 1).min(ch.saturating_sub(1)) * stride + (ix + 1).min(stride.saturating_sub(1))).copied().unwrap_or(128) as f32 - 128.0;
+
+    let top = lerp(p00, p10, fx);
+    let bot = lerp(p01, p11, fx);
+    lerp(top, bot, fy)
+}
+
 /// Convert a planar I420 (YUV 4:2:0) frame to packed RGBA.
 ///
 /// `y`, `u`, `v` are the three planes; `width`/`height` describe the
@@ -13,22 +67,37 @@ pub fn yuv420_to_rgba(
     y_stride: usize,
     u_stride: usize,
     v_stride: usize,
+    color_info: ColorInfo,
 ) -> Vec<u8> {
     let mut rgba = vec![0u8; width * height * 4];
+    let (rv_coeff, bu_coeff, gu_coeff, gv_coeff, _) = get_matrix_coeffs(color_info.matrix, height);
+
+    let y_scale = if color_info.range == ColorRange::Limited {
+        255.0 / 219.0
+    } else {
+        1.0
+    };
+    let y_offset = if color_info.range == ColorRange::Limited {
+        16.0
+    } else {
+        0.0
+    };
+    let chroma_scale = if color_info.range == ColorRange::Limited {
+        255.0 / 224.0
+    } else {
+        1.0
+    };
 
     for row in 0..height {
         for col in 0..width {
             let yi = row * y_stride + col;
-            let ui = (row / 2) * u_stride + col / 2;
-            let vi = (row / 2) * v_stride + col / 2;
+            let y_val = (y.get(yi).copied().unwrap_or(0) as f32 - y_offset) * y_scale;
+            let u_val = sample_chroma(u, u_stride, col, row, width, height, color_info.chroma_siting) * chroma_scale;
+            let v_val = sample_chroma(v, v_stride, col, row, width, height, color_info.chroma_siting) * chroma_scale;
 
-            let yy = y[yi] as f32;
-            let uu = u[ui] as f32 - 128.0;
-            let vv = v[vi] as f32 - 128.0;
-
-            let r = (yy + 1.402 * vv).clamp(0.0, 255.0) as u8;
-            let g = (yy - 0.344136 * uu - 0.714136 * vv).clamp(0.0, 255.0) as u8;
-            let b = (yy + 1.772 * uu).clamp(0.0, 255.0) as u8;
+            let r = (y_val + rv_coeff * v_val).clamp(0.0, 255.0) as u8;
+            let g = (y_val + gu_coeff * u_val + gv_coeff * v_val).clamp(0.0, 255.0) as u8;
+            let b = (y_val + bu_coeff * u_val).clamp(0.0, 255.0) as u8;
 
             let base = (row * width + col) * 4;
             rgba[base] = r;
@@ -45,24 +114,101 @@ pub fn yuv420_to_rgba(
 ///
 /// NV12 layout: Y plane (width*height bytes) followed by interleaved U/V
 /// plane (width*height/2 bytes). Chroma is subsampled 2x in both directions.
-pub fn nv12_to_rgba(data: &[u8], width: usize, height: usize) -> Vec<u8> {
+pub fn nv12_to_rgba(
+    data: &[u8],
+    width: usize,
+    height: usize,
+    color_info: ColorInfo,
+) -> Vec<u8> {
+    nv12_to_rgba_impl(
+        data,
+        data.get(width * height..).unwrap_or(&[]),
+        width,
+        height,
+        width,
+        width,
+        color_info,
+    )
+}
+
+/// Convert NV12 with separate Y/UV planes and explicit strides to RGBA.
+pub fn nv12_to_rgba_separate(
+    y: &[u8],
+    uv: &[u8],
+    width: usize,
+    height: usize,
+    y_stride: usize,
+    uv_stride: usize,
+    color_info: ColorInfo,
+) -> Vec<u8> {
+    nv12_to_rgba_impl(y, uv, width, height, y_stride, uv_stride, color_info)
+}
+
+fn nv12_to_rgba_impl(
+    y: &[u8],
+    uv: &[u8],
+    width: usize,
+    height: usize,
+    y_stride: usize,
+    uv_stride: usize,
+    color_info: ColorInfo,
+) -> Vec<u8> {
     let mut rgba = vec![0u8; width * height * 4];
-    let y_size = width * height;
+    let (rv_coeff, bu_coeff, gu_coeff, gv_coeff, _) = get_matrix_coeffs(color_info.matrix, height);
+
+    let y_scale = if color_info.range == ColorRange::Limited {
+        255.0 / 219.0
+    } else {
+        1.0
+    };
+    let y_offset = if color_info.range == ColorRange::Limited {
+        16.0
+    } else {
+        0.0
+    };
+    let chroma_scale = if color_info.range == ColorRange::Limited {
+        255.0 / 224.0
+    } else {
+        1.0
+    };
+
+    let cw = (width + 1) / 2;
+    let ch = (height + 1) / 2;
 
     for row in 0..height {
         for col in 0..width {
-            let yi = row * width + col;
-            let uv_row = row / 2;
-            let uv_col = col / 2;
-            let uvi = y_size + uv_row * width + uv_col * 2;
+            let yi = row * y_stride + col;
+            let y_val = (y.get(yi).copied().unwrap_or(0) as f32 - y_offset) * y_scale;
 
-            let yy = data[yi] as f32;
-            let uu = data[uvi] as f32 - 128.0;
-            let vv = data[uvi + 1] as f32 - 128.0;
+            let (cx, cy) = match color_info.chroma_siting {
+                ChromaSiting::Center => {
+                    (col as f32 / 2.0 - 0.25, row as f32 / 2.0 - 0.25)
+                }
+                ChromaSiting::Left | ChromaSiting::TopLeft => {
+                    (col as f32 / 2.0, row as f32 / 2.0)
+                }
+            };
 
-            let r = (yy + 1.402 * vv).clamp(0.0, 255.0) as u8;
-            let g = (yy - 0.344136 * uu - 0.714136 * vv).clamp(0.0, 255.0) as u8;
-            let b = (yy + 1.772 * uu).clamp(0.0, 255.0) as u8;
+            let ix = (cx.floor() as usize).min(cw.saturating_sub(2));
+            let iy = (cy.floor() as usize).min(ch.saturating_sub(2));
+            let fx = cx - cx.floor();
+            let fy = cy - cy.floor();
+
+            let u00 = uv.get(iy * uv_stride + ix * 2).copied().unwrap_or(128) as f32 - 128.0;
+            let v00 = uv.get(iy * uv_stride + ix * 2 + 1).copied().unwrap_or(128) as f32 - 128.0;
+            let u10 = uv.get(iy * uv_stride + (ix + 1).min(cw - 1) * 2).copied().unwrap_or(128) as f32 - 128.0;
+            let v10 = uv.get(iy * uv_stride + (ix + 1).min(cw - 1) * 2 + 1).copied().unwrap_or(128) as f32 - 128.0;
+            let u01 = uv.get((iy + 1).min(ch - 1) * uv_stride + ix * 2).copied().unwrap_or(128) as f32 - 128.0;
+            let v01 = uv.get((iy + 1).min(ch - 1) * uv_stride + ix * 2 + 1).copied().unwrap_or(128) as f32 - 128.0;
+            let u11 = uv.get((iy + 1).min(ch - 1) * uv_stride + (ix + 1).min(cw - 1) * 2).copied().unwrap_or(128) as f32 - 128.0;
+            let v11 = uv.get((iy + 1).min(ch - 1) * uv_stride + (ix + 1).min(cw - 1) * 2 + 1).copied().unwrap_or(128) as f32 - 128.0;
+
+            let u_val = lerp(lerp(u00, u10, fx), lerp(u01, u11, fx), fy) * chroma_scale;
+            let v_val = lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fy) * chroma_scale;
+
+            let r = (y_val + rv_coeff * v_val).clamp(0.0, 255.0) as u8;
+            let g = (y_val + gu_coeff * u_val + gv_coeff * v_val).clamp(0.0, 255.0) as u8;
+            let b = (y_val + bu_coeff * u_val).clamp(0.0, 255.0) as u8;
 
             let base = (row * width + col) * 4;
             rgba[base] = r;
@@ -73,6 +219,11 @@ pub fn nv12_to_rgba(data: &[u8], width: usize, height: usize) -> Vec<u8> {
     }
 
     rgba
+}
+
+#[inline(always)]
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
 }
 
 /// Convert packed RGBA pixels to planar I420 (YUV 4:2:0).

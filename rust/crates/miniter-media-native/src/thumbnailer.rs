@@ -93,5 +93,6 @@ fn load_image_as_frame(path: &Path) -> Result<RgbaFrame, DecodeError> {
         height,
         data,
         pts_us: 0,
+        color_info: Default::default(),
     })
 }

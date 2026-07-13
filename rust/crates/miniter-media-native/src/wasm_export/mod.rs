@@ -76,6 +76,7 @@ fn load_image_from_bytes(bytes: &[u8], fmt: image::ImageFormat) -> Result<RgbaFr
         height,
         data: rgba.into_raw(),
         pts_us: 0,
+        color_info: Default::default(),
     })
 }
 
@@ -504,6 +505,7 @@ fn export_h264_mp4_bytes(
         height: settings.height,
         data: first_rgba,
         pts_us: first_plan.timestamp.as_micros(),
+        color_info: Default::default(),
     };
 
     let first_output = encoder
@@ -559,6 +561,7 @@ fn export_h264_mp4_bytes(
                 height: settings.height,
                 data: rgba,
                 pts_us: plan.timestamp.as_micros(),
+                color_info: Default::default(),
             };
 
             let encoded = encoder
@@ -687,6 +690,7 @@ fn export_av1_mp4_bytes(
             height: settings.height,
             data: rgba,
             pts_us: plan.timestamp.as_micros(),
+            color_info: Default::default(),
         };
 
         let packets = encoder
@@ -790,6 +794,7 @@ fn export_av1_ivf_bytes(
             height: settings.height,
             data: rgba,
             pts_us: plan.timestamp.as_micros(),
+            color_info: Default::default(),
         };
 
         let packets = encoder
@@ -1162,7 +1167,7 @@ struct BufferedFrame {
 }
 
 /// A chunked export state machine that processes video frames one at a time.
-/// Usage: `new()` → loop `process_chunk(1)` until `is_done()` → `finish()`
+/// Usage: `new()` -> loop `process_chunk(1)` until `is_done()` -> `finish()`
 pub struct WasmExportChunker {
     // Drop order: decode_cache before _registered_files
     decode_cache: ExportDecodeCache<'static>,
@@ -1351,6 +1356,7 @@ impl WasmExportChunker {
                 height: self.settings.height,
                 data: rgba,
                 pts_us: plan.timestamp.as_micros(),
+                color_info: Default::default(),
             };
 
             self.encode_one_frame(&frame)?;
