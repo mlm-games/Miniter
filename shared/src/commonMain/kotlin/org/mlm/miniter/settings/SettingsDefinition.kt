@@ -24,6 +24,15 @@ data class AppSettings(
     )
     val themeMode: Int = ThemeMode.Dark.ordinal,
 
+    @Setting(
+        title = "Dynamic colors",
+        description = "Use Material You dynamic colors (Android 12+)",
+        category = Appearance::class,
+        type = Toggle::class,
+        platforms = [SettingPlatform.ANDROID]
+    )
+    val useDynamicColors: Boolean = true,
+
     // @Setting(
     //     title = "Font size",
     //     description = "UI font size",
