@@ -142,9 +142,6 @@ impl BaabaBackend {
         self.drain_available()?;
 
         if self.frame_buffer.len() >= self.reorder_depth || self.flushed {
-            self.frame_buffer
-                .make_contiguous()
-                .sort_by_key(|f| f.pts_us);
             Ok(self.frame_buffer.pop_front())
         } else {
             Ok(None)
@@ -328,11 +325,6 @@ impl VideoDecoderBackend for BaabaBackend {
 
         self.flushed = true;
         self.drain_available()?;
-
-        // Sort all remaining frames by PTS
-        self.frame_buffer
-            .make_contiguous()
-            .sort_by_key(|f| f.pts_us);
 
         Ok(self.frame_buffer.pop_front())
     }
