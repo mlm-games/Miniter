@@ -58,9 +58,11 @@ actual class RustCoreSession private constructor(
 
         actual fun probeVideo(path: String): VideoInfo {
             val result = nativeProbeVideo(path)
-            val durationUs = if (result.durationUs == 0L && result.width > 0u) { 5_000_000L } else { result.durationUs }
+            if (result.durationUs == 0L && result.width > 0u) {
+                println("WARNING: probeVideo returned 0 duration for file with valid dimensions: $path (codec=${result.videoCodec})")
+            }
             return VideoInfo(
-                durationMs = durationUs / 1000L,
+                durationMs = result.durationUs / 1000L,
                 width = result.width.toInt(),
                 height = result.height.toInt(),
                 frameRate = result.frameRate,

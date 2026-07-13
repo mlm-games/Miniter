@@ -146,6 +146,10 @@ class ProjectViewModel(
                 val hasVideo = info.hasVideo
                 val hasAudio = info.hasAudio
 
+                if (info.durationMs <= 0L) {
+                    snackbarManager.show("Warning: Could not determine video duration - file may not play correctly")
+                }
+
                 if (hasVideo) {
                     when (val result = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90, hardwareAccelerationEnabled)) {
                         is ThumbnailResult.Error -> {
@@ -240,6 +244,7 @@ class ProjectViewModel(
                     recentProjectsRepository.addRecent(savePath, name)
                 }
             } catch (e: Exception) {
+                e.printStackTrace()
                 handleError("Failed to open media: ${e.message}")
             }
         }
@@ -293,7 +298,8 @@ class ProjectViewModel(
                     val sourcePath = firstClip.second.sourcePath
                     sourceDurationMs = try {
                         engine.probeVideo(sourcePath).durationMs
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                         clip.timelineDurationUs / 1000L
                     }
                     loadThumbnails(sourcePath)
@@ -434,6 +440,7 @@ class ProjectViewModel(
                     recentProjectsRepository.addRecent(savePath, name)
                 }
             } catch (e: Exception) {
+                e.printStackTrace()
                 handleError("Failed to create project: ${e.message}")
             }
         }
@@ -681,6 +688,7 @@ class ProjectViewModel(
                 _state.update { it.copy(isLoading = false) }
                 snackbarManager.show("Imported ${items.size} file(s)")
             } catch (e: Exception) {
+                e.printStackTrace()
                 handleError("Failed to import: ${e.message}")
             }
         }
