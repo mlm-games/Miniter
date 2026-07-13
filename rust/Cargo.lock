@@ -397,7 +397,7 @@ dependencies = [
 [[package]]
 name = "baabaabaabaabababbababbaa"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#9f92d461f0ea365a4c1cd61481ad5d70413029b9"
+source = "git+https://github.com/mlm-games/baa4bababab2baa#3207530ce6203cdeb5e6a403def30b94b97b55a3"
 dependencies = [
  "bytes",
  "cros-codecs",
@@ -752,6 +752,7 @@ dependencies = [
 [[package]]
 name = "cros-codecs"
 version = "0.0.10"
+source = "git+https://github.com/mlm-games/cros-codecs?branch=main#30790e8745234a672e32509846eebe893897275e"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -2416,7 +2417,7 @@ checksum = "fbedf5e104105e8783a77926f1e212ea37e78fd3b38b2c928938a283d083d6f1"
 [[package]]
 name = "rust_h265"
 version = "0.1.0"
-source = "git+https://github.com/mlm-games/rust_h265#1d88bd0818c3376563cb15c11d84260b4b464874"
+source = "git+https://github.com/mlm-games/rust_h265#83439e1506f49ac786d8d48e04310a8ea0a66d55"
 
 [[package]]
 name = "rustc-hash"
@@ -3376,9 +3377,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.23.4"
+version = "1.23.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf80a72845275afea99e7f2b434723d3bc7e38470fcd1c7ed39a599c73319a53"
+checksum = "ea5fab0d6c3c01ae70085a09cb03d4c7a1d6314e2b3e075392783396d724ca0a"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -3412,6 +3413,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "videoson"
 version = "0.4.0"
+source = "git+https://github.com/mlm-games/videoson#5f6c07e864341373d53e652f03f662763e172e99"
 dependencies = [
  "videoson-codec-h264",
  "videoson-codec-h265",
@@ -3425,6 +3427,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-h264"
 version = "0.4.0"
+source = "git+https://github.com/mlm-games/videoson#5f6c07e864341373d53e652f03f662763e172e99"
 dependencies = [
  "rust_h264",
  "videoson-core",
@@ -3433,6 +3436,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-h265"
 version = "0.4.0"
+source = "git+https://github.com/mlm-games/videoson#5f6c07e864341373d53e652f03f662763e172e99"
 dependencies = [
  "rust_h265",
  "videoson-common",
@@ -3442,6 +3446,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-rav1d"
 version = "0.4.0"
+source = "git+https://github.com/mlm-games/videoson#5f6c07e864341373d53e652f03f662763e172e99"
 dependencies = [
  "rav1d-safe",
  "videoson-core",
@@ -3450,6 +3455,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-vp8"
 version = "0.4.0"
+source = "git+https://github.com/mlm-games/videoson#5f6c07e864341373d53e652f03f662763e172e99"
 dependencies = [
  "oxideav-vp8",
  "videoson-core",
@@ -3458,6 +3464,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-vp9"
 version = "0.4.0"
+source = "git+https://github.com/mlm-games/videoson#5f6c07e864341373d53e652f03f662763e172e99"
 dependencies = [
  "oxideav-vp9",
  "videoson-core",
@@ -3466,10 +3473,12 @@ dependencies = [
 [[package]]
 name = "videoson-common"
 version = "0.4.0"
+source = "git+https://github.com/mlm-games/videoson#5f6c07e864341373d53e652f03f662763e172e99"
 
 [[package]]
 name = "videoson-core"
 version = "0.4.0"
+source = "git+https://github.com/mlm-games/videoson#5f6c07e864341373d53e652f03f662763e172e99"
 
 [[package]]
 name = "walkdir"
@@ -3783,9 +3792,9 @@ dependencies = [
 
 [[package]]
 name = "zmij"
-version = "1.0.21"
+version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+checksum = "bd2f034a4bebf216c9e4b7083603e024cf930873fd67830cfb083c9fa33129d9"
 
 [[package]]
 name = "zune-core"

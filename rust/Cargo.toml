@@ -46,7 +46,7 @@ ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
 
 [patch.crates-io]
 muxide = { git = "https://github.com/mlm-games/muxide" }
-# videoson = { git = "https://github.com/mlm-games/videoson" }
+videoson = { git = "https://github.com/mlm-games/videoson" }
 # web-codecs = { git = "https://github.com/mlm-games/web-rs.git", branch = "main" }
 # cros-codecs = { git = "https://github.com/mlm-games/cros-codecs" }
 # cros-libva = { git = "https://github.com/mlm-games/cros-libva" }
@@ -55,7 +55,7 @@ muxide = { git = "https://github.com/mlm-games/muxide" }
 symphonia-format-isomp4 = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-isomp4" }
 symphonia-core = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-core" }
 
-videoson = { path = "../../../Documents/Repos/videoson/videoson", package = "videoson" }
+# videoson = { path = "../../../Documents/Repos/videoson/videoson", package = "videoson" }
 # web-codecs = { path = "../../../Documents/Repos/web-rs/web-codecs" }
 # baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baabaabaabaabababbababbaa" }
 
@@ -68,8 +68,8 @@ videoson = { path = "../../../Documents/Repos/videoson/videoson", package = "vid
 # [patch."https://github.com/mlm-games/cros-codecs?branch=main"]
 # cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
 
-[patch."https://github.com/mlm-games/cros-codecs"]
-cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
+# [patch."https://github.com/mlm-games/cros-codecs"]
+# cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
 
 # [patch."https://github.com/mlm-games/baa4bababab2baa"]
 # baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa" }

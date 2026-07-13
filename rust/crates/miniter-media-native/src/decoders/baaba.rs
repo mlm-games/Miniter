@@ -89,7 +89,6 @@ impl BaabaBackend {
         #[cfg(target_arch = "wasm32")]
         let (copy_tx, copy_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        //TODO: HEVC B-frame heavy streams need PTS reordering (It still stutters in output)
         let reorder_depth =
             if mime.contains("hevc") || mime.contains("hev1") || mime.contains("265") {
                 8
