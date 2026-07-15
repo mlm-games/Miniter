@@ -52,7 +52,9 @@ videoson = { git = "https://github.com/mlm-games/videoson" }
 # cros-libva = { git = "https://github.com/mlm-games/cros-libva" }
 # mediacodec = { git = "https://github.com/mlm-games/rust_mediacodec", package = "mediacodec" }
 
+symphonia-core = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-core" }
 symphonia-format-mkv = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-mkv" }
+symphonia-format-isomp4 = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-isomp4" }
 
 # symphonia = { git = "https://github.com/mlm-games/symphonia", package = "symphonia" }
 # symphonia-core = { path = "../../../Documents/Repos/symphonia/symphonia-core" }

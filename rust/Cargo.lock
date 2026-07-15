@@ -2760,7 +2760,7 @@ dependencies = [
  "symphonia-codec-alac",
  "symphonia-codec-pcm",
  "symphonia-codec-vorbis",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
  "symphonia-format-isomp4",
  "symphonia-format-mkv",
  "symphonia-format-ogg",
@@ -2776,7 +2776,7 @@ checksum = "2b2c9fc1c54fac0729f76075ec6cb4143d50233ba2af47be169e341e964c27aa"
 dependencies = [
  "log",
  "oporus",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -2787,7 +2787,7 @@ checksum = "ee69ad01236a67260b82fd1ff9790dd75ead29f2f46af145e63b7e72273e0e03"
 dependencies = [
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
  "symphonia-metadata 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2799,7 +2799,7 @@ checksum = "350f1f2f2e19ad4dd315db94304d1eb361b29af070681f94e51b8fdaad769546"
 dependencies = [
  "lazy_static",
  "log",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -2811,7 +2811,7 @@ dependencies = [
  "lazy_static",
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -2821,7 +2821,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ebbdfd76d6cc5a601c6292a44357c5b7c82f2cd7cdc0f171421f5c5cff0ea1f"
 dependencies = [
  "log",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -2832,7 +2832,7 @@ checksum = "3a149cbfc7fb5c405d123a273227d31de17138419552112bf1aa7b73e65827b8"
 dependencies = [
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -2842,7 +2842,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50baee168f0e9dcf6ba7fc06e8b57eb62072a4490cc7cf13af77e72baae5d328"
 dependencies = [
  "log",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -2853,7 +2853,7 @@ checksum = "45b07b4423cd8e0fc472575909a5554b12c2f58e3c190b38c24f042e732fd8de"
 dependencies = [
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -2863,7 +2863,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8257891ffa7f05e02b58f4761e2abf7e5278c8744fd59e981559e050f86eef55"
 dependencies = [
  "log",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
  "symphonia-metadata 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2873,15 +2873,14 @@ version = "0.6.0"
 source = "git+https://github.com/mlm-games/symphonia#9bfe30c3f28b65abfb1d1de94088031b6551a66f"
 dependencies = [
  "log",
- "symphonia-core 0.6.0 (git+https://github.com/mlm-games/symphonia)",
+ "symphonia-core",
  "symphonia-metadata 0.6.0 (git+https://github.com/mlm-games/symphonia)",
 ]
 
 [[package]]
 name = "symphonia-core"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95ec293b5f288383b72a7bffcade6b2860b642cf66f28b3bd5967349a49938b1"
+source = "git+https://github.com/mlm-games/symphonia#9bfe30c3f28b65abfb1d1de94088031b6551a66f"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",
@@ -2893,28 +2892,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "symphonia-core"
+name = "symphonia-format-isomp4"
 version = "0.6.0"
 source = "git+https://github.com/mlm-games/symphonia#9bfe30c3f28b65abfb1d1de94088031b6551a66f"
 dependencies = [
- "bitflags 2.13.0",
- "bytemuck",
- "lazy_static",
  "log",
- "num-complex",
- "smallvec",
-]
-
-[[package]]
-name = "symphonia-format-isomp4"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d179a01305b3505940135a9f0180d6ef4b487912748fe97554756f120fbd05e"
-dependencies = [
- "log",
- "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-metadata 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-common 0.6.0 (git+https://github.com/mlm-games/symphonia)",
+ "symphonia-core",
+ "symphonia-metadata 0.6.0 (git+https://github.com/mlm-games/symphonia)",
 ]
 
 [[package]]
@@ -2925,7 +2910,7 @@ dependencies = [
  "lazy_static",
  "log",
  "symphonia-common 0.6.0 (git+https://github.com/mlm-games/symphonia)",
- "symphonia-core 0.6.0 (git+https://github.com/mlm-games/symphonia)",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -2936,7 +2921,7 @@ checksum = "b05a67e02b1e4fca1a261ba4fe06910a9357489ad8c36aafdd2960e9c6559433"
 dependencies = [
  "log",
  "symphonia-common 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
  "symphonia-metadata 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2948,7 +2933,7 @@ checksum = "17424452a777666d3eaf09a5c651029b15b6a333812fcc5b5474f2a3f0cff3f0"
 dependencies = [
  "extended",
  "log",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
  "symphonia-metadata 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2962,7 +2947,7 @@ dependencies = [
  "log",
  "regex-lite",
  "smallvec",
- "symphonia-core 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -2974,7 +2959,7 @@ dependencies = [
  "log",
  "regex-lite",
  "smallvec",
- "symphonia-core 0.6.0 (git+https://github.com/mlm-games/symphonia)",
+ "symphonia-core",
 ]
 
 [[package]]
