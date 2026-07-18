@@ -24,8 +24,8 @@ anyhow = "1"
 web-time = "1.1.0"
 uniffi = { version = "0.32", features = ["wasm-unstable-single-threaded"] }
 symphonia-adapter-oporus = "0.1.3"
-# baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
-baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
+baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
+# baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
 symphonia = "0.6"
 image = { version = "0.25", default-features = false, features = [
     "png",
