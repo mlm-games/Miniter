@@ -629,6 +629,7 @@ mod web_ffi {
         let frame = match extract_thumbnail_inner(&path, target_us, hardware_acceleration).await {
             Ok(f) => f,
             Err(_) if hardware_acceleration => {
+                miniter_media_native::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
                 extract_thumbnail_inner(&path, target_us, false).await?
             }
             Err(e) => return Err(e),
@@ -694,6 +695,7 @@ mod web_ffi {
         let frames = match extract_thumbnails_inner(&path, count, duration_us, hardware_acceleration).await {
             Ok(f) => f,
             Err(_) if hardware_acceleration => {
+                miniter_media_native::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
                 extract_thumbnails_inner(&path, count, duration_us, false).await?
             }
             Err(e) => return Err(e),

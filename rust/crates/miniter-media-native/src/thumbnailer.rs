@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use crate::decoder::{DecodeError, VideoDecodeSession};
 use crate::frame::RgbaFrame;
 use miniter_audio::util;
@@ -10,6 +12,7 @@ pub fn extract_thumbnail(path: &Path, target_us: i64, hardware_acceleration: boo
     extract_thumbnail_inner(path, target_us, hardware_acceleration)
         .or_else(|_| {
             if hardware_acceleration {
+                crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
                 extract_thumbnail_inner(path, target_us, false)
             } else {
                 Err(DecodeError::NoVideoStream)
@@ -54,6 +57,7 @@ pub fn extract_thumbnails(
     extract_thumbnails_inner(path, count, duration_us, hardware_acceleration)
         .or_else(|_| {
             if hardware_acceleration {
+                crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
                 extract_thumbnails_inner(path, count, duration_us, false)
             } else {
                 Err(DecodeError::NoVideoStream)
