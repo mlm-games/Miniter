@@ -1,4 +1,4 @@
-Will be archiving it as I am looking for jobs atm. Unlike the rest of my apps (which just might have minor issues), this will need a lot more work to be complete to be a fully fledged editor. Will probably unarchive it later if i think continuing it would make sense. I think it is suitable atm for te basic tasks being advertised, and if there's any actual breaking issue, you could let me know via my other apps or mail and i might decide to fix it. Thanks for the read!
+Will keep it unarchived to let issues be opened, but might not be fixed without prs or other help, since it is mostly in maintanance mode.
 
 ## Old readme, has been updated to use a rust backend sincd 0.7, but might also plan on a rust-based UI too (though importing would be a lot harder)
 
