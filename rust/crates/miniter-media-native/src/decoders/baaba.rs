@@ -4,6 +4,7 @@ use web_time::Duration;
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
 use crate::frame::{ColorInfo, RgbaFrame};
+
 use baabaabaabaabababbababbaa::VideoDecoderInput as _;
 #[cfg(not(target_arch = "wasm32"))]
 use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
@@ -67,16 +68,26 @@ impl BaabaBackend {
         height: u32,
         mime: &str,
         description: &[u8],
+        hardware_acceleration: bool,
     ) -> Result<Self, DecodeError> {
+        // WebCodecs contract:
+        //   - description present → expects AVC format (length-prefixed NALUs + avcC/hvcC blob)
+        //   - description absent  → expects Annex-B (start codes, SPS/PPS in-band on keyframes)
+        // The demux always converts to Annex-B and prepends SPS/PPS to the first keyframe,
+        // so on WASM we must set description=None to match the Annex-B data being sent.
+        let description = if cfg!(target_arch = "wasm32") {
+            None
+        } else if description.is_empty() {
+            None
+        } else {
+            Some(Bytes::copy_from_slice(description))
+        };
+
         let config = VideoDecoderConfig {
             codec: mime.into(),
             resolution: Some(Dimensions::new(width, height)),
-            description: if description.is_empty() {
-                None
-            } else {
-                Some(Bytes::copy_from_slice(description))
-            },
-            hardware_acceleration: None,
+            description,
+            hardware_acceleration: Some(hardware_acceleration),
         };
         let host = PlatformHost::new();
         let (input, output) = host
@@ -89,12 +100,15 @@ impl BaabaBackend {
         #[cfg(target_arch = "wasm32")]
         let (copy_tx, copy_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let reorder_depth =
-            if mime.contains("hevc") || mime.contains("hev1") || mime.contains("265") {
-                8
-            } else {
-                1
-            };
+        // On WASM, WebCodecs handles internal reordering; we don't need to buffer.
+        // On native, HEVC may need a deeper buffer for B-frame reordering.
+        let reorder_depth = if cfg!(target_arch = "wasm32") {
+            1
+        } else if mime.contains("hevc") || mime.contains("hev1") || mime.contains("265") {
+            16
+        } else {
+            1
+        };
 
         Ok(Self {
             input,
@@ -177,7 +191,48 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 }
             }
             PixelFormat::Nv12 => {
+                let expected = w * h * 3 / 2;
+                if data.len() < expected {
+                    log::warn!("NV12 plane data too small: got {} expected {}", data.len(), expected);
+                }
                 let rgba = crate::yuv::nv12_to_rgba(&data, w, h, color_info);
+                Ok(RgbaFrame {
+                    width: frame.dimensions.width,
+                    height: frame.dimensions.height,
+                    data: rgba,
+                    pts_us,
+                    color_info,
+                })
+            }
+            PixelFormat::Rgba8 => {
+                let expected = w * h * 4;
+                if data.len() < expected {
+                    return Err(DecodeBackendError::Other(format!(
+                        "Rgba8 data too small: got {} expected {}", data.len(), expected
+                    )));
+                }
+                Ok(RgbaFrame {
+                    width: frame.dimensions.width,
+                    height: frame.dimensions.height,
+                    data: data[..expected].to_vec(),
+                    pts_us,
+                    color_info,
+                })
+            }
+            PixelFormat::Bgra8 => {
+                let expected = w * h * 4;
+                if data.len() < expected {
+                    return Err(DecodeBackendError::Other(format!(
+                        "Bgra8 data too small: got {} expected {}", data.len(), expected
+                    )));
+                }
+                let mut rgba = Vec::with_capacity(expected);
+                for bgra in data[..expected].chunks_exact(4) {
+                    rgba.push(bgra[2]); // R
+                    rgba.push(bgra[1]); // G
+                    rgba.push(bgra[0]); // B
+                    rgba.push(bgra[3]); // A
+                }
                 Ok(RgbaFrame {
                     width: frame.dimensions.width,
                     height: frame.dimensions.height,
@@ -203,9 +258,12 @@ fn wc_pixel_format_to_baaba(fmt: web_sys::VideoPixelFormat) -> PixelFormat {
     match fmt {
         VideoPixelFormat::I420 | VideoPixelFormat::I420a => PixelFormat::Yuv420p,
         VideoPixelFormat::Nv12 => PixelFormat::Nv12,
-        VideoPixelFormat::Rgba => PixelFormat::Rgba8,
-        VideoPixelFormat::Bgra => PixelFormat::Bgra8,
-        _ => PixelFormat::Nv12,
+        VideoPixelFormat::Rgba | VideoPixelFormat::Rgbx => PixelFormat::Rgba8,
+        VideoPixelFormat::Bgra | VideoPixelFormat::Bgrx => PixelFormat::Bgra8,
+        _ => {
+            log::warn!("unhandled WebCodecs pixel format {:?}, defaulting to Nv12", fmt);
+            PixelFormat::Nv12
+        },
     }
 }
 
@@ -222,31 +280,55 @@ fn drain_raw_frames(
         .try_frame_raw()
         .map_err(|e| DecodeBackendError::Other(format!("baaba try_frame_raw: {e}")))?
     {
-        let dims = raw_frame.dimensions();
+        let (width, height) = raw_frame
+            .visible_rect()
+            .map(|r| (r.width() as u32, r.height() as u32))
+            .unwrap_or_else(|| (raw_frame.display_width(), raw_frame.display_height()));
+        let width = width.max(1);
+        let height = height.max(1);
         let ts = raw_frame.timestamp();
         let fmt = raw_frame
             .format()
             .map(wc_pixel_format_to_baaba)
-            .unwrap_or(PixelFormat::Nv12);
+            .unwrap_or_else(|| {
+                log::warn!("drain_raw_frames: frame format() returned None, defaulting to Nv12");
+                PixelFormat::Nv12
+            });
         let pts_us = ts.as_micros().min(i64::MAX as u128) as i64;
-        let width = dims.width;
-        let height = dims.height;
 
         let tx = copy_tx.clone();
         spawn_local(async move {
-            if let Ok(data) = raw_frame.copy_to_cpu().await {
-                let _ = tx.send(PendingFrame {
-                    data,
-                    width,
-                    height,
-                    format: fmt,
-                    pts_us,
-                });
+            match raw_frame.copy_to_cpu().await {
+                Ok(data) => {
+                    let _ = tx.send(PendingFrame {
+                        data,
+                        width,
+                        height,
+                        format: fmt,
+                        pts_us,
+                    });
+                }
+                Err(e) => {
+                    log::error!("copy_to_cpu failed: {e:?}");
+                }
             }
         });
     }
 
     while let Ok(pending) = copy_rx.try_recv() {
+        let expected_size = match pending.format {
+            PixelFormat::Yuv420p => (pending.width * pending.height * 3 / 2) as usize,
+            PixelFormat::Nv12 => (pending.width * pending.height * 3 / 2) as usize,
+            PixelFormat::Rgba8 | PixelFormat::Bgra8 => (pending.width * pending.height * 4) as usize,
+            _ => pending.data.len(),
+        };
+        if pending.data.len() != expected_size {
+            log::warn!(
+                "copy_rx: size mismatch for {}x{} fmt={:?}: got {} expected {}",
+                pending.width, pending.height, pending.format,
+                pending.data.len(), expected_size,
+            );
+        }
         let baaba_frame = BaabaFrame {
             dimensions: Dimensions::new(pending.width, pending.height),
             format: pending.format,
@@ -305,27 +387,24 @@ impl VideoDecoderBackend for BaabaBackend {
     }
 
     fn finish(&mut self) -> Result<Option<RgbaFrame>, DecodeBackendError> {
-        if self.flushed {
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.drain_available()?;
             return Ok(self.frame_buffer.pop_front());
         }
 
         #[cfg(not(target_arch = "wasm32"))]
-        self.rt
-            .block_on(self.input.flush())
-            .map_err(|e| DecodeBackendError::Other(format!("baaba flush error: {e:?}")))?;
-
-        #[cfg(target_arch = "wasm32")]
-        drain_raw_frames(
-            &mut self.output,
-            &self.copy_tx,
-            &mut self.copy_rx,
-            &mut self.frame_buffer,
-        )?;
-
-        self.flushed = true;
-        self.drain_available()?;
-
-        Ok(self.frame_buffer.pop_front())
+        {
+            if self.flushed {
+                return Ok(self.frame_buffer.pop_front());
+            }
+            self.flushed = true;
+            self.rt
+                .block_on(self.input.flush())
+                .map_err(|e| DecodeBackendError::Other(format!("baaba flush error: {e:?}")))?;
+            self.drain_available()?;
+            Ok(self.frame_buffer.pop_front())
+        }
     }
 
     fn reset(&mut self) {

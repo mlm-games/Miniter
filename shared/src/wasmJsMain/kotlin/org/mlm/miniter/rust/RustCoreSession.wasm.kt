@@ -238,7 +238,8 @@ actual class RustCoreSession private constructor(
 
         actual fun exportProgress(): UInt = wasmExportProgress().toUInt()
 
-        actual fun wasExportHardwareAccelerated(): Boolean = true
+        actual fun wasExportHardwareAccelerated(): Boolean =
+            wasmWasExportHardwareAccelerated()
 
         actual fun subtitleTextAt(path: String, timestampUs: Long): String? =
             wasmSubtitleTextAt(path, timestampUs.toDouble())
@@ -249,7 +250,19 @@ actual val isWebCodecsHardwareAccelerated: Boolean = wasmIsWebCodecsHardwareAcce
 
 actual val supportedHwCodecs: List<String> = wasmGetSupportedHwCodecs().toList().map { it.toString() }
 
-@JsFun("() => typeof VideoDecoder !== 'undefined'")
+@JsFun("""
+() => {
+    if (typeof VideoDecoder === 'undefined') return false;
+    try {
+        var decoder = new VideoDecoder({ error: function() {}, output: function() {} });
+        decoder.configure({ codec: 'video/avc', width: 64, height: 64, hardwareAcceleration: 'prefer-hardware' });
+        decoder.close();
+        return true;
+    } catch(e) {
+        return false;
+    }
+}
+""")
 private external fun wasmIsWebCodecsHardwareAccelerated(): Boolean
 
 @JsFun("""
@@ -263,7 +276,7 @@ private external fun wasmIsWebCodecsHardwareAccelerated(): Boolean
                 error: function() {},
                 output: function() {}
             });
-            decoder.configure({ codec: tests[i], width: 64, height: 64 });
+            decoder.configure({ codec: tests[i], width: 64, height: 64, hardwareAcceleration: 'prefer-hardware' });
             decoder.close();
             codecs.push(tests[i]);
         } catch(e) {}
@@ -272,3 +285,5 @@ private external fun wasmIsWebCodecsHardwareAccelerated(): Boolean
 }
 """)
 private external fun wasmGetSupportedHwCodecs(): JsArray<JsString>
+
+

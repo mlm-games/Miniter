@@ -7,6 +7,17 @@ pub fn extract_thumbnail(path: &Path, target_us: i64, hardware_acceleration: boo
     if util::is_image_file(path) {
         return load_image_as_frame(path);
     }
+    extract_thumbnail_inner(path, target_us, hardware_acceleration)
+        .or_else(|_| {
+            if hardware_acceleration {
+                extract_thumbnail_inner(path, target_us, false)
+            } else {
+                Err(DecodeError::NoVideoStream)
+            }
+        })
+}
+
+fn extract_thumbnail_inner(path: &Path, target_us: i64, hardware_acceleration: bool) -> Result<RgbaFrame, DecodeError> {
     let mut session = VideoDecodeSession::open(path, hardware_acceleration)?;
     let mut last_frame: Option<RgbaFrame> = None;
 
@@ -40,7 +51,22 @@ pub fn extract_thumbnails(
         let frame = load_image_as_frame(path)?;
         return Ok(vec![frame; count.min(1)]);
     }
+    extract_thumbnails_inner(path, count, duration_us, hardware_acceleration)
+        .or_else(|_| {
+            if hardware_acceleration {
+                extract_thumbnails_inner(path, count, duration_us, false)
+            } else {
+                Err(DecodeError::NoVideoStream)
+            }
+        })
+}
 
+fn extract_thumbnails_inner(
+    path: &Path,
+    count: usize,
+    duration_us: i64,
+    hardware_acceleration: bool,
+) -> Result<Vec<RgbaFrame>, DecodeError> {
     if count == 0 || duration_us <= 0 {
         return Ok(Vec::new());
     }

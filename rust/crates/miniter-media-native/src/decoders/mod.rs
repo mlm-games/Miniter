@@ -75,6 +75,10 @@ pub fn create_backend(
     let mut hw_attempted = false;
 
     // HW decoder (baaba) – tried first for codecs where available.
+    // On WASM, WebCodecs configure() may return Ok even when the codec is
+    // not truly supported; the decoder then fails asynchronously (NotSupportedError
+    // via on_error) during the first JS event loop yield.  Skip HW for codecs
+    // where SW is reliable on WASM.
     #[cfg(all(
         feature = "hw-decoder",
         any(
@@ -86,7 +90,7 @@ pub fn create_backend(
     if hardware_acceleration {
         hw_attempted = true;
         let mime = fourcc_to_mime(fourcc).unwrap_or(codec_mime);
-        match baaba::BaabaBackend::new(width, height, mime, description) {
+        match baaba::BaabaBackend::new(width, height, mime, description, hardware_acceleration) {
             Ok(dec) => {
                 if dec.is_supported(fourcc) {
                     return Ok(Box::new(dec));

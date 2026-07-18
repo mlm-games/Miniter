@@ -2,6 +2,10 @@ use crate::encoder::{EncodeError, EncodedVideoOutput};
 use crate::frame::RgbaFrame;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::yuv::rgba_to_yuv420;
+#[cfg(target_arch = "wasm32")]
+use crate::demux::symphonia_demux::{avcc_to_annexb, parse_avcc};
+#[cfg(target_arch = "wasm32")]
+use crate::export_shared::has_annexb_start_code;
 use web_time::Duration;
 
 #[cfg(all(
@@ -15,8 +19,10 @@ use web_time::Duration;
 mod hw {
     use super::*;
     use baabaabaabaabababbababbaa::{
-        Dimensions, VideoEncoderConfig, VideoEncoderInput, VideoFrame, VideoPlanes,
+        AvcBitstreamFormat, Dimensions, VideoEncoderConfig, VideoEncoderInput, VideoFrame,
+        VideoPlanes,
     };
+    use baabaabaabaabababbababbaa::traits::VideoEncoderOutput;
 
     #[cfg(target_os = "android")]
     use baabaabaabaabababbababbaa::platform::android::{
@@ -56,6 +62,12 @@ mod hw {
         width: u32,
         height: u32,
         frame_index: u32,
+        #[cfg(target_arch = "wasm32")]
+        is_h264: bool,
+        #[cfg(target_arch = "wasm32")]
+        sps_pps_prepended: bool,
+        #[cfg(target_arch = "wasm32")]
+        flush_promise: Option<js_sys::Promise>,
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -79,8 +91,9 @@ mod hw {
                 bitrate: Some(bitrate_bps),
                 framerate: Some(fps as f64),
                 hardware_acceleration: None,
-                latency_optimized: None,
+                latency_optimized: Some(false),
                 level: None,
+                avc_bitstream_format: Some(AvcBitstreamFormat::AnnexB),
             };
 
             #[cfg(target_os = "android")]
@@ -97,6 +110,7 @@ mod hw {
             #[cfg(not(target_arch = "wasm32"))]
             let rt = Runtime::new().map_err(|e| EncodeError::LessAvc(format!("tokio: {e}")))?;
 
+            let is_h264 = mime.contains("avc") || mime.contains("h264");
             Ok(Self {
                 input,
                 output,
@@ -105,6 +119,12 @@ mod hw {
                 width,
                 height,
                 frame_index: 0,
+                #[cfg(target_arch = "wasm32")]
+                is_h264,
+                #[cfg(target_arch = "wasm32")]
+                sps_pps_prepended: false,
+                #[cfg(target_arch = "wasm32")]
+                flush_promise: None,
             })
         }
 
@@ -155,6 +175,10 @@ mod hw {
 
         /// Must be called after JS has yielded (microtasks fired) to get output.
         /// Returns frames with correct pts from the encoded packet timestamps.
+        /// Converts AVCC (length-prefixed) format to Annex-B (start codes) for H.264,
+        /// since the WebCodecs encoder outputs AVCC but the downstream pipeline expects Annex-B.
+        /// Also prepends SPS/PPS from the decoder config to the first frame as a fallback
+        /// in case the keyframe payload does not include them.
         #[cfg(target_arch = "wasm32")]
         pub fn drain_completed(&mut self) -> Result<Vec<HwEncodedFrame>, EncodeError> {
             let mut frames = Vec::new();
@@ -163,10 +187,37 @@ mod hw {
                 .try_packet()
                 .map_err(|e| EncodeError::LessAvc(format!("HwEncoder try_packet: {e:?}")))?
             {
+                let mut bytes = if self.is_h264 && !has_annexb_start_code(&pkt.payload) {
+                    avcc_to_annexb(&pkt.payload)
+                } else {
+                    pkt.payload.to_vec()
+                };
+
+                // HACK for WASM: Prepend SPS/PPS from encoder's decoder config to the first frame
+                // (converted from AVCC extradata to Annex-B). This ensures downstream
+                // extract_sps_pps() always finds them, even if the encoder omitted them
+                // from the keyframe payload.
+                if self.is_h264 && !self.sps_pps_prepended {
+                    if let Some(cfg) = self.output.decoder_config() {
+                        if let Some(desc) = &cfg.description {
+                            let annexb = parse_avcc(desc);
+                            if !annexb.is_empty() {
+                                bytes.splice(0..0, annexb);
+                            }
+                        }
+                    }
+                    self.sps_pps_prepended = true;
+                }
+
+                let pts = pkt.timestamp.as_micros() as u64;
+                log::warn!(
+                    "DRAIN_COMPLETED: pts_us={} key={} bytes_len={}",
+                    pts, pkt.keyframe, bytes.len(),
+                );
                 frames.push(HwEncodedFrame {
-                    bytes: pkt.payload.to_vec(),
+                    bytes,
                     is_keyframe: pkt.keyframe,
-                    pts_us: pkt.timestamp.as_micros() as u64,
+                    pts_us: pts,
                 });
             }
             Ok(frames)
@@ -226,6 +277,18 @@ mod hw {
                     None => Err(EncodeError::SkippedFrame { frame_index: idx }),
                 }
             }
+        }
+
+        /// Start an async flush on the WebCodecs encoder.
+        #[cfg(target_arch = "wasm32")]
+        pub fn start_flush(&mut self) {
+            self.flush_promise = Some(self.input.start_flush());
+        }
+
+        /// Take the flush completion promise (if any) for external awaiting.
+        #[cfg(target_arch = "wasm32")]
+        pub fn take_flush_promise(&mut self) -> Option<js_sys::Promise> {
+            self.flush_promise.take()
         }
 
         /// Check if the encoder's error callback has fired (async init failure).

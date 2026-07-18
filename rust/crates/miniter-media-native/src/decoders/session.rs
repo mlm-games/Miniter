@@ -12,6 +12,9 @@ pub struct VideoDecodeSession {
     backend: Box<dyn crate::demux::VideoDecoderBackend>,
     demux_eos: bool,
     finished: bool,
+    /// On WASM, after EOS we retry finish() up to this many times with
+    /// yields in between to let async copy_to_cpu complete.
+    eos_retries_remaining: u32,
 }
 
 impl VideoDecodeSession {
@@ -61,7 +64,13 @@ impl VideoDecodeSession {
             backend.name(),
         );
 
-        Ok(Self { demuxer, backend, demux_eos: false, finished: false })
+        Ok(Self {
+            demuxer,
+            backend,
+            demux_eos: false,
+            finished: false,
+            eos_retries_remaining: 8,
+        })
     }
 
     /// Decode the next frame from the stream.
@@ -78,14 +87,21 @@ impl VideoDecodeSession {
 
         if self.demux_eos {
             while let Some(frame) = self.backend.finish().map_err(DecodeError::from)? {
+                self.eos_retries_remaining = 8;
                 return Ok(Some(frame));
+            }
+            // On WASM, finish() may have spawned async copy_to_cpu tasks.
+            // Give the caller a chance to yield to JS and retry.
+            if cfg!(target_arch = "wasm32") && self.eos_retries_remaining > 0 {
+                self.eos_retries_remaining -= 1;
+                return Ok(None);
             }
             self.finished = true;
             return Ok(None);
         }
 
         #[cfg(target_arch = "wasm32")]
-        const MAX_PACKETS: u32 = 16;
+        const MAX_PACKETS: u32 = 8;
         #[cfg(not(target_arch = "wasm32"))]
         const MAX_PACKETS: u32 = u32::MAX;
 
@@ -125,6 +141,7 @@ impl VideoDecodeSession {
     pub fn reset(&mut self) -> Result<(), DecodeError> {
         self.finished = false;
         self.demux_eos = false;
+        self.eos_retries_remaining = 8;
         self.demuxer.reset()?;
         self.backend.reset();
         Ok(())
@@ -159,6 +176,7 @@ impl VideoDecodeSession {
         self.demuxer.seek_to_sample(sample_id)?;
         self.finished = false;
         self.demux_eos = false;
+        self.eos_retries_remaining = 8;
         self.backend.reset();
         Ok(())
     }

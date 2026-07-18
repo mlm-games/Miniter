@@ -101,6 +101,14 @@ impl DecodeSession {
         }
     }
 
+    fn is_eos(&self) -> bool {
+        match self {
+            Self::File(session) => session.is_eos(),
+            Self::Memory(session) => session.is_eos(),
+            Self::Image(_) => true,
+        }
+    }
+
     fn reset(&mut self) -> Result<(), DecodeError> {
         match self {
             Self::File(session) => session.reset(),
@@ -131,6 +139,8 @@ struct ExportDecodeCache<'a> {
     registered_files: &'a HashMap<String, Vec<u8>>,
     image_cache: ImageCache,
     hardware_acceleration: bool,
+    default_width: u32,
+    default_height: u32,
 }
 
 impl<'a> ExportDecodeCache<'a> {
@@ -142,6 +152,8 @@ impl<'a> ExportDecodeCache<'a> {
             registered_files,
             image_cache: ImageCache::new(),
             hardware_acceleration,
+            default_width: 1920,
+            default_height: 1080,
         }
     }
 
@@ -185,9 +197,24 @@ impl<'a> ExportDecodeCache<'a> {
             };
 
             let mut session = session;
-            let first_frame = session
-                .next_frame()
-                .map_err(|e| format!("decode failed for '{path}': {e}"))?;
+            // Capture session dimensions for placeholder fallback
+            if let DecodeSession::File(ref s) | DecodeSession::Memory(ref s) = session {
+                if s.width() > 0 && s.height() > 0 {
+                    self.default_width = s.width();
+                    self.default_height = s.height();
+                }
+            }
+            // Prime the decoder with one batch of packets. On WASM the first frame
+            // may not be immediately available (WebCodecs callbacks need a JS event
+            // loop yield). The chunked export mechanism (process_chunk) yields between
+            // calls, so frames are guaranteed by the next chunk iteration.
+            let first_frame: Option<RgbaFrame> = match session.next_frame() {
+                Ok(Some(frame)) => Some(frame),
+                Ok(None) => None,
+                Err(e) => {
+                    return Err(format!("decode failed for '{path}': {e}"));
+                }
+            };
 
             self.sessions.insert(
                 clip_id,
@@ -200,40 +227,58 @@ impl<'a> ExportDecodeCache<'a> {
             );
         }
 
-        let entry = self
-            .sessions
-            .get_mut(&clip_id)
-            .ok_or_else(|| "decode cache internal error".to_string())?;
-
-        if target_us < entry.last_pts {
-            entry
-                .session
-                .reset()
-                .map_err(|e| format!("decode reset failed: {e}"))?;
-            entry.last_pts = 0;
-            entry.last_frame = None;
-            entry.pending_frame = None;
-        }
-        if let Some(ref pending) = entry.pending_frame {
-            if target_us < pending.pts_us {
-                return entry.last_frame.clone().ok_or_else(|| "pending without last_frame".to_string());
+        {
+            let entry = self
+                .sessions
+                .get_mut(&clip_id)
+                .ok_or_else(|| "decode cache internal error".to_string())?;
+            if target_us < entry.last_pts {
+                entry
+                    .session
+                    .reset()
+                    .map_err(|e| format!("decode reset failed: {e}"))?;
+                entry.last_pts = 0;
+                entry.last_frame = None;
+                entry.pending_frame = None;
             }
-            entry.last_pts = pending.pts_us;
-            entry.last_frame = Some(pending.clone());
-            entry.pending_frame = None;
-        }
-
-        if let Some(ref current) = entry.last_frame
-            && current.pts_us == target_us {
-                return Ok(current.clone());
+            if let Some(ref pending) = entry.pending_frame {
+                if target_us < pending.pts_us {
+                    return entry.last_frame.clone().ok_or_else(|| "pending without last_frame".to_string());
+                }
+                entry.last_pts = pending.pts_us;
+                entry.last_frame = Some(pending.clone());
+                entry.pending_frame = None;
             }
+
+            if let Some(ref current) = entry.last_frame
+                && current.pts_us == target_us {
+                    return Ok(current.clone());
+                }
+        }
 
         loop {
-            match entry
-                .session
-                .next_frame()
-                .map_err(|e| format!("decode frame failed: {e}"))?
-            {
+            let frame = {
+                let entry = self
+                    .sessions
+                    .get_mut(&clip_id)
+                    .ok_or_else(|| "decode cache internal error".to_string())?;
+                entry.session.next_frame()
+            };
+            if self.hardware_acceleration {
+                if let Err(ref e) = frame {
+                    if matches!(e, crate::decoders::DecodeError::Other(msg) if msg.starts_with("baaba try_frame_raw")) {
+                        self.hardware_acceleration = false;
+                        self.sessions.remove(&clip_id);
+                        return self.extract_frame(clip_id, path, target_us);
+                    }
+                }
+            }
+            let frame = frame.map_err(|e| format!("decode frame failed: {e}"))?;
+            let entry = self
+                .sessions
+                .get_mut(&clip_id)
+                .ok_or_else(|| "decode cache internal error".to_string())?;
+            match frame {
                 Some(frame) => {
                     if frame.pts_us == target_us {
                         entry.last_pts = frame.pts_us;
@@ -264,10 +309,31 @@ impl<'a> ExportDecodeCache<'a> {
                         return Ok(p);
                     }
 
-                    return entry
-                        .last_frame
-                        .clone()
-                        .ok_or_else(|| "No decodable video frame".to_string());
+                    if entry.session.is_eos() {
+                        return entry
+                            .last_frame
+                            .clone()
+                            .ok_or_else(|| "No decodable video frame".to_string());
+                    }
+
+                    // Decoder not ready yet (WASM: WebCodecs callbacks need a JS event
+                    // loop yield). Return last frame if available, or a blank placeholder.
+                    // The next chunk iteration will have frames after the yield.
+                    if let Some(last) = entry.last_frame.clone() {
+                        return Ok(last);
+                    }
+                    // Create a placeholder frame using default dimensions
+                    let w = self.default_width.max(1) as usize;
+                    let h = self.default_height.max(1) as usize;
+                    let placeholder = RgbaFrame {
+                        width: self.default_width,
+                        height: self.default_height,
+                        data: crate::export_shared::transparent_rgba(w, h),
+                        pts_us: target_us,
+                        color_info: Default::default(),
+                    };
+                    entry.last_frame = Some(placeholder.clone());
+                    return Ok(placeholder);
                 }
             }
         }
@@ -437,6 +503,8 @@ fn export_h264_mp4_bytes(
 
     let hw_requested = project.export_profile.hardware_acceleration;
     let mut decode_cache = ExportDecodeCache::new(registered_files, hw_requested);
+    decode_cache.default_width = settings.width;
+    decode_cache.default_height = settings.height;
     on_progress(1);
     on_progress(5);
     let mut encoder: AnyH264Encoder = if hw_requested {
@@ -636,6 +704,8 @@ fn export_av1_mp4_bytes(
 
     let hw_requested = project.export_profile.hardware_acceleration;
     let mut decode_cache = ExportDecodeCache::new(registered_files, hw_requested);
+    decode_cache.default_width = settings.width;
+    decode_cache.default_height = settings.height;
     on_progress(1);
     on_progress(5);
 
@@ -746,6 +816,8 @@ fn export_av1_ivf_bytes(
 
     let hw_requested = project.export_profile.hardware_acceleration;
     let mut decode_cache = ExportDecodeCache::new(registered_files, hw_requested);
+    decode_cache.default_width = settings.width;
+    decode_cache.default_height = settings.height;
     on_progress(1);
 
     let mut encoder =
@@ -1214,7 +1286,9 @@ impl WasmExportChunker {
         let files_ref: &'static HashMap<String, Vec<u8>> =
             unsafe { &*(&*files_box as *const HashMap<String, Vec<u8>>) };
         let hw_requested = project.export_profile.hardware_acceleration;
-        let decode_cache = ExportDecodeCache::new(files_ref, hw_requested);
+        let mut decode_cache = ExportDecodeCache::new(files_ref, hw_requested);
+        decode_cache.default_width = settings.width;
+        decode_cache.default_height = settings.height;
 
         let audio_encoded = prepare_audio_track(project, &files_box)
             .map_err(|e| format!("Audio prep failed: {e}"))?;
@@ -1238,6 +1312,26 @@ impl WasmExportChunker {
         } else {
             ((end_us + frame_duration_us - 1) / frame_duration_us) as u64
         };
+
+        log::warn!(
+            "EXPORT_INIT: fps={} frame_duration_us={} end_us={} total_frames={} tracks={} clips={}",
+            safe_fps, frame_duration_us, end_us, total_frames,
+            project.timeline.tracks.len(),
+            project.timeline.tracks.iter().map(|t| t.clips.len()).sum::<usize>(),
+        );
+        for (ti, track) in project.timeline.tracks.iter().enumerate() {
+            for (ci, clip) in track.clips.iter().enumerate() {
+                log::warn!(
+                    "  track[{}] clip[{}]: timeline_start={}us timeline_duration={}us source_start={}us source_end={}us speed={}",
+                    ti, ci,
+                    clip.timeline_start.as_micros(),
+                    clip.timeline_duration.as_micros(),
+                    clip.source_start.as_micros(),
+                    clip.source_end.as_micros(),
+                    clip.speed,
+                );
+            }
+        }
 
         let timeline = project.timeline.clone();
 
@@ -1363,10 +1457,16 @@ impl WasmExportChunker {
             self.current_frame += 1;
             self.progress =
                 ((self.current_frame as f64 / self.total_frames as f64) * 100_000.0) as u32;
+            log::warn!(
+                "EXPORT_FRAME: current_frame={}/{} pts_us={} buffered={}",
+                self.current_frame, self.total_frames,
+                frame.pts_us, self.buffered_frames.len(),
+            );
         }
 
         if self.current_frame >= self.total_frames {
             self.done = true;
+            self.encoder.start_flush();
         }
 
         Ok(Some(self.progress.min(100_000)))
@@ -1410,7 +1510,13 @@ impl WasmExportChunker {
     }
 
     /// Check if the encoder's async error callback fired (e.g., WebCodec not supported).
-    /// Must be called after yielding to JS to allow the callback to fire.
+    /// Take the flush completion promise from the underlying encoder,
+    /// so the FFI can await it before calling `finish()`.
+    #[cfg(target_arch = "wasm32")]
+    pub fn take_flush_promise(&mut self) -> Option<js_sys::Promise> {
+        self.encoder.take_flush_promise()
+    }
+
     pub fn check_hw_encoder_error(&self) -> Result<(), String> {
         if let Some(err) = self.encoder.check_error() {
             Err(err)
@@ -1451,6 +1557,22 @@ impl WasmExportChunker {
 
         // Flush encoder trailing packets
         let trailing = self.encoder.finish()?;
+        log::warn!(
+            "EXPORT_FINISH: buffered_frames={} trailing={} total_frames={} current_frame={}",
+            self.buffered_frames.len(), trailing.len(), self.total_frames, self.current_frame,
+        );
+        if !self.buffered_frames.is_empty() {
+            let first = &self.buffered_frames[0];
+            let last = &self.buffered_frames[self.buffered_frames.len() - 1];
+            log::warn!(
+                "  first: pts_us={} is_key={} data_len={}",
+                first.pts_us, first.is_keyframe, first.data.len(),
+            );
+            log::warn!(
+                "  last:  pts_us={} is_key={} data_len={}",
+                last.pts_us, last.is_keyframe, last.data.len(),
+            );
+        }
         for p in trailing {
             if p.data.is_empty() {
                 continue;

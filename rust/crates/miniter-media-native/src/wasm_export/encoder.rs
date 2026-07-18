@@ -24,6 +24,14 @@ pub trait EncoderBackend {
 
     /// Check for asynchronous errors (e.g., WebCodec error callback).
     fn check_error(&self) -> Option<String>;
+
+    /// Optionally start an async flush (no-op for SW backends).
+    fn start_flush(&mut self) {}
+
+    #[cfg(target_arch = "wasm32")]
+    fn take_flush_promise(&mut self) -> Option<js_sys::Promise> {
+        None
+    }
 }
 
 pub struct H264SwBackend {
@@ -187,6 +195,15 @@ impl EncoderBackend for H264HwBackend {
     fn check_error(&self) -> Option<String> {
         self.inner.check_error().map(|e| format!("{e:?}"))
     }
+
+    fn start_flush(&mut self) {
+        self.inner.start_flush();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn take_flush_promise(&mut self) -> Option<js_sys::Promise> {
+        self.inner.take_flush_promise()
+    }
 }
 
 #[cfg(feature = "hw-decoder")]
@@ -256,6 +273,15 @@ impl EncoderBackend for Av1HwBackend {
 
     fn check_error(&self) -> Option<String> {
         self.inner.check_error().map(|e| format!("{e:?}"))
+    }
+
+    fn start_flush(&mut self) {
+        self.inner.start_flush();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn take_flush_promise(&mut self) -> Option<js_sys::Promise> {
+        self.inner.take_flush_promise()
     }
 }
 

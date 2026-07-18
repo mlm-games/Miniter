@@ -18,7 +18,7 @@ fn decoder_supported(codec: VideoCodecId) -> bool {
         any(target_arch = "wasm32", target_os = "linux", target_os = "android")
     ));
     match codec {
-        CODEC_ID_H264 => cfg!(feature = "videoson"),
+        CODEC_ID_H264 => cfg!(feature = "videoson") || hw_avail,
         CODEC_ID_HEVC => {
             cfg!(any(feature = "videoson", feature = "videoson-h265")) || hw_avail
         }
@@ -28,14 +28,20 @@ fn decoder_supported(codec: VideoCodecId) -> bool {
         CODEC_ID_VP9 => {
             cfg!(any(feature = "videoson", feature = "videoson-vp9")) || hw_avail
         }
-        CODEC_ID_AV1 => cfg!(feature = "av1"),
+        CODEC_ID_AV1 => cfg!(feature = "av1") || hw_avail,
         _ => false,
     }
 }
 
 fn requires_hardware_acceleration(codec: VideoCodecId) -> bool {
+    let hw_avail = cfg!(all(
+        feature = "hw-decoder",
+        any(target_arch = "wasm32", target_os = "linux", target_os = "android")
+    ));
     match codec {
-        CODEC_ID_H264 => false,
+        CODEC_ID_H264 => {
+            !cfg!(feature = "videoson") && hw_avail
+        }
         CODEC_ID_HEVC => {
             !cfg!(any(feature = "videoson", feature = "videoson-h265"))
         }
@@ -45,7 +51,9 @@ fn requires_hardware_acceleration(codec: VideoCodecId) -> bool {
         CODEC_ID_VP9 => {
             !cfg!(any(feature = "videoson", feature = "videoson-vp9"))
         }
-        CODEC_ID_AV1 => false,
+        CODEC_ID_AV1 => {
+            !cfg!(feature = "av1") && hw_avail
+        }
         _ => true,
     }
 }

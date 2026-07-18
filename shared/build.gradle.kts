@@ -161,6 +161,8 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
         sb.appendLine("external fun wasmCancelExport()")
         sb.appendLine("@JsName(\"subtitleTextAt\")")
         sb.appendLine("external fun wasmSubtitleTextAt(path: String, timestampUs: Double): String?")
+        sb.appendLine("@JsName(\"wasExportHardwareAccelerated\")")
+        sb.appendLine("external fun wasmWasExportHardwareAccelerated(): Boolean")
 
         outputKt.get().asFile.parentFile?.mkdirs()
         outputKt.get().asFile.writeText(sb.toString())

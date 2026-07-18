@@ -362,6 +362,7 @@ mod web_ffi {
     #[wasm_bindgen(start)]
     pub fn init() {
         console_error_panic_hook::set_once();
+        let _ = console_log::init_with_level(log::Level::Warn);
     }
 
     #[derive(Clone)]
@@ -625,7 +626,24 @@ mod web_ffi {
         target_us: f64,
         hardware_acceleration: bool,
     ) -> Result<String, JsValue> {
-        let frame = if let Some(file) = get_registered_file(&path) {
+        let frame = match extract_thumbnail_inner(&path, target_us, hardware_acceleration).await {
+            Ok(f) => f,
+            Err(_) if hardware_acceleration => {
+                extract_thumbnail_inner(&path, target_us, false).await?
+            }
+            Err(e) => return Err(e),
+        };
+
+        serde_json::to_string(&encode_frame(frame))
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+    }
+
+    async fn extract_thumbnail_inner(
+        path: &str,
+        target_us: f64,
+        hardware_acceleration: bool,
+    ) -> Result<RgbaFrame, JsValue> {
+        if let Some(file) = get_registered_file(path) {
             let size = file.bytes.len() as u64;
             let reader = Cursor::new(file.bytes);
             let mut session = miniter_media_native::decoder::VideoDecodeSession::from_reader(
@@ -643,13 +661,13 @@ mod web_ffi {
                 {
                     Some(frame) => {
                         if frame.pts_us >= target_us as i64 {
-                            break frame;
+                            return Ok(frame);
                         }
                         last_frame = Some(frame);
                     }
                     None if session.is_eos() => {
-                        break last_frame
-                            .ok_or_else(|| JsValue::from_str("Media error: No video stream"))?;
+                        return last_frame
+                            .ok_or_else(|| JsValue::from_str("Media error: No video stream"));
                     }
                     None => {
                         // Decoder not ready yet; yield and retry.
@@ -658,15 +676,12 @@ mod web_ffi {
             }
         } else {
             miniter_media_native::thumbnailer::extract_thumbnail(
-                std::path::Path::new(&path),
+                std::path::Path::new(path),
                 target_us as i64,
                 hardware_acceleration,
             )
-            .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?
-        };
-
-        serde_json::to_string(&encode_frame(frame))
-            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+            .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))
+        }
     }
 
     #[wasm_bindgen(js_name = extractThumbnails)]
@@ -676,68 +691,82 @@ mod web_ffi {
         duration_us: f64,
         hardware_acceleration: bool,
     ) -> Result<String, JsValue> {
-        let frames = if let Some(file) = get_registered_file(&path) {
-            if count == 0 || duration_us <= 0.0 {
-                Vec::new()
-            } else {
-                let size = file.bytes.len() as u64;
-                let reader = Cursor::new(file.bytes);
-                let mut session = miniter_media_native::decoder::VideoDecodeSession::from_reader(
-                    reader,
-                    size,
-                    hardware_acceleration,
-                )
-                .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
-
-                let duration = duration_us as i64;
-                let interval_us = duration / count as i64;
-                let targets: Vec<i64> = (0..count as i64).map(|idx| idx * interval_us).collect();
-                let mut results = Vec::with_capacity(count as usize);
-                let mut target_idx = 0usize;
-                let mut last_frame: Option<RgbaFrame> = None;
-
-                loop {
-                    if target_idx >= targets.len() {
-                        break;
-                    }
-                    yield_to_js().await;
-                    match session
-                        .next_frame()
-                        .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?
-                    {
-                        Some(frame) => {
-                            while target_idx < targets.len() && frame.pts_us >= targets[target_idx]
-                            {
-                                results.push(frame.clone());
-                                target_idx += 1;
-                            }
-                            last_frame = Some(frame);
-                        }
-                        None => {
-                            if let Some(frame) = last_frame {
-                                while results.len() < count as usize {
-                                    results.push(frame.clone());
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-                results
+        let frames = match extract_thumbnails_inner(&path, count, duration_us, hardware_acceleration).await {
+            Ok(f) => f,
+            Err(_) if hardware_acceleration => {
+                extract_thumbnails_inner(&path, count, duration_us, false).await?
             }
-        } else {
-            miniter_media_native::thumbnailer::extract_thumbnails(
-                std::path::Path::new(&path),
-                count as usize,
-                duration_us as i64,
-                hardware_acceleration,
-            )
-            .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?
+            Err(e) => return Err(e),
         };
 
         let mapped: Vec<WasmFrameData> = frames.into_iter().map(encode_frame).collect();
         serde_json::to_string(&mapped)
             .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+    }
+
+    async fn extract_thumbnails_inner(
+        path: &str,
+        count: u32,
+        duration_us: f64,
+        hardware_acceleration: bool,
+    ) -> Result<Vec<RgbaFrame>, JsValue> {
+        if let Some(file) = get_registered_file(path) {
+            if count == 0 || duration_us <= 0.0 {
+                return Ok(Vec::new());
+            }
+            let size = file.bytes.len() as u64;
+            let reader = Cursor::new(file.bytes);
+            let mut session = miniter_media_native::decoder::VideoDecodeSession::from_reader(
+                reader,
+                size,
+                hardware_acceleration,
+            )
+            .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
+
+            let duration = duration_us as i64;
+            let interval_us = duration / count as i64;
+            let targets: Vec<i64> = (0..count as i64).map(|idx| idx * interval_us).collect();
+            let mut results = Vec::with_capacity(count as usize);
+            let mut target_idx = 0usize;
+            let mut last_frame: Option<RgbaFrame> = None;
+
+            loop {
+                if target_idx >= targets.len() {
+                    break;
+                }
+                yield_to_js().await;
+                match session
+                    .next_frame()
+                    .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?
+                {
+                    Some(frame) => {
+                        while target_idx < targets.len() && frame.pts_us >= targets[target_idx]
+                        {
+                            results.push(frame.clone());
+                            target_idx += 1;
+                        }
+                        last_frame = Some(frame);
+                    }
+                    None => {
+                        if let Some(frame) = last_frame {
+                            while results.len() < count as usize {
+                                results.push(frame.clone());
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            Ok(results)
+        } else {
+            miniter_media_native::thumbnailer::extract_thumbnails(
+                std::path::Path::new(path),
+                count as usize,
+                duration_us as i64,
+                hardware_acceleration,
+            )
+            .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))
+        }
     }
 
     fn run_wasm_export(
@@ -926,10 +955,68 @@ mod web_ffi {
         Url::revoke_object_url(&url)
     }
 
-    /// Specific codec support is probed on the Kotlin/JS side.
+    /// Probes whether the browser's WebCodecs VideoDecoder can use
+    /// `hardwareAcceleration: "prefer-hardware"` for common codecs.
     #[wasm_bindgen(js_name = isWebCodecsHardwareAccelerated)]
-    pub fn is_web_codecs_hardware_accelerated() -> bool {
-        true
+    pub async fn is_web_codecs_hardware_accelerated() -> bool {
+        use baabaabaabaabababbababbaa::platform::wasm::WebCodecsHost;
+        use baabaabaabaabababbababbaa::types::{Dimensions, VideoCodecId, VideoDecoderConfig};
+
+        let host = WebCodecsHost::new();
+        let candidates = [
+            (VideoDecoderConfig {
+                codec: VideoCodecId::H264 { profile: None, level: None },
+                resolution: Some(Dimensions::new(1280, 720)),
+                description: None,
+                hardware_acceleration: Some(true),
+            }, true),
+            (VideoDecoderConfig {
+                codec: VideoCodecId::Hevc,
+                resolution: Some(Dimensions::new(1920, 1080)),
+                description: None,
+                hardware_acceleration: Some(true),
+            }, true),
+            (VideoDecoderConfig {
+                codec: VideoCodecId::Hevc,
+                resolution: Some(Dimensions::new(1920, 1080)),
+                description: None,
+                hardware_acceleration: Some(false),
+            }, false),
+            (VideoDecoderConfig {
+                codec: VideoCodecId::Vp8,
+                resolution: Some(Dimensions::new(640, 480)),
+                description: None,
+                hardware_acceleration: Some(true),
+            }, true),
+            (VideoDecoderConfig {
+                codec: VideoCodecId::Vp9,
+                resolution: Some(Dimensions::new(1280, 720)),
+                description: None,
+                hardware_acceleration: Some(true),
+            }, true),
+            (VideoDecoderConfig {
+                codec: VideoCodecId::Av1,
+                resolution: Some(Dimensions::new(1280, 720)),
+                description: None,
+                hardware_acceleration: Some(true),
+            }, true),
+        ];
+        let mut any_hw = false;
+        for (cfg, is_hw) in &candidates {
+            if host.is_video_decoder_supported(cfg).await.unwrap_or(false) {
+                if *is_hw {
+                    any_hw = true;
+                }
+                // Keep probing to collect more info; HEVC HW may fail but SW works.
+            }
+        }
+        any_hw
+    }
+
+    /// Reports whether the most recent WASM export used hardware acceleration
+    #[wasm_bindgen(js_name = wasExportHardwareAccelerated)]
+    pub fn was_export_hardware_accelerated() -> bool {
+        !miniter_media_native::was_hardware_fallback()
     }
 
     #[wasm_bindgen]
@@ -1103,9 +1190,18 @@ mod web_ffi {
                     }))
                 }
                 Ok(None) => {
+                    // Await the encoder flush completion so all buffered frames
+                    // arrive in the output channel before finish() drains them.
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let flush_promise = inner.as_mut().and_then(|c| c.take_flush_promise());
+                        if let Some(p) = flush_promise {
+                            let _ = wasm_bindgen_futures::JsFuture::from(p).await;
+                        }
+                    }
                     let chunker = inner.take().unwrap_throw();
                     drop(inner);
-                    // Yield to JS one more time so the last HW encoder frame's output arrives via microtask before finish() drains it.
+                    // Yield once more for output callbacks to fire.
                     yield_to_js().await;
                     EXPORT_PROGRESS.store(100_000, Ordering::SeqCst);
                     match chunker.finish() {

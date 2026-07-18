@@ -261,12 +261,20 @@ impl Demuxer for SymphoniaDemuxer {
                 packet.data.to_vec()
             };
 
-            let is_sync = detect_is_sync(&data, self.fourcc);
+            let mut is_sync = detect_is_sync(&data, self.fourcc);
 
             if !self.codec_config.is_empty() {
                 let mut prefixed = std::mem::take(&mut self.codec_config);
                 prefixed.extend_from_slice(&data);
                 data = prefixed;
+                // First sample after configure/reset must be marked as key for WebCodecs.
+                // The codec_config (VPS/SPS/PPS) is only prepended once after open/seek/reset.
+                // Even if detect_is_sync missed the IRAP NAL, force is_sync=true for the
+                // very first sample carrying config NALs.
+                if !is_sync {
+                    log::warn!("First sample after configure had no detectable key NAL; forcing is_sync=true for WebCodecs compliance");
+                }
+                is_sync = true;
             }
 
             self.last_pts_us = pts;
@@ -388,7 +396,27 @@ pub fn parse_hvcc(data: &[u8]) -> Vec<u8> {
     out
 }
 
-fn parse_avcc(data: &[u8]) -> Vec<u8> {
+/// Convert AVCC format (4-byte length-prefixed NALUs) to Annex-B format (start codes).
+pub fn avcc_to_annexb(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len() + 32);
+    let mut i = 0;
+    while i + 4 <= data.len() {
+        let nalu_len = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
+        i += 4;
+        if nalu_len == 0 || i + nalu_len > data.len() {
+            break;
+        }
+        out.extend_from_slice(&[0, 0, 0, 1]);
+        out.extend_from_slice(&data[i..i + nalu_len]);
+        i += nalu_len;
+    }
+    if i < data.len() {
+        out.extend_from_slice(&data[i..]);
+    }
+    out
+}
+
+pub fn parse_avcc(data: &[u8]) -> Vec<u8> {
     if data.len() < 6 || data[0] != 1 {
         return Vec::new();
     }
@@ -467,20 +495,103 @@ fn detect_is_sync(data: &[u8], fourcc: u32) -> bool {
         0x30385056 => (first & 0x01) == 0, // VP8: bit 0 = keyframe flag
         0x30395056 => (first & 0xC0) == 0x80 && (first & 0x04) == 0, // VP9
         0x31305641 | 0x31495641 => {
-            // AV1
-            let obu_type = (first >> 3) & 0x0F;
-            matches!(obu_type, 1) // SEQUENCE_HEADER OBU
+            // AV1: scan all OBUs for SEQUENCE_HEADER
+            let mut offset = 0;
+            while offset < data.len() {
+                let obu_type = (data[offset] >> 3) & 0x0F;
+                if obu_type == 1 {
+                    return true; // SEQUENCE_HEADER
+                }
+                let has_extension = ((data[offset] >> 2) & 0x01) == 1;
+                let has_size = ((data[offset] >> 1) & 0x01) == 1;
+                let mut header_size = 1 + if has_extension { 1 } else { 0 };
+                if has_size {
+                    let mut pos = header_size;
+                    let mut obu_size: usize = 0;
+                    for _ in 0..8 {
+                        if pos >= data.len() {
+                            break;
+                        }
+                        obu_size = (obu_size << 7) | (data[pos] & 0x7F) as usize;
+                        if data[pos] & 0x80 == 0 {
+                            pos += 1;
+                            break;
+                        }
+                        pos += 1;
+                    }
+                    header_size = pos;
+                    offset += header_size + obu_size;
+                } else {
+                    offset += header_size;
+                }
+                if offset <= header_size {
+                    break;
+                }
+            }
+            false
         }
         0x31637661 => {
-            // H264
-            let nal = skip_annexb_start_code(data);
-            nal.first().is_some_and(|&b| (b & 0x1F) == 5)
+            // H264: scan all NALs for IDR (type 5) or CRA (type 21 in avc3/ext)
+            let mut remaining = data;
+            while !remaining.is_empty() {
+                let nal = skip_annexb_start_code(remaining);
+                let skipped = remaining.len() - nal.len();
+                if skipped == 0 {
+                    break;
+                }
+                remaining = nal;
+                if let Some(&b) = remaining.first() {
+                    let nal_type = b & 0x1F;
+                    if nal_type == 5 || nal_type == 21 {
+                        return true;
+                    }
+                }
+                // Advance past this NAL body to the next start code
+                let search_start = &remaining[1..];
+                let advance = search_start
+                    .windows(4)
+                    .position(|w| w == [0, 0, 0, 1])
+                    .or_else(|| {
+                        search_start
+                            .windows(3)
+                            .position(|w| w == [0, 0, 1])
+                    })
+                    .map(|pos| pos + 1)
+                    .unwrap_or(remaining.len());
+                remaining = &remaining[advance.min(remaining.len())..];
+            }
+            false
         }
         0x31766568 => {
-            // HEVC
-            let nal = skip_annexb_start_code(data);
-            nal.first()
-                .is_some_and(|&b| matches!((b >> 1) & 0x3F, 16..=21 | 32))
+            // HEVC: scan all NALs for IRAP types (16..=21, 32)
+            let mut remaining = data;
+            while !remaining.is_empty() {
+                let nal = skip_annexb_start_code(remaining);
+                let skipped = remaining.len() - nal.len();
+                if skipped == 0 {
+                    break;
+                }
+                remaining = nal;
+                if let Some(&b) = remaining.first() {
+                    let nal_type = (b >> 1) & 0x3F;
+                    if matches!(nal_type, 16..=21 | 32) {
+                        return true;
+                    }
+                }
+                let search_start = &remaining[1..];
+                let advance = search_start
+                    .windows(4)
+                    .position(|w| w == [0, 0, 0, 1])
+                    .or_else(|| {
+                        search_start
+                            .windows(3)
+                            .position(|w| w == [0, 0, 1])
+                    })
+                    .map(|pos| pos + 1)
+                    .unwrap_or(remaining.len());
+                remaining = &remaining[advance.min(remaining.len())..];
+            }
+            false
         }
         _ => false,
     }
