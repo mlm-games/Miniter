@@ -1,4 +1,4 @@
-Will keep it unarchived to let issues be opened, but it is (mostly, since i can't follow through) in maintainance mode.
+Will keep it unarchived to let issues be opened, but it is (mostly, since i can't follow through) in maintenance mode.
 
 ## Old readme, has been updated to use a rust backend sincd 0.7, but might also plan on a rust-based UI too (though importing would be a lot harder)
 
