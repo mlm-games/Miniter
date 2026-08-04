@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::frame::{ColorInfo, MatrixCoeffs, RgbaFrame};
+use crate::frame::{MatrixCoeffs, RgbaFrame};
 use crate::yuv::rgba_to_yuv420;
 use rav1e::prelude::*;
 
@@ -42,6 +42,7 @@ pub struct Av1EncodeSession {
     ctx: Context<u8>,
     enc_width: usize,
     enc_height: usize,
+    matrix: MatrixCoeffs,
     fps: f64,
     seq_header: Vec<u8>,
     flushed: bool,
@@ -54,6 +55,7 @@ impl Av1EncodeSession {
         height: u32,
         fps: f64,
         bitrate_kbps: u32,
+        matrix: MatrixCoeffs,
     ) -> Result<Self, Av1EncodeError> {
         if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             return Err(Av1EncodeError::InvalidDimensions);
@@ -72,7 +74,7 @@ impl Av1EncodeSession {
         enc.bitrate = bitrate_kbps as i32;
         enc.min_key_frame_interval = 0;
         enc.max_key_frame_interval = 60;
-        enc.color_description = Some(rav1e_color_description(ColorInfo::infer(height).matrix));
+        enc.color_description = Some(rav1e_color_description(matrix));
 
         let cfg = Config::new().with_encoder_config(enc);
         let ctx: Context<u8> = cfg.new_context()?;
@@ -82,6 +84,7 @@ impl Av1EncodeSession {
             ctx,
             enc_width: enc_w,
             enc_height: enc_h,
+            matrix,
             fps,
             seq_header,
             flushed: false,
@@ -96,7 +99,7 @@ impl Av1EncodeSession {
     pub fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<Vec<Av1Packet>, Av1EncodeError> {
         let frame_w = frame.width as usize;
         let frame_h = frame.height as usize;
-        let matrix = frame.color_info.matrix;
+        let matrix = self.matrix;
 
         let (y_plane, u_plane, v_plane) = if frame_w != self.enc_width || frame_h != self.enc_height
         {

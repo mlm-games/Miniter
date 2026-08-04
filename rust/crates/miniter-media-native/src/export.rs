@@ -8,7 +8,7 @@ use crate::encoder::{EncodeError, EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::{Av1EncodeError, Av1EncodeSession, Av1Packet};
 use crate::encoder_hw::HwEncodeSession;
 use crate::filters;
-use crate::frame::RgbaFrame;
+use crate::frame::{MatrixCoeffs, RgbaFrame};
 use crate::image_cache::ImageCache;
 use crate::mux::{
     ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut, SubtitleTrackCodecOut,
@@ -644,7 +644,14 @@ where
     });
 
     let mut encoder = if project.export_profile.hardware_acceleration {
-        match HwEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32, "video/avc") {
+        match HwEncodeSession::new(
+            width,
+            height,
+            bitrate_kbps * 1000,
+            fps as f32,
+            "video/avc",
+            MatrixCoeffs::Bt709,
+        ) {
             Ok(hw) => AnyEncoder::Hw(hw),
             Err(e) => {
                 log::warn!("HW encoder failed, falling back to software: {e}");
@@ -1096,8 +1103,15 @@ where
     };
 
     if project.export_profile.hardware_acceleration {
-        if HwEncodeSession::new(width, height, bitrate_kbps * 1000, fps as f32, "video/av01")
-            .is_err()
+        if HwEncodeSession::new(
+            width,
+            height,
+            bitrate_kbps * 1000,
+            fps as f32,
+            "video/av01",
+            MatrixCoeffs::Bt709,
+        )
+        .is_err()
         {
             log::warn!("HW AV1 encoder not available, falling back to software");
             HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
@@ -1107,7 +1121,7 @@ where
     on_progress(5);
 
     let fps_int = fps.round().max(1.0) as u32;
-    let mut encoder = Av1EncodeSession::new(width, height, fps, bitrate_kbps)?;
+    let mut encoder = Av1EncodeSession::new(width, height, fps, bitrate_kbps, MatrixCoeffs::Bt709)?;
 
     let mut ivf_file: Option<File> = None;
     let mut mp4_muxer: Option<Mp4Muxer<BufWriter<File>>> = None;

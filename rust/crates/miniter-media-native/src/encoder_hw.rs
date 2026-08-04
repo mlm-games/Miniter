@@ -1,5 +1,5 @@
     use crate::encoder::{EncodeError, EncodedVideoOutput};
-    use crate::frame::RgbaFrame;
+    use crate::frame::{MatrixCoeffs, RgbaFrame};
     #[cfg(not(target_arch = "wasm32"))]
     use crate::yuv::rgba_to_yuv420;
 #[cfg(target_arch = "wasm32")]
@@ -19,8 +19,8 @@ use web_time::Duration;
 mod hw {
     use super::*;
     use baabaabaabaabababbababbaa::{
-        AvcBitstreamFormat, Dimensions, VideoEncoderConfig, VideoEncoderInput, VideoFrame,
-        VideoPlanes,
+        AvcBitstreamFormat, Dimensions, VideoColorSpace, VideoEncoderConfig, VideoEncoderInput,
+        VideoFrame, VideoPlanes,
     };
     use baabaabaabaabababbababbaa::traits::VideoEncoderOutput;
 
@@ -61,6 +61,8 @@ mod hw {
         rt: Runtime,
         width: u32,
         height: u32,
+        #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+        matrix: MatrixCoeffs,
         frame_index: u32,
         #[cfg(target_arch = "wasm32")]
         is_h264: bool,
@@ -84,6 +86,7 @@ mod hw {
             bitrate_bps: u32,
             fps: f32,
             mime: &str,
+            matrix: MatrixCoeffs,
         ) -> Result<Self, EncodeError> {
             let config = VideoEncoderConfig {
                 codec: mime.into(),
@@ -94,6 +97,11 @@ mod hw {
                 latency_optimized: Some(false),
                 level: None,
                 avc_bitstream_format: Some(AvcBitstreamFormat::AnnexB),
+                color_space: Some(match matrix {
+                    MatrixCoeffs::Bt601 => VideoColorSpace::Bt601,
+                    MatrixCoeffs::Bt709 | MatrixCoeffs::Identity => VideoColorSpace::Bt709,
+                    MatrixCoeffs::Bt2020Ncl => VideoColorSpace::Bt2020,
+                }),
             };
 
             #[cfg(target_os = "android")]
@@ -118,6 +126,7 @@ mod hw {
                 rt,
                 width,
                 height,
+                matrix,
                 frame_index: 0,
                 #[cfg(target_arch = "wasm32")]
                 is_h264,
@@ -144,7 +153,7 @@ mod hw {
                 &frame.data,
                 self.width as usize,
                 self.height as usize,
-                frame.color_info.matrix,
+                self.matrix,
             );
             let luma = (self.width * self.height) as usize;
             let chroma = ((self.width / 2) * (self.height / 2)) as usize;
@@ -322,7 +331,7 @@ mod hw {
 )))]
 mod hw {
     use crate::encoder::{EncodeError, EncodedVideoOutput};
-    use crate::frame::RgbaFrame;
+    use crate::frame::{MatrixCoeffs, RgbaFrame};
 
     pub struct HwEncodeSession;
 
@@ -333,6 +342,7 @@ mod hw {
             _bitrate_bps: u32,
             _fps: f32,
             _mime: &str,
+            _matrix: MatrixCoeffs,
         ) -> Result<Self, EncodeError> {
             Err(EncodeError::LessAvc(
                 "HW encoder not available on this platform".into(),

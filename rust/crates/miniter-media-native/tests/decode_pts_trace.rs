@@ -259,7 +259,7 @@ fn encode_and_mux(
     use miniter_media_native::decoders::session::VideoDecodeSession;
     use miniter_media_native::encoder::VideoEncodeSession;
     use miniter_media_native::encoder_hw::HwEncodeSession;
-    use miniter_media_native::frame::RgbaFrame;
+    use miniter_media_native::frame::{MatrixCoeffs, RgbaFrame};
     use miniter_media_native::mux::{extract_sps_pps, ContainerFormat, Mp4Muxer, VideoTrackCodecOut};
 
     let out_path = "/tmp/pts_test_encode.mp4";
@@ -269,7 +269,8 @@ fn encode_and_mux(
     let fps = 30.0;
     let bitrate = 2_000;
 
-    let hw_enc = HwEncodeSession::new(w, h, bitrate * 1000, fps as f32, "video/avc");
+    let hw_enc =
+        HwEncodeSession::new(w, h, bitrate * 1000, fps as f32, "video/avc", MatrixCoeffs::Bt709);
     enum Encoder {
         Sw(VideoEncodeSession),
         Hw(HwEncodeSession),

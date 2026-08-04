@@ -1,7 +1,7 @@
 use crate::encoder::{EncodedVideoOutput, VideoEncodeSession};
 use crate::encoder_av1::Av1EncodeSession;
 use crate::encoder_hw::HwEncodeSession;
-use crate::frame::RgbaFrame;
+use crate::frame::{MatrixCoeffs, RgbaFrame};
 use std::sync::atomic::Ordering;
 
 /// An encoded video packet produced by an encoder backend.
@@ -81,7 +81,7 @@ pub struct Av1SwBackend {
 
 impl Av1SwBackend {
     pub fn new(width: u32, height: u32, fps: f64, bitrate_kbps: u32) -> Result<Self, String> {
-        Av1EncodeSession::new(width, height, fps, bitrate_kbps)
+        Av1EncodeSession::new(width, height, fps, bitrate_kbps, MatrixCoeffs::Bt709)
             .map(|inner| Self { inner })
             .map_err(|e| format!("AV1 SW encoder init failed: {e}"))
     }
@@ -135,7 +135,7 @@ pub struct H264HwBackend {
 #[cfg(feature = "hw-decoder")]
 impl H264HwBackend {
     pub fn new(width: u32, height: u32, bitrate_bps: u32, fps: f32) -> Result<Self, String> {
-        HwEncodeSession::new(width, height, bitrate_bps, fps, "video/avc")
+        HwEncodeSession::new(width, height, bitrate_bps, fps, "video/avc", MatrixCoeffs::Bt709)
             .map(|inner| Self { inner })
             .map_err(|e| format!("HW H.264 encoder init failed: {e}"))
     }
@@ -214,7 +214,7 @@ pub struct Av1HwBackend {
 #[cfg(feature = "hw-decoder")]
 impl Av1HwBackend {
     pub fn new(width: u32, height: u32, bitrate_bps: u32, fps: f32) -> Result<Self, String> {
-        HwEncodeSession::new(width, height, bitrate_bps, fps, "video/av01")
+        HwEncodeSession::new(width, height, bitrate_bps, fps, "video/av01", MatrixCoeffs::Bt709)
             .map(|inner| Self { inner })
             .map_err(|e| format!("HW AV1 encoder init failed: {e}"))
     }

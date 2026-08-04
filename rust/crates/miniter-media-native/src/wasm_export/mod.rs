@@ -28,7 +28,7 @@ use crate::encoder_av1::{Av1EncodeSession, Av1Packet};
 use crate::encoder_hw::HwEncodeSession;
 use crate::export_shared::*;
 use crate::filters;
-use crate::frame::RgbaFrame;
+use crate::frame::{MatrixCoeffs, RgbaFrame};
 use crate::image_cache::ImageCache;
 use crate::mux::{
     ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
@@ -515,6 +515,7 @@ fn export_h264_mp4_bytes(
             bitrate_kbps * 1000,
             settings.fps as f32,
             "video/avc",
+            MatrixCoeffs::Bt709,
         ) {
             Ok(hw) => AnyH264Encoder::Hw(hw),
             Err(e) => {
@@ -711,8 +712,14 @@ fn export_av1_mp4_bytes(
     on_progress(5);
 
     let mut encoder =
-        Av1EncodeSession::new(settings.width, settings.height, settings.fps, bitrate_kbps)
-            .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+        Av1EncodeSession::new(
+            settings.width,
+            settings.height,
+            settings.fps,
+            bitrate_kbps,
+            MatrixCoeffs::Bt709,
+        )
+        .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
 
     let mut output = Vec::new();
     let mut muxer = Mp4Muxer::new(
@@ -822,8 +829,14 @@ fn export_av1_ivf_bytes(
     on_progress(1);
 
     let mut encoder =
-        Av1EncodeSession::new(settings.width, settings.height, settings.fps, bitrate_kbps)
-            .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+        Av1EncodeSession::new(
+            settings.width,
+            settings.height,
+            settings.fps,
+            bitrate_kbps,
+            MatrixCoeffs::Bt709,
+        )
+        .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
 
     let mut cursor = Cursor::new(Vec::<u8>::new());
     ivf::write_ivf_header(

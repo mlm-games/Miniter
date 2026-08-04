@@ -10,7 +10,7 @@ use baabaabaabaabababbababbaa::VideoDecoderInput as _;
 use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
 use baabaabaabaabababbababbaa::{
     Dimensions, EncodedVideoPacket, PixelFormat, VideoDecoderConfig, VideoFrame as BaabaFrame,
-    VideoPlanes,
+    VideoOutputMode, VideoPlanes,
 };
 use bytes::Bytes;
 
@@ -88,6 +88,7 @@ impl BaabaBackend {
             resolution: Some(Dimensions::new(width, height)),
             description,
             hardware_acceleration: Some(hardware_acceleration),
+            output_mode: VideoOutputMode::Cpu,
         };
         let host = PlatformHost::new();
         let (input, output) = host
@@ -246,7 +247,7 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 frame.format
             ))),
         },
-        VideoPlanes::Hardware => Err(DecodeBackendError::Other(
+        VideoPlanes::Hardware(_) => Err(DecodeBackendError::Other(
             "Hardware frames not supported".into(),
         )),
     }
