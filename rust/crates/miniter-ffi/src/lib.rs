@@ -962,7 +962,9 @@ mod web_ffi {
     #[wasm_bindgen(js_name = isWebCodecsHardwareAccelerated)]
     pub async fn is_web_codecs_hardware_accelerated() -> bool {
         use baabaabaabaabababbababbaa::platform::wasm::WebCodecsHost;
-        use baabaabaabaabababbababbaa::types::{Dimensions, VideoCodecId, VideoDecoderConfig};
+        use baabaabaabaabababbababbaa::types::{
+            Dimensions, VideoCodecId, VideoDecoderConfig, VideoOutputMode,
+        };
 
         let host = WebCodecsHost::new();
         let candidates = [
@@ -971,36 +973,42 @@ mod web_ffi {
                 resolution: Some(Dimensions::new(1280, 720)),
                 description: None,
                 hardware_acceleration: Some(true),
+                output_mode: VideoOutputMode::Cpu,
             }, true),
             (VideoDecoderConfig {
                 codec: VideoCodecId::Hevc,
                 resolution: Some(Dimensions::new(1920, 1080)),
                 description: None,
                 hardware_acceleration: Some(true),
+                output_mode: VideoOutputMode::Cpu,
             }, true),
             (VideoDecoderConfig {
                 codec: VideoCodecId::Hevc,
                 resolution: Some(Dimensions::new(1920, 1080)),
                 description: None,
                 hardware_acceleration: Some(false),
+                output_mode: VideoOutputMode::Cpu,
             }, false),
             (VideoDecoderConfig {
                 codec: VideoCodecId::Vp8,
                 resolution: Some(Dimensions::new(640, 480)),
                 description: None,
                 hardware_acceleration: Some(true),
+                output_mode: VideoOutputMode::Cpu,
             }, true),
             (VideoDecoderConfig {
                 codec: VideoCodecId::Vp9,
                 resolution: Some(Dimensions::new(1280, 720)),
                 description: None,
                 hardware_acceleration: Some(true),
+                output_mode: VideoOutputMode::Cpu,
             }, true),
             (VideoDecoderConfig {
                 codec: VideoCodecId::Av1,
                 resolution: Some(Dimensions::new(1280, 720)),
                 description: None,
                 hardware_acceleration: Some(true),
+                output_mode: VideoOutputMode::Cpu,
             }, true),
         ];
         let mut any_hw = false;
