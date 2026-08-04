@@ -216,12 +216,25 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 /// Convert packed RGBA pixels to planar I420 (YUV 4:2:0).
 ///
 /// Returns `(y_plane, u_plane, v_plane)`.
-pub fn rgba_to_yuv420(rgba: &[u8], width: usize, height: usize) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+pub fn rgba_to_yuv420(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    matrix: MatrixCoeffs,
+) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let cw = width / 2;
     let ch = height / 2;
     let mut y_plane = vec![0u8; width * height];
     let mut u_plane = vec![0u8; cw * ch];
     let mut v_plane = vec![0u8; cw * ch];
+
+    let (kr, kb) = match matrix {
+        MatrixCoeffs::Bt601 => (0.299_f32, 0.114_f32),
+        MatrixCoeffs::Bt709 => (0.2126_f32, 0.0722_f32),
+        MatrixCoeffs::Bt2020Ncl => (0.2627_f32, 0.0593_f32),
+        MatrixCoeffs::Identity => (1.0 / 3.0, 1.0 / 3.0),
+    };
+    let kg = 1.0 - kr - kb;
 
     for row in 0..height {
         for col in 0..width {
@@ -230,12 +243,12 @@ pub fn rgba_to_yuv420(rgba: &[u8], width: usize, height: usize) -> (Vec<u8>, Vec
             let g = rgba[base + 1] as f32;
             let b = rgba[base + 2] as f32;
 
-            let yy = (0.299 * r + 0.587 * g + 0.114 * b).clamp(0.0, 255.0) as u8;
-            y_plane[row * width + col] = yy;
+            let y = kr * r + kg * g + kb * b;
+            y_plane[row * width + col] = y.clamp(0.0, 255.0) as u8;
 
             if row % 2 == 0 && col % 2 == 0 {
-                let u = (-0.168736 * r - 0.331264 * g + 0.5 * b + 128.0).clamp(0.0, 255.0) as u8;
-                let v = (0.5 * r - 0.418688 * g - 0.081312 * b + 128.0).clamp(0.0, 255.0) as u8;
+                let u = (0.5 * (b - y) / (1.0 - kb) + 128.0).clamp(0.0, 255.0) as u8;
+                let v = (0.5 * (r - y) / (1.0 - kr) + 128.0).clamp(0.0, 255.0) as u8;
                 let ci = (row / 2) * cw + col / 2;
                 u_plane[ci] = u;
                 v_plane[ci] = v;

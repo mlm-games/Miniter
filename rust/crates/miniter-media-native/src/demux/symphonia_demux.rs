@@ -252,7 +252,8 @@ impl Demuxer for SymphoniaDemuxer {
                 continue;
             }
 
-            let pts = (packet.pts.get() as i64 * self.time_base_numer as i64 * 1_000_000)
+            let pts = ((packet.pts.get() as i64 * self.time_base_numer as i64 * 1_000_000)
+                + (self.time_base_denom as i64 / 2))
                 / self.time_base_denom as i64;
 
             let mut data = if self.needs_annex_b() {
@@ -504,6 +505,7 @@ fn detect_is_sync(data: &[u8], fourcc: u32) -> bool {
                 }
                 let has_extension = ((data[offset] >> 2) & 0x01) == 1;
                 let has_size = ((data[offset] >> 1) & 0x01) == 1;
+                let prev_offset = offset;
                 let mut header_size = 1 + if has_extension { 1 } else { 0 };
                 if has_size {
                     let mut pos = header_size;
@@ -524,7 +526,7 @@ fn detect_is_sync(data: &[u8], fourcc: u32) -> bool {
                 } else {
                     offset += header_size;
                 }
-                if offset <= header_size {
+                if offset <= prev_offset {
                     break;
                 }
             }

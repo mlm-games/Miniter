@@ -1,7 +1,7 @@
-use crate::encoder::{EncodeError, EncodedVideoOutput};
-use crate::frame::RgbaFrame;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::yuv::rgba_to_yuv420;
+    use crate::encoder::{EncodeError, EncodedVideoOutput};
+    use crate::frame::RgbaFrame;
+    #[cfg(not(target_arch = "wasm32"))]
+    use crate::yuv::rgba_to_yuv420;
 #[cfg(target_arch = "wasm32")]
 use crate::demux::symphonia_demux::{avcc_to_annexb, parse_avcc};
 #[cfg(target_arch = "wasm32")]
@@ -140,8 +140,12 @@ mod hw {
 
         #[cfg(not(target_arch = "wasm32"))]
         fn build_video_frame(&self, frame: &RgbaFrame) -> VideoFrame {
-            let (y_plane, u_plane, v_plane) =
-                rgba_to_yuv420(&frame.data, self.width as usize, self.height as usize);
+            let (y_plane, u_plane, v_plane) = rgba_to_yuv420(
+                &frame.data,
+                self.width as usize,
+                self.height as usize,
+                frame.color_info.matrix,
+            );
             let luma = (self.width * self.height) as usize;
             let chroma = ((self.width / 2) * (self.height / 2)) as usize;
             let mut nv12 = Vec::with_capacity(luma + chroma * 2);

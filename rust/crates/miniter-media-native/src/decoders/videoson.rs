@@ -299,7 +299,7 @@ impl VideoDecoderBackend for VideosonBackend {
                     min_delta = d;
                 }
             }
-            if min_delta < self.min_pts_delta_us {
+            if min_delta >= 1000 && min_delta < self.min_pts_delta_us {
                 self.min_pts_delta_us = min_delta;
                 let new_fd = min_delta as u64;
                 if new_fd != self.frame_duration_us {

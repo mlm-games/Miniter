@@ -124,8 +124,12 @@ impl VideoEncodeSession {
     }
 
     fn to_planes(&self, frame: &RgbaFrame) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), EncodeError> {
-        let (y_src, u_src, v_src) =
-            rgba_to_yuv420(&frame.data, self.width as usize, self.height as usize);
+        let (y_src, u_src, v_src) = rgba_to_yuv420(
+            &frame.data,
+            self.width as usize,
+            self.height as usize,
+            frame.color_info.matrix,
+        );
         let y_sz = self
             .y_stride
             .checked_mul(self.y_rows)

@@ -2,11 +2,25 @@
 
 use std::sync::Arc;
 
-use crate::frame::RgbaFrame;
+use crate::frame::{ColorInfo, MatrixCoeffs, RgbaFrame};
 use crate::yuv::rgba_to_yuv420;
 use rav1e::prelude::*;
 
 const MIN_DIM: u32 = 16;
+
+fn rav1e_color_description(matrix: MatrixCoeffs) -> ColorDescription {
+    let (primaries, transfer, matrix_coefficients) = match matrix {
+        MatrixCoeffs::Bt601 => (ColorPrimaries::BT601, TransferCharacteristics::BT601, MatrixCoefficients::BT601),
+        MatrixCoeffs::Bt709 => (ColorPrimaries::BT709, TransferCharacteristics::BT709, MatrixCoefficients::BT709),
+        MatrixCoeffs::Bt2020Ncl => (ColorPrimaries::BT2020, TransferCharacteristics::BT2020_10Bit, MatrixCoefficients::BT2020NCL),
+        MatrixCoeffs::Identity => (ColorPrimaries::BT709, TransferCharacteristics::SRGB, MatrixCoefficients::Identity),
+    };
+    ColorDescription {
+        color_primaries: primaries,
+        transfer_characteristics: transfer,
+        matrix_coefficients,
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Av1EncodeError {
@@ -58,6 +72,7 @@ impl Av1EncodeSession {
         enc.bitrate = bitrate_kbps as i32;
         enc.min_key_frame_interval = 0;
         enc.max_key_frame_interval = 60;
+        enc.color_description = Some(rav1e_color_description(ColorInfo::infer(height).matrix));
 
         let cfg = Config::new().with_encoder_config(enc);
         let ctx: Context<u8> = cfg.new_context()?;
@@ -81,6 +96,7 @@ impl Av1EncodeSession {
     pub fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<Vec<Av1Packet>, Av1EncodeError> {
         let frame_w = frame.width as usize;
         let frame_h = frame.height as usize;
+        let matrix = frame.color_info.matrix;
 
         let (y_plane, u_plane, v_plane) = if frame_w != self.enc_width || frame_h != self.enc_height
         {
@@ -91,9 +107,9 @@ impl Av1EncodeSession {
                 let dst = &mut padded[row * stride..][..frame_w * 4];
                 dst.copy_from_slice(src);
             }
-            rgba_to_yuv420(&padded, self.enc_width, self.enc_height)
+            rgba_to_yuv420(&padded, self.enc_width, self.enc_height, matrix)
         } else {
-            rgba_to_yuv420(&frame.data, self.enc_width, self.enc_height)
+            rgba_to_yuv420(&frame.data, self.enc_width, self.enc_height, matrix)
         };
 
         let mut f = self.ctx.new_frame();
