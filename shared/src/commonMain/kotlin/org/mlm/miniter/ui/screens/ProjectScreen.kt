@@ -43,6 +43,7 @@ fun ProjectScreen(
     openAsProject: Boolean = false,
     resolution: RustExportResolution? = null,
     fps: Int? = null,
+    extraImportPaths: List<String> = emptyList(),
 ) {
     val vm: ProjectViewModel = koinInject()
     val uiState by vm.state.collectAsState()
@@ -83,6 +84,14 @@ fun ProjectScreen(
     LaunchedEffect(videoPath) {
         if (snapshot == null) {
             vm.initProject(videoPath, videoName, savePath, openAsProject, resolution, fps)
+        }
+    }
+
+    var extraImportHandled by remember { mutableStateOf(false) }
+    LaunchedEffect(snapshot, extraImportHandled) {
+        if (!extraImportHandled && snapshot != null && extraImportPaths.isNotEmpty()) {
+            vm.importMediaPaths(extraImportPaths)
+            extraImportHandled = true
         }
     }
 

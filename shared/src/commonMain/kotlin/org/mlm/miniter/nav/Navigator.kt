@@ -28,6 +28,7 @@ sealed interface Route : NavKey {
         val openAsProject: Boolean = false,
         val resolution: RustExportResolution? = null,
         val fps: Int? = null,
+        val extraImportPaths: List<String> = emptyList(),
     ) : Route
     @Serializable data class Export(val projectPath: String) : Route
 }

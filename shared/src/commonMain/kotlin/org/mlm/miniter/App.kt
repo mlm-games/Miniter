@@ -16,6 +16,8 @@ import androidx.navigation3.ui.NavDisplay
 import io.github.mlmgames.settings.core.SettingsRepository
 import org.koin.compose.koinInject
 import org.mlm.miniter.nav.*
+import org.mlm.miniter.platform.consumePendingMediaOpens
+import org.mlm.miniter.platform.pendingMediaOpens
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.settings.ThemeMode
 import org.mlm.miniter.ui.animation.forwardTransition
@@ -47,6 +49,22 @@ fun App() {
         MainTheme(darkTheme = isDark, dynamicColors = settings.useDynamicColors) {
             val backStack: NavBackStack<NavKey> =
                 rememberNavBackStack(navSavedStateConfiguration, Route.Editor)
+
+            val openedMedia by pendingMediaOpens.collectAsState()
+            LaunchedEffect(openedMedia) {
+                if (openedMedia.isNotEmpty()) {
+                    val first = openedMedia.first()
+                    backStack.add(
+                        Route.Project(
+                            path = first.path,
+                            name = first.name,
+                            openAsProject = false,
+                            extraImportPaths = openedMedia.drop(1).map { it.path },
+                        )
+                    )
+                    consumePendingMediaOpens()
+                }
+            }
 
             Scaffold(
                 snackbarHost = {
@@ -88,6 +106,7 @@ fun App() {
                                 openAsProject = key.openAsProject,
                                 resolution = key.resolution,
                                 fps = key.fps,
+                                extraImportPaths = key.extraImportPaths,
                             )
                         }
 

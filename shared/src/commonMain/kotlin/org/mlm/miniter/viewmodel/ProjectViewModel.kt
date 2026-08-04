@@ -525,6 +525,10 @@ class ProjectViewModel(
     }
 
     fun importMediaFiles(files: List<PlatformFile>) {
+        importMediaPaths(files.map { it.platformPath() })
+    }
+
+    fun importMediaPaths(paths: List<String>) {
         viewModelScope.launch {
             val initialSnapshot = rustStore.snapshot.value ?: return@launch
             _state.update { it.copy(isLoading = true) }
@@ -539,14 +543,14 @@ class ProjectViewModel(
                     ?: _state.value.playheadMs
 
                 data class ImportItem(
-                    val file: PlatformFile,
+                    val path: String,
                     val stagedPath: String,
                     val info: VideoInfo,
                 )
 
-                val items = files.map { file ->
-                    val stagedPath = PlatformFileSystem.stageForNativeAccess(file.platformPath())
-                    ImportItem(file, stagedPath, engine.probeVideo(stagedPath))
+                val items = paths.map { path ->
+                    val stagedPath = PlatformFileSystem.stageForNativeAccess(path)
+                    ImportItem(path, stagedPath, engine.probeVideo(stagedPath))
                 }
 
                 var cursorVideoUs = initialCursorMs.msToUs

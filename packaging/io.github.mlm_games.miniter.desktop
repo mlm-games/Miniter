@@ -8,6 +8,6 @@ Exec=miniter %U
 Icon=io.github.mlm_games.miniter
 Terminal=false
 Categories=AudioVideo;Video;Recorder;
-MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;
+MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;audio/mpeg;audio/x-wav;audio/flac;audio/ogg;audio/mp4;audio/aac;
 StartupNotify=true
 StartupWMClass=Miniter
