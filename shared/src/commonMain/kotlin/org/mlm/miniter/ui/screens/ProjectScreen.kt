@@ -83,15 +83,7 @@ fun ProjectScreen(
 
     LaunchedEffect(videoPath) {
         if (snapshot == null) {
-            vm.initProject(videoPath, videoName, savePath, openAsProject, resolution, fps)
-        }
-    }
-
-    var extraImportHandled by remember { mutableStateOf(false) }
-    LaunchedEffect(snapshot, extraImportHandled) {
-        if (!extraImportHandled && snapshot != null && extraImportPaths.isNotEmpty()) {
-            vm.importMediaPaths(extraImportPaths)
-            extraImportHandled = true
+            vm.initProject(videoPath, videoName, savePath, openAsProject, resolution, fps, extraImportPaths)
         }
     }
 

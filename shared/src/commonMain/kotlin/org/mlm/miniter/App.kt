@@ -27,6 +27,8 @@ import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.screens.*
 import org.mlm.miniter.ui.theme.MainTheme
 import org.mlm.miniter.ui.util.popBack
+import org.mlm.miniter.ui.util.popUntil
+import org.mlm.miniter.viewmodel.ProjectViewModel
 
 val LocalMessageFontSize = staticCompositionLocalOf { 16f }
 
@@ -50,10 +52,17 @@ fun App() {
             val backStack: NavBackStack<NavKey> =
                 rememberNavBackStack(navSavedStateConfiguration, Route.Editor)
 
+            val projectVm: ProjectViewModel = koinInject()
+
             val openedMedia by pendingMediaOpens.collectAsState()
             LaunchedEffect(openedMedia) {
                 if (openedMedia.isNotEmpty()) {
                     val first = openedMedia.first()
+                    // The ProjectViewModel is a process-wide singleton, so make sure we
+                    // start from a clean slate and never stack multiple projects on the
+                    // back stack for repeated "open with" requests.
+                    projectVm.reset()
+                    backStack.popUntil { it is Route.Editor }
                     backStack.add(
                         Route.Project(
                             path = first.path,

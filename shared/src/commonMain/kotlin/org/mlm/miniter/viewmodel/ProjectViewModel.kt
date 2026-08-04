@@ -133,7 +133,12 @@ class ProjectViewModel(
         }
     }
 
-    fun newProject(name: String, initialVideoPath: String, savePath: String? = null) {
+    fun newProject(
+        name: String,
+        initialVideoPath: String,
+        savePath: String? = null,
+        extraImportPaths: List<String> = emptyList(),
+    ) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             try {
@@ -243,6 +248,9 @@ class ProjectViewModel(
                 }
                 if (savePath != null) {
                     recentProjectsRepository.addRecent(savePath, name)
+                }
+                if (extraImportPaths.isNotEmpty()) {
+                    importMediaPathsInternal(extraImportPaths)
                 }
             } catch (e: Exception) {
                 Napier.e("Failed to open media", e)
@@ -405,11 +413,12 @@ class ProjectViewModel(
         openAsProject: Boolean = false,
         resolution: RustExportResolution? = null,
         fps: Int? = null,
+        extraImportPaths: List<String> = emptyList(),
     ) {
         when {
             openAsProject -> loadProject(videoPath)
-            videoPath.isEmpty() -> createBlankProject(projectName, savePath, resolution ?: RustExportResolution.Hd1080, fps ?: 30)
-            else -> newProject(projectName, videoPath, savePath)
+            videoPath.isEmpty() -> createBlankProject(projectName, savePath, resolution ?: RustExportResolution.Hd1080, fps ?: 30, extraImportPaths)
+            else -> newProject(projectName, videoPath, savePath, extraImportPaths)
         }
     }
 
@@ -418,6 +427,7 @@ class ProjectViewModel(
         savePath: String? = null,
         resolution: RustExportResolution = RustExportResolution.Hd1080,
         fps: Int = 30,
+        extraImportPaths: List<String> = emptyList(),
     ) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
@@ -439,6 +449,9 @@ class ProjectViewModel(
                 }
                 if (savePath != null) {
                     recentProjectsRepository.addRecent(savePath, name)
+                }
+                if (extraImportPaths.isNotEmpty()) {
+                    importMediaPathsInternal(extraImportPaths)
                 }
             } catch (e: Exception) {
                 Napier.e("Failed to create project", e)
@@ -530,10 +543,15 @@ class ProjectViewModel(
 
     fun importMediaPaths(paths: List<String>) {
         viewModelScope.launch {
-            val initialSnapshot = rustStore.snapshot.value ?: return@launch
-            _state.update { it.copy(isLoading = true) }
+            importMediaPathsInternal(paths)
+        }
+    }
 
-            try {
+    private suspend fun importMediaPathsInternal(paths: List<String>) {
+        val initialSnapshot = rustStore.snapshot.value ?: return
+        _state.update { it.copy(isLoading = true) }
+
+        try {
                 val selected = initialSnapshot.timeline.tracks
                     .flatMap { track -> track.clips.map { track.id to it } }
                     .firstOrNull { (_, clip) -> clip.id == _state.value.selectedClipId }
@@ -696,7 +714,6 @@ class ProjectViewModel(
                 Napier.e("Failed to import media", e)
                 handleError("Failed to import: ${e.message}")
             }
-        }
     }
 
     fun importSubtitleFiles(files: List<PlatformFile>) {

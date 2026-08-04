@@ -36,5 +36,5 @@ fun mediaOpenDisplayName(uriString: String): String {
     val uri = Uri.parse(uriString)
     return queryDisplayName(uri)
         ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
-        ?: "video"
+        ?: "media"
 }
