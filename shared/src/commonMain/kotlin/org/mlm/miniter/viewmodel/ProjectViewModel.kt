@@ -61,6 +61,14 @@ import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.util.toArgbHex
 import kotlin.time.Clock
 
+data class ImportProgress(
+    val current: Int = 0,
+    val total: Int = 0,
+    val currentFile: String? = null,
+    val stage: String = "Importing",
+    val fraction: Float? = null,
+)
+
 data class ProjectUiState(
     val snapshot: RustProjectSnapshot? = null,
     val projectPath: String? = null,
@@ -70,6 +78,7 @@ data class ProjectUiState(
     val isPlaying: Boolean = false,
     val isSaving: Boolean = false,
     val isLoading: Boolean = false,
+    val importProgress: ImportProgress? = null,
     val isDirty: Boolean = false,
     val zoomLevel: Float = 1f,
     val thumbnails: List<ImageData> = emptyList(),
@@ -549,6 +558,8 @@ class ProjectViewModel(
 
     private suspend fun importMediaPathsInternal(paths: List<String>) {
         val initialSnapshot = rustStore.snapshot.value ?: return
+        if (paths.isEmpty()) return
+        if (_state.value.importProgress != null) return
         _state.update { it.copy(isLoading = true) }
 
         try {
@@ -566,8 +577,32 @@ class ProjectViewModel(
                     val info: VideoInfo,
                 )
 
-                val items = paths.map { path ->
+                val total = paths.size
+                val items = paths.mapIndexed { index, path ->
+                    val fileName = path.substringAfterLast("/").substringAfterLast("\\")
+                    _state.update {
+                        it.copy(
+                            importProgress = ImportProgress(
+                                current = index,
+                                total = total,
+                                currentFile = fileName,
+                                stage = "Preparing",
+                                fraction = null,
+                            ),
+                        )
+                    }
                     val stagedPath = PlatformFileSystem.stageForNativeAccess(path)
+                    _state.update {
+                        it.copy(
+                            importProgress = ImportProgress(
+                                current = index,
+                                total = total,
+                                currentFile = fileName,
+                                stage = "Probing",
+                                fraction = if (total > 1) index.toFloat() / total else null,
+                            ),
+                        )
+                    }
                     ImportItem(path, stagedPath, engine.probeVideo(stagedPath))
                 }
 
@@ -633,6 +668,7 @@ class ProjectViewModel(
                     return ImportTarget(resolvedId, cursorUs + durationUs)
                 }
 
+                var added = 0
                 for (item in items) {
                     val info = item.info
                     val hasVideo = info.hasVideo
@@ -705,11 +741,26 @@ class ProjectViewModel(
                         )
                         cursorAudioUs = target.cursor
                     }
+
+                    added++
+                    _state.update {
+                        it.copy(
+                            snapshot = rustStore.snapshot.value,
+                            isLoading = true,
+                            importProgress = ImportProgress(
+                                current = added,
+                                total = total,
+                                currentFile = item.path.substringAfterLast("/").substringAfterLast("\\"),
+                                stage = "Adding to timeline",
+                                fraction = if (total > 1) added.toFloat() / total else null,
+                            ),
+                        )
+                    }
                 }
 
                 syncFromRust()
-                _state.update { it.copy(isLoading = false) }
-                snackbarManager.show("Imported ${items.size} file(s)")
+                _state.update { it.copy(isLoading = false, importProgress = null) }
+                snackbarManager.show("Imported $added file(s)")
             } catch (e: Exception) {
                 Napier.e("Failed to import media", e)
                 handleError("Failed to import: ${e.message}")
@@ -719,6 +770,8 @@ class ProjectViewModel(
     fun importSubtitleFiles(files: List<PlatformFile>) {
         viewModelScope.launch {
             val initialSnapshot = rustStore.snapshot.value ?: return@launch
+            if (files.isEmpty()) return@launch
+            if (_state.value.importProgress != null) return@launch
             _state.update { it.copy(isLoading = true) }
 
             try {
@@ -731,7 +784,20 @@ class ProjectViewModel(
 
                 val cursorMs = _state.value.playheadMs
 
-                for (file in files) {
+                val total = files.size
+                files.forEachIndexed { index, file ->
+                    val fileName = file.platformPath().substringAfterLast("/").substringAfterLast("\\")
+                    _state.update {
+                        it.copy(
+                            importProgress = ImportProgress(
+                                current = index,
+                                total = total,
+                                currentFile = fileName,
+                                stage = "Importing subtitles",
+                                fraction = null,
+                            ),
+                        )
+                    }
                     val stagedPath = PlatformFileSystem.stageForNativeAccess(file.platformPath())
                     val durationMs = DEFAULT_SUBTITLE_DURATION_MS
                     val startUs = cursorMs.msToUs
@@ -757,10 +823,23 @@ class ProjectViewModel(
                             ),
                         )
                     )
+                    _state.update {
+                        it.copy(
+                            snapshot = rustStore.snapshot.value,
+                            isLoading = true,
+                            importProgress = ImportProgress(
+                                current = index + 1,
+                                total = total,
+                                currentFile = fileName,
+                                stage = "Adding to timeline",
+                                fraction = if (total > 1) (index + 1).toFloat() / total else null,
+                            ),
+                        )
+                    }
                 }
 
                 syncFromRust()
-                _state.update { it.copy(isLoading = false) }
+                _state.update { it.copy(isLoading = false, importProgress = null) }
                 snackbarManager.show("Imported ${files.size} subtitle file(s)")
             } catch (e: Exception) {
                 handleError("Failed to import subtitles: ${e.message}")
@@ -1431,7 +1510,7 @@ class ProjectViewModel(
     }
 
     private fun handleError(message: String) {
-        _state.update { it.copy(isLoading = false) }
+        _state.update { it.copy(isLoading = false, importProgress = null) }
         snackbarManager.showError(message)
     }
 }

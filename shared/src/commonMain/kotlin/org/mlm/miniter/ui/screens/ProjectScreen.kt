@@ -29,8 +29,10 @@ import org.mlm.miniter.ui.components.properties.PropertiesBottomSheet
 import org.mlm.miniter.ui.components.timeline.TimelinePanel
 import org.mlm.miniter.ui.components.toolbar.ActionBar
 import org.mlm.miniter.ui.components.toolbar.CompactTopBar
+import org.mlm.miniter.ui.components.toolbar.ImportProgressBanner
 import org.mlm.miniter.ui.components.toolbar.PlaybackControls
 import org.mlm.miniter.ui.util.popBack
+import org.mlm.miniter.viewmodel.ImportProgress
 import org.mlm.miniter.viewmodel.ProjectViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -116,6 +118,22 @@ fun ProjectScreen(
             onImportSubtitles = { subtitlePicker.launch() },
         )
 
+        when {
+            uiState.importProgress != null -> {
+                ImportProgressBanner(uiState.importProgress!!)
+            }
+            uiState.isLoading -> {
+                ImportProgressBanner(
+                    ImportProgress(
+                        current = 0,
+                        total = 0,
+                        currentFile = null,
+                        stage = "Loading…",
+                        fraction = null,
+                    )
+                )
+            }
+        }
         val selectedClip = snapshot?.timeline?.tracks?.flatMap { it.clips }?.find { it.id == selectedClipId }
         val videoKind = selectedClip?.kind as? org.mlm.miniter.editor.model.RustVideoClipKind
         val transformFilterIndex = videoKind?.filters?.indexOfFirst { it.filter is org.mlm.miniter.editor.model.RustTransformFilterSnapshot } ?: -1
