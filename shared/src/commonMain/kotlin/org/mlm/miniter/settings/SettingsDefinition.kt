@@ -33,6 +33,14 @@ data class AppSettings(
     )
     val useDynamicColors: Boolean = true,
 
+    @Setting(
+        title = "Pure black (OLED)",
+        category = Appearance::class,
+        type = Toggle::class,
+        key = "oled_black"
+    )
+    val oledBlack: Boolean = false,
+
     // @Setting(
     //     title = "Font size",
     //     description = "UI font size",

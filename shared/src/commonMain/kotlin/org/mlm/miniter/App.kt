@@ -48,7 +48,7 @@ fun App() {
     }
 
     CompositionLocalProvider(LocalMessageFontSize provides settings.fontSize) {
-        MainTheme(darkTheme = isDark, dynamicColors = settings.useDynamicColors) {
+        MainTheme(darkTheme = isDark, dynamicColors = settings.useDynamicColors, oledBlack = settings.oledBlack) {
             val backStack: NavBackStack<NavKey> =
                 rememberNavBackStack(navSavedStateConfiguration, Route.Editor)
 

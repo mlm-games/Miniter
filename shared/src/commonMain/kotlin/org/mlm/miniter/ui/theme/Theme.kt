@@ -93,10 +93,38 @@ val AppShapes = Shapes(
 fun MainTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColors: Boolean = false,
+    oledBlack: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = getDynamicColorScheme(darkTheme, dynamicColors)
+    val baseScheme = getDynamicColorScheme(darkTheme, dynamicColors)
         ?: if (darkTheme) DarkColorScheme else LightColorScheme
+
+    // OLED override (only in dark mode, can reuse in other apps too)
+    val colorScheme = if (darkTheme && oledBlack) {
+        baseScheme.copy(
+            background = Color.Black,
+            surface = Color.Black,
+            surfaceDim = Color.Black,
+            surfaceBright = Color(0xFF1A1A1A),
+            surfaceContainerLowest = Color.Black,
+            surfaceContainerLow = Color(0xFF0A0A0A),
+            surfaceContainer = Color(0xFF121212),
+            surfaceContainerHigh = Color(0xFF1A1A1A),
+            surfaceContainerHighest = Color(0xFF222222),
+            surfaceVariant = Color(0xFF121212),
+            outline = Color(0xFF2E2E2E),
+            outlineVariant = Color(0xFF1A1A1A),
+            scrim = Color.Black,
+            primaryContainer = Color(0xFF281845),
+            secondaryContainer = Color(0xFF221B2E),
+            tertiaryContainer = Color(0xFF3E1C2A),
+            errorContainer = Color(0xFF4A0000),
+            inverseSurface = Color(0xFFE2E2E6),
+            inverseOnSurface = Color(0xFF121318),
+        )
+    } else {
+        baseScheme
+    }
 
     MaterialExpressiveTheme(
         colorScheme = colorScheme,
