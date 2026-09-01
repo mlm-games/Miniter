@@ -1,3 +1,13 @@
+## v0.8.3
+
+- add oled theme, and yml auto-bump types
+- remove ACCESS_NETWORK_STATE perm (#29)
+- missing output mode calls
+- feat: Import progress
+- Intent handling (#28)
+- rm probe fallback and log it instead
+
+
 ## v0.8.2
 
 - add Dynamic Theme support (for android)

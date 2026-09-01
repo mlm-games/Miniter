@@ -23,6 +23,18 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.8.3" date="2026-09-01" type="stable">
+      <description>
+        <ul>
+          <li>add oled theme, and yml auto-bump types</li>
+          <li>remove ACCESS_NETWORK_STATE perm (#29)</li>
+          <li>missing output mode calls</li>
+          <li>feat: Import progress</li>
+          <li>Intent handling (#28)</li>
+          <li>rm probe fallback and log it instead</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.2" date="2026-07-13" type="stable">
       <description>
         <ul>
