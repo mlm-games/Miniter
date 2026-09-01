@@ -106,9 +106,11 @@ pub fn first_video_dimensions(timeline: &Timeline) -> Option<(u32, u32)> {
     for track in &timeline.tracks {
         for clip in &track.clips {
             if let ClipKind::Video(video) = &clip.kind
-                && video.width > 0 && video.height > 0 {
-                    return Some((video.width, video.height));
-                }
+                && video.width > 0
+                && video.height > 0
+            {
+                return Some((video.width, video.height));
+            }
         }
     }
     None

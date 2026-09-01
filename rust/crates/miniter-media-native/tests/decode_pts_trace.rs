@@ -176,11 +176,15 @@ fn test_one(
     }
 
     if gaps > 0 {
-        errors.push(format!("{gaps} PTS gaps >1.5× frame duration (max={max_gap_us}µs)"));
+        errors.push(format!(
+            "{gaps} PTS gaps >1.5× frame duration (max={max_gap_us}µs)"
+        ));
     }
 
     // Optional visual comparison against ffmpeg reference
-    let check_visual = std::env::var("CHECK_VISUAL").map(|v| v == "1").unwrap_or(false);
+    let check_visual = std::env::var("CHECK_VISUAL")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     if check_visual {
         match check_visual_ffmpeg(tv.path, hw, n, w, h_) {
             Ok(min_psnr) => {
@@ -188,10 +192,15 @@ fn test_one(
                 // corruption (wrong pixels, block artifacts) rather than
                 // expected chroma-siting/color-matrix differences (~25-31dB).
                 if min_psnr < 20.0 {
-                    errors.push(format!("visual: min PSNR={min_psnr:.1}dB (<20dB — decoder corruption?)"));
+                    errors.push(format!(
+                        "visual: min PSNR={min_psnr:.1}dB (<20dB — decoder corruption?)"
+                    ));
                 } else {
-                    eprintln!("  ✅ {:<20} {hwsw:>3}:  visual PSNR min={min_psnr:.1}dB",
-                        tv.label, hwsw = if hw { "HW" } else { "SW" });
+                    eprintln!(
+                        "  ✅ {:<20} {hwsw:>3}:  visual PSNR min={min_psnr:.1}dB",
+                        tv.label,
+                        hwsw = if hw { "HW" } else { "SW" }
+                    );
                 }
             }
             Err(e) => errors.push(format!("visual check: {e}")),
@@ -248,11 +257,7 @@ fn test_one(
     Ok(n)
 }
 
-fn encode_and_mux(
-    input_path: &str,
-    hw: bool,
-    _n: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn encode_and_mux(input_path: &str, hw: bool, _n: u32) -> Result<(), Box<dyn std::error::Error>> {
     use std::fs::File;
     use std::io::BufWriter;
 
@@ -260,7 +265,9 @@ fn encode_and_mux(
     use miniter_media_native::encoder::VideoEncodeSession;
     use miniter_media_native::encoder_hw::HwEncodeSession;
     use miniter_media_native::frame::{MatrixCoeffs, RgbaFrame};
-    use miniter_media_native::mux::{extract_sps_pps, ContainerFormat, Mp4Muxer, VideoTrackCodecOut};
+    use miniter_media_native::mux::{
+        ContainerFormat, Mp4Muxer, VideoTrackCodecOut, extract_sps_pps,
+    };
 
     let out_path = "/tmp/pts_test_encode.mp4";
     let mut session = VideoDecodeSession::open(Path::new(input_path), hw)?;
@@ -269,8 +276,14 @@ fn encode_and_mux(
     let fps = 30.0;
     let bitrate = 2_000;
 
-    let hw_enc =
-        HwEncodeSession::new(w, h, bitrate * 1000, fps as f32, "video/avc", MatrixCoeffs::Bt709);
+    let hw_enc = HwEncodeSession::new(
+        w,
+        h,
+        bitrate * 1000,
+        fps as f32,
+        "video/avc",
+        MatrixCoeffs::Bt709,
+    );
     enum Encoder {
         Sw(VideoEncodeSession),
         Hw(HwEncodeSession),
@@ -294,9 +307,11 @@ fn encode_and_mux(
             Encoder::Hw(e) => e.encode_frame(&frame)?,
         };
         let (bytes, keyframe, enc_pts_us) = match output {
-            miniter_media_native::encoder::EncodedVideoOutput::Sample { bytes, is_keyframe, pts_us } => {
-                (bytes, is_keyframe, pts_us)
-            }
+            miniter_media_native::encoder::EncodedVideoOutput::Sample {
+                bytes,
+                is_keyframe,
+                pts_us,
+            } => (bytes, is_keyframe, pts_us),
             miniter_media_native::encoder::EncodedVideoOutput::Skipped => continue,
         };
 
@@ -304,8 +319,10 @@ fn encode_and_mux(
         if let Some(prev) = enc_prev_pts {
             if enc_pts_us < prev && prev - enc_pts_us > 100 {
                 enc_dips += 1;
-                eprintln!("  ⚠️  Encoder PTS dip #{}: frame_idx={}, prev={}µs -> curr={}µs",
-                    enc_dips, enc_frame_idx, prev, enc_pts_us);
+                eprintln!(
+                    "  ⚠️  Encoder PTS dip #{}: frame_idx={}, prev={}µs -> curr={}µs",
+                    enc_dips, enc_frame_idx, prev, enc_pts_us
+                );
             }
         }
         enc_prev_pts = Some(enc_pts_us);
@@ -324,7 +341,10 @@ fn encode_and_mux(
     }
 
     if std::env::var("TRACE_ENCODER_PTS").is_ok() {
-        eprintln!("  Encoder PTS trace (all {} frames):", encoder_pts_list.len());
+        eprintln!(
+            "  Encoder PTS trace (all {} frames):",
+            encoder_pts_list.len()
+        );
         for &(idx, pts) in &encoder_pts_list {
             eprintln!("    enc[{idx:>4}] = {pts:>10}µs");
         }
@@ -432,11 +452,16 @@ fn check_visual_ffmpeg(
     let mut child = Command::new("ffmpeg")
         .args([
             "-hide_banner",
-            "-i", path,
-            "-f", "rawvideo",
-            "-pix_fmt", "rgba",
-            "-vsync", "0",
-            "-frame_size", &frame_size.to_string(),
+            "-i",
+            path,
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-vsync",
+            "0",
+            "-frame_size",
+            &frame_size.to_string(),
             "-",
         ])
         .stdout(Stdio::piped())
@@ -444,8 +469,7 @@ fn check_visual_ffmpeg(
         .spawn()
         .map_err(|e| format!("ffmpeg spawn: {e}"))?;
 
-    let mut ffmpeg_stdout = child.stdout.take()
-        .ok_or("ffmpeg stdout not captured")?;
+    let mut ffmpeg_stdout = child.stdout.take().ok_or("ffmpeg stdout not captured")?;
 
     let mut min_psnr = f64::MAX;
     let mut matched = 0u32;
@@ -471,12 +495,10 @@ fn check_visual_ffmpeg(
         let pixels = frame_size / 4;
         let mut sq_err = 0u64;
         for px in 0..pixels {
-            let our_y =
-                0.299 * our_data[px * 4] as f64
+            let our_y = 0.299 * our_data[px * 4] as f64
                 + 0.587 * our_data[px * 4 + 1] as f64
                 + 0.114 * our_data[px * 4 + 2] as f64;
-            let ref_y =
-                0.299 * ref_data[px * 4] as f64
+            let ref_y = 0.299 * ref_data[px * 4] as f64
                 + 0.587 * ref_data[px * 4 + 1] as f64
                 + 0.114 * ref_data[px * 4 + 2] as f64;
             let d = our_y - ref_y;
@@ -498,7 +520,9 @@ fn check_visual_ffmpeg(
     let _ = child.wait();
 
     if matched < n_check as u32 {
-        eprintln!("  WARN: visual check only compared {matched}/{n_check} frames (ffmpeg ended early)");
+        eprintln!(
+            "  WARN: visual check only compared {matched}/{n_check} frames (ffmpeg ended early)"
+        );
     }
 
     if min_psnr == f64::MAX {

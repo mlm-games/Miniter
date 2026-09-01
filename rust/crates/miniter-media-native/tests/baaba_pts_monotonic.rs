@@ -13,8 +13,8 @@
 use std::time::Duration;
 
 use miniter_media_native::decoders::baaba::BaabaBackend;
-use miniter_media_native::decoders::{fourcc_to_mime, H265_FOURCC};
-use miniter_media_native::demux::{open_demuxer, VideoDecoderBackend};
+use miniter_media_native::decoders::{H265_FOURCC, fourcc_to_mime};
+use miniter_media_native::demux::{VideoDecoderBackend, open_demuxer};
 
 fn pts_dbg(pts: Duration) -> String {
     format!("{:.6}s", pts.as_secs_f64())
@@ -35,7 +35,10 @@ fn baaba_h265_pts_monotonic() {
 
     eprintln!(
         "H.265 track: {}x{}, mime={}, description={} bytes",
-        width, height, mime, codec_desc.len()
+        width,
+        height,
+        mime,
+        codec_desc.len()
     );
 
     let mut decoder =

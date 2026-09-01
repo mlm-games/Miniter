@@ -23,7 +23,11 @@ pub enum EncodeError {
 
 #[derive(Debug)]
 pub enum EncodedVideoOutput {
-    Sample { bytes: Vec<u8>, is_keyframe: bool, pts_us: i64 },
+    Sample {
+        bytes: Vec<u8>,
+        is_keyframe: bool,
+        pts_us: i64,
+    },
     Skipped,
 }
 

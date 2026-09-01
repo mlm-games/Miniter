@@ -38,7 +38,6 @@ pub enum Easing {
     EaseInOut,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keyframe {
     pub param: String,
@@ -48,8 +47,7 @@ pub struct Keyframe {
     pub easing: Easing,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KeyframeCurve {
     pub keyframes: Vec<Keyframe>,
 }
@@ -104,7 +102,6 @@ impl KeyframeCurve {
         idx
     }
 }
-
 
 pub fn ease_linear(t: f32) -> f32 {
     t

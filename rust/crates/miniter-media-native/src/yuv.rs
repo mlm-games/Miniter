@@ -6,8 +6,12 @@ use crate::frame::{ChromaSiting, ColorInfo, ColorRange, MatrixCoeffs};
 /// Returns the four nearest chroma-sample indices and fractional weights.
 #[derive(Clone, Copy)]
 struct ChromaCoord {
-    ix0: usize, ix1: usize, fx: f32,
-    iy0: usize, iy1: usize, fy: f32,
+    ix0: usize,
+    ix1: usize,
+    fx: f32,
+    iy0: usize,
+    iy1: usize,
+    fy: f32,
 }
 
 #[inline(always)]
@@ -20,7 +24,14 @@ fn chroma_coord(col: usize, row: usize, cw: usize, ch: usize, siting: ChromaSiti
     let ix1 = (ix0 + 1).min(cw.saturating_sub(1));
     let iy0 = (cy.floor() as usize).min(ch.saturating_sub(1));
     let iy1 = (iy0 + 1).min(ch.saturating_sub(1));
-    ChromaCoord { ix0, ix1, fx: cx - cx.floor(), iy0, iy1, fy: cy - cy.floor() }
+    ChromaCoord {
+        ix0,
+        ix1,
+        fx: cx - cx.floor(),
+        iy0,
+        iy1,
+        fy: cy - cy.floor(),
+    }
 }
 
 fn get_matrix_coeffs(matrix: MatrixCoeffs, _height: usize) -> (f32, f32, f32, f32, f32) {
@@ -113,12 +124,7 @@ pub fn yuv420_to_rgba(
 ///
 /// NV12 layout: Y plane (width*height bytes) followed by interleaved U/V
 /// plane (width*height/2 bytes). Chroma is subsampled 2x in both directions.
-pub fn nv12_to_rgba(
-    data: &[u8],
-    width: usize,
-    height: usize,
-    color_info: ColorInfo,
-) -> Vec<u8> {
+pub fn nv12_to_rgba(data: &[u8], width: usize, height: usize, color_info: ColorInfo) -> Vec<u8> {
     nv12_to_rgba_impl(
         data,
         data.get(width * height..).unwrap_or(&[]),

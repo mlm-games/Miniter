@@ -3,7 +3,7 @@ use crate::demux::{DecodeBackendError, VideoDecoderBackend};
 use crate::frame::{ColorInfo, RgbaFrame};
 use std::collections::VecDeque;
 use videoson::{
-    CodecType, NalFormat, PixelFormat, Packet as VideoPacket, VideoCodecParams, VideoDecoder,
+    CodecType, NalFormat, Packet as VideoPacket, PixelFormat, VideoCodecParams, VideoDecoder,
     VideoDecoderOptions, VideoOutputFormat,
 };
 
@@ -184,9 +184,7 @@ impl VideosonBackend {
                     };
                     let y_stride = frame.plane_data[0].stride;
                     let uv_stride = frame.plane_data[1].stride;
-                    crate::yuv::nv12_to_rgba_separate(
-                        y, uv, w, h, y_stride, uv_stride, color_info,
-                    )
+                    crate::yuv::nv12_to_rgba_separate(y, uv, w, h, y_stride, uv_stride, color_info)
                 }
                 PixelFormat::Yuv420 => {
                     let y_stride = frame.plane_data[0].stride;
@@ -244,9 +242,7 @@ impl VideosonBackend {
                     rgba
                 }
                 _ => {
-                    return Err(DecodeBackendError::Other(
-                        "unsupported pixel format".into(),
-                    ));
+                    return Err(DecodeBackendError::Other("unsupported pixel format".into()));
                 }
             };
 

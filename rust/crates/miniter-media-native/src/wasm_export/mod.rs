@@ -243,7 +243,10 @@ impl<'a> ExportDecodeCache<'a> {
             }
             if let Some(ref pending) = entry.pending_frame {
                 if target_us < pending.pts_us {
-                    return entry.last_frame.clone().ok_or_else(|| "pending without last_frame".to_string());
+                    return entry
+                        .last_frame
+                        .clone()
+                        .ok_or_else(|| "pending without last_frame".to_string());
                 }
                 entry.last_pts = pending.pts_us;
                 entry.last_frame = Some(pending.clone());
@@ -251,9 +254,10 @@ impl<'a> ExportDecodeCache<'a> {
             }
 
             if let Some(ref current) = entry.last_frame
-                && current.pts_us == target_us {
-                    return Ok(current.clone());
-                }
+                && current.pts_us == target_us
+            {
+                return Ok(current.clone());
+            }
         }
 
         loop {
@@ -266,8 +270,10 @@ impl<'a> ExportDecodeCache<'a> {
             };
             if self.hardware_acceleration {
                 if let Err(ref e) = frame {
-                    if matches!(e, crate::decoders::DecodeError::Other(msg) if msg.starts_with("baaba try_frame_raw")) {
-                        crate::HARDWARE_FALLBACK_OCCURRED.store(true, std::sync::atomic::Ordering::SeqCst);
+                    if matches!(e, crate::decoders::DecodeError::Other(msg) if msg.starts_with("baaba try_frame_raw"))
+                    {
+                        crate::HARDWARE_FALLBACK_OCCURRED
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
                         self.hardware_acceleration = false;
                         self.sessions.remove(&clip_id);
                         return self.extract_frame(clip_id, path, target_us);
@@ -582,7 +588,9 @@ fn export_h264_mp4_bytes(
         .encode_frame(&first_frame)
         .map_err(|e| format!("H.264 encode failed: {e}"))?;
     let (first_bytes, first_keyframe) = match first_output {
-        EncodedVideoOutput::Sample { bytes, is_keyframe, .. } => (bytes, is_keyframe),
+        EncodedVideoOutput::Sample {
+            bytes, is_keyframe, ..
+        } => (bytes, is_keyframe),
         EncodedVideoOutput::Skipped => return Err("H.264 encoder skipped first frame".to_string()),
     };
 
@@ -639,7 +647,9 @@ fn export_h264_mp4_bytes(
                 .map_err(|e| format!("H.264 encode failed: {e}"))?;
 
             let (bytes, keyframe) = match encoded {
-                EncodedVideoOutput::Sample { bytes, is_keyframe, .. } => (bytes, is_keyframe),
+                EncodedVideoOutput::Sample {
+                    bytes, is_keyframe, ..
+                } => (bytes, is_keyframe),
                 EncodedVideoOutput::Skipped => {
                     return Err("H.264 encoder skipped frame".to_string());
                 }
@@ -711,15 +721,14 @@ fn export_av1_mp4_bytes(
     on_progress(1);
     on_progress(5);
 
-    let mut encoder =
-        Av1EncodeSession::new(
-            settings.width,
-            settings.height,
-            settings.fps,
-            bitrate_kbps,
-            MatrixCoeffs::Bt709,
-        )
-        .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+    let mut encoder = Av1EncodeSession::new(
+        settings.width,
+        settings.height,
+        settings.fps,
+        bitrate_kbps,
+        MatrixCoeffs::Bt709,
+    )
+    .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
 
     let mut output = Vec::new();
     let mut muxer = Mp4Muxer::new(
@@ -828,15 +837,14 @@ fn export_av1_ivf_bytes(
     decode_cache.default_height = settings.height;
     on_progress(1);
 
-    let mut encoder =
-        Av1EncodeSession::new(
-            settings.width,
-            settings.height,
-            settings.fps,
-            bitrate_kbps,
-            MatrixCoeffs::Bt709,
-        )
-        .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+    let mut encoder = Av1EncodeSession::new(
+        settings.width,
+        settings.height,
+        settings.fps,
+        bitrate_kbps,
+        MatrixCoeffs::Bt709,
+    )
+    .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
 
     let mut cursor = Cursor::new(Vec::<u8>::new());
     ivf::write_ivf_header(
@@ -1219,9 +1227,11 @@ fn first_video_dimensions(project: &Project) -> (u32, u32) {
     for track in &project.timeline.tracks {
         for clip in &track.clips {
             if let ClipKind::Video(VideoClip { width, height, .. }) = &clip.kind
-                && *width > 0 && *height > 0 {
-                    return (*width, *height);
-                }
+                && *width > 0
+                && *height > 0
+            {
+                return (*width, *height);
+            }
         }
     }
 
@@ -1329,15 +1339,24 @@ impl WasmExportChunker {
 
         log::warn!(
             "EXPORT_INIT: fps={} frame_duration_us={} end_us={} total_frames={} tracks={} clips={}",
-            safe_fps, frame_duration_us, end_us, total_frames,
+            safe_fps,
+            frame_duration_us,
+            end_us,
+            total_frames,
             project.timeline.tracks.len(),
-            project.timeline.tracks.iter().map(|t| t.clips.len()).sum::<usize>(),
+            project
+                .timeline
+                .tracks
+                .iter()
+                .map(|t| t.clips.len())
+                .sum::<usize>(),
         );
         for (ti, track) in project.timeline.tracks.iter().enumerate() {
             for (ci, clip) in track.clips.iter().enumerate() {
                 log::warn!(
                     "  track[{}] clip[{}]: timeline_start={}us timeline_duration={}us source_start={}us source_end={}us speed={}",
-                    ti, ci,
+                    ti,
+                    ci,
                     clip.timeline_start.as_micros(),
                     clip.timeline_duration.as_micros(),
                     clip.source_start.as_micros(),
@@ -1473,8 +1492,10 @@ impl WasmExportChunker {
                 ((self.current_frame as f64 / self.total_frames as f64) * 100_000.0) as u32;
             log::warn!(
                 "EXPORT_FRAME: current_frame={}/{} pts_us={} buffered={}",
-                self.current_frame, self.total_frames,
-                frame.pts_us, self.buffered_frames.len(),
+                self.current_frame,
+                self.total_frames,
+                frame.pts_us,
+                self.buffered_frames.len(),
             );
         }
 
@@ -1573,18 +1594,25 @@ impl WasmExportChunker {
         let trailing = self.encoder.finish()?;
         log::warn!(
             "EXPORT_FINISH: buffered_frames={} trailing={} total_frames={} current_frame={}",
-            self.buffered_frames.len(), trailing.len(), self.total_frames, self.current_frame,
+            self.buffered_frames.len(),
+            trailing.len(),
+            self.total_frames,
+            self.current_frame,
         );
         if !self.buffered_frames.is_empty() {
             let first = &self.buffered_frames[0];
             let last = &self.buffered_frames[self.buffered_frames.len() - 1];
             log::warn!(
                 "  first: pts_us={} is_key={} data_len={}",
-                first.pts_us, first.is_keyframe, first.data.len(),
+                first.pts_us,
+                first.is_keyframe,
+                first.data.len(),
             );
             log::warn!(
                 "  last:  pts_us={} is_key={} data_len={}",
-                last.pts_us, last.is_keyframe, last.data.len(),
+                last.pts_us,
+                last.is_keyframe,
+                last.data.len(),
             );
         }
         for p in trailing {

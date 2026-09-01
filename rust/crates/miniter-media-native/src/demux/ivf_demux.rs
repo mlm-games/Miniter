@@ -18,9 +18,7 @@ pub struct IvfDemuxer<R: Read + Seek> {
 impl<R: Read + Seek> IvfDemuxer<R> {
     pub fn from_reader(mut reader: R, _size: u64) -> DemuxResult<Self> {
         let mut header = [0u8; 32];
-        reader
-            .read_exact(&mut header)
-            .map_err(DemuxError::Io)?;
+        reader.read_exact(&mut header).map_err(DemuxError::Io)?;
 
         if &header[0..4] != b"DKIF" {
             return Err(DemuxError::Other("Not an IVF file".into()));

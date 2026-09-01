@@ -9,20 +9,16 @@
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
+use baabaabaabaabababbababbaa::VideoDecoderInput as _;
+#[cfg(target_os = "linux")]
+use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
+#[cfg(target_os = "linux")]
 use baabaabaabaabababbababbaa::platform::linux::{
     CrosCodecsHost, CrosVideoDecoderInput, CrosVideoDecoderOutput,
 };
 #[cfg(target_os = "linux")]
-use baabaabaabaabababbababbaa::{
-    Dimensions, EncodedVideoPacket, VideoDecoderConfig,
-};
-#[cfg(target_os = "linux")]
-use baabaabaabaabababbababbaa::VideoDecoderInput as _;
-#[cfg(target_os = "linux")]
-use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
-use miniter_media_native::decoders::{
-    fourcc_to_mime, H265_FOURCC, VP8_FOURCC, VP9_FOURCC,
-};
+use baabaabaabaabababbababbaa::{Dimensions, EncodedVideoPacket, VideoDecoderConfig};
+use miniter_media_native::decoders::{H265_FOURCC, VP8_FOURCC, VP9_FOURCC, fourcc_to_mime};
 use miniter_media_native::demux::open_demuxer;
 
 #[cfg(target_os = "linux")]
@@ -33,9 +29,8 @@ fn collect_raw_frames(
     loop {
         match output.try_frame() {
             Ok(Some(frame)) => {
-                let ts = Duration::from_micros(
-                    frame.timestamp.as_micros().min(i64::MAX as u128) as u64,
-                );
+                let ts =
+                    Duration::from_micros(frame.timestamp.as_micros().min(i64::MAX as u128) as u64);
                 buf.push((buf.len(), ts));
             }
             Ok(None) => break,
@@ -58,7 +53,10 @@ fn test_raw_pts(path: &str, expected_fourcc: u32, label: &str) {
 
     eprintln!(
         "{label} track: {}x{}, mime={}, description={} bytes",
-        width, height, mime, codec_desc.len()
+        width,
+        height,
+        mime,
+        codec_desc.len()
     );
 
     let host = CrosCodecsHost::new();
@@ -138,8 +136,7 @@ fn test_raw_pts(path: &str, expected_fourcc: u32, label: &str) {
     let mut input_pts_sorted: Vec<Duration> = input_pts.clone();
     input_pts_sorted.sort();
 
-    let mut output_pts_raw: Vec<Duration> =
-        raw_output_frames.iter().map(|(_, pts)| *pts).collect();
+    let mut output_pts_raw: Vec<Duration> = raw_output_frames.iter().map(|(_, pts)| *pts).collect();
     let mut output_pts_sorted = output_pts_raw.clone();
     output_pts_sorted.sort();
 
@@ -210,7 +207,11 @@ fn test_raw_pts(path: &str, expected_fourcc: u32, label: &str) {
                 } else {
                     input_pts[i] - output_pts_raw[i]
                 };
-                if diff > tolerance { " ← MISMATCH" } else { "" }
+                if diff > tolerance {
+                    " ← MISMATCH"
+                } else {
+                    ""
+                }
             } else {
                 ""
             };
@@ -256,9 +257,5 @@ fn baaba_vp9_raw_pts() {
 #[cfg_attr(not(target_os = "linux"), ignore)]
 #[ignore = "VA driver does not support VP8 on this hardware"]
 fn baaba_vp8_raw_pts() {
-    test_raw_pts(
-        "/home/ymsr/Videos/vp8-720p.webm",
-        VP8_FOURCC,
-        "VP8",
-    );
+    test_raw_pts("/home/ymsr/Videos/vp8-720p.webm", VP8_FOURCC, "VP8");
 }

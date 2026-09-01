@@ -57,7 +57,11 @@ impl EncoderBackend for H264SwBackend {
             .encode_frame(frame)
             .map_err(|e| format!("H.264 encode failed: {e}"))?
         {
-            EncodedVideoOutput::Sample { bytes, is_keyframe, pts_us } => Ok(vec![EncodedPacket {
+            EncodedVideoOutput::Sample {
+                bytes,
+                is_keyframe,
+                pts_us,
+            } => Ok(vec![EncodedPacket {
                 data: bytes,
                 is_keyframe,
                 pts_us: pts_us.max(0) as u64,
@@ -135,9 +139,16 @@ pub struct H264HwBackend {
 #[cfg(feature = "hw-decoder")]
 impl H264HwBackend {
     pub fn new(width: u32, height: u32, bitrate_bps: u32, fps: f32) -> Result<Self, String> {
-        HwEncodeSession::new(width, height, bitrate_bps, fps, "video/avc", MatrixCoeffs::Bt709)
-            .map(|inner| Self { inner })
-            .map_err(|e| format!("HW H.264 encoder init failed: {e}"))
+        HwEncodeSession::new(
+            width,
+            height,
+            bitrate_bps,
+            fps,
+            "video/avc",
+            MatrixCoeffs::Bt709,
+        )
+        .map(|inner| Self { inner })
+        .map_err(|e| format!("HW H.264 encoder init failed: {e}"))
     }
 }
 
@@ -214,9 +225,16 @@ pub struct Av1HwBackend {
 #[cfg(feature = "hw-decoder")]
 impl Av1HwBackend {
     pub fn new(width: u32, height: u32, bitrate_bps: u32, fps: f32) -> Result<Self, String> {
-        HwEncodeSession::new(width, height, bitrate_bps, fps, "video/av01", MatrixCoeffs::Bt709)
-            .map(|inner| Self { inner })
-            .map_err(|e| format!("HW AV1 encoder init failed: {e}"))
+        HwEncodeSession::new(
+            width,
+            height,
+            bitrate_bps,
+            fps,
+            "video/av01",
+            MatrixCoeffs::Bt709,
+        )
+        .map(|inner| Self { inner })
+        .map_err(|e| format!("HW AV1 encoder init failed: {e}"))
     }
 }
 

@@ -307,15 +307,13 @@ fn node_for_clip(
                 let out_progress = transition_out_progress(clip, trans, t);
                 if out_progress < 1.0
                     && let Some(next) = find_next_clip(track, clip)
-                        && let ClipKind::Video(nv) = &next.kind
+                    && let ClipKind::Video(nv) = &next.kind
                 {
                     let clip_end = clip.timeline_end();
-                    let fade_start = Timestamp::from_micros(
-                        clip_end.as_micros() - trans.duration.as_micros(),
-                    );
+                    let fade_start =
+                        Timestamp::from_micros(clip_end.as_micros() - trans.duration.as_micros());
                     let offset = (t - fade_start).as_micros();
-                    let next_t =
-                        Timestamp::from_micros(next.timeline_start.as_micros() + offset);
+                    let next_t = Timestamp::from_micros(next.timeline_start.as_micros() + offset);
 
                     let next_pts = Timestamp::from_micros(
                         next.source_start.as_micros()

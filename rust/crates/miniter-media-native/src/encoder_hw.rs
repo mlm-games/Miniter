@@ -1,11 +1,11 @@
-    use crate::encoder::{EncodeError, EncodedVideoOutput};
-    use crate::frame::{MatrixCoeffs, RgbaFrame};
-    #[cfg(not(target_arch = "wasm32"))]
-    use crate::yuv::rgba_to_yuv420;
 #[cfg(target_arch = "wasm32")]
 use crate::demux::symphonia_demux::{avcc_to_annexb, parse_avcc};
+use crate::encoder::{EncodeError, EncodedVideoOutput};
 #[cfg(target_arch = "wasm32")]
 use crate::export_shared::has_annexb_start_code;
+use crate::frame::{MatrixCoeffs, RgbaFrame};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::yuv::rgba_to_yuv420;
 use web_time::Duration;
 
 #[cfg(all(
@@ -18,11 +18,11 @@ use web_time::Duration;
 ))]
 mod hw {
     use super::*;
+    use baabaabaabaabababbababbaa::traits::VideoEncoderOutput;
     use baabaabaabaabababbababbaa::{
         AvcBitstreamFormat, Dimensions, VideoColorSpace, VideoEncoderConfig, VideoEncoderInput,
         VideoFrame, VideoPlanes,
     };
-    use baabaabaabaabababbababbaa::traits::VideoEncoderOutput;
 
     #[cfg(target_os = "android")]
     use baabaabaabaabababbababbaa::platform::android::{
@@ -225,7 +225,9 @@ mod hw {
                 let pts = pkt.timestamp.as_micros() as u64;
                 log::warn!(
                     "DRAIN_COMPLETED: pts_us={} key={} bytes_len={}",
-                    pts, pkt.keyframe, bytes.len(),
+                    pts,
+                    pkt.keyframe,
+                    bytes.len(),
                 );
                 frames.push(HwEncodedFrame {
                     bytes,

@@ -5,9 +5,7 @@ use fast_image_resize::{PixelType, Resizer};
 use fontdue::{Font, FontSettings};
 use miniter_audio::util;
 use miniter_domain::filter::VideoFilter;
-use miniter_domain::mask::{
-    BlendMode, MaskComposition, MaskOperation, MaskShape, MaskTransform,
-};
+use miniter_domain::mask::{BlendMode, MaskComposition, MaskOperation, MaskShape, MaskTransform};
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use std::io::Write;
 

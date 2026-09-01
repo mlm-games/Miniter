@@ -10,10 +10,26 @@ const MIN_DIM: u32 = 16;
 
 fn rav1e_color_description(matrix: MatrixCoeffs) -> ColorDescription {
     let (primaries, transfer, matrix_coefficients) = match matrix {
-        MatrixCoeffs::Bt601 => (ColorPrimaries::BT601, TransferCharacteristics::BT601, MatrixCoefficients::BT601),
-        MatrixCoeffs::Bt709 => (ColorPrimaries::BT709, TransferCharacteristics::BT709, MatrixCoefficients::BT709),
-        MatrixCoeffs::Bt2020Ncl => (ColorPrimaries::BT2020, TransferCharacteristics::BT2020_10Bit, MatrixCoefficients::BT2020NCL),
-        MatrixCoeffs::Identity => (ColorPrimaries::BT709, TransferCharacteristics::SRGB, MatrixCoefficients::Identity),
+        MatrixCoeffs::Bt601 => (
+            ColorPrimaries::BT601,
+            TransferCharacteristics::BT601,
+            MatrixCoefficients::BT601,
+        ),
+        MatrixCoeffs::Bt709 => (
+            ColorPrimaries::BT709,
+            TransferCharacteristics::BT709,
+            MatrixCoefficients::BT709,
+        ),
+        MatrixCoeffs::Bt2020Ncl => (
+            ColorPrimaries::BT2020,
+            TransferCharacteristics::BT2020_10Bit,
+            MatrixCoefficients::BT2020NCL,
+        ),
+        MatrixCoeffs::Identity => (
+            ColorPrimaries::BT709,
+            TransferCharacteristics::SRGB,
+            MatrixCoefficients::Identity,
+        ),
     };
     ColorDescription {
         color_primaries: primaries,

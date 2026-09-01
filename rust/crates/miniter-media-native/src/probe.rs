@@ -15,19 +15,17 @@ use symphonia::core::codecs::video::well_known::{
 fn decoder_supported(codec: VideoCodecId) -> bool {
     let hw_avail = cfg!(all(
         feature = "hw-decoder",
-        any(target_arch = "wasm32", target_os = "linux", target_os = "android")
+        any(
+            target_arch = "wasm32",
+            target_os = "linux",
+            target_os = "android"
+        )
     ));
     match codec {
         CODEC_ID_H264 => cfg!(feature = "videoson") || hw_avail,
-        CODEC_ID_HEVC => {
-            cfg!(any(feature = "videoson", feature = "videoson-h265")) || hw_avail
-        }
-        CODEC_ID_VP8 => {
-            cfg!(any(feature = "videoson", feature = "videoson-vp8")) || hw_avail
-        }
-        CODEC_ID_VP9 => {
-            cfg!(any(feature = "videoson", feature = "videoson-vp9")) || hw_avail
-        }
+        CODEC_ID_HEVC => cfg!(any(feature = "videoson", feature = "videoson-h265")) || hw_avail,
+        CODEC_ID_VP8 => cfg!(any(feature = "videoson", feature = "videoson-vp8")) || hw_avail,
+        CODEC_ID_VP9 => cfg!(any(feature = "videoson", feature = "videoson-vp9")) || hw_avail,
         CODEC_ID_AV1 => cfg!(feature = "av1") || hw_avail,
         _ => false,
     }
@@ -36,24 +34,18 @@ fn decoder_supported(codec: VideoCodecId) -> bool {
 fn requires_hardware_acceleration(codec: VideoCodecId) -> bool {
     let hw_avail = cfg!(all(
         feature = "hw-decoder",
-        any(target_arch = "wasm32", target_os = "linux", target_os = "android")
+        any(
+            target_arch = "wasm32",
+            target_os = "linux",
+            target_os = "android"
+        )
     ));
     match codec {
-        CODEC_ID_H264 => {
-            !cfg!(feature = "videoson") && hw_avail
-        }
-        CODEC_ID_HEVC => {
-            !cfg!(any(feature = "videoson", feature = "videoson-h265"))
-        }
-        CODEC_ID_VP8 => {
-            !cfg!(any(feature = "videoson", feature = "videoson-vp8"))
-        }
-        CODEC_ID_VP9 => {
-            !cfg!(any(feature = "videoson", feature = "videoson-vp9"))
-        }
-        CODEC_ID_AV1 => {
-            !cfg!(feature = "av1") && hw_avail
-        }
+        CODEC_ID_H264 => !cfg!(feature = "videoson") && hw_avail,
+        CODEC_ID_HEVC => !cfg!(any(feature = "videoson", feature = "videoson-h265")),
+        CODEC_ID_VP8 => !cfg!(any(feature = "videoson", feature = "videoson-vp8")),
+        CODEC_ID_VP9 => !cfg!(any(feature = "videoson", feature = "videoson-vp9")),
+        CODEC_ID_AV1 => !cfg!(feature = "av1") && hw_avail,
         _ => true,
     }
 }
@@ -182,8 +174,7 @@ fn probe_media_info_from_mss(
 
     for track in reader.tracks() {
         if let Some(v) = track.codec_params.as_ref().and_then(|p| p.video()) {
-            let codec_name =
-                crate::demux::symphonia_demux::format_codec_name(v.codec);
+            let codec_name = crate::demux::symphonia_demux::format_codec_name(v.codec);
             video_streams.push(VideoStreamInfo {
                 track_id: track.id,
                 codec: codec_name,

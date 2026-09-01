@@ -228,7 +228,9 @@ mod native_ffi {
             audio_channels: aus.map(|a| a.channels).unwrap_or(0),
             video_bitrate: vs.map(|v| v.bitrate).unwrap_or(0),
             video_decoder_available: vs.map(|v| v.decoder_available).unwrap_or(true),
-            hardware_acceleration_required: vs.map(|v| v.hardware_acceleration_required).unwrap_or(false),
+            hardware_acceleration_required: vs
+                .map(|v| v.hardware_acceleration_required)
+                .unwrap_or(false),
         })
     }
 
@@ -489,7 +491,7 @@ mod web_ffi {
         audio_sample_rate: u32,
         audio_channels: u32,
         video_bitrate: u32,
-                video_decoder_available: bool,
+        video_decoder_available: bool,
         hardware_acceleration_required: bool,
     }
 
@@ -504,7 +506,6 @@ mod web_ffi {
 
     #[derive(Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
-
 
     struct WasmExportPayload {
         ok: bool,
@@ -595,7 +596,9 @@ mod web_ffi {
             audio_channels: aus.map(|a| a.channels).unwrap_or(0),
             video_bitrate: vs.map(|v| v.bitrate).unwrap_or(0),
             video_decoder_available: vs.map(|v| v.decoder_available).unwrap_or(true),
-            hardware_acceleration_required: vs.map(|v| v.hardware_acceleration_required).unwrap_or(false),
+            hardware_acceleration_required: vs
+                .map(|v| v.hardware_acceleration_required)
+                .unwrap_or(false),
         }
     }
 
@@ -692,7 +695,14 @@ mod web_ffi {
         duration_us: f64,
         hardware_acceleration: bool,
     ) -> Result<String, JsValue> {
-        let frames = match extract_thumbnails_inner(&path, count, duration_us, hardware_acceleration).await {
+        let frames = match extract_thumbnails_inner(
+            &path,
+            count,
+            duration_us,
+            hardware_acceleration,
+        )
+        .await
+        {
             Ok(f) => f,
             Err(_) if hardware_acceleration => {
                 miniter_media_native::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
@@ -742,8 +752,7 @@ mod web_ffi {
                     .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?
                 {
                     Some(frame) => {
-                        while target_idx < targets.len() && frame.pts_us >= targets[target_idx]
-                        {
+                        while target_idx < targets.len() && frame.pts_us >= targets[target_idx] {
                             results.push(frame.clone());
                             target_idx += 1;
                         }
@@ -968,48 +977,69 @@ mod web_ffi {
 
         let host = WebCodecsHost::new();
         let candidates = [
-            (VideoDecoderConfig {
-                codec: VideoCodecId::H264 { profile: None, level: None },
-                resolution: Some(Dimensions::new(1280, 720)),
-                description: None,
-                hardware_acceleration: Some(true),
-                output_mode: VideoOutputMode::Cpu,
-            }, true),
-            (VideoDecoderConfig {
-                codec: VideoCodecId::Hevc,
-                resolution: Some(Dimensions::new(1920, 1080)),
-                description: None,
-                hardware_acceleration: Some(true),
-                output_mode: VideoOutputMode::Cpu,
-            }, true),
-            (VideoDecoderConfig {
-                codec: VideoCodecId::Hevc,
-                resolution: Some(Dimensions::new(1920, 1080)),
-                description: None,
-                hardware_acceleration: Some(false),
-                output_mode: VideoOutputMode::Cpu,
-            }, false),
-            (VideoDecoderConfig {
-                codec: VideoCodecId::Vp8,
-                resolution: Some(Dimensions::new(640, 480)),
-                description: None,
-                hardware_acceleration: Some(true),
-                output_mode: VideoOutputMode::Cpu,
-            }, true),
-            (VideoDecoderConfig {
-                codec: VideoCodecId::Vp9,
-                resolution: Some(Dimensions::new(1280, 720)),
-                description: None,
-                hardware_acceleration: Some(true),
-                output_mode: VideoOutputMode::Cpu,
-            }, true),
-            (VideoDecoderConfig {
-                codec: VideoCodecId::Av1,
-                resolution: Some(Dimensions::new(1280, 720)),
-                description: None,
-                hardware_acceleration: Some(true),
-                output_mode: VideoOutputMode::Cpu,
-            }, true),
+            (
+                VideoDecoderConfig {
+                    codec: VideoCodecId::H264 {
+                        profile: None,
+                        level: None,
+                    },
+                    resolution: Some(Dimensions::new(1280, 720)),
+                    description: None,
+                    hardware_acceleration: Some(true),
+                    output_mode: VideoOutputMode::Cpu,
+                },
+                true,
+            ),
+            (
+                VideoDecoderConfig {
+                    codec: VideoCodecId::Hevc,
+                    resolution: Some(Dimensions::new(1920, 1080)),
+                    description: None,
+                    hardware_acceleration: Some(true),
+                    output_mode: VideoOutputMode::Cpu,
+                },
+                true,
+            ),
+            (
+                VideoDecoderConfig {
+                    codec: VideoCodecId::Hevc,
+                    resolution: Some(Dimensions::new(1920, 1080)),
+                    description: None,
+                    hardware_acceleration: Some(false),
+                    output_mode: VideoOutputMode::Cpu,
+                },
+                false,
+            ),
+            (
+                VideoDecoderConfig {
+                    codec: VideoCodecId::Vp8,
+                    resolution: Some(Dimensions::new(640, 480)),
+                    description: None,
+                    hardware_acceleration: Some(true),
+                    output_mode: VideoOutputMode::Cpu,
+                },
+                true,
+            ),
+            (
+                VideoDecoderConfig {
+                    codec: VideoCodecId::Vp9,
+                    resolution: Some(Dimensions::new(1280, 720)),
+                    description: None,
+                    hardware_acceleration: Some(true),
+                    output_mode: VideoOutputMode::Cpu,
+                },
+                true,
+            ),
+            (
+                VideoDecoderConfig {
+                    codec: VideoCodecId::Av1,
+                    resolution: Some(Dimensions::new(1280, 720)),
+                    description: None,
+                    hardware_acceleration: Some(true),
+                    output_mode: VideoOutputMode::Cpu,
+                },
+                true,
+            ),
         ];
         let mut any_hw = false;
         for (cfg, is_hw) in &candidates {

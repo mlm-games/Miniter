@@ -273,7 +273,9 @@ impl Demuxer for SymphoniaDemuxer {
                 // Even if detect_is_sync missed the IRAP NAL, force is_sync=true for the
                 // very first sample carrying config NALs.
                 if !is_sync {
-                    log::warn!("First sample after configure had no detectable key NAL; forcing is_sync=true for WebCodecs compliance");
+                    log::warn!(
+                        "First sample after configure had no detectable key NAL; forcing is_sync=true for WebCodecs compliance"
+                    );
                 }
                 is_sync = true;
             }
@@ -402,7 +404,8 @@ pub fn avcc_to_annexb(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() + 32);
     let mut i = 0;
     while i + 4 <= data.len() {
-        let nalu_len = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
+        let nalu_len =
+            u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
         i += 4;
         if nalu_len == 0 || i + nalu_len > data.len() {
             break;
@@ -553,11 +556,7 @@ fn detect_is_sync(data: &[u8], fourcc: u32) -> bool {
                 let advance = search_start
                     .windows(4)
                     .position(|w| w == [0, 0, 0, 1])
-                    .or_else(|| {
-                        search_start
-                            .windows(3)
-                            .position(|w| w == [0, 0, 1])
-                    })
+                    .or_else(|| search_start.windows(3).position(|w| w == [0, 0, 1]))
                     .map(|pos| pos + 1)
                     .unwrap_or(remaining.len());
                 remaining = &remaining[advance.min(remaining.len())..];
@@ -584,11 +583,7 @@ fn detect_is_sync(data: &[u8], fourcc: u32) -> bool {
                 let advance = search_start
                     .windows(4)
                     .position(|w| w == [0, 0, 0, 1])
-                    .or_else(|| {
-                        search_start
-                            .windows(3)
-                            .position(|w| w == [0, 0, 1])
-                    })
+                    .or_else(|| search_start.windows(3).position(|w| w == [0, 0, 1]))
                     .map(|pos| pos + 1)
                     .unwrap_or(remaining.len());
                 remaining = &remaining[advance.min(remaining.len())..];

@@ -177,7 +177,8 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 if data.len() >= luma + 2 * chroma {
                     let (y, rest) = data.split_at(luma);
                     let (u, v) = rest.split_at(chroma);
-                    let rgba = crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, w / 2, w / 2, color_info);
+                    let rgba =
+                        crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, w / 2, w / 2, color_info);
                     Ok(RgbaFrame {
                         width: frame.dimensions.width,
                         height: frame.dimensions.height,
@@ -194,7 +195,11 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
             PixelFormat::Nv12 => {
                 let expected = w * h * 3 / 2;
                 if data.len() < expected {
-                    log::warn!("NV12 plane data too small: got {} expected {}", data.len(), expected);
+                    log::warn!(
+                        "NV12 plane data too small: got {} expected {}",
+                        data.len(),
+                        expected
+                    );
                 }
                 let rgba = crate::yuv::nv12_to_rgba(&data, w, h, color_info);
                 Ok(RgbaFrame {
@@ -209,7 +214,9 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 let expected = w * h * 4;
                 if data.len() < expected {
                     return Err(DecodeBackendError::Other(format!(
-                        "Rgba8 data too small: got {} expected {}", data.len(), expected
+                        "Rgba8 data too small: got {} expected {}",
+                        data.len(),
+                        expected
                     )));
                 }
                 Ok(RgbaFrame {
@@ -224,7 +231,9 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 let expected = w * h * 4;
                 if data.len() < expected {
                     return Err(DecodeBackendError::Other(format!(
-                        "Bgra8 data too small: got {} expected {}", data.len(), expected
+                        "Bgra8 data too small: got {} expected {}",
+                        data.len(),
+                        expected
                     )));
                 }
                 let mut rgba = Vec::with_capacity(expected);
@@ -262,9 +271,12 @@ fn wc_pixel_format_to_baaba(fmt: web_sys::VideoPixelFormat) -> PixelFormat {
         VideoPixelFormat::Rgba | VideoPixelFormat::Rgbx => PixelFormat::Rgba8,
         VideoPixelFormat::Bgra | VideoPixelFormat::Bgrx => PixelFormat::Bgra8,
         _ => {
-            log::warn!("unhandled WebCodecs pixel format {:?}, defaulting to Nv12", fmt);
+            log::warn!(
+                "unhandled WebCodecs pixel format {:?}, defaulting to Nv12",
+                fmt
+            );
             PixelFormat::Nv12
-        },
+        }
     }
 }
 
@@ -320,14 +332,19 @@ fn drain_raw_frames(
         let expected_size = match pending.format {
             PixelFormat::Yuv420p => (pending.width * pending.height * 3 / 2) as usize,
             PixelFormat::Nv12 => (pending.width * pending.height * 3 / 2) as usize,
-            PixelFormat::Rgba8 | PixelFormat::Bgra8 => (pending.width * pending.height * 4) as usize,
+            PixelFormat::Rgba8 | PixelFormat::Bgra8 => {
+                (pending.width * pending.height * 4) as usize
+            }
             _ => pending.data.len(),
         };
         if pending.data.len() != expected_size {
             log::warn!(
                 "copy_rx: size mismatch for {}x{} fmt={:?}: got {} expected {}",
-                pending.width, pending.height, pending.format,
-                pending.data.len(), expected_size,
+                pending.width,
+                pending.height,
+                pending.format,
+                pending.data.len(),
+                expected_size,
             );
         }
         let baaba_frame = BaabaFrame {
