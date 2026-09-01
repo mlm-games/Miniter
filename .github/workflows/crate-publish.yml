@@ -1,0 +1,37 @@
+name: Release (publish crates)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Version bump type."
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - none
+          - patch
+          - minor
+          - major
+      mark_prerelease:
+        description: "Mark as prerelease"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    uses: mlm-games/ci/.github/workflows/crate-publish.yml@v1
+    with:
+      working-directory: rust
+      workspace-publish: true
+      workspace-exclude: "miniter-ffi miniter-media-native"
+      bump-type: ${{ inputs.bump_type }}
+      create-release: false
+      generate-release-notes: false
+    secrets:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

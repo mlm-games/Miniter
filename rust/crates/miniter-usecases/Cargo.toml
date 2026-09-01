@@ -2,9 +2,12 @@
 name = "miniter-usecases"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Use-cases and reducers domain."
 
 [dependencies]
-miniter-domain = { path = "../miniter-domain" }
+miniter-domain.workspace = true
 serde.workspace = true
 uuid.workspace = true
 thiserror.workspace = true

@@ -13,6 +13,8 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0"
+repository = "https://github.com/mlm-games/Miniter"
+description = "timeline, media, and render plan crates"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -22,11 +24,16 @@ thiserror = "2"
 log = "0.4"
 anyhow = "1"
 web-time = "1.1.0"
+
 uniffi = { version = "0.32", features = ["wasm-unstable-single-threaded"] }
-symphonia-adapter-oporus = "0.1.3"
-baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
-# baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
+getrandom = { version = "0.4", features = ["wasm_js"] }
+
 symphonia = "0.6"
+symphonia-adapter-oporus = "0.1.3"
+oporus = "0.2.4"
+ivf = "0.1"
 image = { version = "0.25", default-features = false, features = [
     "png",
     "jpeg",
@@ -35,66 +42,33 @@ image = { version = "0.25", default-features = false, features = [
     "bmp",
     "tiff",
 ] }
-getrandom = { version = "0.4", features = ["wasm_js"] }
-oporus = "0.2.4"
-ivf = "0.1"
 fontdue = "0.9"
-web-sys = "0.3"
-wasm-bindgen-futures = "0.4"
 
+baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
 ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-renderer", default-features = false }
 ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
+
+miniter-domain = { path = "crates/miniter-domain", version = "0.1.0" }
+miniter-usecases = { path = "crates/miniter-usecases", version = "0.1.0" }
+miniter-render-plan = { path = "crates/miniter-render-plan", version = "0.1.0" }
+miniter-audio = { path = "crates/miniter-audio", version = "0.1.0" }
+miniter-media-native = { path = "crates/miniter-media-native", version = "0.1.0" }
+miniter-ffi = { path = "crates/miniter-ffi", version = "0.1.0" }
 
 [patch.crates-io]
 muxide = { git = "https://github.com/mlm-games/muxide" }
 videoson = { git = "https://github.com/mlm-games/videoson" }
-# web-codecs = { git = "https://github.com/mlm-games/web-rs.git", branch = "main" }
-# cros-codecs = { git = "https://github.com/mlm-games/cros-codecs" }
-# cros-libva = { git = "https://github.com/mlm-games/cros-libva" }
-# mediacodec = { git = "https://github.com/mlm-games/rust_mediacodec", package = "mediacodec" }
 
 symphonia-core = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-core" }
 symphonia-format-mkv = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-mkv" }
 symphonia-format-isomp4 = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-isomp4" }
 
-# symphonia = { git = "https://github.com/mlm-games/symphonia", package = "symphonia" }
-# symphonia-core = { path = "../../../Documents/Repos/symphonia/symphonia-core" }
-# symphonia-common = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-common" }
-# symphonia-metadata = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-metadata" }
-# symphonia-bundle-flac = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-bundle-flac" }
-# symphonia-bundle-mp3 = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-bundle-mp3" }
-# symphonia-codec-aac = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-codec-aac" }
-# symphonia-codec-adpcm = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-codec-adpcm" }
-# symphonia-codec-alac = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-codec-alac" }
-# symphonia-codec-pcm = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-codec-pcm" }
-# symphonia-codec-vorbis = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-codec-vorbis" }
-# symphonia-format-caf = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-caf" }
-# symphonia-format-isomp4 = { path = "../../../Documents/Repos/symphonia/symphonia-format-isomp4" }
-# symphonia-format-mkv = { path = "../../../Documents/Repos/symphonia/symphonia-format-mkv" }
-# symphonia-format-ogg = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-ogg" }
-# symphonia-format-riff = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-riff" }
-
-# videoson = { path = "../../../Documents/Repos/videoson/videoson", package = "videoson" }
-# web-codecs = { path = "../../../Documents/Repos/web-rs/web-codecs" }
-# baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baabaabaabaabababbababbaa" }
-
+# baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
 # muxide = { path = "../../../Documents/Repos/muxide" }
+# videoson = { path = "../../../Documents/Repos/videoson/videoson", package = "videoson" }
 # ass-renderer = { path = "../../../Documents/Repos/ass-rs/crates/ass-renderer" }
 # ass-core = { path = "../../../Documents/Repos/ass-rs/crates/ass-core" }
-# cros-libva = { path = "../../../Documents/Repos/cros-libva/lib" }
-# cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
-
-# [patch."https://github.com/mlm-games/cros-codecs?branch=main"]
-# cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
-
-# [patch."https://github.com/mlm-games/cros-codecs"]
-# cros-codecs = { path = "../../../Documents/Repos/cros-codecs" }
-
-# [patch."https://github.com/mlm-games/baa4bababab2baa"]
-# baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa" }
-
-# [patch."https://github.com/mlm-games/rust_mediacodec"]
-# mediacodec = { path = "../../../Documents/Repos/rust_mediacodec" }
+# symphonia = { path = "../../../Documents/Repos/symphonia/symphonia" }
 
 [profile.release] # for fdroid
 opt-level = 3

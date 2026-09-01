@@ -2,9 +2,12 @@
 name = "miniter-audio"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Audio decoding, probe, and mixing."
 
 [dependencies]
-miniter-domain = { path = "../miniter-domain" }
+miniter-domain.workspace = true
 symphonia = { workspace = true, features = [
     "aac",
     "alac",

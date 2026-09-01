@@ -2,9 +2,12 @@
 name = "miniter-render-plan"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Render plan IR."
 
 [dependencies]
-miniter-domain = { path = "../miniter-domain" }
+miniter-domain.workspace = true
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
 uuid.workspace = true
