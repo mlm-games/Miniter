@@ -8,7 +8,8 @@ description = "Use-cases and reducers domain."
 
 [dependencies]
 miniter-domain.workspace = true
-serde.workspace = true
-uuid.workspace = true
-thiserror.workspace = true
+
 log.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
