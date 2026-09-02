@@ -44,7 +44,7 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 fontdue = "0.9"
 
-baabaabaabaabababbababbaa = { git = "https://github.com/mlm-games/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
+baabaabaabaabababbababbaa = { version = "0.1" }
 ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-renderer", default-features = false }
 ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
 

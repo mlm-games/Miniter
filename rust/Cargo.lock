@@ -72,6 +72,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "anodecs"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8f23a55e6008925b22de06578df8d9ed568a1f9036ed322b2e8bb1dbae62a0a"
+dependencies = [
+ "android_logger",
+ "jni",
+ "log",
+ "ndk-context",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -396,19 +408,20 @@ dependencies = [
 
 [[package]]
 name = "baabaabaabaabababbababbaa"
-version = "0.1.0"
-source = "git+https://github.com/mlm-games/baa4bababab2baa#8946175bd3b84d83808bc63b9652ea81f971aeb5"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6b84146f9302ed471527dd9d41430e95620bb3e4a280ac84f21520104d391bd"
 dependencies = [
+ "anodecs",
  "bytes",
- "cros-codecs",
  "js-sys",
  "log",
- "mediacodec",
+ "nuxodecs",
  "thiserror 2.0.20",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-codecs",
+ "wasodecs",
  "web-sys",
 ]
 
@@ -622,7 +635,7 @@ checksum = "157a8ba7b480713b56f4c09fd13fc3e0a22a5dfab8097ba61cbc5feef950788a"
 dependencies = [
  "glob",
  "libc",
- "libloading",
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -756,38 +769,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8498c871161e1742aaa9d52551b2d6ebdd4c3d45a3be423e3728f33b955be550"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "cros-codecs"
-version = "0.0.10"
-source = "git+https://github.com/mlm-games/cros-codecs?branch=main#8510d65993b9ca4215988e34c44e9e3b7ff1cd87"
-dependencies = [
- "anyhow",
- "byteorder",
- "crc32fast",
- "cros-libva",
- "drm 0.15.0",
- "drm-fourcc",
- "gbm",
- "gbm-sys",
- "log",
- "nix",
- "thiserror 2.0.20",
- "zerocopy",
-]
-
-[[package]]
-name = "cros-libva"
-version = "0.0.20"
-source = "git+https://github.com/mlm-games/cros-libva.git?branch=main#4ee59b31f58c3a12304a700669f8f7ec78bd6d77"
-dependencies = [
- "bindgen",
- "bitflags 2.13.1",
- "log",
- "pkg-config",
- "regex",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1505,10 +1486,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
+name = "libva"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "493a749de39d6db1d1923fa90bc659ca7db2f9ca1481dcc84add045552185516"
+dependencies = [
+ "bindgen",
+ "bitflags 2.13.1",
+ "libloading 0.9.0",
+ "log",
+ "pkg-config",
+ "regex",
+ "thiserror 2.0.20",
+]
 
 [[package]]
 name = "linux-raw-sys"
@@ -1556,17 +1562,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea1f30cedd69f0a2954655f7188c6a834246d2bcf1e315e2ac40c4b24dc9519"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "mediacodec"
-version = "0.1.5"
-source = "git+https://github.com/mlm-games/rust_mediacodec?branch=main#bbfa3fdcd4b05ba1a7c9349304da0881b66bb359"
-dependencies = [
- "android_logger",
- "jni",
- "log",
- "ndk-context",
 ]
 
 [[package]]
@@ -1893,6 +1888,26 @@ name = "number_prefix"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
+
+[[package]]
+name = "nuxodecs"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9658b68e65a0641b08407367371572aad01cce15d921783f990245380f9a0c20"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "crc32fast",
+ "drm 0.15.0",
+ "drm-fourcc",
+ "gbm",
+ "gbm-sys",
+ "libva",
+ "log",
+ "nix",
+ "thiserror 2.0.20",
+ "zerocopy",
+]
 
 [[package]]
 name = "once_cell"
@@ -2669,9 +2684,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.15.2"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+checksum = "b9be42f50aa861c555654aa3a37f52f4b1074bacf4e48fe0ef7fa584e80f1f0f"
 
 [[package]]
 name = "smawk"
@@ -3410,7 +3425,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "videoson"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#f3e8e19d10ca11d370dbeaef3b037929e62bdd15"
+source = "git+https://github.com/mlm-games/videoson#82e442e0e9b9befc8d80dfc3770bfede14fd5340"
 dependencies = [
  "videoson-codec-h264",
  "videoson-codec-h265",
@@ -3424,7 +3439,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-h264"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#f3e8e19d10ca11d370dbeaef3b037929e62bdd15"
+source = "git+https://github.com/mlm-games/videoson#82e442e0e9b9befc8d80dfc3770bfede14fd5340"
 dependencies = [
  "rust_h264",
  "videoson-core",
@@ -3433,7 +3448,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-h265"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#f3e8e19d10ca11d370dbeaef3b037929e62bdd15"
+source = "git+https://github.com/mlm-games/videoson#82e442e0e9b9befc8d80dfc3770bfede14fd5340"
 dependencies = [
  "rust_h265",
  "videoson-common",
@@ -3443,7 +3458,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-rav1d"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#f3e8e19d10ca11d370dbeaef3b037929e62bdd15"
+source = "git+https://github.com/mlm-games/videoson#82e442e0e9b9befc8d80dfc3770bfede14fd5340"
 dependencies = [
  "rav1d-safe",
  "videoson-core",
@@ -3452,7 +3467,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-vp8"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#f3e8e19d10ca11d370dbeaef3b037929e62bdd15"
+source = "git+https://github.com/mlm-games/videoson#82e442e0e9b9befc8d80dfc3770bfede14fd5340"
 dependencies = [
  "oxideav-vp8",
  "videoson-core",
@@ -3461,7 +3476,7 @@ dependencies = [
 [[package]]
 name = "videoson-codec-vp9"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#f3e8e19d10ca11d370dbeaef3b037929e62bdd15"
+source = "git+https://github.com/mlm-games/videoson#82e442e0e9b9befc8d80dfc3770bfede14fd5340"
 dependencies = [
  "oxideav-core",
  "oxideav-vp9",
@@ -3471,12 +3486,12 @@ dependencies = [
 [[package]]
 name = "videoson-common"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#f3e8e19d10ca11d370dbeaef3b037929e62bdd15"
+source = "git+https://github.com/mlm-games/videoson#82e442e0e9b9befc8d80dfc3770bfede14fd5340"
 
 [[package]]
 name = "videoson-core"
 version = "0.4.0"
-source = "git+https://github.com/mlm-games/videoson#f3e8e19d10ca11d370dbeaef3b037929e62bdd15"
+source = "git+https://github.com/mlm-games/videoson#82e442e0e9b9befc8d80dfc3770bfede14fd5340"
 
 [[package]]
 name = "walkdir"
@@ -3553,9 +3568,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "web-codecs"
-version = "0.3.10"
-source = "git+https://github.com/mlm-games/web-rs.git#42461a70bf8764c3b898801fea9cc26ddab59fa9"
+name = "wasodecs"
+version = "0.3.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae9f2239f0da41454d364efbb9f55b9a0fa16376062958d0238e009550032819"
 dependencies = [
  "bytemuck",
  "bytes",
