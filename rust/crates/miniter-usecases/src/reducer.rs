@@ -4,7 +4,7 @@ use crate::selection::Selection;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
 use miniter_domain::filter::AudioFilter;
 use miniter_domain::project::Project;
-use miniter_domain::time::{MediaDuration, Timestamp};
+use miniter_domain::time::{MediaDuration, Timestamp, scale_us_round, unscale_us_round};
 use miniter_domain::track::{Track, TrackId};
 
 #[derive(Debug, Clone)]
@@ -706,7 +706,7 @@ fn apply_trim_clip_start(
 
     let delta_timeline_us = clamped_start.as_micros() - original.timeline_start.as_micros();
     let mut recalculated_source_start =
-        original.source_start.as_micros() + (delta_timeline_us as f64 * original.speed) as i64;
+        original.source_start.as_micros() + scale_us_round(delta_timeline_us, original.speed);
     if recalculated_source_start < 0 {
         recalculated_source_start = 0;
     }
@@ -757,10 +757,10 @@ fn apply_trim_clip_end(
         ClipKind::Text(_) | ClipKind::Subtitle(_) => new_duration,
         _ => {
             let max_source_end = original.source_total_duration;
-            MediaDuration::from_micros(
-                ((max_source_end.as_micros() as f64 - original.source_start.as_micros() as f64)
-                    / original.speed) as i64,
-            )
+            MediaDuration::from_micros(unscale_us_round(
+                max_source_end.as_micros() - original.source_start.as_micros(),
+                original.speed,
+            ))
         }
     };
     let max_by_neighbor = next_clip_start_after(
@@ -781,7 +781,7 @@ fn apply_trim_clip_end(
 
     let new_source_end = MediaDuration::from_micros(
         original.source_start.as_micros()
-            + (clamped_duration.as_micros() as f64 * original.speed) as i64,
+            + scale_us_round(clamped_duration.as_micros(), original.speed),
     );
 
     let mut updated = original.clone();
@@ -827,7 +827,7 @@ fn apply_split_clip(
     ensure_positive_duration(right_dur)?;
 
     let split_source_start = MediaDuration::from_micros(
-        original.source_start.as_micros() + (left_dur.as_micros() as f64 * original.speed) as i64,
+        original.source_start.as_micros() + scale_us_round(left_dur.as_micros(), original.speed),
     );
 
     let mut left = original.clone();
@@ -922,7 +922,7 @@ fn timeline_duration_from_source_bounds(
         return Err(ApplyError::InvalidSpeed(speed));
     }
     let source_us = source_end.as_micros() - source_start.as_micros();
-    let duration = MediaDuration::from_micros((source_us as f64 / speed) as i64);
+    let duration = MediaDuration::from_micros(unscale_us_round(source_us, speed));
     ensure_positive_duration(duration)?;
     Ok(duration)
 }
@@ -1130,24 +1130,71 @@ pub enum ApplyError {
     Overlap(#[from] miniter_domain::track::TrackOverlapError),
 }
 
+/// Apply one command as its own undo step. Unlabeled steps never fold into
+/// each other — only explicit gesture labels opt into cross-commit merging.
 pub fn dispatch(state: &mut EditorState, cmd: EditCommand) -> Result<(), ApplyError> {
-    let inverse = apply(state, cmd)?;
-    state.history.push(inverse);
+    dispatch_labeled(state, "", cmd)
+}
+
+/// Apply one command under a gesture label. Consecutive same-label dispatches
+/// (slider ticks, keystrokes) fold into a single undo step through boundary
+/// coalescing, without the UI needing explicit gesture hooks.
+pub fn dispatch_labeled(
+    state: &mut EditorState,
+    label: impl Into<String>,
+    cmd: EditCommand,
+) -> Result<(), ApplyError> {
+    state.history.begin(label);
+    let inverse = apply(state, cmd.clone())?;
+    state.history.record(cmd, inverse);
+    state.history.commit();
+    Ok(())
+}
+
+/// Open an explicit gesture transaction; groups subsequent [`dispatch_open`]
+/// edits into one undo step until [`commit_edit`] / [`cancel_edit`].
+pub fn begin_edit(state: &mut EditorState, label: impl Into<String>) {
+    state.history.begin(label);
+}
+
+/// Apply inside the open gesture (degrades to a single step when none open).
+pub fn dispatch_open(state: &mut EditorState, cmd: EditCommand) -> Result<(), ApplyError> {
+    let inverse = apply(state, cmd.clone())?;
+    state.history.record(cmd, inverse);
+    Ok(())
+}
+
+/// Close the open gesture and publish it as one undo step.
+pub fn commit_edit(state: &mut EditorState) {
+    state.history.commit();
+}
+
+/// Roll the open gesture back, applying buffered inverses in reverse.
+pub fn cancel_edit(state: &mut EditorState) -> Result<(), ApplyError> {
+    if let Some((_, inverse)) = state.history.take_open() {
+        for inv in inverse.into_iter().rev() {
+            apply(state, inv)?;
+        }
+    }
     Ok(())
 }
 
 pub fn undo(state: &mut EditorState) -> Result<(), ApplyError> {
-    if let Some(inverse) = state.history.pop_undo() {
-        let redo_cmd = apply(state, inverse)?;
-        state.history.push_redo(redo_cmd);
+    if let Some(txn) = state.history.pop_undo() {
+        for inv in txn.inverse().iter().rev() {
+            apply(state, inv.clone())?;
+        }
+        state.history.push_redo(txn);
     }
     Ok(())
 }
 
 pub fn redo(state: &mut EditorState) -> Result<(), ApplyError> {
-    if let Some(redo_cmd) = state.history.pop_redo() {
-        let inverse = apply(state, redo_cmd)?;
-        state.history.push(inverse);
+    if let Some(txn) = state.history.pop_redo() {
+        for fwd in txn.forward().iter() {
+            apply(state, fwd.clone())?;
+        }
+        state.history.push_undo(txn);
     }
     Ok(())
 }
@@ -1158,7 +1205,6 @@ mod tests {
     use miniter_domain::clip::{ClipKind, VideoClip};
     use miniter_domain::filter::VideoEffect;
     use miniter_domain::project::Project;
-    use miniter_domain::time::{MediaDuration, Timestamp};
     use miniter_domain::track::{Track, TrackKind};
     use miniter_domain::{AudioFilter, VideoFilter};
     use uuid::Uuid;
@@ -1243,6 +1289,49 @@ mod tests {
             MediaDuration::from_micros(5_000_000)
         );
         assert_eq!(clips[1].source_start, MediaDuration::from_micros(5_000_000));
+    }
+
+    #[test]
+    fn move_clip_across_tracks_transfers_clip() {
+        let mut src = Track::new(TrackKind::Video, "Video 1");
+        let clip = video_clip(5_000_000, 2_000_000);
+        let clip_id = clip.id;
+        src.insert_clip(clip).unwrap();
+        let dst = Track::new(TrackKind::Video, "Video 2");
+        let dst_id = dst.id;
+
+        let mut state = state_with_tracks(vec![src, dst]);
+
+        dispatch(
+            &mut state,
+            EditCommand::MoveClip {
+                clip_id,
+                new_track_id: dst_id,
+                new_start: Timestamp::from_micros(10_000_000),
+            },
+        )
+        .unwrap();
+
+        assert!(
+            state.project.timeline.tracks[0]
+                .clip_by_id(clip_id)
+                .is_none()
+        );
+        let moved = state.project.timeline.tracks[1]
+            .clip_by_id(clip_id)
+            .unwrap();
+        assert_eq!(moved.timeline_start, Timestamp::from_micros(10_000_000));
+
+        undo(&mut state).unwrap();
+        let back = state.project.timeline.tracks[0]
+            .clip_by_id(clip_id)
+            .unwrap();
+        assert_eq!(back.timeline_start, Timestamp::from_micros(5_000_000));
+        assert!(
+            state.project.timeline.tracks[1]
+                .clip_by_id(clip_id)
+                .is_none()
+        );
     }
 
     #[test]
@@ -1472,6 +1561,146 @@ mod tests {
         assert_eq!(
             clip.timeline_duration,
             MediaDuration::from_micros(5_000_000)
+        );
+    }
+
+    fn state_with_clip() -> (EditorState, ClipId) {
+        let mut track = Track::new(TrackKind::Video, "Video 1");
+        let clip = video_clip(0, 10_000_000);
+        let clip_id = clip.id;
+        track.insert_clip(clip).unwrap();
+        (state_with_tracks(vec![track]), clip_id)
+    }
+
+    fn duration_of(state: &EditorState, clip_id: ClipId) -> i64 {
+        state.project.timeline.tracks[0]
+            .clip_by_id(clip_id)
+            .unwrap()
+            .timeline_duration
+            .as_micros()
+    }
+
+    #[test]
+    fn gesture_drag_coalesces_to_one_undo_step() {
+        let (mut state, clip_id) = state_with_clip();
+        begin_edit(&mut state, "Trim");
+        for dur in [9_000_000, 8_000_000, 7_000_000, 6_000_000] {
+            dispatch_open(
+                &mut state,
+                EditCommand::TrimClipEnd {
+                    clip_id,
+                    new_duration: MediaDuration::from_micros(dur),
+                },
+            )
+            .unwrap();
+        }
+        commit_edit(&mut state);
+        assert_eq!(duration_of(&state, clip_id), 6_000_000);
+        assert_eq!(state.history.undo_depth(), 1);
+        assert_eq!(state.history.undo_label(), Some("Trim"));
+        undo(&mut state).unwrap();
+        assert_eq!(duration_of(&state, clip_id), 10_000_000);
+        assert!(!state.history.can_undo());
+        redo(&mut state).unwrap();
+        assert_eq!(duration_of(&state, clip_id), 6_000_000);
+    }
+
+    #[test]
+    fn labeled_slider_ticks_fold_into_one_step() {
+        let (mut state, clip_id) = state_with_clip();
+        for vol in [0.8, 0.6, 0.4] {
+            dispatch_labeled(
+                &mut state,
+                "Volume",
+                EditCommand::SetClipVolume {
+                    clip_id,
+                    volume: vol,
+                },
+            )
+            .unwrap();
+        }
+        assert_eq!(state.history.undo_depth(), 1);
+        undo(&mut state).unwrap();
+        assert_eq!(
+            state.project.timeline.tracks[0]
+                .clip_by_id(clip_id)
+                .unwrap()
+                .volume,
+            1.0
+        );
+    }
+
+    #[test]
+    fn unlabeled_dispatches_stay_separate() {
+        let (mut state, clip_id) = state_with_clip();
+        for dur in [9_000_000, 8_000_000] {
+            dispatch(
+                &mut state,
+                EditCommand::TrimClipEnd {
+                    clip_id,
+                    new_duration: MediaDuration::from_micros(dur),
+                },
+            )
+            .unwrap();
+        }
+        assert_eq!(state.history.undo_depth(), 2);
+        undo(&mut state).unwrap();
+        assert_eq!(duration_of(&state, clip_id), 9_000_000);
+        undo(&mut state).unwrap();
+        assert_eq!(duration_of(&state, clip_id), 10_000_000);
+    }
+
+    #[test]
+    fn cancel_edit_rolls_the_gesture_back() {
+        let (mut state, clip_id) = state_with_clip();
+        begin_edit(&mut state, "Trim");
+        dispatch_open(
+            &mut state,
+            EditCommand::TrimClipEnd {
+                clip_id,
+                new_duration: MediaDuration::from_micros(5_000_000),
+            },
+        )
+        .unwrap();
+        assert_eq!(duration_of(&state, clip_id), 5_000_000);
+        cancel_edit(&mut state).unwrap();
+        assert_eq!(duration_of(&state, clip_id), 10_000_000);
+        assert!(!state.history.can_undo());
+    }
+
+    #[test]
+    fn multi_step_redo_replays_whole_transactions() {
+        let (mut state, clip_id) = state_with_clip();
+        dispatch(
+            &mut state,
+            EditCommand::TrimClipEnd {
+                clip_id,
+                new_duration: MediaDuration::from_micros(9_000_000),
+            },
+        )
+        .unwrap();
+        dispatch(
+            &mut state,
+            EditCommand::SetClipVolume {
+                clip_id,
+                volume: 0.5,
+            },
+        )
+        .unwrap();
+        undo(&mut state).unwrap();
+        undo(&mut state).unwrap();
+        assert_eq!(state.history.redo_depth(), 2);
+        redo(&mut state).unwrap();
+        assert_eq!(state.history.redo_depth(), 1);
+        redo(&mut state).unwrap();
+        assert_eq!(state.history.redo_depth(), 0);
+        assert_eq!(duration_of(&state, clip_id), 9_000_000);
+        assert_eq!(
+            state.project.timeline.tracks[0]
+                .clip_by_id(clip_id)
+                .unwrap()
+                .volume,
+            0.5
         );
     }
 }

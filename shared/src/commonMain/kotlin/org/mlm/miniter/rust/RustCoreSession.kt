@@ -12,16 +12,27 @@ expect class RustCoreSession {
 
     fun toJson(): String
     fun dispatch(commandJson: String): Boolean
+    fun dispatchWithLabel(commandJson: String, label: String): Boolean
+    fun beginEdit(label: String)
+    fun dispatchOpen(commandJson: String): Boolean
+    fun commitEdit()
+    fun cancelEdit(): Boolean
 
     fun undo(): Boolean
     fun redo(): Boolean
     fun canUndo(): Boolean
     fun canRedo(): Boolean
+    fun undoLabel(): String?
+    fun redoLabel(): String?
+    fun undoDepth(): UInt
+    fun redoDepth(): UInt
+    fun transactionOpen(): Boolean
 
     fun playheadUs(): Long
     fun setPlayheadUs(us: Long)
 
     fun renderPlanAtPlayhead(width: Int, height: Int): String
+    fun validateRenderPlanAtPlayhead(width: Int, height: Int): String
     fun durationUs(): Long
 
     companion object {

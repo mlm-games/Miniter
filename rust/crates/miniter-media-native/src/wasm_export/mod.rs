@@ -47,6 +47,7 @@ use miniter_domain::track::TrackKind;
 use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
 use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
+use miniter_render_plan::validate::validate_frame_plan;
 
 fn store_wasm_preview_frame(rgba: &[u8], width: u32, height: u32) {
     let preview = if let Some(down) = downscale_rgba_for_preview(rgba, width, height) {
@@ -569,6 +570,16 @@ fn export_h264_mp4_bytes(
             project.export_profile.subtitle_mode,
         )
     });
+    {
+        let v = validate_frame_plan(&first_plan);
+        if !v.is_empty() {
+            log::warn!(
+                "validate_frame_plan violations at {}: {:?}",
+                first_plan.timestamp.as_micros(),
+                v
+            );
+        }
+    }
 
     if is_cancelled() {
         return Err("Export cancelled".to_string());
@@ -630,6 +641,16 @@ fn export_h264_mp4_bytes(
         for plan in iter {
             if is_cancelled() {
                 return Err("Export cancelled".to_string());
+            }
+            {
+                let v = validate_frame_plan(&plan);
+                if !v.is_empty() {
+                    log::warn!(
+                        "validate_frame_plan violations at {}: {:?}",
+                        plan.timestamp.as_micros(),
+                        v
+                    );
+                }
             }
 
             let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
@@ -769,6 +790,16 @@ fn export_av1_mp4_bytes(
         if is_cancelled() {
             return Err("Export cancelled".to_string());
         }
+        {
+            let v = validate_frame_plan(&plan);
+            if !v.is_empty() {
+                log::warn!(
+                    "validate_frame_plan violations at {}: {:?}",
+                    plan.timestamp.as_micros(),
+                    v
+                );
+            }
+        }
 
         let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
         store_wasm_preview_frame(&rgba, settings.width, settings.height);
@@ -879,6 +910,16 @@ fn export_av1_ivf_bytes(
     for plan in std::iter::once(first_plan).chain(iter) {
         if is_cancelled() {
             return Err("Export cancelled".to_string());
+        }
+        {
+            let v = validate_frame_plan(&plan);
+            if !v.is_empty() {
+                log::warn!(
+                    "validate_frame_plan violations at {}: {:?}",
+                    plan.timestamp.as_micros(),
+                    v
+                );
+            }
         }
 
         let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
@@ -1274,7 +1315,7 @@ pub struct WasmExportChunker {
     settings: RenderSettings,
     output_path: String,
     subtitle_mode: SubtitleMode,
-    frame_duration_us: i64,
+    fps: f64,
     current_frame: u64,
     total_frames: u64,
     cancelled: bool,
@@ -1329,18 +1370,16 @@ impl WasmExportChunker {
         } else {
             30.0
         };
-        let frame_duration_us = (1_000_000.0 / safe_fps).round().max(1.0) as i64;
         let end_us = project.timeline.duration_end().as_micros().max(0);
         let total_frames = if end_us == 0 {
             1
         } else {
-            ((end_us + frame_duration_us - 1) / frame_duration_us) as u64
+            (end_us as f64 * safe_fps / 1_000_000.0).ceil().max(1.0) as u64
         };
 
         log::warn!(
-            "EXPORT_INIT: fps={} frame_duration_us={} end_us={} total_frames={} tracks={} clips={}",
+            "EXPORT_INIT: fps={} end_us={} total_frames={} tracks={} clips={}",
             safe_fps,
-            frame_duration_us,
             end_us,
             total_frames,
             project.timeline.tracks.len(),
@@ -1389,7 +1428,7 @@ impl WasmExportChunker {
                 settings,
                 output_path: output_path.to_string(),
                 subtitle_mode,
-                frame_duration_us,
+                fps: safe_fps,
                 current_frame: 0,
                 total_frames: 0,
                 cancelled: false,
@@ -1429,7 +1468,7 @@ impl WasmExportChunker {
             settings,
             output_path: output_path.to_string(),
             subtitle_mode,
-            frame_duration_us,
+            fps: safe_fps,
             current_frame: 0,
             total_frames,
             cancelled: false,
@@ -1467,7 +1506,9 @@ impl WasmExportChunker {
                 return Err("Export cancelled".to_string());
             }
 
-            let t = Timestamp::from_micros(self.current_frame as i64 * self.frame_duration_us);
+            let t = Timestamp::from_micros(
+                (self.current_frame as f64 * 1_000_000.0 / self.fps).round() as i64,
+            );
             let plan = plan_frame(
                 &self.timeline,
                 t,
@@ -1475,6 +1516,16 @@ impl WasmExportChunker {
                 self.settings.height,
                 self.subtitle_mode,
             );
+            {
+                let v = validate_frame_plan(&plan);
+                if !v.is_empty() {
+                    log::warn!(
+                        "validate_frame_plan violations at {}: {:?}",
+                        plan.timestamp.as_micros(),
+                        v
+                    );
+                }
+            }
 
             let rgba = render_plan_to_rgba(&plan, &mut self.decode_cache)?;
             store_wasm_preview_frame(&rgba, self.settings.width, self.settings.height);

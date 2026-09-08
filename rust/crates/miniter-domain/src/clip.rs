@@ -2,7 +2,7 @@ use crate::filter::{AudioFilter, VideoEffect};
 use crate::keyframe::KeyframeCurve;
 use crate::mask::{BlendMode, MaskEffect};
 use crate::text_overlay::TextOverlay;
-use crate::time::{MediaDuration, Timestamp};
+use crate::time::{scale_us_round, MediaDuration, Timestamp};
 use crate::transition::Transition;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -91,7 +91,7 @@ impl Clip {
 
         if self.source_end.is_zero() && !self.timeline_duration.is_zero() {
             let inferred = self.source_start.as_micros()
-                + (self.timeline_duration.as_micros() as f64 * self.speed) as i64;
+                + scale_us_round(self.timeline_duration.as_micros(), self.speed);
             self.source_end =
                 MediaDuration::from_micros(inferred.max(self.source_start.as_micros()));
         }

@@ -53,6 +53,34 @@ class RustProjectStore(
         return refresh()
     }
 
+    fun dispatchWithLabel(commandJson: String, label: String): RustProjectSnapshot {
+        val session = repository.currentOrNull() ?: error("No active Rust session")
+        session.dispatchWithLabel(commandJson, label)
+        return refresh()
+    }
+
+    fun beginEdit(label: String) {
+        repository.currentOrNull()?.beginEdit(label)
+    }
+
+    fun dispatchOpen(commandJson: String): RustProjectSnapshot {
+        val session = repository.currentOrNull() ?: error("No active Rust session")
+        session.dispatchOpen(commandJson)
+        return refresh()
+    }
+
+    fun commitEdit(): RustProjectSnapshot? {
+        val session = repository.currentOrNull() ?: return null
+        session.commitEdit()
+        return refresh()
+    }
+
+    fun cancelEdit(): RustProjectSnapshot? {
+        val session = repository.currentOrNull() ?: return null
+        session.cancelEdit()
+        return refresh()
+    }
+
     fun undo(): RustProjectSnapshot? {
         val session = repository.currentOrNull() ?: return null
         session.undo()
@@ -69,6 +97,12 @@ class RustProjectStore(
 
     fun canRedo(): Boolean = repository.currentOrNull()?.canRedo() ?: false
 
+    fun undoLabel(): String? = repository.currentOrNull()?.undoLabel()
+    fun redoLabel(): String? = repository.currentOrNull()?.redoLabel()
+    fun undoDepth(): UInt = repository.currentOrNull()?.undoDepth() ?: 0u
+    fun redoDepth(): UInt = repository.currentOrNull()?.redoDepth() ?: 0u
+    fun transactionOpen(): Boolean = repository.currentOrNull()?.transactionOpen() ?: false
+
     fun playheadUs(): Long = repository.currentOrNull()?.playheadUs() ?: 0L
 
     fun setPlayheadUs(us: Long) {
@@ -79,6 +113,10 @@ class RustProjectStore(
 
     fun renderPlanAtPlayhead(width: Int, height: Int): String? {
         return repository.currentOrNull()?.renderPlanAtPlayhead(width, height)
+    }
+
+    fun validateRenderPlanAtPlayhead(width: Int, height: Int): String? {
+        return repository.currentOrNull()?.validateRenderPlanAtPlayhead(width, height)
     }
 
     fun clear() {

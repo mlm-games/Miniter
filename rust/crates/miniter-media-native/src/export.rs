@@ -30,6 +30,7 @@ use miniter_domain::track::TrackKind;
 use miniter_render_plan::compositor::{FramePlanIterator, first_video_dimensions};
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
 use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
+use miniter_render_plan::validate::validate_frame_plan;
 use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
 use std::io::BufWriter;
@@ -690,6 +691,16 @@ where
             project.export_profile.subtitle_mode,
         )
     });
+    {
+        let v = validate_frame_plan(&first_plan);
+        if !v.is_empty() {
+            log::warn!(
+                "validate_frame_plan violations at {}: {:?}",
+                first_plan.timestamp.as_micros(),
+                v
+            );
+        }
+    }
 
     if is_cancelled() {
         return Err(ExportError::Cancelled);
@@ -739,6 +750,16 @@ where
     for plan in iter {
         if is_cancelled() {
             return Err(ExportError::Cancelled);
+        }
+        {
+            let v = validate_frame_plan(&plan);
+            if !v.is_empty() {
+                log::warn!(
+                    "validate_frame_plan violations at {}: {:?}",
+                    plan.timestamp.as_micros(),
+                    v
+                );
+            }
         }
 
         let rgba = render_plan_to_rgba(&plan, &mut decode_cache, &first_decoded_video_pts_us)?;

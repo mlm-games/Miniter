@@ -85,7 +85,10 @@ data class ProjectUiState(
     val isLoadingThumbnails: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
+    val undoLabel: String? = null,
+    val redoLabel: String? = null,
     val snapIndicatorMs: Long? = null,
+    val lastValidationJson: String? = null,
 )
 
 class ProjectViewModel(
@@ -390,30 +393,54 @@ class ProjectViewModel(
         syncFromRust()
     }
 
-    fun beginContinuousEdit() {
-        continuousEditCommandCount = 0
+    fun beginContinuousEdit(label: String = "Edit") {
+        rustStore.beginEdit(label)
         preDragSnapshot = rustStore.snapshot.value
+        continuousEditCommandCount = 0
     }
 
     fun commitContinuousEdit() {
+        rustStore.commitEdit()
         preDragSnapshot = null
         continuousEditCommandCount = 0
         syncFromRust()
     }
 
     fun cancelContinuousEdit() {
-        if (preDragSnapshot == null) return
-        repeat(continuousEditCommandCount) {
-            rustStore.undo()
-        }
+        rustStore.cancelEdit()
         preDragSnapshot = null
         continuousEditCommandCount = 0
         syncFromRust()
     }
 
-    fun beginEdit() = beginContinuousEdit()
+    fun beginEdit(label: String = "Move") = beginContinuousEdit(label)
     fun commitEdit() = commitContinuousEdit()
     fun cancelEdit() = cancelContinuousEdit()
+
+    private fun dispatchCoalescing(commandJson: String, label: String) {
+        if (rustStore.transactionOpen()) {
+            rustStore.dispatchOpen(commandJson)
+        } else {
+            rustStore.dispatchWithLabel(commandJson, label)
+        }
+        syncFromRust()
+        if (preDragSnapshot != null) continuousEditCommandCount++
+    }
+
+    fun validateCurrentPlan(width: Int = 1920, height: Int = 1080): String? {
+        val json = rustStore.validateRenderPlanAtPlayhead(width, height) ?: return null
+        _state.update { it.copy(lastValidationJson = json) }
+        return json
+    }
+
+    fun validateAndLog(width: Int = 1920, height: Int = 1080): Boolean {
+        val json = validateCurrentPlan(width, height) ?: return true
+        val hasViolations = json.trim() != "[]"
+        if (hasViolations) {
+            Napier.w("validate_frame_plan violations: $json")
+        }
+        return !hasViolations
+    }
 
     fun initProject(
         videoPath: String,
@@ -960,15 +987,14 @@ class ProjectViewModel(
             durationUs = durationUs,
         )
 
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.moveClip(
                 clipId = clipId,
                 trackId = track.id,
                 newStartUs = clampedStartUs,
             ),
+            "Move",
         )
-        syncFromRust()
-        if (preDragSnapshot != null) continuousEditCommandCount++
     }
 
     fun moveClipToTrack(clipId: String, fromTrackId: String, toTrackId: String) {
@@ -989,15 +1015,14 @@ class ProjectViewModel(
             durationUs = clip.timelineDurationUs.coerceAtLeast(1L),
         )
 
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.moveClip(
                 clipId = clipId,
                 trackId = toTrackId,
                 newStartUs = targetStartUs,
             ),
+            "Move",
         )
-        syncFromRust()
-        if (preDragSnapshot != null) continuousEditCommandCount++
     }
 
     fun trimClipStartAbsolute(clipId: String, newStartMs: Long) {
@@ -1008,15 +1033,14 @@ class ProjectViewModel(
         val deltaTimelineUs = newStartUs - clip.timelineStartUs
         val newSourceStartUs = (clip.sourceStartUs + (deltaTimelineUs * clip.speed).toLong()).coerceAtLeast(0L)
 
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.trimClipStart(
                 clipId = clipId,
                 newStartUs = newStartUs,
                 newSourceStartUs = newSourceStartUs,
             ),
+            "Trim",
         )
-        syncFromRust()
-        if (preDragSnapshot != null) continuousEditCommandCount++
     }
 
     fun trimClipEndAbsolute(clipId: String, newEndMs: Long) {
@@ -1037,14 +1061,13 @@ class ProjectViewModel(
         val maxDurationUs = listOfNotNull(maxByNeighborUs, maxBySourceUs).minOrNull() ?: maxBySourceUs
         val newDurationUs = requestedDurationUs.coerceIn(MIN_TRIM_DURATION_US, maxDurationUs)
 
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.trimClipEnd(
                 clipId = clipId,
                 newDurationUs = newDurationUs,
             ),
+            "Trim",
         )
-        syncFromRust()
-        if (preDragSnapshot != null) continuousEditCommandCount++
     }
 
     fun addTextClip(trackId: String, text: String, startMs: Long, durationMs: Long = DEFAULT_TEXT_CLIP_DURATION_US / 1000L) {
@@ -1115,24 +1138,24 @@ class ProjectViewModel(
     }
 
     fun setClipSpeed(clipId: String, speed: Float) {
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.setClipSpeed(clipId, speed.toDouble()),
+            "Speed",
         )
-        syncFromRust()
     }
 
     fun setClipVolume(clipId: String, volume: Float) {
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.setClipVolume(clipId, volume),
+            "Volume",
         )
-        syncFromRust()
     }
 
     fun setClipOpacity(clipId: String, opacity: Float) {
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.setClipOpacity(clipId, opacity),
+            "Opacity",
         )
-        syncFromRust()
     }
 
     fun addAudioFilter(clipId: String, filter: RustAudioFilterSnapshot) {
@@ -1150,17 +1173,17 @@ class ProjectViewModel(
     }
 
     fun updateAudioFilterDuration(clipId: String, filterIndex: Int, durationUs: Long) {
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.updateAudioFilterDuration(clipId, filterIndex, durationUs),
+            "AudioFilter",
         )
-        syncFromRust()
     }
 
     fun updateTextClip(clipId: String, newText: String) {
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.updateTextContent(clipId, newText),
+            "Text",
         )
-        syncFromRust()
     }
 
     fun updateTextClipStyle(
@@ -1186,10 +1209,10 @@ class ProjectViewModel(
             fontFamily = fontFamily ?: clip.style.fontFamily,
         )
 
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.updateTextStyle(clipId, style),
+            "Style",
         )
-        syncFromRust()
     }
 
     fun setSubtitleFont(clipId: String, fontPath: String?) {
@@ -1211,8 +1234,10 @@ class ProjectViewModel(
     }
 
     fun updateMask(clipId: String, index: Int, mask: RustMaskEffect) {
-        rustStore.dispatch(rustStore.commands.updateMask(clipId, index, mask))
-        syncFromRust()
+        dispatchCoalescing(
+            rustStore.commands.updateMask(clipId, index, mask),
+            "Mask",
+        )
     }
 
     fun setMaskEnabled(clipId: String, index: Int, enabled: Boolean) {
@@ -1252,14 +1277,14 @@ class ProjectViewModel(
             else -> filter
         }
 
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.updateVideoFilter(
                 clipId = clipId,
                 index = filterIndex,
                 filter = current.copy(filter = updatedFilter),
             ),
+            "Filter",
         )
-        syncFromRust()
     }
 
     fun addFilter(clipId: String, filter: RustVideoEffectSnapshot) {
@@ -1322,10 +1347,10 @@ class ProjectViewModel(
     }
 
     fun updateKeyframe(clipId: String, index: Int, keyframe: RustKeyframe) {
-        rustStore.dispatch(
+        dispatchCoalescing(
             rustStore.commands.updateKeyframe(clipId, index, keyframe),
+            "Keyframe",
         )
-        syncFromRust()
     }
 
     fun toggleTrackMute(trackId: String) {
@@ -1505,6 +1530,8 @@ class ProjectViewModel(
                 isDirty = isDirty,
                 canUndo = rustStore.canUndo(),
                 canRedo = rustStore.canRedo(),
+                undoLabel = rustStore.undoLabel(),
+                redoLabel = rustStore.redoLabel(),
             )
         }
     }

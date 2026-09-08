@@ -35,6 +35,38 @@ impl EditorStateHandle {
         Ok(true)
     }
 
+    fn dispatch_with_label(&self, command_json: &str, label: &str) -> Result<bool, String> {
+        let cmd: EditCommand = serde_json::from_str(command_json).map_err(|e| e.to_string())?;
+        let mut state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
+        reducer::dispatch_labeled(&mut state, label.to_string(), cmd).map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    fn begin_edit(&self, label: &str) -> Result<(), String> {
+        let mut state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
+        reducer::begin_edit(&mut state, label.to_string());
+        Ok(())
+    }
+
+    fn dispatch_open(&self, command_json: &str) -> Result<bool, String> {
+        let cmd: EditCommand = serde_json::from_str(command_json).map_err(|e| e.to_string())?;
+        let mut state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
+        reducer::dispatch_open(&mut state, cmd).map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    fn commit_edit(&self) -> Result<(), String> {
+        let mut state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
+        reducer::commit_edit(&mut state);
+        Ok(())
+    }
+
+    fn cancel_edit(&self) -> Result<bool, String> {
+        let mut state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
+        reducer::cancel_edit(&mut state).map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
     fn undo(&self) -> Result<bool, String> {
         let mut state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
         reducer::undo(&mut state).map_err(|e| e.to_string())?;
@@ -53,6 +85,48 @@ impl EditorStateHandle {
 
     fn can_redo(&self) -> bool {
         self.0.lock().map(|s| s.history.can_redo()).unwrap_or(false)
+    }
+
+    fn undo_label(&self) -> Option<String> {
+        self.0
+            .lock()
+            .ok()
+            .and_then(|s| s.history.undo_label().map(|v| v.to_string()))
+    }
+
+    fn redo_label(&self) -> Option<String> {
+        self.0
+            .lock()
+            .ok()
+            .and_then(|s| s.history.redo_label().map(|v| v.to_string()))
+    }
+
+    fn undo_depth(&self) -> u32 {
+        self.0.lock().map(|s| s.history.undo_depth() as u32).unwrap_or(0)
+    }
+
+    fn redo_depth(&self) -> u32 {
+        self.0.lock().map(|s| s.history.redo_depth() as u32).unwrap_or(0)
+    }
+
+    fn transaction_open(&self) -> bool {
+        self.0
+            .lock()
+            .map(|s| s.history.transaction_open())
+            .unwrap_or(false)
+    }
+
+    fn validate_render_plan_at_playhead(&self, width: u32, height: u32) -> Result<String, String> {
+        let state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
+        let plan = miniter_render_plan::render_graph::plan_frame(
+            &state.project.timeline,
+            state.playhead,
+            width,
+            height,
+            state.project.export_profile.subtitle_mode,
+        );
+        let violations = miniter_render_plan::validate::validate_frame_plan(&plan);
+        serde_json::to_string(&violations).map_err(|e| e.to_string())
     }
 
     fn playhead_us(&self) -> i64 {
@@ -118,6 +192,40 @@ mod native_ffi {
                 .map_err(|e| MiniterError::Parse { detail: e })
         }
 
+        pub fn dispatch_with_label(
+            &self,
+            command_json: String,
+            label: String,
+        ) -> Result<bool, MiniterError> {
+            self.0
+                .dispatch_with_label(&command_json, &label)
+                .map_err(|e| MiniterError::Parse { detail: e })
+        }
+
+        pub fn begin_edit(&self, label: String) -> Result<(), MiniterError> {
+            self.0
+                .begin_edit(&label)
+                .map_err(|e| MiniterError::Apply { detail: e })
+        }
+
+        pub fn dispatch_open(&self, command_json: String) -> Result<bool, MiniterError> {
+            self.0
+                .dispatch_open(&command_json)
+                .map_err(|e| MiniterError::Parse { detail: e })
+        }
+
+        pub fn commit_edit(&self) -> Result<(), MiniterError> {
+            self.0
+                .commit_edit()
+                .map_err(|e| MiniterError::Apply { detail: e })
+        }
+
+        pub fn cancel_edit(&self) -> Result<bool, MiniterError> {
+            self.0
+                .cancel_edit()
+                .map_err(|e| MiniterError::Apply { detail: e })
+        }
+
         pub fn undo(&self) -> Result<bool, MiniterError> {
             self.0.undo().map_err(|e| MiniterError::Apply { detail: e })
         }
@@ -132,6 +240,36 @@ mod native_ffi {
 
         pub fn can_redo(&self) -> bool {
             self.0.can_redo()
+        }
+
+        pub fn undo_label(&self) -> Option<String> {
+            self.0.undo_label()
+        }
+
+        pub fn redo_label(&self) -> Option<String> {
+            self.0.redo_label()
+        }
+
+        pub fn undo_depth(&self) -> u32 {
+            self.0.undo_depth()
+        }
+
+        pub fn redo_depth(&self) -> u32 {
+            self.0.redo_depth()
+        }
+
+        pub fn transaction_open(&self) -> bool {
+            self.0.transaction_open()
+        }
+
+        pub fn validate_render_plan_at_playhead(
+            &self,
+            width: u32,
+            height: u32,
+        ) -> Result<String, MiniterError> {
+            self.0
+                .validate_render_plan_at_playhead(width, height)
+                .map_err(|e| MiniterError::Serialize { detail: e })
         }
 
         pub fn playhead_us(&self) -> i64 {
@@ -434,6 +572,45 @@ mod web_ffi {
                 .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))
         }
 
+        #[wasm_bindgen(js_name = dispatchWithLabel)]
+        pub fn dispatch_with_label(
+            &self,
+            command_json: String,
+            label: String,
+        ) -> Result<bool, JsValue> {
+            self.0
+                .dispatch_with_label(&command_json, &label)
+                .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))
+        }
+
+        #[wasm_bindgen(js_name = beginEdit)]
+        pub fn begin_edit(&self, label: String) -> Result<(), JsValue> {
+            self.0
+                .begin_edit(&label)
+                .map_err(|e| JsValue::from_str(&format!("Apply error: {e}")))
+        }
+
+        #[wasm_bindgen(js_name = dispatchOpen)]
+        pub fn dispatch_open(&self, command_json: String) -> Result<bool, JsValue> {
+            self.0
+                .dispatch_open(&command_json)
+                .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))
+        }
+
+        #[wasm_bindgen(js_name = commitEdit)]
+        pub fn commit_edit(&self) -> Result<(), JsValue> {
+            self.0
+                .commit_edit()
+                .map_err(|e| JsValue::from_str(&format!("Apply error: {e}")))
+        }
+
+        #[wasm_bindgen(js_name = cancelEdit)]
+        pub fn cancel_edit(&self) -> Result<bool, JsValue> {
+            self.0
+                .cancel_edit()
+                .map_err(|e| JsValue::from_str(&format!("Apply error: {e}")))
+        }
+
         pub fn undo(&self) -> Result<bool, JsValue> {
             self.0
                 .undo()
@@ -454,6 +631,42 @@ mod web_ffi {
         #[wasm_bindgen(js_name = canRedo)]
         pub fn can_redo(&self) -> bool {
             self.0.can_redo()
+        }
+
+        #[wasm_bindgen(js_name = undoLabel)]
+        pub fn undo_label(&self) -> Option<String> {
+            self.0.undo_label()
+        }
+
+        #[wasm_bindgen(js_name = redoLabel)]
+        pub fn redo_label(&self) -> Option<String> {
+            self.0.redo_label()
+        }
+
+        #[wasm_bindgen(js_name = undoDepth)]
+        pub fn undo_depth(&self) -> u32 {
+            self.0.undo_depth()
+        }
+
+        #[wasm_bindgen(js_name = redoDepth)]
+        pub fn redo_depth(&self) -> u32 {
+            self.0.redo_depth()
+        }
+
+        #[wasm_bindgen(js_name = transactionOpen)]
+        pub fn transaction_open(&self) -> bool {
+            self.0.transaction_open()
+        }
+
+        #[wasm_bindgen(js_name = validateRenderPlanAtPlayhead)]
+        pub fn validate_render_plan_at_playhead(
+            &self,
+            width: u32,
+            height: u32,
+        ) -> Result<String, JsValue> {
+            self.0
+                .validate_render_plan_at_playhead(width, height)
+                .map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))
         }
 
         #[wasm_bindgen(js_name = playheadUs)]

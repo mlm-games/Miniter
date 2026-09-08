@@ -9,7 +9,7 @@ use miniter_domain::mask::{
 };
 use miniter_domain::param;
 use miniter_domain::text_overlay::TextOverlay;
-use miniter_domain::time::{MediaDuration, Timestamp};
+use miniter_domain::time::{scale_us_round, MediaDuration, Timestamp};
 use miniter_domain::timeline::Timeline;
 use miniter_domain::transition::{Transition, TransitionKind};
 
@@ -243,7 +243,7 @@ fn node_for_clip(
 
     let local_offset = t - clip.timeline_start;
     let source_pts = Timestamp::from_micros(
-        clip.source_start.as_micros() + (local_offset.as_micros() as f64 * clip.speed) as i64,
+        clip.source_start.as_micros() + scale_us_round(local_offset.as_micros(), clip.speed),
     );
 
     match &clip.kind {
@@ -282,7 +282,7 @@ fn node_for_clip(
                 let progress = transition_progress(clip, trans, t);
                 let prev_pts = Timestamp::from_micros(
                     prev.source_start.as_micros()
-                        + ((t - prev.timeline_start).as_micros() as f64 * prev.speed) as i64,
+                        + scale_us_round((t - prev.timeline_start).as_micros(), prev.speed),
                 );
                 if let ClipKind::Video(pv) = &prev.kind {
                     let prev_opacity = clip_opacity_at(prev, t - prev.timeline_start);
@@ -317,8 +317,10 @@ fn node_for_clip(
 
                     let next_pts = Timestamp::from_micros(
                         next.source_start.as_micros()
-                            + ((next_t - next.timeline_start).as_micros() as f64 * next.speed)
-                                as i64,
+                            + scale_us_round(
+                                (next_t - next.timeline_start).as_micros(),
+                                next.speed,
+                            ),
                     );
                     let next_opacity = clip_opacity_at(next, next_t - next.timeline_start);
                     let next_node = RenderNode::VideoFrame {

@@ -308,6 +308,47 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 )
             }
 
+            val validationJson = remember(snapshot, displayWidth, displayHeight) {
+                try {
+                    vm.validateCurrentPlan(
+                        displayWidth.takeIf { it > 0 } ?: 1920,
+                        displayHeight.takeIf { it > 0 } ?: 1080,
+                    )
+                } catch (_: Exception) { null }
+            }
+            if (validationJson != null && validationJson.trim() != "[]" && validationJson.trim().isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                            Text(
+                                "Render plan diagnostics",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
+                        SelectionContainer {
+                            Text(
+                                validationJson,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
+                        Text(
+                            "Export will still run, violations will be logged.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
+                        )
+                    }
+                }
+            }
+
             HorizontalDivider()
 
             val hwAvailable = isHardwareAccelerationAvailable()

@@ -28,6 +28,22 @@ actual class RustCoreSession private constructor(
     actual fun dispatch(commandJson: String): Boolean =
         handle.dispatch(commandJson)
 
+    actual fun dispatchWithLabel(commandJson: String, label: String): Boolean =
+        handle.dispatchWithLabel(commandJson, label)
+
+    actual fun beginEdit(label: String) {
+        handle.beginEdit(label)
+    }
+
+    actual fun dispatchOpen(commandJson: String): Boolean =
+        handle.dispatchOpen(commandJson)
+
+    actual fun commitEdit() {
+        handle.commitEdit()
+    }
+
+    actual fun cancelEdit(): Boolean = handle.cancelEdit()
+
     actual fun undo(): Boolean = handle.undo()
 
     actual fun redo(): Boolean = handle.redo()
@@ -35,6 +51,16 @@ actual class RustCoreSession private constructor(
     actual fun canUndo(): Boolean = handle.canUndo()
 
     actual fun canRedo(): Boolean = handle.canRedo()
+
+    actual fun undoLabel(): String? = handle.undoLabel()
+
+    actual fun redoLabel(): String? = handle.redoLabel()
+
+    actual fun undoDepth(): UInt = handle.undoDepth()
+
+    actual fun redoDepth(): UInt = handle.redoDepth()
+
+    actual fun transactionOpen(): Boolean = handle.transactionOpen()
 
     actual fun playheadUs(): Long = handle.playheadUs()
 
@@ -44,6 +70,9 @@ actual class RustCoreSession private constructor(
 
     actual fun renderPlanAtPlayhead(width: Int, height: Int): String =
         handle.renderPlanAtPlayhead(width.toUInt(), height.toUInt())
+
+    actual fun validateRenderPlanAtPlayhead(width: Int, height: Int): String =
+        handle.validateRenderPlanAtPlayhead(width.toUInt(), height.toUInt())
 
     actual fun durationUs(): Long = handle.durationUs()
 

@@ -129,3 +129,52 @@ impl TimeRange {
         }
     }
 }
+
+/// Scale integer microseconds by a float ratio (clip `speed`) rounding to
+/// nearest instead of truncating. Truncation biases every trim/split by up to
+/// 1µs in one direction and accumulates across repeated edits; rounding keeps
+/// the error bounded at ±0.5µs per operation.
+
+pub fn scale_us_round(us: i64, ratio: f64) -> i64 {
+    if !ratio.is_finite() {
+        return us;
+    }
+    (us as f64 * ratio).round() as i64
+}
+
+/// Inverse of [`scale_us_round`]: timeline microseconds per source microsecond.
+/// Non-finite or zero ratios pass the value through; callers validate speed.
+pub fn unscale_us_round(us: i64, ratio: f64) -> i64 {
+    if !ratio.is_finite() || ratio == 0.0 {
+        return us;
+    }
+    (us as f64 / ratio).round() as i64
+}
+
+#[cfg(test)]
+mod time_scale_tests {
+    use super::*;
+
+    #[test]
+    fn scale_rounds_instead_of_truncating() {
+        assert_eq!(scale_us_round(7, 0.5), 4);
+        assert_eq!(scale_us_round(7, 2.0), 14);
+        assert_eq!(unscale_us_round(200_000, 3.0), 66_667);
+    }
+
+    #[test]
+    fn roundtrip_stays_bounded() {
+        let mut v = 1_000_000i64;
+        for _ in 0..1000 {
+            v = unscale_us_round(scale_us_round(v, 1.7), 1.7);
+        }
+        assert!((v - 1_000_000).abs() <= 1, "drifted to {v}");
+    }
+
+    #[test]
+    fn non_finite_ratio_passes_through() {
+        assert_eq!(scale_us_round(42, f64::NAN), 42);
+        assert_eq!(scale_us_round(42, f64::INFINITY), 42);
+        assert_eq!(unscale_us_round(42, 0.0), 42);
+    }
+}
