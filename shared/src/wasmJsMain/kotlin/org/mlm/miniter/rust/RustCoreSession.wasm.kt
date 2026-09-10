@@ -136,8 +136,8 @@ actual class RustCoreSession private constructor(
     actual fun canRedo(): Boolean = handle.canRedo()
     actual fun undoLabel(): String? = handle.undoLabel()
     actual fun redoLabel(): String? = handle.redoLabel()
-    actual fun undoDepth(): UInt = handle.undoDepth()
-    actual fun redoDepth(): UInt = handle.redoDepth()
+    actual fun undoDepth(): UInt = handle.undoDepth().toUInt()
+    actual fun redoDepth(): UInt = handle.redoDepth().toUInt()
     actual fun transactionOpen(): Boolean = handle.transactionOpen()
 
     actual fun playheadUs(): Long = handle.playheadUs().toLong()
