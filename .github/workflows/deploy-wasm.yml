@@ -36,7 +36,10 @@ jobs:
           echo "RUSTFLAGS=--cfg=web_sys_unstable_apis" >> $GITHUB_ENV
 
       - name: Install wasm-bindgen CLI
-        run: cargo install wasm-bindgen-cli --version 0.2.125 --locked
+        run: |
+          VERSION=$(awk '/^name = "wasm-bindgen"$/{found=1} found && /^version = /{gsub(/"/, "", $3); print $3; exit}' rust/Cargo.lock)
+          echo "Installing wasm-bindgen-cli $VERSION to match rust/Cargo.lock"
+          cargo install wasm-bindgen-cli --version "$VERSION" --locked
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
