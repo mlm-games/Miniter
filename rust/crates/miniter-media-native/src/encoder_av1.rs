@@ -87,7 +87,8 @@ impl Av1EncodeSession {
         enc.bit_depth = 8;
         enc.chroma_sampling = ChromaSampling::Cs420;
         enc.time_base = Rational::new(1, fps_u32 as u64);
-        enc.bitrate = bitrate_kbps as i32;
+        // NOTE: rav1e expects bits per second.
+        enc.bitrate = bitrate_kbps.saturating_mul(1000).min(i32::MAX as u32) as i32;
         enc.min_key_frame_interval = 0;
         enc.max_key_frame_interval = 60;
         enc.color_description = Some(rav1e_color_description(matrix));
