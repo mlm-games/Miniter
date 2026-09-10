@@ -3544,7 +3544,8 @@ dependencies = [
 [[package]]
 name = "reassarus-core"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/reassarus#8f2960a19367c305a60f35b706758e85a64361d4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49ba053b5dd6f14d590c90d23db140f8e15ed50aca1963f6aa65a7d2065bc06d"
 dependencies = [
  "ahash",
  "bitflags 2.13.1",
@@ -3558,7 +3559,8 @@ dependencies = [
 [[package]]
 name = "reassarus-renderer"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/reassarus#8f2960a19367c305a60f35b706758e85a64361d4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa4b45bde586ec4592f0cf8791a40849b3b8be3ecd0a686c0f167b562e200450"
 dependencies = [
  "ahash",
  "fontdb",
@@ -3653,9 +3655,9 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "repose-core"
-version = "0.30.1"
+version = "0.30.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a67537c936a99586072f1dcbc2332ee812eb1d168f5143e6caf2e0e9f10915e1"
+checksum = "25235f79a5978c5ab7ea2aa7198a560c9dc0163523e1e0a08ddd83c6e65024a1"
 dependencies = [
  "log",
  "parking_lot",
@@ -3667,9 +3669,9 @@ dependencies = [
 
 [[package]]
 name = "repose-macros"
-version = "0.30.1"
+version = "0.30.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f18c63e0e16cd0969ec5472521c4fc98275a9d2a914183c4167a341d895af229"
+checksum = "8a7c19b481470d1841388ae2597f65ccfe32232462481b539683df01e53a43e1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3678,9 +3680,9 @@ dependencies = [
 
 [[package]]
 name = "repose-render-wgpu"
-version = "0.30.1"
+version = "0.30.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "480f5c1d581b4cb3645c72a2cdf1a8b7404682d53dde2b6f9606a8133aa11ad1"
+checksum = "8cce5c100d5b1622d8c371677e7da6ca50eddb3a22fc61d232d430c1f212354a"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3698,9 +3700,9 @@ dependencies = [
 
 [[package]]
 name = "repose-text"
-version = "0.30.1"
+version = "0.30.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a547d7f169fb2c31143c98f9f863137458d16fad15ab309954e1e4aa8408ed1"
+checksum = "44d7f1ae61b241ce56d06ed156e3071ba6b96919de28c810a0faf4ab183719fc"
 dependencies = [
  "font-awl",
  "js-sys",
