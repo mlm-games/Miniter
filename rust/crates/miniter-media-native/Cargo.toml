@@ -40,9 +40,9 @@ bytes = "1"
 
 videoson = { version = "*", default-features = false, optional = true }
 
-ass-core.workspace = true
-ass-renderer = { workspace = true, default-features = false, features = [
-    "software-backend",
+reassarus-core.workspace = true
+reassarus-renderer = { workspace = true, default-features = false, features = [
+    "repose-backend",
     "image",
     "simd",
 ] }

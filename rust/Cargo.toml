@@ -45,8 +45,8 @@ image = { version = "0.25", default-features = false, features = [
 fontdue = "0.9"
 
 baabaabaabaabababbababbaa = { version = "0.1" }
-ass-renderer = { git = "https://github.com/mlm-games/ass-rs", package = "ass-renderer", default-features = false }
-ass-core = { git = "https://github.com/mlm-games/ass-rs", package = "ass-core" }
+reassarus-renderer = { git = "https://github.com/mlm-games/reassarus", package = "reassarus-renderer", default-features = false }
+reassarus-core = { git = "https://github.com/mlm-games/reassarus", package = "reassarus-core" }
 
 miniter-domain = { path = "crates/miniter-domain", version = "0.1.2" }
 miniter-usecases = { path = "crates/miniter-usecases", version = "0.1.2" }
@@ -63,11 +63,12 @@ symphonia-core = { git = "https://github.com/mlm-games/symphonia", package = "sy
 symphonia-format-mkv = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-mkv" }
 symphonia-format-isomp4 = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-isomp4" }
 
+# Local dogfooding: ass-rs resolves its Repose backend through relative
+# path deps (`../../../repose`), which only exist in a side-by-side checkout.
+
 # baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
 # muxide = { path = "../../../Documents/Repos/muxide" }
 # videoson = { path = "../../../Documents/Repos/videoson/videoson", package = "videoson" }
-# ass-renderer = { path = "../../../Documents/Repos/ass-rs/crates/ass-renderer" }
-# ass-core = { path = "../../../Documents/Repos/ass-rs/crates/ass-core" }
 # symphonia = { path = "../../../Documents/Repos/symphonia/symphonia" }
 
 [profile.release] # for fdroid

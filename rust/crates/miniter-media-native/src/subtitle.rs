@@ -1,4 +1,4 @@
-use ass_renderer::{BackendType, Frame, RenderContext, Renderer};
+use reassarus_renderer::{BackendType, Frame, RenderContext, Renderer};
 use std::path::Path;
 use thiserror::Error;
 
@@ -9,7 +9,7 @@ pub enum SubtitleError {
     #[error("Failed to parse ASS script: {0}")]
     Parse(String),
     #[error("Failed to render subtitle: {0}")]
-    Render(#[from] ass_renderer::utils::RenderError),
+    Render(#[from] reassarus_renderer::utils::RenderError),
 }
 
 pub struct SubtitleRenderer {
@@ -20,7 +20,7 @@ pub struct SubtitleRenderer {
 impl SubtitleRenderer {
     pub fn new(width: u32, height: u32) -> Result<Self, SubtitleError> {
         let context = RenderContext::new(width, height);
-        let renderer = Renderer::new(BackendType::Software, context)?;
+        let renderer = Renderer::new(BackendType::Repose, context)?;
         Ok(Self {
             renderer,
             script_content: None,
@@ -32,7 +32,7 @@ impl SubtitleRenderer {
             .script_content
             .as_ref()
             .ok_or_else(|| SubtitleError::Parse("No script loaded".to_string()))?;
-        let script = ass_core::parser::Script::parse(content)
+        let script = reassarus_core::parser::Script::parse(content)
             .map_err(|e| SubtitleError::Parse(format!("{:?}", e)))?;
         let frame = self.renderer.render_frame(&script, time_cs as u32)?;
         Ok(frame)

@@ -1257,9 +1257,9 @@ pub fn subtitle_text_at_from_srt(content: &str, timestamp_us: i64) -> Option<Str
 }
 
 pub fn subtitle_text_at_from_ass(content: &str, timestamp_us: i64) -> Option<String> {
-    let script = ass_core::parser::Script::parse(content).ok()?;
+    let script = reassarus_core::parser::Script::parse(content).ok()?;
     for section in script.sections() {
-        let ass_core::Section::Events(events) = section else {
+        let reassarus_core::Section::Events(events) = section else {
             continue;
         };
         for event in events {

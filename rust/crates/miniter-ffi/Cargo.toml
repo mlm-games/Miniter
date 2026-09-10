@@ -26,7 +26,7 @@ image.workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 baabaabaabaabababbababbaa = { workspace = true }
 getrandom.workspace = true
-wasm-bindgen = "=0.2.125"
+wasm-bindgen = "0.2"
 serde-wasm-bindgen = "0.6"
 console_error_panic_hook = "0.1"
 console_log = "1"

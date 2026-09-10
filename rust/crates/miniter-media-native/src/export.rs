@@ -368,13 +368,13 @@ fn parse_srt_cues(path: &Path) -> Result<Vec<SourceSubtitleCue>, String> {
 fn parse_ass_cues(path: &Path, preserve_styles: bool) -> Result<Vec<SourceSubtitleCue>, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read ASS/SSA '{}': {}", path.display(), e))?;
-    let script = ass_core::Script::parse(&content)
+    let script = reassarus_core::Script::parse(&content)
         .map_err(|e| format!("failed to parse ASS/SSA '{}': {}", path.display(), e))?;
 
     let mut cues = Vec::new();
 
     for section in script.sections() {
-        let ass_core::Section::Events(events) = section else {
+        let reassarus_core::Section::Events(events) = section else {
             continue;
         };
 
