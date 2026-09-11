@@ -275,11 +275,24 @@ dependencies = [
 
 [[package]]
 name = "askama"
+version = "0.15.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b8246bcbf8eb97abef10c2d92166449680d41d55c0fc6978a91dec2e3619608"
+dependencies = [
+ "askama_macros 0.15.6",
+ "itoa",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "askama"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6024d73179f43f15ccd2b881bfea6fee7f3a46ec53f33b52210dea749ebebaa4"
 dependencies = [
- "askama_macros",
+ "askama_macros 0.16.1",
  "itoa",
  "percent-encoding",
  "serde",
@@ -288,11 +301,28 @@ dependencies = [
 
 [[package]]
 name = "askama_derive"
+version = "0.15.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f9670bc84a28bb3da91821ef74226949ab63f1265aff7c751634f1dd0e6f97c"
+dependencies = [
+ "askama_parser 0.15.6",
+ "basic-toml",
+ "memchr",
+ "proc-macro2",
+ "quote",
+ "rustc-hash 2.1.3",
+ "serde",
+ "serde_derive",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "askama_derive"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071ee5ebf2138e3ad180e0aacf6940c2cab5e6d8333741d9925c7bee2b153f39"
 dependencies = [
- "askama_parser",
+ "askama_parser 0.16.1",
  "basic-toml",
  "glob",
  "memchr",
@@ -306,11 +336,33 @@ dependencies = [
 
 [[package]]
 name = "askama_macros"
+version = "0.15.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0756b45480437dded0565dfc568af62ccce146fb6cfe902e808ba86e445f44f"
+dependencies = [
+ "askama_derive 0.15.6",
+]
+
+[[package]]
+name = "askama_macros"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "643e1c7cbb6aec1d920332fe51a7c0d8219e273dcb8602db03f5263e4d16487b"
 dependencies = [
- "askama_derive",
+ "askama_derive 0.16.1",
+]
+
+[[package]]
+name = "askama_parser"
+version = "0.15.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d0af3691ba3af77949c0b5a3925444b85cb58a0184cc7fec16c68ba2e7be868"
+dependencies = [
+ "rustc-hash 2.1.3",
+ "serde",
+ "serde_derive",
+ "unicode-ident",
+ "winnow",
 ]
 
 [[package]]
@@ -1640,6 +1692,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 
 [[package]]
+name = "hexf"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6618f4550dcd7d9ddb5126ab18d48dfa31aa952159cb832390bda464d3bc827e"
+dependencies = [
+ "hexf-parse",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "hexf-parse"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
+
+[[package]]
 name = "icu_collections"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2371,6 +2439,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mkv-element"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84a52dea4690ac0a778e7d0e86d1aa65f0c2d19453edd3f5b3e464bf385d5fe3"
+dependencies = [
+ "askama 0.15.6",
+ "bytes",
+ "hexf",
+ "log",
+ "paste",
+ "roxmltree 0.21.1",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2382,13 +2465,15 @@ dependencies = [
 
 [[package]]
 name = "muxfin"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abfc1f6aa508870ecf8949553638b2b36eeeb50ed3f83a54449b08f2fb9a4b64"
+checksum = "c26a905f29a80077bb6acb8724b9400db54011872f36aea0e4726524c4f0e3ca"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap",
  "indicatif",
+ "mkv-element",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -4462,6 +4547,17 @@ dependencies = [
 
 [[package]]
 name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
@@ -4904,7 +5000,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdea7c4574723928bef87dfc04b203d96321d0bf34ab295a56379e633be579f3"
 dependencies = [
  "anyhow",
- "askama",
+ "askama 0.16.1",
  "camino",
  "cargo_metadata",
  "fs-err",
@@ -5057,9 +5153,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "videoson"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcf98a5cced776a43eed76f1db616f1dd906ad53b5849d3e8e67475b0a32dc6d"
+checksum = "147a8991feb0e4f13cecfca327857ecc966ce62f21e125d2d8d78cbcd6e959fe"
 dependencies = [
  "videoson-codec-h264",
  "videoson-codec-h265",
@@ -5072,9 +5168,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-h264"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42cd85cdbcff1649d6ad1ea822eefcab32899012f7d9b2498c91963f42f981af"
+checksum = "c9ecc8fff0d30a6b674860af324fa1de4b8b11e2aeee8488d5ec0f9fc58b5d99"
 dependencies = [
  "rust_h264",
  "videoson-core",
@@ -5082,9 +5178,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-h265"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28de0150902189c538fa0d8344fad7a1b4bc91da225a24f9436e377ca7650934"
+checksum = "545ee8eaa863666b5f75d5777e9df8ba6728ec2cadb8df97a7d34983ac250f66"
 dependencies = [
  "oxideav-core",
  "oxideav-h265",
@@ -5094,9 +5190,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-rav1d"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b071073aff487e661573e0e4a3e5d0fca66dc9d9fed088d77327b17944070398"
+checksum = "821616bc3c620368d1acd2acef744fba425e7d50f7964eefd869166454ed10ec"
 dependencies = [
  "rav1d-safe",
  "videoson-core",
@@ -5104,9 +5200,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-vp8"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c5f018d09bb526fffdb7d95a68a099d8eff250b176bd83b1750f3baf0684dbf"
+checksum = "73274dcdbdc3a16fbf36780e8966aa05551021263cbc0ad719d90699e5ca1ae1"
 dependencies = [
  "oxideav-vp8",
  "videoson-core",
@@ -5114,9 +5210,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-vp9"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e7739852ea5f42e06932366aec1e153267f51b0b9fc58ff6db904455c613321"
+checksum = "aa2561d8b590deaef09c04aafdd751f82b192caed8ffc532387ce3ae35399315"
 dependencies = [
  "oxideav-core",
  "oxideav-vp9",
@@ -5125,15 +5221,15 @@ dependencies = [
 
 [[package]]
 name = "videoson-common"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69b48a24529a33563a1ab3354f1e5d99f98b7bbaed6ac6c806ce3d16629a1363"
+checksum = "b90088552866a18d965877019033d9f34cf449661bb7181ab20e1ee7988c75c9"
 
 [[package]]
 name = "videoson-core"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0a8007e75e4b0f9574e026e706e8216a4ef0fd8432e73e02802d92e2d797a92"
+checksum = "efa3ebb4675166382f762ffe4fc855025414f06bc16958caa5a3ecc29f8ed88a"
 
 [[package]]
 name = "walkdir"
