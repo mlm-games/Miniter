@@ -813,6 +813,7 @@ fn export_av1_mp4_bytes(
     });
 
     let mut frame_count: u32 = 0;
+    let mut seen_first_keyframe = false;
 
     for plan in std::iter::once(first_plan).chain(iter) {
         if is_cancelled() {
@@ -843,7 +844,7 @@ fn export_av1_mp4_bytes(
             .encode_frame(&frame)
             .map_err(|e| format!("AV1 encode failed: {e}"))?;
 
-        write_av1_packets_to_mux(&mut muxer, &packets)?;
+        write_av1_packets_to_mux(&mut muxer, &packets, &mut seen_first_keyframe)?;
 
         frame_count = frame_count.saturating_add(1);
         let pct = ((frame_count as f64 / total_frames as f64) * 100_000.0) as u32;
@@ -853,7 +854,7 @@ fn export_av1_mp4_bytes(
     let finish_packets = encoder
         .finish()
         .map_err(|e| format!("AV1 finalize failed: {e}"))?;
-    write_av1_packets_to_mux(&mut muxer, &finish_packets)?;
+    write_av1_packets_to_mux(&mut muxer, &finish_packets, &mut seen_first_keyframe)?;
 
     if let Some(encoded_audio) = &audio_encoded {
         let start_anchor_us = decode_cache.first_decoded_video_pts_us.unwrap_or(0).max(0) as u64;
@@ -1054,11 +1055,23 @@ fn export_opus_ogg_bytes(
 fn write_av1_packets_to_mux<W: Write>(
     muxer: &mut Mp4Muxer<W>,
     packets: &[Av1Packet],
+    seen_first_keyframe: &mut bool,
 ) -> Result<(), String> {
     for packet in packets {
         let sample = strip_leading_temporal_delimiters(&packet.data);
         if sample.is_empty() {
             continue;
+        }
+        if !*seen_first_keyframe {
+            if !packet.is_keyframe {
+                log::warn!(
+                    "EXPORT_DROP_LEADING: pts_us={} len={}",
+                    packet.pts,
+                    sample.len(),
+                );
+                continue;
+            }
+            *seen_first_keyframe = true;
         }
 
         muxer
@@ -1354,6 +1367,7 @@ pub struct WasmExportChunker {
     pps: Vec<u8>,
     fps_int: u32,
     buffered_frames: Vec<BufferedFrame>,
+    seen_first_keyframe: bool,
     source_matrix: MatrixCoeffs,
     audio_encoded: Option<EncodedOpus>,
     subtitle_samples: Vec<SoftSubtitleSample>,
@@ -1468,6 +1482,7 @@ impl WasmExportChunker {
                 pps: Vec::new(),
                 fps_int,
                 buffered_frames: Vec::new(),
+                seen_first_keyframe: false,
                 source_matrix: MatrixCoeffs::Bt709,
                 audio_encoded,
                 subtitle_samples,
@@ -1514,6 +1529,7 @@ impl WasmExportChunker {
             pps,
             fps_int,
             buffered_frames: Vec::new(),
+            seen_first_keyframe: false,
             source_matrix,
             audio_encoded,
             subtitle_samples,
@@ -1622,6 +1638,18 @@ impl WasmExportChunker {
             };
             if sample.is_empty() {
                 continue;
+            }
+
+            if !self.seen_first_keyframe {
+                if !packet.is_keyframe {
+                    log::warn!(
+                        "EXPORT_DROP_LEADING: pts_us={} len={}",
+                        packet.pts_us,
+                        sample.len(),
+                    );
+                    continue;
+                }
+                self.seen_first_keyframe = true;
             }
 
             self.buffered_frames.push(BufferedFrame {
