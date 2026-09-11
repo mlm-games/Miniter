@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 license = "GPL-3.0"
 repository = "https://github.com/mlm-games/Miniter"
@@ -48,12 +48,12 @@ baabaabaabaabababbababbaa = { version = "0.1" }
 reassarus-renderer = { version = "0.1.2", default-features = false }
 reassarus-core = { version = "0.1.2" }
 
-miniter-domain = { path = "crates/miniter-domain", version = "0.1.4" }
-miniter-usecases = { path = "crates/miniter-usecases", version = "0.1.4" }
-miniter-render-plan = { path = "crates/miniter-render-plan", version = "0.1.4" }
-miniter-audio = { path = "crates/miniter-audio", version = "0.1.4" }
-miniter-media-native = { path = "crates/miniter-media-native", version = "0.1.4" }
-miniter-ffi = { path = "crates/miniter-ffi", version = "0.1.4" }
+miniter-domain = { path = "crates/miniter-domain", version = "0.1.5" }
+miniter-usecases = { path = "crates/miniter-usecases", version = "0.1.5" }
+miniter-render-plan = { path = "crates/miniter-render-plan", version = "0.1.5" }
+miniter-audio = { path = "crates/miniter-audio", version = "0.1.5" }
+miniter-media-native = { path = "crates/miniter-media-native", version = "0.1.5" }
+miniter-ffi = { path = "crates/miniter-ffi", version = "0.1.5" }
 
 [patch.crates-io]
 # videoson = { git = "https://github.com/mlm-games/videoson" }

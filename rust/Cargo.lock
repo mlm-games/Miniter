@@ -2312,7 +2312,7 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniter-audio"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "log",
  "miniter-domain",
@@ -2323,7 +2323,7 @@ dependencies = [
 
 [[package]]
 name = "miniter-domain"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -2334,7 +2334,7 @@ dependencies = [
 
 [[package]]
 name = "miniter-ffi"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "baabaabaabaabababbababbaa",
  "base64",
@@ -2363,7 +2363,7 @@ dependencies = [
 
 [[package]]
 name = "miniter-media-native"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "av-ivf",
  "baabaabaabaabababbababbaa",
@@ -2399,7 +2399,7 @@ dependencies = [
 
 [[package]]
 name = "miniter-render-plan"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "log",
  "miniter-domain",
@@ -2409,7 +2409,7 @@ dependencies = [
 
 [[package]]
 name = "miniter-usecases"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "log",
  "miniter-domain",
