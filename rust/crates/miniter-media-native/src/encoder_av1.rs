@@ -92,6 +92,7 @@ impl Av1EncodeSession {
         enc.min_key_frame_interval = 0;
         enc.max_key_frame_interval = 60;
         enc.color_description = Some(rav1e_color_description(matrix));
+        enc.pixel_range = PixelRange::Full;
 
         let cfg = Config::new().with_encoder_config(enc);
         let ctx: Context<u8> = cfg.new_context()?;

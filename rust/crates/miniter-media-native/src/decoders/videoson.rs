@@ -1,6 +1,6 @@
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
-use crate::frame::{ColorInfo, RgbaFrame};
+use crate::frame::{ChromaSiting, ColorInfo, ColorRange, MatrixCoeffs, RgbaFrame};
 use std::collections::VecDeque;
 use videoson::{
     CodecType, NalFormat, Packet as VideoPacket, PixelFormat, VideoCodecParams, VideoDecoder,
@@ -162,7 +162,7 @@ impl VideosonBackend {
         {
             let (w, h) = (frame.width as usize, frame.height as usize);
 
-            let color_info = ColorInfo::infer(h as u32);
+            let color_info = map_videoson_color(&frame.color_info, h as u32);
 
             let rgba = match frame.pixfmt {
                 PixelFormat::Nv12 => {
@@ -261,6 +261,25 @@ impl VideosonBackend {
             });
         }
         Ok(())
+    }
+}
+
+fn map_videoson_color(reported: &videoson::ColorInfo, height: u32) -> ColorInfo {
+    let matrix = match reported.matrix {
+        1 => MatrixCoeffs::Bt709,
+        4 | 5 | 6 | 7 => MatrixCoeffs::Bt601,
+        9 | 10 => MatrixCoeffs::Bt2020Ncl,
+        2 => MatrixCoeffs::Bt601,
+        _ => return ColorInfo::infer(height),
+    };
+    ColorInfo {
+        matrix,
+        range: if reported.full_range {
+            ColorRange::Full
+        } else {
+            ColorRange::Limited
+        },
+        chroma_siting: ChromaSiting::Center,
     }
 }
 

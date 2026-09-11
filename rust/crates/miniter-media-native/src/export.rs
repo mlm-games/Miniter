@@ -239,6 +239,34 @@ fn resolve_render_settings(project: &Project) -> RenderSettings {
     RenderSettings { width, height, fps }
 }
 
+/// Determine the color matrix for export encoding from the first video clip's
+/// decoded frame. Falls back to BT.709 (previous behavior) when unavailable.
+fn sniff_source_matrix(project: &Project) -> MatrixCoeffs {
+    let path = project
+        .timeline
+        .tracks
+        .iter()
+        .flat_map(|t| &t.clips)
+        .filter_map(|c| match &c.kind {
+            ClipKind::Video(v) => Some(v.source_path.as_str()),
+            _ => None,
+        })
+        .next();
+    let Some(path) = path else {
+        return MatrixCoeffs::Bt709;
+    };
+    if miniter_audio::util::is_image_file(Path::new(path)) {
+        return MatrixCoeffs::Bt709;
+    }
+    let Ok(mut session) = VideoDecodeSession::open(Path::new(path), false) else {
+        return MatrixCoeffs::Bt709;
+    };
+    match session.next_frame() {
+        Ok(Some(frame)) => frame.color_info.matrix,
+        _ => MatrixCoeffs::Bt709,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct SourceSubtitleCue {
     start_us: i64,
@@ -651,7 +679,7 @@ where
             bitrate_kbps * 1000,
             fps as f32,
             "video/avc",
-            MatrixCoeffs::Bt709,
+            sniff_source_matrix(project),
         ) {
             Ok(hw) => AnyEncoder::Hw(hw),
             Err(e) => {
@@ -1127,6 +1155,8 @@ where
         (None, None)
     };
 
+    let matrix = sniff_source_matrix(project);
+
     if project.export_profile.hardware_acceleration {
         if HwEncodeSession::new(
             width,
@@ -1134,7 +1164,7 @@ where
             bitrate_kbps * 1000,
             fps as f32,
             "video/av01",
-            MatrixCoeffs::Bt709,
+            matrix,
         )
         .is_err()
         {
@@ -1146,7 +1176,7 @@ where
     on_progress(5);
 
     let fps_int = fps.round().max(1.0) as u32;
-    let mut encoder = Av1EncodeSession::new(width, height, fps, bitrate_kbps, MatrixCoeffs::Bt709)?;
+    let mut encoder = Av1EncodeSession::new(width, height, fps, bitrate_kbps, matrix)?;
 
     let mut ivf_file: Option<File> = None;
     let mut mp4_muxer: Option<Mp4Muxer<BufWriter<File>>> = None;

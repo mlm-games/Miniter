@@ -126,6 +126,33 @@ struct ExportDecodeSession {
     pending_frame: Option<RgbaFrame>,
 }
 
+fn sniff_source_matrix(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+) -> MatrixCoeffs {
+    let path = project
+        .timeline
+        .tracks
+        .iter()
+        .flat_map(|t| &t.clips)
+        .filter_map(|c| match &c.kind {
+            ClipKind::Video(v) => Some(v.source_path.as_str()),
+            _ => None,
+        })
+        .next();
+    let Some(path) = path else {
+        return MatrixCoeffs::Bt709;
+    };
+    if is_image_path(path) {
+        return MatrixCoeffs::Bt709;
+    }
+    let mut cache = ExportDecodeCache::new(registered_files, false);
+    match cache.extract_frame(ClipId::new(), path, 0) {
+        Ok(frame) => frame.color_info.matrix,
+        Err(_) => MatrixCoeffs::Bt709,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct SubtitleCue {
     start_us: i64,
@@ -522,7 +549,7 @@ fn export_h264_mp4_bytes(
             bitrate_kbps * 1000,
             settings.fps as f32,
             "video/avc",
-            MatrixCoeffs::Bt709,
+            sniff_source_matrix(project, registered_files),
         ) {
             Ok(hw) => AnyH264Encoder::Hw(hw),
             Err(e) => {
@@ -747,7 +774,7 @@ fn export_av1_mp4_bytes(
         settings.height,
         settings.fps,
         bitrate_kbps,
-        MatrixCoeffs::Bt709,
+        sniff_source_matrix(project, registered_files),
     )
     .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
 
@@ -873,7 +900,7 @@ fn export_av1_ivf_bytes(
         settings.height,
         settings.fps,
         bitrate_kbps,
-        MatrixCoeffs::Bt709,
+        sniff_source_matrix(project, registered_files),
     )
     .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
 
