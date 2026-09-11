@@ -30,6 +30,7 @@ jobs:
       working-directory: rust
       workspace-publish: true
       workspace-exclude: "miniter-ffi"
+      system-deps: "libwayland-dev libxkbcommon-dev libfontconfig-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev pkg-config"
       bump-type: ${{ inputs.bump_type }}
       create-release: false
       generate-release-notes: false
