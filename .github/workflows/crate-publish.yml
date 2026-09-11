@@ -29,7 +29,7 @@ jobs:
     with:
       working-directory: rust
       workspace-publish: true
-      workspace-exclude: "miniter-ffi miniter-media-native"
+      workspace-exclude: "miniter-ffi"
       bump-type: ${{ inputs.bump_type }}
       create-release: false
       generate-release-notes: false
