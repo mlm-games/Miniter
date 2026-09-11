@@ -300,6 +300,7 @@ impl<'a> ExportDecodeCache<'a> {
                 if let Err(ref e) = frame {
                     if matches!(e, crate::decoders::DecodeError::Other(msg) if msg.starts_with("baaba try_frame_raw"))
                     {
+                        log::warn!("HW decode failed at runtime, falling back to SW: {e:?}");
                         crate::HARDWARE_FALLBACK_OCCURRED
                             .store(true, std::sync::atomic::Ordering::SeqCst);
                         self.hardware_acceleration = false;

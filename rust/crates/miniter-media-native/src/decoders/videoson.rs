@@ -184,6 +184,23 @@ impl VideosonBackend {
                     };
                     let y_stride = frame.plane_data[0].stride;
                     let uv_stride = frame.plane_data[1].stride;
+                    diag_trace(
+                        self.backend_name,
+                        "Nv12",
+                        w,
+                        h,
+                        &format!(
+                            "ystride={y_stride} ylen={} uvstride={uv_stride} uvlen={} yrows[0]={:x} yrows[100]={:x} yrows[200]={:x} yrows[539]={:x} yrows[1079]={:x}",
+                            y.len(),
+                            uv.len(),
+                            diag_row_hash(y, y_stride, 0, w),
+                            diag_row_hash(y, y_stride, 100, w),
+                            diag_row_hash(y, y_stride, 200, w),
+                            diag_row_hash(y, y_stride, 539, w),
+                            diag_row_hash(y, y_stride, 1079, w),
+                        ),
+                        frame.pts.map(|p| p / 1000).unwrap_or(fallback_pts_us),
+                    );
                     crate::yuv::nv12_to_rgba_separate(y, uv, w, h, y_stride, uv_stride, color_info)
                 }
                 PixelFormat::Yuv420 => {
@@ -214,6 +231,24 @@ impl VideosonBackend {
                             _ => None,
                         })
                         .unwrap_or(&[]);
+                    diag_trace(
+                        self.backend_name,
+                        "Yuv420",
+                        w,
+                        h,
+                        &format!(
+                            "ystride={y_stride} ylen={} ustride={u_stride} ulen={} vstride={v_stride} vlen={} yrows[0]={:x} yrows[100]={:x} yrows[200]={:x} yrows[539]={:x} yrows[1079]={:x}",
+                            y_data.len(),
+                            u_data.len(),
+                            v_data.len(),
+                            diag_row_hash(y_data, y_stride, 0, w),
+                            diag_row_hash(y_data, y_stride, 100, w),
+                            diag_row_hash(y_data, y_stride, 200, w),
+                            diag_row_hash(y_data, y_stride, 539, w),
+                            diag_row_hash(y_data, y_stride, 1079, w),
+                        ),
+                        frame.pts.map(|p| p / 1000).unwrap_or(fallback_pts_us),
+                    );
                     crate::yuv::yuv420_to_rgba(
                         y_data, u_data, v_data, w, h, y_stride, u_stride, v_stride, color_info,
                     )
@@ -261,6 +296,33 @@ impl VideosonBackend {
             });
         }
         Ok(())
+    }
+}
+
+/// FNV-1a hash of one plane row (diagnostic: detects stale rows across frames).
+fn diag_row_hash(data: &[u8], stride: usize, row: usize, width: usize) -> u64 {
+    let start = row.saturating_mul(stride);
+    if start >= data.len() {
+        return u64::MAX;
+    }
+    let end = start.saturating_add(width).min(data.len());
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in &data[start..end] {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+static DIAG_N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Emit a one-line plane-integrity trace for SW-decoded frames (throttled).
+/// Temporary diagnostic for the AV1 top-band investigation.
+fn diag_trace(name: &str, fmt: &str, w: usize, h: usize, extra: &str, pts: i64) {
+    use std::sync::atomic::Ordering;
+    let n = DIAG_N.fetch_add(1, Ordering::Relaxed);
+    if n < 8 || n % 50 == 0 {
+        log::warn!("SWDEC n={n} {name} {fmt} {w}x{h} {extra} pts={pts}");
     }
 }
 
