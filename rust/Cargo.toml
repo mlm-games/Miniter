@@ -56,7 +56,6 @@ miniter-media-native = { path = "crates/miniter-media-native", version = "0.1.2"
 miniter-ffi = { path = "crates/miniter-ffi", version = "0.1.2" }
 
 [patch.crates-io]
-muxide = { git = "https://github.com/mlm-games/muxide" }
 videoson = { git = "https://github.com/mlm-games/videoson" }
 
 symphonia-core = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-core" }
@@ -67,7 +66,7 @@ symphonia-format-isomp4 = { git = "https://github.com/mlm-games/symphonia", pack
 # path deps (`../../../repose`), which only exist in a side-by-side checkout.
 
 # baabaabaabaabababbababbaa = { path = "../../../Documents/Repos/baa4bababab2baa", package = "baabaabaabaabababbababbaa" }
-# muxide = { path = "../../../Documents/Repos/muxide" }
+# muxfin = { path = "../../../Documents/Repos/muxfin/crates/muxfin" }
 # videoson = { path = "../../../Documents/Repos/videoson/videoson", package = "videoson" }
 # symphonia = { path = "../../../Documents/Repos/symphonia/symphonia" }
 

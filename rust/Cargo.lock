@@ -2270,7 +2270,7 @@ dependencies = [
  "miniter-audio",
  "miniter-domain",
  "miniter-render-plan",
- "muxide",
+ "muxfin",
  "oporus",
  "palette",
  "rav1e",
@@ -2338,16 +2338,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "muxide"
-version = "0.2.1"
-source = "git+https://github.com/mlm-games/muxide#5d66e25107e471dd6c0d5f8dfe92857b23f82b78"
+name = "muxfin"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abfc1f6aa508870ecf8949553638b2b36eeeb50ed3f83a54449b08f2fb9a4b64"
 dependencies = [
  "anyhow",
  "clap",
  "indicatif",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

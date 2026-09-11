@@ -1,6 +1,6 @@
-//! Mux H.264 video and Opus audio into MP4 using muxide.
+//! Mux H.264 video and Opus audio into MP4 using muxfin.
 
-use muxide::api::{
+use muxfin::api::{
     AudioCodec, Muxer as InnerMuxer, MuxerBuilder, MuxerError as InnerMuxError, SubtitleCodec,
     VideoCodec,
 };
@@ -8,9 +8,9 @@ use std::io::Write;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MuxError {
-    #[error("muxide: {0}")]
+    #[error("muxfin: {0}")]
     Muxide(#[from] InnerMuxError),
-    #[error("MOV container is not supported by muxide")]
+    #[error("MOV container is not supported by muxfin")]
     MovUnsupported,
     #[error("OGG mux: {0}")]
     OggMux(String),

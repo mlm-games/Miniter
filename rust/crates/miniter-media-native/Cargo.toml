@@ -17,7 +17,7 @@ web-time.workspace = true
 
 image.workspace = true
 
-muxide = "0.2"
+muxfin = "0.2"
 
 less-avc = { version = "0.1.5" }
 
