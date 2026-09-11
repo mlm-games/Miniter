@@ -37,7 +37,7 @@ palette = "0.7"
 bytemuck = "1"
 bytes = "1"
 
-videoson = { version = "*", default-features = false, optional = true }
+videoson = { version = "0.5", default-features = false, optional = true }
 
 reassarus-core.workspace = true
 reassarus-renderer = { workspace = true, default-features = false, features = [
