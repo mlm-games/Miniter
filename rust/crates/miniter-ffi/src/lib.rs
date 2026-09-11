@@ -102,11 +102,17 @@ impl EditorStateHandle {
     }
 
     fn undo_depth(&self) -> u32 {
-        self.0.lock().map(|s| s.history.undo_depth() as u32).unwrap_or(0)
+        self.0
+            .lock()
+            .map(|s| s.history.undo_depth() as u32)
+            .unwrap_or(0)
     }
 
     fn redo_depth(&self) -> u32 {
-        self.0.lock().map(|s| s.history.redo_depth() as u32).unwrap_or(0)
+        self.0
+            .lock()
+            .map(|s| s.history.redo_depth() as u32)
+            .unwrap_or(0)
     }
 
     fn transaction_open(&self) -> bool {

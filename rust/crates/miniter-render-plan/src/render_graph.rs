@@ -9,7 +9,7 @@ use miniter_domain::mask::{
 };
 use miniter_domain::param;
 use miniter_domain::text_overlay::TextOverlay;
-use miniter_domain::time::{scale_us_round, MediaDuration, Timestamp};
+use miniter_domain::time::{MediaDuration, Timestamp, scale_us_round};
 use miniter_domain::timeline::Timeline;
 use miniter_domain::transition::{Transition, TransitionKind};
 

@@ -2,7 +2,7 @@ use crate::filter::{AudioFilter, VideoEffect};
 use crate::keyframe::KeyframeCurve;
 use crate::mask::{BlendMode, MaskEffect};
 use crate::text_overlay::TextOverlay;
-use crate::time::{scale_us_round, MediaDuration, Timestamp};
+use crate::time::{MediaDuration, Timestamp, scale_us_round};
 use crate::transition::Transition;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

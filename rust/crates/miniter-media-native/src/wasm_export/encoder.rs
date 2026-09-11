@@ -84,8 +84,14 @@ pub struct Av1SwBackend {
 }
 
 impl Av1SwBackend {
-    pub fn new(width: u32, height: u32, fps: f64, bitrate_kbps: u32) -> Result<Self, String> {
-        Av1EncodeSession::new(width, height, fps, bitrate_kbps, MatrixCoeffs::Bt709)
+    pub fn new(
+        width: u32,
+        height: u32,
+        fps: f64,
+        bitrate_kbps: u32,
+        matrix: MatrixCoeffs,
+    ) -> Result<Self, String> {
+        Av1EncodeSession::new(width, height, fps, bitrate_kbps, matrix)
             .map(|inner| Self { inner })
             .map_err(|e| format!("AV1 SW encoder init failed: {e}"))
     }
@@ -138,17 +144,16 @@ pub struct H264HwBackend {
 
 #[cfg(feature = "hw-decoder")]
 impl H264HwBackend {
-    pub fn new(width: u32, height: u32, bitrate_bps: u32, fps: f32) -> Result<Self, String> {
-        HwEncodeSession::new(
-            width,
-            height,
-            bitrate_bps,
-            fps,
-            "video/avc",
-            MatrixCoeffs::Bt709,
-        )
-        .map(|inner| Self { inner })
-        .map_err(|e| format!("HW H.264 encoder init failed: {e}"))
+    pub fn new(
+        width: u32,
+        height: u32,
+        bitrate_bps: u32,
+        fps: f32,
+        matrix: MatrixCoeffs,
+    ) -> Result<Self, String> {
+        HwEncodeSession::new(width, height, bitrate_bps, fps, "video/avc", matrix)
+            .map(|inner| Self { inner })
+            .map_err(|e| format!("HW H.264 encoder init failed: {e}"))
     }
 }
 
@@ -224,17 +229,16 @@ pub struct Av1HwBackend {
 
 #[cfg(feature = "hw-decoder")]
 impl Av1HwBackend {
-    pub fn new(width: u32, height: u32, bitrate_bps: u32, fps: f32) -> Result<Self, String> {
-        HwEncodeSession::new(
-            width,
-            height,
-            bitrate_bps,
-            fps,
-            "video/av01",
-            MatrixCoeffs::Bt709,
-        )
-        .map(|inner| Self { inner })
-        .map_err(|e| format!("HW AV1 encoder init failed: {e}"))
+    pub fn new(
+        width: u32,
+        height: u32,
+        bitrate_bps: u32,
+        fps: f32,
+        matrix: MatrixCoeffs,
+    ) -> Result<Self, String> {
+        HwEncodeSession::new(width, height, bitrate_bps, fps, "video/av01", matrix)
+            .map(|inner| Self { inner })
+            .map_err(|e| format!("HW AV1 encoder init failed: {e}"))
     }
 }
 
@@ -312,13 +316,14 @@ pub fn create_encoder_backend(
     bitrate_kbps: u32,
     fps: f64,
     hw_requested: bool,
+    matrix: MatrixCoeffs,
 ) -> Result<Box<dyn EncoderBackend>, String> {
     match format {
         miniter_domain::export::ExportFormat::Mp4 | miniter_domain::export::ExportFormat::Mov => {
             let bitrate_bps = bitrate_kbps.max(500) * 1000;
             if hw_requested {
                 #[cfg(feature = "hw-decoder")]
-                match H264HwBackend::new(width, height, bitrate_bps, fps as f32) {
+                match H264HwBackend::new(width, height, bitrate_bps, fps as f32, matrix) {
                     Ok(enc) => return Ok(Box::new(enc)),
                     Err(e) => {
                         log::warn!("HW H.264 encoder init failed, falling back to SW: {e}");
@@ -337,7 +342,13 @@ pub fn create_encoder_backend(
         | miniter_domain::export::ExportFormat::Av1WebM => {
             if hw_requested {
                 #[cfg(feature = "hw-decoder")]
-                match Av1HwBackend::new(width, height, bitrate_kbps.max(500) * 1000, fps as f32) {
+                match Av1HwBackend::new(
+                    width,
+                    height,
+                    bitrate_kbps.max(500) * 1000,
+                    fps as f32,
+                    matrix,
+                ) {
                     Ok(enc) => return Ok(Box::new(enc)),
                     Err(e) => {
                         log::warn!("HW AV1 encoder init failed, falling back to SW: {e}");
@@ -347,7 +358,7 @@ pub fn create_encoder_backend(
                 #[cfg(not(feature = "hw-decoder"))]
                 { /* TODO: print no HW decoder feature, fall through to SW */ }
             }
-            Av1SwBackend::new(width, height, fps, bitrate_kbps.max(500))
+            Av1SwBackend::new(width, height, fps, bitrate_kbps.max(500), matrix)
                 .map(|enc| Box::new(enc) as Box<dyn EncoderBackend>)
         }
         _ => Err("Unsupported export format".to_string()),

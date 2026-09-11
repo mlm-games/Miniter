@@ -1353,6 +1353,7 @@ pub struct WasmExportChunker {
     pps: Vec<u8>,
     fps_int: u32,
     buffered_frames: Vec<BufferedFrame>,
+    source_matrix: MatrixCoeffs,
     audio_encoded: Option<EncodedOpus>,
     subtitle_samples: Vec<SoftSubtitleSample>,
     ogg_sample_rate: u32,
@@ -1466,12 +1467,16 @@ impl WasmExportChunker {
                 pps: Vec::new(),
                 fps_int,
                 buffered_frames: Vec::new(),
+                source_matrix: MatrixCoeffs::Bt709,
                 audio_encoded,
                 subtitle_samples,
                 ogg_sample_rate,
                 ogg_total_samples_48k,
             });
         }
+
+        let source_matrix = sniff_source_matrix(project, &files_box);
+        log::warn!("EXPORT_INIT: source_matrix={source_matrix:?}");
 
         let (encoder, sps, pps) = {
             let enc = create_encoder_backend(
@@ -1481,11 +1486,13 @@ impl WasmExportChunker {
                 bitrate_kbps,
                 settings.fps,
                 hw_requested,
+                source_matrix,
             )?;
             let sps = Vec::new();
             let pps = Vec::new();
             (enc, sps, pps)
         };
+        log::warn!("EXPORT_INIT: backend={}", encoder.name());
 
         Ok(WasmExportChunker {
             decode_cache,
@@ -1506,6 +1513,7 @@ impl WasmExportChunker {
             pps,
             fps_int,
             buffered_frames: Vec::new(),
+            source_matrix,
             audio_encoded,
             subtitle_samples,
             ogg_sample_rate: 0,
@@ -1561,7 +1569,10 @@ impl WasmExportChunker {
                 height: self.settings.height,
                 data: rgba,
                 pts_us: plan.timestamp.as_micros(),
-                color_info: Default::default(),
+                color_info: crate::frame::ColorInfo {
+                    matrix: self.source_matrix,
+                    ..Default::default()
+                },
             };
 
             self.encode_one_frame(&frame)?;

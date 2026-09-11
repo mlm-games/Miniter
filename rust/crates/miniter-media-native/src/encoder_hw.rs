@@ -180,8 +180,13 @@ mod hw {
                 )));
             }
             let video_frame = self.build_video_frame(frame);
+            // Force a keyframe only for the first submitted frame; letting the
+            // platform encoder place the rest avoids an all-intra stream.
+            // (Passing `Some(true)` unconditionally produced all-keyframe output.)
+            let is_first = self.frame_index == 0;
+            self.frame_index += 1;
             self.input
-                .encode(video_frame, Some(true))
+                .encode(video_frame, if is_first { Some(true) } else { None })
                 .map_err(|e| EncodeError::LessAvc(format!("HwEncoder encode: {e:?}")))?;
             Ok(())
         }
