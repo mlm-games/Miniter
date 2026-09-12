@@ -58,8 +58,8 @@ miniter-ffi = { path = "crates/miniter-ffi", version = "0.1.8" }
 [patch.crates-io]
 # videoson = { git = "https://github.com/mlm-games/videoson" }
 
-# test rav1d-safe itx_wasm 4x4 transpose fix (wasm top-band corruption).
-rav1d-safe = { git = "https://github.com/mlm-games/rav1d-safe", rev = "00f785d72db575cc98f9c65dfcc8c85896107c03" }
+# NOTE: remove when close #30. rav1d-safe itx_wasm 4x4 transpose fix (wasm top-band corruption), merged upstream.
+rav1d-safe = { git = "https://github.com/mlm-games/rav1d-safe", rev = "e771c7b3e7bb8a81f41fb95943c02562b7d8ad3d" }
 
 symphonia-core = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-core" }
 symphonia-format-mkv = { git = "https://github.com/mlm-games/symphonia", package = "symphonia-format-mkv" }
