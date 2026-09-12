@@ -3549,8 +3549,7 @@ dependencies = [
 [[package]]
 name = "rav1d-disjoint-mut"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5d170ff0b912935f0d796c3b28bdacf46311840161e91f120f485cc92f1f977"
+source = "git+https://github.com/mlm-games/rav1d-safe?rev=00f785d72db575cc98f9c65dfcc8c85896107c03#00f785d72db575cc98f9c65dfcc8c85896107c03"
 dependencies = [
  "aligned",
  "aligned-vec",
@@ -3562,8 +3561,7 @@ dependencies = [
 [[package]]
 name = "rav1d-safe"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "551b803ca7c71642c849af7078df4c46295e3fddfc52d3c06642a316dac44c0f"
+source = "git+https://github.com/mlm-games/rav1d-safe?rev=00f785d72db575cc98f9c65dfcc8c85896107c03#00f785d72db575cc98f9c65dfcc8c85896107c03"
 dependencies = [
  "aligned",
  "archmage",
