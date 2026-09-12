@@ -331,7 +331,6 @@ fn map_videoson_color(reported: &videoson::ColorInfo, height: u32) -> ColorInfo 
         1 => MatrixCoeffs::Bt709,
         4 | 5 | 6 | 7 => MatrixCoeffs::Bt601,
         9 | 10 => MatrixCoeffs::Bt2020Ncl,
-        2 => MatrixCoeffs::Bt601,
         _ => return ColorInfo::infer(height),
     };
     ColorInfo {
