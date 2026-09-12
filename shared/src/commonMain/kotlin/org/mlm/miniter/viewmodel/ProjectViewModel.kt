@@ -678,8 +678,8 @@ class ProjectViewModel(
 
     fun deleteSelectedClip() {
         val clipId = _state.value.selectedClipId ?: return
-        removeClip(clipId)
         selectClip(null)
+        removeClip(clipId)
     }
 
     fun setPlaying(playing: Boolean) {
@@ -741,7 +741,8 @@ class ProjectViewModel(
                 )
 
                 val total = paths.size
-                val items = paths.mapIndexed { index, path ->
+                val items = mutableListOf<ImportItem>()
+                paths.forEachIndexed { index, path ->
                     val fileName = path.substringAfterLast("/").substringAfterLast("\\")
                     _state.update {
                         it.copy(
@@ -754,19 +755,28 @@ class ProjectViewModel(
                             ),
                         )
                     }
-                    val stagedPath = PlatformFileSystem.stageForNativeAccess(path)
-                    _state.update {
-                        it.copy(
-                            importProgress = ImportProgress(
-                                current = index,
-                                total = total,
-                                currentFile = fileName,
-                                stage = "Probing",
-                                fraction = if (total > 1) index.toFloat() / total else null,
-                            ),
-                        )
+                    try {
+                        val stagedPath = PlatformFileSystem.stageForNativeAccess(path)
+                        _state.update {
+                            it.copy(
+                                importProgress = ImportProgress(
+                                    current = index,
+                                    total = total,
+                                    currentFile = fileName,
+                                    stage = "Probing",
+                                    fraction = if (total > 1) index.toFloat() / total else null,
+                                ),
+                            )
+                        }
+                        items.add(ImportItem(path, stagedPath, engine.probeVideo(stagedPath)))
+                    } catch (e: Exception) {
+                        Napier.e("Skipping unimportable file $path", e)
+                        snackbarManager.showError("Skipped '$fileName': ${e.message}")
                     }
-                    ImportItem(path, stagedPath, engine.probeVideo(stagedPath))
+                }
+                if (items.isEmpty()) {
+                    _state.update { it.copy(isLoading = false, importProgress = null) }
+                    return
                 }
 
                 var cursorVideoUs = initialCursorMs.msToUs
@@ -796,7 +806,12 @@ class ProjectViewModel(
 
                     var trackId = currentTrackId
                     if (trackId == null) {
-                        trackId = ensureTrack(kind, "$labelPrefix 1")
+                        trackId = try {
+                            ensureTrack(kind, "$labelPrefix 1")
+                        } catch (e: Exception) {
+                            Napier.e("Failed to ensure $kind track", e)
+                            return ImportTarget("", cursorUs)
+                        }
                     }
 
                     val snap = rustStore.snapshot.value ?: return ImportTarget(trackId, cursorUs)
@@ -821,7 +836,12 @@ class ProjectViewModel(
                         } else {
                             val count = snap.timeline.tracks.count { it.kind == kind }
                             val label = "$labelPrefix ${count + 1}"
-                            rustStore.dispatch(rustStore.commands.addTrack(kind, label))
+                            try {
+                                rustStore.dispatch(rustStore.commands.addTrack(kind, label))
+                            } catch (e: Exception) {
+                                Napier.e("Failed to add overflow $kind track", e)
+                                return ImportTarget(trackId, cursorUs)
+                            }
                             rustStore.snapshot.value
                                 ?.timeline?.tracks?.last { it.kind == kind }?.id
                                 ?: trackId
@@ -848,71 +868,83 @@ class ProjectViewModel(
 
                     if (hasVideo) {
                         val target = resolveTrack(RustTrackKind.Video, baseUs, durationUs, videoTrackId, "Video")
-                        videoTrackId = target.trackId
-
-                        val videoVolume = if (hasAudio) 0.0f else 1.0f
-                        dispatchSilent(
-                            rustStore.commands.addClip(
-                                target.trackId,
-                                RustClipSnapshot(
-                                    id = randomUuid(),
-                                    timelineStartUs = baseUs,
-                                    timelineDurationUs = durationUs,
-                                    sourceStartUs = 0L,
-                                    sourceEndUs = durationUs,
-                                    sourceTotalDurationUs = durationUs,
-                                    speed = 1.0,
-                                    volume = videoVolume,
-                                    opacity = 1.0f,
-                                    muted = false,
-                                    transitionIn = null,
-                                    transitionOut = null,
-                                    kind = RustVideoClipKind(
-                                        sourcePath = item.stagedPath,
-                                        width = info.width,
-                                        height = info.height,
-                                        fps = if (info.frameRate > 0.0) info.frameRate else 30.0,
-                                        filters = emptyList(),
-                                        audioFilters = emptyList(),
-                                    ),
-                                ),
-                            )
-                        )
-                        cursorVideoUs = baseUs + durationUs
-                        fileAdded = true
+                        if (target.trackId.isNotEmpty()) {
+                            videoTrackId = target.trackId
+                            val videoVolume = if (hasAudio) 0.0f else 1.0f
+                            try {
+                                dispatchSilent(
+                                    rustStore.commands.addClip(
+                                        target.trackId,
+                                        RustClipSnapshot(
+                                            id = randomUuid(),
+                                            timelineStartUs = baseUs,
+                                            timelineDurationUs = durationUs,
+                                            sourceStartUs = 0L,
+                                            sourceEndUs = durationUs,
+                                            sourceTotalDurationUs = durationUs,
+                                            speed = 1.0,
+                                            volume = videoVolume,
+                                            opacity = 1.0f,
+                                            muted = false,
+                                            transitionIn = null,
+                                            transitionOut = null,
+                                            kind = RustVideoClipKind(
+                                                sourcePath = item.stagedPath,
+                                                width = info.width,
+                                                height = info.height,
+                                                fps = if (info.frameRate > 0.0) info.frameRate else 30.0,
+                                                filters = emptyList(),
+                                                audioFilters = emptyList(),
+                                            ),
+                                        ),
+                                    )
+                                )
+                                cursorVideoUs = baseUs + durationUs
+                                fileAdded = true
+                            } catch (e: Exception) {
+                                Napier.e("Skipping video clip for ${item.path}", e)
+                                snackbarManager.showError("Skipped video in '${item.path.substringAfterLast("/")}': ${e.message}")
+                            }
+                        }
                     }
 
                     if (hasAudio) {
                         val target = resolveTrack(RustTrackKind.Audio, baseUs, durationUs, audioTrackId, "Audio")
-                        audioTrackId = target.trackId
-
-                        dispatchSilent(
-                            rustStore.commands.addClip(
-                                target.trackId,
-                                RustClipSnapshot(
-                                    id = randomUuid(),
-                                    timelineStartUs = baseUs,
-                                    timelineDurationUs = durationUs,
-                                    sourceStartUs = 0L,
-                                    sourceEndUs = durationUs,
-                                    sourceTotalDurationUs = durationUs,
-                                    speed = 1.0,
-                                    volume = 1.0f,
-                                    opacity = 1.0f,
-                                    muted = false,
-                                    transitionIn = null,
-                                    transitionOut = null,
-                                    kind = RustAudioClipKind(
-                                        sourcePath = item.stagedPath,
-                                        sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
-                                        channels = info.audioChannels.coerceAtLeast(1),
-                                        filters = emptyList(),
-                                    ),
-                                ),
-                            )
-                        )
-                        cursorAudioUs = baseUs + durationUs
-                        fileAdded = true
+                        if (target.trackId.isNotEmpty()) {
+                            audioTrackId = target.trackId
+                            try {
+                                dispatchSilent(
+                                    rustStore.commands.addClip(
+                                        target.trackId,
+                                        RustClipSnapshot(
+                                            id = randomUuid(),
+                                            timelineStartUs = baseUs,
+                                            timelineDurationUs = durationUs,
+                                            sourceStartUs = 0L,
+                                            sourceEndUs = durationUs,
+                                            sourceTotalDurationUs = durationUs,
+                                            speed = 1.0,
+                                            volume = 1.0f,
+                                            opacity = 1.0f,
+                                            muted = false,
+                                            transitionIn = null,
+                                            transitionOut = null,
+                                            kind = RustAudioClipKind(
+                                                sourcePath = item.stagedPath,
+                                                sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
+                                                channels = info.audioChannels.coerceAtLeast(1),
+                                                filters = emptyList(),
+                                            ),
+                                        ),
+                                    )
+                                )
+                                cursorAudioUs = baseUs + durationUs
+                                fileAdded = true
+                            } catch (e: Exception) {
+                                Napier.e("Skipping audio clip for ${item.path}", e)
+                                snackbarManager.showError("Skipped audio in '${item.path.substringAfterLast("/")}': ${e.message}")
+                            }
+                        }
                     }
 
                     if (fileAdded) added++
@@ -974,7 +1006,13 @@ class ProjectViewModel(
                             ),
                         )
                     }
-                    val stagedPath = PlatformFileSystem.stageForNativeAccess(file.platformPath())
+                    val stagedPath = try {
+                        PlatformFileSystem.stageForNativeAccess(file.platformPath())
+                    } catch (e: Exception) {
+                        Napier.e("Skipping subtitle $fileName", e)
+                        snackbarManager.showError("Skipped subtitle '$fileName': ${e.message}")
+                        return@forEachIndexed
+                    }
                     val durationMs = DEFAULT_SUBTITLE_DURATION_MS
                     val durationUs = durationMs.msToUs
 
@@ -991,26 +1029,32 @@ class ProjectViewModel(
                         cursorUs.coerceAtLeast(0L)
                     }
 
-                    dispatchSilent(
-                        rustStore.commands.addClip(
-                            subtitleTrackId,
-                            RustClipSnapshot(
-                                id = randomUuid(),
-                                timelineStartUs = startUs,
-                                timelineDurationUs = durationUs,
-                                sourceStartUs = 0L,
-                                sourceEndUs = durationUs,
-                                sourceTotalDurationUs = durationUs,
-                                speed = 1.0,
-                                volume = 1.0f,
-                                opacity = 1.0f,
-                                muted = false,
-                                transitionIn = null,
-                                transitionOut = null,
-                                kind = RustSubtitleClipKind(sourcePath = stagedPath),
-                            ),
+                    try {
+                        dispatchSilent(
+                            rustStore.commands.addClip(
+                                subtitleTrackId,
+                                RustClipSnapshot(
+                                    id = randomUuid(),
+                                    timelineStartUs = startUs,
+                                    timelineDurationUs = durationUs,
+                                    sourceStartUs = 0L,
+                                    sourceEndUs = durationUs,
+                                    sourceTotalDurationUs = durationUs,
+                                    speed = 1.0,
+                                    volume = 1.0f,
+                                    opacity = 1.0f,
+                                    muted = false,
+                                    transitionIn = null,
+                                    transitionOut = null,
+                                    kind = RustSubtitleClipKind(sourcePath = stagedPath),
+                                ),
+                            )
                         )
-                    )
+                    } catch (e: Exception) {
+                        Napier.e("Skipping subtitle clip $fileName", e)
+                        snackbarManager.showError("Skipped subtitle '$fileName': ${e.message}")
+                        return@forEachIndexed
+                    }
                     cursorUs = startUs + durationUs
                     _state.update {
                         it.copy(
@@ -1112,8 +1156,8 @@ class ProjectViewModel(
 
     fun resetExport() = engine.reset()
 
-    fun updateExportProfile(profile: RustExportProfileSnapshot) {
-        dispatchAndSync(rustStore.commands.setExportProfile(profile))
+    fun updateExportProfile(profile: RustExportProfileSnapshot): Boolean {
+        return dispatchAndSync(rustStore.commands.setExportProfile(profile))
     }
 
     fun startExport(outputPath: String) {

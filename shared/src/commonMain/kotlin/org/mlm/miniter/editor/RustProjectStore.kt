@@ -95,7 +95,7 @@ class RustProjectStore(
     }
 
     fun beginEdit(label: String) {
-        repository.currentOrNull()?.beginEdit(label)
+        repository.withSession { it.beginEdit(label) }
     }
 
     @Throws(RustDispatchException::class, RustNoSessionException::class)
@@ -110,8 +110,11 @@ class RustProjectStore(
     }
 
     fun commitEdit(): RustProjectSnapshot? {
-        val session = repository.currentOrNull() ?: return null
-        session.commitEdit()
+        val committed = repository.withSession {
+            it.commitEdit()
+            true
+        } ?: return null
+        if (!committed) return null
         return refresh()
     }
 

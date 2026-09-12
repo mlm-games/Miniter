@@ -601,6 +601,15 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             Ok(EditCommand::SetExportProfile { profile: old })
         }
 
+        EditCommand::RenameProject { new_name } => {
+            let old = std::mem::replace(&mut state.project.meta.name, new_name);
+            state.project.meta.modified_at = web_time::SystemTime::now()
+                .duration_since(web_time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            Ok(EditCommand::RenameProject { new_name: old })
+        }
+
         EditCommand::Batch { label, commands } => {
             let before = state.clone();
             let mut inverses = Vec::with_capacity(commands.len());

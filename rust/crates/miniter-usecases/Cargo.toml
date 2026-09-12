@@ -13,3 +13,4 @@ log.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+web-time.workspace = true

@@ -148,6 +148,9 @@ pub enum EditCommand {
     SetExportProfile {
         profile: ExportProfile,
     },
+    RenameProject {
+        new_name: String,
+    },
     AddKeyframe {
         clip_id: ClipId,
         keyframe: Keyframe,

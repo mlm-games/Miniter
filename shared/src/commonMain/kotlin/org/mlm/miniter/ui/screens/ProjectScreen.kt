@@ -83,8 +83,11 @@ fun ProjectScreen(
         if (files != null) vm.importSubtitleFiles(files)
     }
 
-    LaunchedEffect(videoPath) {
-        if (snapshot == null) {
+    var lastInitKey by remember { mutableStateOf<String?>(null) }
+    val initKey = listOf(videoPath, savePath, openAsProject, resolution, fps, extraImportPaths).toString()
+    LaunchedEffect(initKey) {
+        if (snapshot == null || lastInitKey != initKey) {
+            lastInitKey = initKey
             vm.initProject(videoPath, videoName, savePath, openAsProject, resolution, fps, extraImportPaths)
         }
     }

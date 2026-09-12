@@ -947,7 +947,7 @@ fun EditorVideoPreview(
                     textOverlays.forEach { textOverlay ->
                         val style = textOverlay.style
                         val textColor = parseArgbHex(style.color, Color.White)
-                        var layout by remember(textOverlay.id) { mutableStateOf<TextLayoutResult?>(null) }
+                        var layout by remember(textOverlay.id, textOverlay.text, style) { mutableStateOf<TextLayoutResult?>(null) }
 
                         Text(
                             text = textOverlay.text,
@@ -978,7 +978,7 @@ fun EditorVideoPreview(
                     }
 
                     subtitles.forEach { subtitle ->
-                        var subLayout by remember(subtitle.id) { mutableStateOf<TextLayoutResult?>(null) }
+                        var subLayout by remember(subtitle.id, subtitle.text) { mutableStateOf<TextLayoutResult?>(null) }
                         Text(
                             text = subtitle.text,
                             color = Color.White.copy(alpha = 0.9f),

@@ -924,24 +924,25 @@ pub(crate) fn render_text_overlay(
             }
 
             if has_outline {
-                let oc = outline_color.unwrap();
-                for oy in -outline_width..=outline_width {
-                    for ox in -outline_width..=outline_width {
-                        if ox == 0 && oy == 0 {
-                            continue;
+                if let Some(oc) = outline_color {
+                    for oy in -outline_width..=outline_width {
+                        for ox in -outline_width..=outline_width {
+                            if ox == 0 && oy == 0 {
+                                continue;
+                            }
+                            blit_glyph(
+                                &mut canvas,
+                                width,
+                                height,
+                                &g.bitmap,
+                                m.width,
+                                m.height,
+                                gx as i32 + ox,
+                                gy as i32 + oy,
+                                oc,
+                                italic_shear,
+                            );
                         }
-                        blit_glyph(
-                            &mut canvas,
-                            width,
-                            height,
-                            &g.bitmap,
-                            m.width,
-                            m.height,
-                            gx as i32 + ox,
-                            gy as i32 + oy,
-                            oc,
-                            italic_shear,
-                        );
                     }
                 }
             }

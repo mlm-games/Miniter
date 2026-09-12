@@ -614,7 +614,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                     }
                                     val parsedWidth = ((customWidth.toIntOrNull() ?: 0) / 2) * 2
                                     val parsedHeight = ((customHeight.toIntOrNull() ?: 0) / 2) * 2
-                                    vm.updateExportProfile(
+                                    val applied = vm.updateExportProfile(
                                         RustExportProfileSnapshot(
                                             format = format,
                                             resolution = when {
@@ -639,7 +639,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                             hardwareAcceleration = hwEnabled && hwAvailable,
                                         )
                                     )
-                                    vm.startExport(outputPath)
+                                    if (applied) vm.startExport(outputPath)
                                 },
                                 enabled = snapshot != null && (!needsOutputPicker || outputFile != null),
                                 modifier = Modifier.fillMaxWidth().height(48.dp),

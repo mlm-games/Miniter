@@ -90,6 +90,8 @@ pub enum ExportError {
     Cancelled,
     #[error("{format} export is not yet available")]
     MkvNotAvailable { format: String },
+    #[error("Internal export state: {0}")]
+    Internal(String),
     #[error("Unsupported export format")]
     UnsupportedFormat,
 }
@@ -595,10 +597,9 @@ impl ExportDecodeCache {
             self.subtitle_renderers.insert(path.to_string(), renderer);
         }
 
-        Ok(self
-            .subtitle_renderers
-            .get_mut(path)
-            .expect("subtitle renderer must exist"))
+        self.subtitle_renderers.get_mut(path).ok_or_else(|| {
+            crate::subtitle::SubtitleError::Parse("subtitle renderer missing after insert".into())
+        })
     }
 }
 
@@ -1266,9 +1267,9 @@ where
 
         match container {
             Av1Container::Ivf => {
-                let file = ivf_file
-                    .as_mut()
-                    .expect("IVF file must exist for AV1 IVF export");
+                let file = ivf_file.as_mut().ok_or_else(|| {
+                    ExportError::Internal("IVF writer missing for AV1 IVF export".into())
+                })?;
                 for packet in packets {
                     let pts_tbn = pts_us_to_timebase(packet.pts, fps_num, fps_den);
                     ivf::write_ivf_frame(file, pts_tbn, &packet.data);
@@ -1276,9 +1277,9 @@ where
                 }
             }
             Av1Container::Mp4 => {
-                let muxer = mp4_muxer
-                    .as_mut()
-                    .expect("MP4 muxer must exist for AV1 MP4 export");
+                let muxer = mp4_muxer.as_mut().ok_or_else(|| {
+                    ExportError::Internal("MP4 muxer missing for AV1 MP4 export".into())
+                })?;
                 write_av1_packets_to_mux(muxer, &packets)?;
             }
             Av1Container::Mkv | Av1Container::WebM => {
@@ -1299,7 +1300,9 @@ where
         Av1Container::Ivf => {
             let file = ivf_file
                 .as_mut()
-                .expect("IVF file must exist for AV1 IVF export");
+.ok_or_else(|| {
+                    ExportError::Internal("IVF writer missing for AV1 IVF export".into())
+                })?;
 
             for packet in finish_packets {
                 let pts_tbn = pts_us_to_timebase(packet.pts, fps_num, fps_den);
@@ -1315,7 +1318,9 @@ where
         Av1Container::Mp4 => {
             let muxer = mp4_muxer
                 .as_mut()
-                .expect("MP4 muxer must exist for AV1 MP4 export");
+.ok_or_else(|| {
+                    ExportError::Internal("MP4 muxer missing for AV1 MP4 export".into())
+                })?;
             write_av1_packets_to_mux(muxer, &finish_packets)?;
 
             if let Some(oe) = audio_encoded {
