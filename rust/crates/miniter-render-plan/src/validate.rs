@@ -13,6 +13,7 @@ pub enum PlanViolation {
     ProgressOutOfRange { timestamp: Timestamp, progress: f32 },
     EmptySourcePath { timestamp: Timestamp },
     ZeroExtent { timestamp: Timestamp },
+    NonFiniteMaskParam { timestamp: Timestamp, param: String },
 }
 
 pub fn validate_frame_plan(plan: &RenderPlan) -> Vec<PlanViolation> {
@@ -83,8 +84,66 @@ fn validate_node(node: &RenderNode, t: Timestamp, out: &mut Vec<PlanViolation>) 
                 validate_node(child, t, out);
             }
         }
-        RenderNode::Masked { source, .. } => {
+        RenderNode::Masked {
+            source,
+            mask_source,
+            transform,
+            ..
+        } => {
             validate_node(source, t, out);
+            check_mask(t, mask_source, transform, out);
+        }
+    }
+}
+
+fn check_mask(
+    t: Timestamp,
+    source: &miniter_domain::mask::MaskSource,
+    transform: &miniter_domain::mask::MaskTransform,
+    out: &mut Vec<PlanViolation>,
+) {
+    use miniter_domain::mask::{MaskShape, MaskSource};
+    let mut check = |name: &str, v: f32| {
+        if !v.is_finite() {
+            out.push(PlanViolation::NonFiniteMaskParam {
+                timestamp: t,
+                param: name.to_string(),
+            });
+        }
+    };
+    check("mask.scale", transform.scale);
+    check("mask.translate_x", transform.translate_x);
+    check("mask.translate_y", transform.translate_y);
+    check("mask.rotate", transform.rotate);
+    if let MaskSource::Shape {
+        shape, feather, ..
+    } = source
+    {
+        check("mask.feather", *feather);
+        match shape {
+            MaskShape::Rectangle {
+                left,
+                top,
+                right,
+                bottom,
+            } => {
+                check("mask.shape.left", *left);
+                check("mask.shape.top", *top);
+                check("mask.shape.right", *right);
+                check("mask.shape.bottom", *bottom);
+            }
+            MaskShape::Ellipse {
+                center_x,
+                center_y,
+                radius_x,
+                radius_y,
+            } => {
+                check("mask.shape.center_x", *center_x);
+                check("mask.shape.center_y", *center_y);
+                check("mask.shape.radius_x", *radius_x);
+                check("mask.shape.radius_y", *radius_y);
+            }
+            _ => {}
         }
     }
 }

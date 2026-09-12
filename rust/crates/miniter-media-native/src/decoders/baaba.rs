@@ -195,11 +195,11 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
             PixelFormat::Nv12 => {
                 let expected = w * h * 3 / 2;
                 if data.len() < expected {
-                    log::warn!(
+                    return Err(DecodeBackendError::Other(format!(
                         "NV12 plane data too small: got {} expected {}",
                         data.len(),
                         expected
-                    );
+                    )));
                 }
                 let rgba = crate::yuv::nv12_to_rgba(&data, w, h, color_info);
                 Ok(RgbaFrame {

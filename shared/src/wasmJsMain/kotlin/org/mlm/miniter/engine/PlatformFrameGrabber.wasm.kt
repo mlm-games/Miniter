@@ -6,16 +6,24 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.platform.PlatformFileSystem
+import org.mlm.miniter.platform.synchronized as platformSynchronized
 import org.mlm.miniter.rust.RustCoreSession
 
 actual class PlatformFrameGrabber actual constructor() {
     private val mutex = Mutex()
+    private val guard = Any()
     private var currentPath: String? = null
+    private var invalidateEpoch = 0L
 
     actual suspend fun open(path: String) {
-        val localPath = PlatformFileSystem.stageForNativeAccess(path)
         mutex.withLock {
-            currentPath = localPath
+            val epoch = platformSynchronized(guard) { invalidateEpoch }
+            val localPath = PlatformFileSystem.stageForNativeAccess(path)
+            platformSynchronized(guard) {
+                if (epoch == invalidateEpoch) {
+                    currentPath = localPath
+                }
+            }
         }
     }
 
@@ -27,7 +35,7 @@ actual class PlatformFrameGrabber actual constructor() {
         height: Int,
         hardwareAcceleration: Boolean,
     ): ImageData? = withContext(Dispatchers.Default) {
-        val path = mutex.withLock { currentPath } ?: return@withContext null
+        val path = platformSynchronized(guard) { currentPath } ?: return@withContext null
 
         try {
             val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L, hardwareAcceleration)
@@ -52,7 +60,10 @@ actual class PlatformFrameGrabber actual constructor() {
     }
 
     actual fun release() {
-        currentPath = null
+        platformSynchronized(guard) {
+            invalidateEpoch++
+            currentPath = null
+        }
     }
 }
 

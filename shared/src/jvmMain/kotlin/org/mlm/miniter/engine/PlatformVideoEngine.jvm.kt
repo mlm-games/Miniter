@@ -2,6 +2,7 @@ package org.mlm.miniter.engine
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,7 +46,7 @@ actual class PlatformVideoEngine actual constructor() {
                         if (previewFrame != null) lastPreview = previewFrame
                         _exportProgress.value = ExportProgress(
                             phase = "Encoding video…",
-                            progress = pct / 100_000f,
+                            progress = (pct / 100_000f).coerceIn(0f, 1f),
                             previewFrame = previewFrame,
                         )
                         kotlinx.coroutines.delay(100)
@@ -54,7 +55,7 @@ actual class PlatformVideoEngine actual constructor() {
 
                 try {
                     val ok = RustCoreSession.exportProjectJson(projectJson, outputPath)
-                    progressJob.cancel()
+                    progressJob.cancelAndJoin()
                     ensureActive()
 
                     _exportProgress.value = if (ok && !exportCancelled) {
@@ -71,8 +72,17 @@ actual class PlatformVideoEngine actual constructor() {
                             isCancelled = true,
                         )
                     }
+                } catch (e: CancellationException) {
+                    progressJob.cancelAndJoin()
+                    RustCoreSession.cancelExport()
+                    exportCancelled = true
+                    _exportProgress.value = ExportProgress(
+                        phase = "Export cancelled",
+                        isCancelled = true,
+                    )
+                    throw e
                 } catch (e: Exception) {
-                    progressJob.cancel()
+                    progressJob.cancelAndJoin()
                     throw e
                 }
             }
@@ -83,6 +93,7 @@ actual class PlatformVideoEngine actual constructor() {
                 phase = "Export cancelled",
                 isCancelled = true,
             )
+            throw e
         } catch (e: Exception) {
             val cancelled = exportCancelled ||
                 (e.message?.contains("cancel", ignoreCase = true) == true)
@@ -154,10 +165,11 @@ actual class PlatformVideoEngine actual constructor() {
     }
 
     actual fun cancelExport() {
+        val current = _exportProgress.value
+        if (current.isComplete || current.isCancelled || current.error != null) return
         exportCancelled = true
         RustCoreSession.cancelExport()
 
-        val current = _exportProgress.value
         _exportProgress.value = current.copy(
             phase = "Cancelling…",
         )

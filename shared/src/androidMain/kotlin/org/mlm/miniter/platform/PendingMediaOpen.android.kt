@@ -16,7 +16,7 @@ object PendingMediaOpens {
 
     fun submit(items: List<PendingMediaOpen>) {
         if (items.isNotEmpty()) {
-            _items.value = items
+            _items.value = (_items.value + items).distinctBy { it.path }
         }
     }
 

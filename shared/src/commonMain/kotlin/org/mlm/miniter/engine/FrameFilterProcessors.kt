@@ -19,6 +19,7 @@ object FrameFilterProcessors {
         filters: List<RustVideoFilterSnapshot>,
         opacity: Float,
     ): ByteArray {
+        if (width <= 0 || height <= 0 || src.size < width * height * 4) return src
         var pixels = src.copyOf()
         val total = width * height
 
@@ -79,7 +80,7 @@ object FrameFilterProcessors {
                     }
                 }
                 is RustBlurFilterSnapshot -> {
-                    val radius = filter.radius.coerceAtLeast(1f).toInt()
+                    val radius = filter.radius.coerceIn(1f, 25f).toInt()
                     pixels = applyBoxBlur(pixels, width, height, radius)
                 }
                 is RustSharpenFilterSnapshot -> {
@@ -113,6 +114,7 @@ object FrameFilterProcessors {
                 }
                 is RustFlipFilterSnapshot -> {
                     if (filter.horizontal || filter.vertical) {
+                        val tmp = pixels.copyOf()
                         val stride = width * 4
                         for (row in 0 until height) {
                             val srcRow = if (filter.vertical) height - 1 - row else row
@@ -120,8 +122,8 @@ object FrameFilterProcessors {
                                 val srcCol = if (filter.horizontal) width - 1 - col else col
                                 val di = row * stride + col * 4
                                 val si = srcRow * stride + srcCol * 4
-                                pixels[di] = src[si]; pixels[di + 1] = src[si + 1]
-                                pixels[di + 2] = src[si + 2]; pixels[di + 3] = src[si + 3]
+                                pixels[di] = tmp[si]; pixels[di + 1] = tmp[si + 1]
+                                pixels[di + 2] = tmp[si + 2]; pixels[di + 3] = tmp[si + 3]
                             }
                         }
                     }
@@ -157,7 +159,7 @@ object FrameFilterProcessors {
     }
 
     fun applyRotateRgba(src: ByteArray, w: Int, h: Int, deg: Float): ByteArray {
-        if (w == 0 || h == 0) return src
+        if (w <= 0 || h <= 0 || src.size < w * h * 4) return src
         val rad = (deg.toDouble() * PI / 180.0).toFloat()
         val sin = sin(rad.toDouble()).toFloat()
         val cos = cos(rad.toDouble()).toFloat()
@@ -167,8 +169,8 @@ object FrameFilterProcessors {
 
         for (y in 0 until h) {
             for (x in 0 until w) {
-                val px = (x - cx) * cos - (y - cy) * sin
-                val py = (x - cx) * sin + (y - cy) * cos
+                val px = (x - cx) * cos + (y - cy) * sin
+                val py = -(x - cx) * sin + (y - cy) * cos
                 val sx = (px + cx).toInt().coerceIn(0, w - 1)
                 val sy = (py + cy).toInt().coerceIn(0, h - 1)
                 val si = sy * w * 4 + sx * 4
@@ -180,7 +182,7 @@ object FrameFilterProcessors {
     }
 
     fun applyTransformRgba(src: ByteArray, w: Int, h: Int, scale: Float, tx: Float, ty: Float, rotate: Float): ByteArray {
-        if (w == 0 || h == 0) return src
+        if (w <= 0 || h <= 0 || src.size < w * h * 4) return src
         val zoom = scale.coerceIn(0.05f, 50f)
         val rad = (rotate.toDouble() * PI / 180.0).toFloat()
         val cosR = cos(rad.toDouble()).toFloat()
@@ -291,18 +293,22 @@ object FrameFilterProcessors {
     }
 
     private fun applyCropRgba(src: ByteArray, w: Int, h: Int, left: Float, top: Float, right: Float, bottom: Float): ByteArray {
-        if (w == 0 || h == 0) return src
-        val l = (left.coerceIn(0f, 1f) * w).toInt()
-        val t = (top.coerceIn(0f, 1f) * h).toInt()
-        val r = w - (right.coerceIn(0f, 1f) * w).toInt()
-        val b = h - (bottom.coerceIn(0f, 1f) * h).toInt()
+        if (w <= 0 || h <= 0 || src.size < w * h * 4) return src
+        val l = (left.coerceIn(0f, 1f) * w).toInt().coerceIn(0, w)
+        val t = (top.coerceIn(0f, 1f) * h).toInt().coerceIn(0, h)
+        val r = (w - (right.coerceIn(0f, 1f) * w).toInt()).coerceIn(0, w)
+        val b = (h - (bottom.coerceIn(0f, 1f) * h).toInt()).coerceIn(0, h)
         if (r <= l || b <= t) return src
 
-        val dst = ByteArray(r * b * 4)
-        for (y in t until b) {
-            for (x in l until r) {
-                val si = y * w * 4 + x * 4
-                val di = (y - t) * r * 4 + (x - l) * 4
+        val cw = r - l
+        val ch = b - t
+        val dst = ByteArray(w * h * 4) // zero-filled = transparent black
+        val offX = (w - cw) / 2
+        val offY = (h - ch) / 2
+        for (y in 0 until ch) {
+            for (x in 0 until cw) {
+                val si = (y + t) * w * 4 + (x + l) * 4
+                val di = (y + offY) * w * 4 + (x + offX) * 4
                 dst[di] = src[si]; dst[di + 1] = src[si + 1]; dst[di + 2] = src[si + 2]; dst[di + 3] = src[si + 3]
             }
         }

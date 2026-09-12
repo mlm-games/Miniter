@@ -17,17 +17,25 @@ actual class ImageData(
 }
 
 actual fun ImageData.toImageBitmap(): ImageBitmap {
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    val argb = IntArray(width * height)
+    val safeWidth = width.coerceAtLeast(1)
+    val safeHeight = height.coerceAtLeast(1)
+    val expected = safeWidth * safeHeight * 4
+    val rgba = if (width == safeWidth && height == safeHeight && pixels.size == expected) {
+        pixels
+    } else {
+        ByteArray(expected)
+    }
+    val bitmap = Bitmap.createBitmap(safeWidth, safeHeight, Bitmap.Config.ARGB_8888)
+    val argb = IntArray(safeWidth * safeHeight)
     for (i in argb.indices) {
         val base = i * 4
-        val r = pixels[base].toInt() and 0xFF
-        val g = pixels[base + 1].toInt() and 0xFF
-        val b = pixels[base + 2].toInt() and 0xFF
-        val a = pixels[base + 3].toInt() and 0xFF
+        val r = rgba[base].toInt() and 0xFF
+        val g = rgba[base + 1].toInt() and 0xFF
+        val b = rgba[base + 2].toInt() and 0xFF
+        val a = rgba[base + 3].toInt() and 0xFF
         argb[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
     }
-    bitmap.setPixels(argb, 0, width, 0, 0, width, height)
+    bitmap.setPixels(argb, 0, safeWidth, 0, 0, safeWidth, safeHeight)
     return bitmap.asImageBitmap()
 }
 

@@ -161,7 +161,6 @@ impl History {
         if merge {
             let prev = self.undo.last_mut().expect("merge requires a prior entry");
             prev.forward.extend(t.forward);
-            prev.inverse.extend(t.inverse);
         } else {
             self.push_transaction(Transaction {
                 label: t.label,
@@ -328,7 +327,7 @@ mod tests {
         let txn = h.pop_undo().unwrap();
         assert_eq!(txn.label, "Volume");
         assert_eq!(txn.forward().len(), 3);
-        assert_eq!(txn.inverse().len(), 3);
+        assert_eq!(txn.inverse().len(), 1);
 
         for dur in [9_000_000, 8_000_000] {
             h.begin("");

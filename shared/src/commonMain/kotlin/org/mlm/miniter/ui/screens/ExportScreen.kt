@@ -107,30 +107,35 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         hwEnabled = settings.hardwareAccelerationEnabled
     }
     val snackbarHostState = remember { SnackbarHostState() }
+    var hwFallbackConsumed by remember { mutableStateOf(false) }
     LaunchedEffect(progress.hardwareFallback) {
-        if (progress.hardwareFallback) {
+        if (progress.hardwareFallback && !hwFallbackConsumed) {
+            hwFallbackConsumed = true
             snackbarHostState.showSnackbar("Hardware encoder wasn't available, fell back to software (slower)")
         }
+        if (!progress.hardwareFallback) hwFallbackConsumed = false
     }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
 
-    val isExporting = progress.progress > 0f &&
-            !progress.isComplete &&
+    val isExporting = !progress.isComplete &&
             !progress.isCancelled &&
-            progress.error == null
+            progress.error == null &&
+            (progress.progress > 0f || (progress.phase != "Idle" && progress.phase.isNotBlank()))
     val exportSupported = isProjectExportSupported
     val needsOutputPicker = requiresExplicitExportPathSelection
     val platformFormats = RustExportFormat.entries.filter { it != RustExportFormat.Mov }
 
+    val isExportingUpdated by rememberUpdatedState(isExporting)
     DisposableEffect(Unit) {
-        onDispose { vm.resetExport() }
+        onDispose { if (!isExportingUpdated) vm.resetExport() }
     }
 
     LaunchedEffect(customWidth, customHeight, customFps) {
         if (isExporting) return@LaunchedEffect
-        val w = customWidth.toIntOrNull() ?: 0
-        val h = customHeight.toIntOrNull() ?: 0
+        fun evenDown(v: Int): Int = (v / 2) * 2
+        val w = evenDown(customWidth.toIntOrNull() ?: 0)
+        val h = evenDown(customHeight.toIntOrNull() ?: 0)
         val f = customFps.toIntOrNull() ?: 0
         if (w > 0 && h > 0) {
             delay(500)
@@ -308,8 +313,11 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 )
             }
 
-            val validationJson = remember(snapshot, displayWidth, displayHeight) {
-                try {
+            var validationJson by remember(snapshot, displayWidth, displayHeight) {
+                mutableStateOf<String?>(null)
+            }
+            LaunchedEffect(snapshot, displayWidth, displayHeight) {
+                validationJson = try {
                     vm.validateCurrentPlan(
                         displayWidth.takeIf { it > 0 } ?: 1920,
                         displayHeight.takeIf { it > 0 } ?: 1080,
@@ -556,12 +564,15 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium,
                             )
+                            val safeProgress = progress.progress.coerceIn(0f, 1f).let {
+                                if (it.isNaN()) 0f else it
+                            }
                             LinearProgressIndicator(
-                                progress = { progress.progress },
+                                progress = { safeProgress },
                                 modifier = Modifier.fillMaxWidth().height(8.dp),
                             )
                             Text(
-                                "${(progress.progress * 100).toInt()}%",
+                                "${(safeProgress * 100).toInt()}%",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -601,8 +612,8 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                     } else {
                                         "${snapshot?.meta?.name ?: "export"}.${format.extension}"
                                     }
-                                    val parsedWidth = customWidth.toIntOrNull() ?: 0
-                                    val parsedHeight = customHeight.toIntOrNull() ?: 0
+                                    val parsedWidth = ((customWidth.toIntOrNull() ?: 0) / 2) * 2
+                                    val parsedHeight = ((customHeight.toIntOrNull() ?: 0) / 2) * 2
                                     vm.updateExportProfile(
                                         RustExportProfileSnapshot(
                                             format = format,

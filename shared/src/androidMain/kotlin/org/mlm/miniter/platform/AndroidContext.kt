@@ -3,10 +3,14 @@ package org.mlm.miniter.platform
 import android.content.Context
 
 object AndroidContext {
+    @Volatile
     private var appContext: Context? = null
+    private val lock = Any()
 
     fun init(context: Context) {
-        appContext = context.applicationContext
+        synchronized(lock) {
+            appContext = context.applicationContext
+        }
     }
 
     fun get(): Context {

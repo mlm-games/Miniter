@@ -101,6 +101,12 @@ impl KeyframeCurve {
         self.keyframes.insert(idx, kf);
         idx
     }
+
+    /// Sort curves by offset. Deserialized projects (JSON/Kotlin) may carry
+    /// unsorted keyframes, which breaks `evaluate`'s interval scan.
+    pub fn sort_by_offset(&mut self) {
+        self.keyframes.sort_by_key(|k| k.offset);
+    }
 }
 
 pub fn ease_linear(t: f32) -> f32 {

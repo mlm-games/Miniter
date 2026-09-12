@@ -279,7 +279,18 @@ fn node_for_clip(
             if let Some(ref trans) = clip.transition_in
                 && let Some(prev) = find_previous_clip(track, clip)
             {
+                const ADJACENCY_EPSILON_US: i64 = 2_000;
+                let adjacent = (prev.timeline_end().as_micros() - clip.timeline_start.as_micros())
+                    .abs()
+                    <= ADJACENCY_EPSILON_US;
                 let progress = transition_progress(clip, trans, t);
+                if !adjacent {
+                    let eased = ease_in_out(progress.clamp(0.0, 1.0));
+                    let (_, top_a) = opacity_pair(trans.kind, eased);
+                    let mut faded = base_node.clone();
+                    scale_node_opacity(&mut faded, top_a);
+                    return Some(faded);
+                }
                 let prev_pts = Timestamp::from_micros(
                     prev.source_start.as_micros()
                         + scale_us_round((t - prev.timeline_start).as_micros(), prev.speed),
@@ -305,13 +316,16 @@ fn node_for_clip(
 
             if let Some(ref trans) = clip.transition_out {
                 let out_progress = transition_out_progress(clip, trans, t);
-                if out_progress < 1.0
+                let clip_end = clip.timeline_end();
+                let fade_start_us = clip_end.as_micros()
+                    - trans.duration.as_micros().min(clip_end.as_micros()).max(0);
+                let in_window = t.as_micros() >= fade_start_us;
+                if in_window
+                    && out_progress < 1.0
                     && let Some(next) = find_next_clip(track, clip)
                     && let ClipKind::Video(nv) = &next.kind
                 {
-                    let clip_end = clip.timeline_end();
-                    let fade_start =
-                        Timestamp::from_micros(clip_end.as_micros() - trans.duration.as_micros());
+                    let fade_start = Timestamp::from_micros(fade_start_us);
                     let offset = (t - fade_start).as_micros();
                     let next_t = Timestamp::from_micros(next.timeline_start.as_micros() + offset);
 
@@ -454,5 +468,29 @@ fn transition_out_progress(clip: &Clip, trans: &Transition, t: Timestamp) -> f32
         1.0
     } else {
         (elapsed / total).clamp(0.0, 1.0) as f32
+    }
+}
+
+/// Scale the opacity of a render node (used for non-adjacent transition_in
+/// fallback: blend with black via opacity fade).
+fn scale_node_opacity(node: &mut RenderNode, factor: f32) {
+    match node {
+        RenderNode::VideoFrame { opacity, .. }
+        | RenderNode::Text { opacity, .. }
+        | RenderNode::Subtitle { opacity, .. } => {
+            *opacity = (*opacity * factor).clamp(0.0, 1.0);
+        }
+        RenderNode::TransitionBlend { bottom, top, .. } => {
+            scale_node_opacity(bottom, factor);
+            scale_node_opacity(top, factor);
+        }
+        RenderNode::Stack(children) => {
+            for child in children {
+                scale_node_opacity(child, factor);
+            }
+        }
+        RenderNode::Masked { source, .. } => {
+            scale_node_opacity(source, factor);
+        }
     }
 }

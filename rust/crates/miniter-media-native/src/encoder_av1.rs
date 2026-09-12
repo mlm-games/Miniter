@@ -40,7 +40,7 @@ fn rav1e_color_description(matrix: MatrixCoeffs) -> ColorDescription {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Av1EncodeError {
-    #[error("Invalid dimensions: width and height must be > 0 and even")]
+    #[error("Invalid dimensions: width and height must be even and >= 16")]
     InvalidDimensions,
     #[error("rav1e config error: {0}")]
     InvalidConfig(#[from] rav1e::InvalidConfig),
@@ -76,18 +76,20 @@ impl Av1EncodeSession {
         if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             return Err(Av1EncodeError::InvalidDimensions);
         }
+        if width < MIN_DIM || height < MIN_DIM {
+            return Err(Av1EncodeError::InvalidDimensions);
+        }
 
-        let enc_w = width.max(MIN_DIM) as usize;
-        let enc_h = height.max(MIN_DIM) as usize;
+        let enc_w = width as usize;
+        let enc_h = height as usize;
 
-        let fps_u32 = fps.round().max(1.0) as u32;
+        let (fps_num, fps_den) = crate::export_shared::fps_to_rational(fps);
         let mut enc = EncoderConfig::with_speed_preset(10);
         enc.width = enc_w;
         enc.height = enc_h;
         enc.bit_depth = 8;
         enc.chroma_sampling = ChromaSampling::Cs420;
-        enc.time_base = Rational::new(1, fps_u32 as u64);
-        // NOTE: rav1e expects bits per second.
+        enc.time_base = Rational::new(fps_den as u64, fps_num as u64);
         enc.bitrate = bitrate_kbps.saturating_mul(1000).min(i32::MAX as u32) as i32;
         enc.min_key_frame_interval = 0;
         enc.max_key_frame_interval = 60;

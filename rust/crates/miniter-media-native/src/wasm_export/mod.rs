@@ -718,9 +718,7 @@ fn export_h264_mp4_bytes(
         }
 
         if let Some(encoded_audio) = &audio_encoded {
-            let start_anchor_us =
-                decode_cache.first_decoded_video_pts_us.unwrap_or(0).max(0) as u64;
-            write_audio_packets(&mut muxer, encoded_audio, start_anchor_us)
+            write_audio_packets(&mut muxer, encoded_audio, 0)
                 .map_err(|e| format!("MP4 audio write failed: {e}"))?;
         }
 
@@ -857,8 +855,7 @@ fn export_av1_mp4_bytes(
     write_av1_packets_to_mux(&mut muxer, &finish_packets, &mut seen_first_keyframe)?;
 
     if let Some(encoded_audio) = &audio_encoded {
-        let start_anchor_us = decode_cache.first_decoded_video_pts_us.unwrap_or(0).max(0) as u64;
-        write_audio_packets(&mut muxer, encoded_audio, start_anchor_us)
+        write_audio_packets(&mut muxer, encoded_audio, 0)
             .map_err(|e| format!("MP4 audio write failed: {e}"))?;
     }
 
@@ -889,7 +886,7 @@ fn export_av1_ivf_bytes(
 ) -> Result<Vec<u8>, String> {
     let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
-    let fps_int = settings.fps.round().max(1.0) as u32;
+    let (fps_num, fps_den) = fps_to_rational(settings.fps);
 
     let hw_requested = project.export_profile.hardware_acceleration;
     let mut decode_cache = ExportDecodeCache::new(registered_files, hw_requested);
@@ -911,8 +908,8 @@ fn export_av1_ivf_bytes(
         &mut cursor,
         settings.width as usize,
         settings.height as usize,
-        fps_int as usize,
-        1,
+        fps_num as usize,
+        fps_den as usize,
     );
 
     let mut iter = FramePlanIterator::with_render_settings(
@@ -966,7 +963,7 @@ fn export_av1_ivf_bytes(
             .map_err(|e| format!("AV1 encode failed: {e}"))?;
 
         for packet in packets {
-            let pts_tbn = (packet.pts * fps_int as u64 + 500_000) / 1_000_000;
+            let pts_tbn = pts_us_to_timebase(packet.pts, fps_num, fps_den);
             ivf::write_ivf_frame(&mut cursor, pts_tbn, &packet.data);
             packet_count = packet_count.saturating_add(1);
         }
@@ -980,7 +977,7 @@ fn export_av1_ivf_bytes(
         .finish()
         .map_err(|e| format!("AV1 finalize failed: {e}"))?;
     for packet in finish_packets {
-        let pts_tbn = (packet.pts * fps_int as u64 + 500_000) / 1_000_000;
+        let pts_tbn = pts_us_to_timebase(packet.pts, fps_num, fps_den);
         ivf::write_ivf_frame(&mut cursor, pts_tbn, &packet.data);
         packet_count = packet_count.saturating_add(1);
     }
@@ -1388,9 +1385,6 @@ impl WasmExportChunker {
         let settings = resolve_render_settings(project);
 
         let files_box = Box::new(registered_files);
-        // SAFETY: The reference points to data inside files_box (heap-allocated).
-        // The Box and its heap allocation live as long as WasmExportChunker.
-        // drop order ensures decode_cache is dropped before _registered_files.
         let files_ref: &'static HashMap<String, Vec<u8>> =
             unsafe { &*(&*files_box as *const HashMap<String, Vec<u8>>) };
         let hw_requested = project.export_profile.hardware_acceleration;
@@ -1797,14 +1791,9 @@ impl WasmExportChunker {
                 }
 
                 if let Some(audio) = &self.audio_encoded {
-                    let start_anchor_us = self
-                        .decode_cache
-                        .first_decoded_video_pts_us
-                        .unwrap_or(0)
-                        .max(0) as u64;
                     let audio_packets = &audio.packets;
                     for packet in audio_packets {
-                        let pts = start_anchor_us.saturating_add(packet.pts_us);
+                        let pts = packet.pts_us;
                         muxer
                             .write_audio_sample_at(pts, &packet.bytes)
                             .map_err(|e| format!("MP4 audio write failed: {e}"))?;
@@ -1833,20 +1822,20 @@ impl WasmExportChunker {
                 })
             }
             ExportFormat::Av1Ivf => {
-                let fps_int = self.fps_int;
+                let (fps_num, fps_den) = fps_to_rational(self.fps);
 
                 let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
                 ivf::write_ivf_header(
                     &mut cursor,
                     self.settings.width as usize,
                     self.settings.height as usize,
-                    fps_int as usize,
-                    1,
+                    fps_num as usize,
+                    fps_den as usize,
                 );
 
                 let mut packet_count: u32 = 0;
                 for f in &self.buffered_frames {
-                    let pts_tbn = (f.pts_us * fps_int as u64 + 500_000) / 1_000_000;
+                    let pts_tbn = pts_us_to_timebase(f.pts_us, fps_num, fps_den);
                     ivf::write_ivf_frame(&mut cursor, pts_tbn, &f.data);
                     packet_count = packet_count.saturating_add(1);
                 }

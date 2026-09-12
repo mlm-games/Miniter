@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileNotFoundException
+import java.util.UUID
 
 actual object PlatformFileSystem {
 
@@ -83,7 +84,30 @@ actual object PlatformFileSystem {
 internal data class PreparedOutputPath(
     val localPath: String,
     val commit: suspend () -> Unit = {},
+    val discard: suspend () -> Unit = {},
 )
+
+internal const val NATIVE_INPUTS_MAX_BYTES = 500L * 1024L * 1024L
+internal const val NATIVE_INPUTS_MAX_FILES = 50
+
+internal fun pruneNativeInputs(dir: File) {
+    try {
+        val files = dir.listFiles()?.filter { it.isFile } ?: return
+        var totalBytes = files.sumOf { it.length() }
+        var remaining = files.size
+        if (remaining <= NATIVE_INPUTS_MAX_FILES && totalBytes <= NATIVE_INPUTS_MAX_BYTES) return
+        val sorted = files.sortedBy { it.lastModified() }
+        for (file in sorted) {
+            if (remaining <= NATIVE_INPUTS_MAX_FILES && totalBytes <= NATIVE_INPUTS_MAX_BYTES) break
+            val size = file.length()
+            if (file.delete()) {
+                totalBytes -= size
+                remaining--
+            }
+        }
+    } catch (_: Exception) {
+    }
+}
 
 internal suspend fun materializeReadablePath(path: String): String = withContext(Dispatchers.IO) {
     if (!path.startsWith("content://")) return@withContext path
@@ -97,11 +121,19 @@ internal suspend fun materializeReadablePath(path: String): String = withContext
     val dir = File(context.filesDir, "native-inputs").apply { mkdirs() }
     val outFile = File(dir, "${path.hashCode().toUInt().toString(16)}_$safeName")
 
-    if (!outFile.exists() || outFile.length() == 0L) {
+    val sourceSize = querySize(uri)
+    val stagedValid = outFile.exists() && outFile.length() > 0L &&
+        (sourceSize == null || sourceSize < 0L || outFile.length() == sourceSize)
+
+    if (!stagedValid) {
         context.contentResolver.openInputStream(uri)?.use { input ->
             outFile.outputStream().use { output -> input.copyTo(output) }
         } ?: throw FileNotFoundException("Cannot open input URI: $path")
+    } else {
+        outFile.setLastModified(System.currentTimeMillis())
     }
+
+    pruneNativeInputs(dir)
 
     outFile.absolutePath
 }
@@ -117,16 +149,25 @@ internal suspend fun prepareWritablePath(path: String): PreparedOutputPath =
         val displayName = sanitizeFileName(queryDisplayName(uri) ?: "export.mp4")
 
         val dir = File(context.cacheDir, "pending-exports").apply { mkdirs() }
-        val tempFile = File(dir, "${System.currentTimeMillis()}_$displayName")
+        val tempFile = File(dir, "${UUID.randomUUID()}_$displayName")
 
         PreparedOutputPath(
             localPath = tempFile.absolutePath,
             commit = {
-                context.contentResolver.openOutputStream(uri)?.use { output ->
-                    tempFile.inputStream().use { input -> input.copyTo(output) }
-                } ?: throw FileNotFoundException("Cannot open output URI: $path")
-
-                tempFile.delete()
+                withContext(Dispatchers.IO) {
+                    try {
+                        context.contentResolver.openOutputStream(uri)?.use { output ->
+                            tempFile.inputStream().use { input -> input.copyTo(output) }
+                        } ?: throw FileNotFoundException("Cannot open output URI: $path")
+                    } finally {
+                        runCatching { tempFile.delete() }
+                    }
+                }
+            },
+            discard = {
+                withContext(Dispatchers.IO) {
+                    runCatching { tempFile.delete() }
+                }
             }
         )
     }
@@ -140,6 +181,20 @@ internal fun queryDisplayName(uri: Uri): String? {
         }
     }
     return uri.lastPathSegment?.substringAfterLast('/')
+}
+
+internal fun querySize(uri: Uri): Long? {
+    return try {
+        val resolver = AndroidContext.get().contentResolver
+        resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (index >= 0 && cursor.moveToFirst()) {
+                cursor.getLong(index)
+            } else null
+        }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private fun sanitizeFileName(name: String): String =

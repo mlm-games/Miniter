@@ -9,6 +9,16 @@ import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.rust.RustCoreRepository
 import org.mlm.miniter.rust.RustCoreSession
 
+class RustDispatchException(
+    message: String,
+    val commandJson: String? = null,
+    cause: Throwable? = null,
+) : Exception(message, cause)
+
+class RustNoSessionException(
+    message: String = "No active Rust session",
+) : IllegalStateException(message)
+
 class RustProjectStore(
     private val repository: RustCoreRepository,
 ) {
@@ -42,20 +52,45 @@ class RustProjectStore(
         return refresh()
     }
 
+    @Throws(RustNoSessionException::class)
     fun exportProjectJson(): String {
-        val session = repository.currentOrNull() ?: error("No active Rust session")
-        return session.toJson()
+        return repository.withSession { session ->
+            session.toJson()
+        } ?: throw RustNoSessionException("Cannot export project: no active Rust session")
     }
 
-    fun dispatch(commandJson: String): RustProjectSnapshot {
-        val session = repository.currentOrNull() ?: error("No active Rust session")
-        session.dispatch(commandJson)
+    @Throws(RustDispatchException::class, RustNoSessionException::class)
+    fun dispatch(commandJson: String): RustProjectSnapshot =
+        dispatchOrThrow(commandJson)
+
+    @Throws(RustDispatchException::class, RustNoSessionException::class)
+    fun dispatchOrThrow(commandJson: String): RustProjectSnapshot {
+        val applied = repository.withSession { session ->
+            session.dispatch(commandJson)
+        } ?: throw RustNoSessionException("Cannot dispatch command: no active Rust session")
+        if (!applied) {
+            throw RustDispatchException("Rust rejected command (dispatch returned false)", commandJson)
+        }
         return refresh()
     }
 
+    fun tryDispatch(commandJson: String): Boolean {
+        return try {
+            dispatchOrThrow(commandJson)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    @Throws(RustDispatchException::class, RustNoSessionException::class)
     fun dispatchWithLabel(commandJson: String, label: String): RustProjectSnapshot {
-        val session = repository.currentOrNull() ?: error("No active Rust session")
-        session.dispatchWithLabel(commandJson, label)
+        val applied = repository.withSession { session ->
+            session.dispatchWithLabel(commandJson, label)
+        } ?: throw RustNoSessionException("Cannot dispatch labeled command: no active Rust session")
+        if (!applied) {
+            throw RustDispatchException("Rust rejected labeled command '$label' (dispatch returned false)", commandJson)
+        }
         return refresh()
     }
 
@@ -63,9 +98,14 @@ class RustProjectStore(
         repository.currentOrNull()?.beginEdit(label)
     }
 
+    @Throws(RustDispatchException::class, RustNoSessionException::class)
     fun dispatchOpen(commandJson: String): RustProjectSnapshot {
-        val session = repository.currentOrNull() ?: error("No active Rust session")
-        session.dispatchOpen(commandJson)
+        val applied = repository.withSession { session ->
+            session.dispatchOpen(commandJson)
+        } ?: throw RustNoSessionException("Cannot dispatch open-edit command: no active Rust session")
+        if (!applied) {
+            throw RustDispatchException("Rust rejected open-edit command (dispatch returned false)", commandJson)
+        }
         return refresh()
     }
 
@@ -76,20 +116,26 @@ class RustProjectStore(
     }
 
     fun cancelEdit(): RustProjectSnapshot? {
-        val session = repository.currentOrNull() ?: return null
-        session.cancelEdit()
+        val cancelled = repository.withSession { session ->
+            session.cancelEdit()
+        } ?: return null
+        if (!cancelled) return null
         return refresh()
     }
 
     fun undo(): RustProjectSnapshot? {
-        val session = repository.currentOrNull() ?: return null
-        session.undo()
+        val moved = repository.withSession { session ->
+            session.undo()
+        } ?: return null
+        if (!moved) return null
         return refresh()
     }
 
     fun redo(): RustProjectSnapshot? {
-        val session = repository.currentOrNull() ?: return null
-        session.redo()
+        val moved = repository.withSession { session ->
+            session.redo()
+        } ?: return null
+        if (!moved) return null
         return refresh()
     }
 
@@ -120,13 +166,17 @@ class RustProjectStore(
     }
 
     fun clear() {
-        repository.clear()
-        _snapshot.value = null
+        repository.clearAtomically {
+            _snapshot.value = null
+        }
     }
 
+    @Throws(RustNoSessionException::class)
     private fun refresh(): RustProjectSnapshot {
-        val session = repository.currentOrNull() ?: error("No active Rust session")
-        val snapshot = wireJson.decodeFromString(RustProjectSnapshot.serializer(), session.toJson())
+        val json = repository.withSession { session ->
+            session.toJson()
+        } ?: throw RustNoSessionException("Cannot refresh snapshot: no active Rust session")
+        val snapshot = wireJson.decodeFromString(RustProjectSnapshot.serializer(), json)
         _snapshot.value = snapshot
         return snapshot
     }

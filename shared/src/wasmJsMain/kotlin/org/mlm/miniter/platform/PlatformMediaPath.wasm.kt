@@ -8,8 +8,15 @@ internal object WasmPlaybackUriCache {
     fun resolve(path: String): String {
         val cached = urlsByPath[path]
         if (cached != null) return cached
-        val url = runCatching { RustCoreSession.mediaBlobUrl(path) }.getOrNull().orEmpty()
-        if (url.startsWith("blob:")) urlsByPath[path] = url
+        val url = try {
+            RustCoreSession.mediaBlobUrl(path)
+        } catch (e: Throwable) {
+            throw IllegalStateException("Failed to create playback URL for $path: ${e.message}", e)
+        }
+        if (!url.startsWith("blob:")) {
+            throw IllegalStateException("Failed to create playback URL for $path (bridge returned no blob URL)")
+        }
+        urlsByPath[path] = url
         return url
     }
 
@@ -17,9 +24,11 @@ internal object WasmPlaybackUriCache {
         val url = urlsByPath.remove(path) ?: return
         runCatching { RustCoreSession.revokeBlobUrl(url) }
     }
+
+    fun delete(path: String) = forget(path)
 }
 
 actual fun normalizeMediaUriForPlayback(path: String): String {
     if (!path.startsWith("wasm://local/")) return path
-    return runCatching { WasmPlaybackUriCache.resolve(path) }.getOrDefault("")
+    return WasmPlaybackUriCache.resolve(path)
 }

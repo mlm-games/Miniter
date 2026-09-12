@@ -49,14 +49,14 @@ impl Timestamp {
 impl Add<MediaDuration> for Timestamp {
     type Output = Self;
     fn add(self, rhs: MediaDuration) -> Self {
-        Self(self.0 + rhs.0)
+        Self(self.0.saturating_add(rhs.0))
     }
 }
 
 impl Sub for Timestamp {
     type Output = MediaDuration;
     fn sub(self, rhs: Self) -> MediaDuration {
-        MediaDuration(self.0 - rhs.0)
+        MediaDuration(self.0.saturating_sub(rhs.0))
     }
 }
 
@@ -84,14 +84,14 @@ impl MediaDuration {
 impl Add for MediaDuration {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
-        Self(self.0 + rhs.0)
+        Self(self.0.saturating_add(rhs.0))
     }
 }
 
 impl Sub for MediaDuration {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
-        Self(self.0 - rhs.0)
+        Self(self.0.saturating_sub(rhs.0))
     }
 }
 

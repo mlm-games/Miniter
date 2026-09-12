@@ -6,6 +6,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 uniffi::setup_scaffolding!();
 
+// Process-wide export state. These are global (not per-handle) by design:
+// only one export runs at a time and Kotlin polls progress/cancel via these
+// statics. Not suitable for concurrent exports from multiple handles.
 static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
 static EXPORT_PROGRESS: AtomicU32 = AtomicU32::new(0);
 
@@ -141,7 +144,7 @@ impl EditorStateHandle {
 
     fn set_playhead_us(&self, us: i64) {
         if let Ok(mut s) = self.0.lock() {
-            s.playhead = miniter_domain::time::Timestamp::from_micros(us);
+            s.playhead = miniter_domain::time::Timestamp::from_micros(us.max(0));
         }
     }
 

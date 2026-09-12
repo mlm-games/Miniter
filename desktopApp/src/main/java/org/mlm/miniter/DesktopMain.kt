@@ -15,6 +15,7 @@ fun main(args: Array<String>) = application {
     val settingsRepo = remember { SettingsProvider.get() }
 
     val openedMedia = pendingMediaFromCommandLineArgs(args)
+    println("Miniter: startup open arguments=${args.toList()} accepted=${openedMedia.map { it.path }}")
     if (openedMedia.isNotEmpty()) {
         PendingMediaOpens.submit(openedMedia)
     }

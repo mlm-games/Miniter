@@ -59,7 +59,7 @@ pub fn extract_thumbnails(
 ) -> Result<Vec<RgbaFrame>, DecodeError> {
     if util::is_image_file(path) {
         let frame = load_image_as_frame(path)?;
-        return Ok(vec![frame; count.min(1)]);
+        return Ok(vec![frame; count.max(1)]);
     }
     extract_thumbnails_inner(path, count, duration_us, hardware_acceleration).or_else(|_| {
         if hardware_acceleration {
@@ -81,8 +81,13 @@ fn extract_thumbnails_inner(
         return Ok(Vec::new());
     }
 
-    let interval_us = duration_us / count as i64;
-    let targets: Vec<i64> = (0..count as i64).map(|i| i * interval_us).collect();
+    let targets: Vec<i64> = if count == 1 {
+        vec![duration_us / 2]
+    } else {
+        (0..count as i64)
+            .map(|i| (i * duration_us) / (count as i64 - 1))
+            .collect()
+    };
     let mut results = Vec::with_capacity(count);
 
     let mut session = VideoDecodeSession::open(path, hardware_acceleration)?;

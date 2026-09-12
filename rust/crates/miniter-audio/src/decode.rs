@@ -81,13 +81,7 @@ fn decode_audio_stream(
     let track = reader
         .tracks()
         .iter()
-        .find(|t| is_likely_audio_params(&t.codec_params))
-        .or_else(|| {
-            reader
-                .tracks()
-                .iter()
-                .find(|t| is_any_codec(&t.codec_params))
-        })
+        .find(|t| is_audio_track(&t.codec_params))
         .ok_or(DecodeAudioError::NoAudioTrack)?;
 
     let track_id = track.id;
@@ -140,15 +134,13 @@ fn decode_audio_stream(
     })
 }
 
-fn is_likely_audio_params(params: &Option<symphonia::core::codecs::CodecParameters>) -> bool {
-    match params {
-        Some(symphonia::core::codecs::CodecParameters::Audio(a)) => {
-            a.channels.is_some() || a.bits_per_sample.is_some() || a.sample_rate.is_some()
-        }
-        _ => false,
-    }
+fn is_audio_track(params: &Option<symphonia::core::codecs::CodecParameters>) -> bool {
+    matches!(
+        params,
+        Some(symphonia::core::codecs::CodecParameters::Audio(_))
+    )
 }
 
-fn is_any_codec(params: &Option<symphonia::core::codecs::CodecParameters>) -> bool {
-    params.is_some()
+fn is_likely_audio_params(params: &Option<symphonia::core::codecs::CodecParameters>) -> bool {
+    is_audio_track(params)
 }

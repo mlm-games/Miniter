@@ -61,7 +61,8 @@ private suspend fun seekToPosition(
     postDelayMs: Long = 0
 ) {
     if (durationMs <= 0L) return
-    val sliderTarget = (sourceTimeMs.toFloat() / durationMs * 1000f)
+    val clampedSourceMs = sourceTimeMs.coerceIn(0L, durationMs)
+    val sliderTarget = (clampedSourceMs.toFloat() / durationMs * maxValue)
         .coerceIn(0f, maxValue)
     if (!sliderTarget.isNaN() && !sliderTarget.isInfinite()) {
         playerState.sliderPos = sliderTarget
@@ -260,6 +261,7 @@ fun EditorVideoPreview(
     val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
     val playerState = rememberVideoPlayerState()
     val frameGrabber = remember { PlatformFrameGrabber() }
+    val grabberMutex = remember { Mutex() }
 
     DisposableEffect(Unit) {
         onDispose { frameGrabber.release() }
@@ -269,8 +271,9 @@ fun EditorVideoPreview(
         collectVisibleMedia(snapshot, playheadMs)
     }
 
-    val primaryVideo = visibleMedia.filterIsInstance<VisibleMedia.Video>().firstOrNull()
-    val backgroundVideos = visibleMedia.filterIsInstance<VisibleMedia.Video>().drop(1)
+    val videosByZ = visibleMedia.filterIsInstance<VisibleMedia.Video>().sortedBy { it.trackIndex }
+    val primaryVideo = videosByZ.maxByOrNull { it.trackIndex }
+    val backgroundVideos = videosByZ.filter { it.id != primaryVideo?.id }
     val textOverlays = visibleMedia.filterIsInstance<VisibleMedia.Text>()
     val subtitles = visibleMedia.filterIsInstance<VisibleMedia.Subtitle>()
 
@@ -857,6 +860,44 @@ fun EditorVideoPreview(
             else -> {
                 Box(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = transformModifier) {
+                        backgroundVideos.forEach { bgVideo ->
+                            val bgLocalUs = (playheadMs - bgVideo.startMs) * 1000L
+                            val bgTransformFilter = findTransformFilter(bgVideo.filters)
+                            val bgKfScale = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_SCALE, bgLocalUs)
+                            val bgKfTx = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, bgLocalUs)
+                            val bgKfTy = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, bgLocalUs)
+                            val bgKfRot = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_ROTATE, bgLocalUs)
+                            val hasBgKF = bgKfScale != null || bgKfTx != null || bgKfTy != null || bgKfRot != null
+                            val bgDisplay = clipDisplayValues(bgVideo, bgKfScale, bgKfTx, bgKfTy, bgKfRot, hasBgKF, bgTransformFilter)
+                            val bgEffectiveOpacity = bgVideo.keyframes.evaluate(
+                                KeyframeParams.OPACITY, bgLocalUs,
+                            ) ?: bgVideo.opacity
+                            val bgOffset = playheadMs - bgVideo.startMs
+                            val bgSourceTime = (bgVideo.sourceStartMs + (bgOffset * bgVideo.speed).toLong())
+                                .coerceAtLeast(0L)
+                            BackgroundVideoFrame(
+                                sourcePath = bgVideo.sourcePath,
+                                sourceTimeMs = bgSourceTime,
+                                opacity = bgEffectiveOpacity,
+                                onFrameLoaded = { frame ->
+                                    backgroundFrames = backgroundFrames + (bgVideo.id to frame)
+                                }
+                            )
+
+                            backgroundFrames[bgVideo.id]?.let { frame ->
+                                val bgBitmap = remember(frame) { frame.toImageBitmap() }
+                                Image(
+                                    bitmap = bgBitmap,
+                                    contentDescription = "Background video",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .then(clipTransformModifier(bgDisplay, viewportSize))
+                                        .graphicsLayer { alpha = bgEffectiveOpacity },
+                                    contentScale = ContentScale.Fit,
+                                )
+                            }
+                        }
+
                         when {
                             !isPlaying && scrubbedFrame != null -> {
                                 Box(modifier = Modifier.fillMaxSize()) {
@@ -898,44 +939,6 @@ fun EditorVideoPreview(
                                     Icons.Default.VideoFile, null,
                                     modifier = Modifier.size(48.dp),
                                     tint = Color.White.copy(alpha = 0.3f),
-                                )
-                            }
-                        }
-
-                        backgroundVideos.forEach { bgVideo ->
-                            val bgLocalUs = (playheadMs - bgVideo.startMs) * 1000L
-                            val bgTransformFilter = findTransformFilter(bgVideo.filters)
-                            val bgKfScale = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_SCALE, bgLocalUs)
-                            val bgKfTx = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, bgLocalUs)
-                            val bgKfTy = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, bgLocalUs)
-                            val bgKfRot = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_ROTATE, bgLocalUs)
-                            val hasBgKF = bgKfScale != null || bgKfTx != null || bgKfTy != null || bgKfRot != null
-                            val bgDisplay = clipDisplayValues(bgVideo, bgKfScale, bgKfTx, bgKfTy, bgKfRot, hasBgKF, bgTransformFilter)
-                            val bgEffectiveOpacity = bgVideo.keyframes.evaluate(
-                                KeyframeParams.OPACITY, bgLocalUs,
-                            ) ?: bgVideo.opacity
-                            val bgOffset = playheadMs - bgVideo.startMs
-                            val bgSourceTime = bgVideo.sourceStartMs + (bgOffset * bgVideo.speed).toLong()
-                            BackgroundVideoFrame(
-                                sourcePath = bgVideo.sourcePath,
-                                sourceTimeMs = bgSourceTime,
-                                opacity = bgEffectiveOpacity,
-                                frameGrabber = frameGrabber,
-                                onFrameLoaded = { frame ->
-                                    backgroundFrames = backgroundFrames + (bgVideo.id to frame)
-                                }
-                            )
-
-                            backgroundFrames[bgVideo.id]?.let { frame ->
-                                val bgBitmap = remember(frame) { frame.toImageBitmap() }
-                                Image(
-                                    bitmap = bgBitmap,
-                                    contentDescription = "Background video",
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .then(clipTransformModifier(bgDisplay, viewportSize))
-                                        .graphicsLayer { alpha = bgEffectiveOpacity },
-                                    contentScale = ContentScale.Fit,
                                 )
                             }
                         }
@@ -1047,23 +1050,32 @@ private fun BackgroundVideoFrame(
     sourcePath: String,
     sourceTimeMs: Long,
     opacity: Float,
-    frameGrabber: PlatformFrameGrabber,
     onFrameLoaded: (ImageData) -> Unit,
 ) {
-    val frameGrabberOpen = remember { frameGrabber }
-    LaunchedEffect(sourcePath) {
-        frameGrabberOpen.open(sourcePath)
+    val ownGrabber = remember(sourcePath) { PlatformFrameGrabber() }
+    DisposableEffect(sourcePath) {
+        onDispose { ownGrabber.release() }
     }
-    LaunchedEffect(sourcePath, sourceTimeMs) {
+    LaunchedEffect(sourcePath) {
         try {
-            val frame = frameGrabber.grabFrame(
-                timestampMs = sourceTimeMs,
+            ownGrabber.open(sourcePath)
+        } catch (_: Throwable) {}
+    }
+    var lastDecodedMs by remember(sourcePath) { mutableLongStateOf(Long.MIN_VALUE) }
+    LaunchedEffect(sourcePath, sourceTimeMs) {
+        if (lastDecodedMs != Long.MIN_VALUE &&
+            kotlin.math.abs(sourceTimeMs - lastDecodedMs) <= 100L
+        ) return@LaunchedEffect
+        try {
+            val frame = ownGrabber.grabFrame(
+                timestampMs = sourceTimeMs.coerceAtLeast(0L),
                 filters = emptyList(),
                 opacity = opacity,
                 width = 0,
                 height = 0,
             )
             if (frame != null) {
+                lastDecodedMs = sourceTimeMs
                 onFrameLoaded(frame)
             }
             } catch (_: Throwable) {}

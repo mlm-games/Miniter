@@ -31,14 +31,12 @@ fun ClipContextMenu(
             onClick = { onSetAsPlayhead(); onDismiss() },
         )
 
-        if (canSplit) {
-            DropdownMenuItem(
-                text = { Text("Split at playhead") },
-                leadingIcon = { Icon(Icons.Default.ContentCut, null, Modifier.size(18.dp)) },
-                onClick = { onSplit(); onDismiss() },
-                enabled = !isLocked,
-            )
-        }
+        DropdownMenuItem(
+            text = { Text("Split at playhead") },
+            leadingIcon = { Icon(Icons.Default.ContentCut, null, Modifier.size(18.dp)) },
+            onClick = { onSplit(); onDismiss() },
+            enabled = canSplit && !isLocked,
+        )
 
         DropdownMenuItem(
             text = { Text("Duplicate") },

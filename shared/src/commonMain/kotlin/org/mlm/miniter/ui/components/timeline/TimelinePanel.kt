@@ -38,6 +38,9 @@ import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTrackSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.project.ALL_PARAMS_BY_KEY
+import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.max
 
 private val TRACK_HEIGHT = 52.dp
 private val TRACK_HEADER_WIDTH = 48.dp
@@ -45,7 +48,6 @@ private val RULER_HEIGHT = 28.dp
 private val TRIM_HANDLE_WIDTH = 12.dp
 private val PLAYHEAD_HEAD_SIZE = 10.dp
 private val ADD_TRACK_ROW_HEIGHT = 36.dp
-private const val MIN_CLIP_WIDTH_DP = 12f
 private const val MIN_TIMELINE_DURATION_MS = 30_000L
 private const val TIMELINE_PADDING_MS = 5000L
 
@@ -84,7 +86,7 @@ fun TimelinePanel(
     }
 
     val tracks = snapshot.timeline.tracks
-    val dpPerMs = zoomLevel * 0.1f
+    val dpPerMs = max(zoomLevel * 0.1f, 0.01f)
     val density = LocalDensity.current
 
     val timelineDurationMs = maxOf(
@@ -98,8 +100,9 @@ fun TimelinePanel(
 
     LaunchedEffect(playheadMs, isPlaying) {
         if (!isPlaying) return@LaunchedEffect
-        val playheadPx = with(density) { (playheadMs * dpPerMs).dp.toPx() }
         val viewportPx = horizontalScrollState.viewportSize.toFloat()
+        if (viewportPx <= 0f) return@LaunchedEffect
+        val playheadPx = with(density) { (playheadMs * dpPerMs).dp.toPx() }
         val scrollPx = horizontalScrollState.value.toFloat()
         val margin = viewportPx * 0.2f
         if (playheadPx > scrollPx + viewportPx - margin) {
@@ -288,7 +291,7 @@ private fun TrackRow(
 
                 track.clips.forEach { clip ->
                     val leftDp = (clipStartMs(clip) * dpPerMs).dp
-                    val widthDp = (clipDurationMs(clip) * dpPerMs).dp.coerceAtLeast(MIN_CLIP_WIDTH_DP.dp)
+                    val widthDp = (clipDurationMs(clip) * dpPerMs).coerceAtLeast(1f).dp
                     val isSelected = clip.id == selectedClipId
 
                     ClipBlock(
@@ -454,6 +457,7 @@ private fun ClipBlock(
                             totalDragPxX += dragAmount.x
                             totalDragPxY += dragAmount.y
 
+                            if (abs(totalDragPxX) < 2f) return@detectDragGestures
                             val totalDeltaMs = (totalDragPxX / density.density / dpPerMs).toLong()
                             onDragAbsolute((dragStartMs + totalDeltaMs).coerceAtLeast(0))
                         },
@@ -462,7 +466,7 @@ private fun ClipBlock(
                                 onDragEnd()
                                 return@detectDragGestures
                             }
-                            val shift = (totalDragPxY / trackHeightPx).toInt()
+                            val shift = floor(totalDragPxY / trackHeightPx).toInt()
                             val targetIndex = (currentSameTypeIndex + shift).coerceIn(0, currentSameTypeTrackIds.lastIndex)
                             val targetTrackId = currentSameTypeTrackIds.getOrNull(targetIndex)
 

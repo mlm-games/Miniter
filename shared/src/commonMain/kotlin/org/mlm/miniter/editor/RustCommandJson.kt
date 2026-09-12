@@ -5,6 +5,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -199,6 +200,8 @@ class RustCommandJson(
             put("clip_id", uuid(clipId))
             if (transition != null) {
                 put("transition", json.encodeToJsonElement(RustTransitionSnapshot.serializer(), transition))
+            } else {
+                put("transition", JsonNull)
             }
         }
 
@@ -207,6 +210,8 @@ class RustCommandJson(
             put("clip_id", uuid(clipId))
             if (transition != null) {
                 put("transition", json.encodeToJsonElement(RustTransitionSnapshot.serializer(), transition))
+            } else {
+                put("transition", JsonNull)
             }
         }
 
@@ -227,7 +232,14 @@ class RustCommandJson(
             put("clip_id", uuid(clipId))
             if (fontPath != null) {
                 put("font_path", JsonPrimitive(fontPath))
+            } else {
+                put("font_path", JsonNull)
             }
+        }
+
+    fun renameProject(newName: String): String =
+        wrap("RenameProject") {
+            put("new_name", JsonPrimitive(newName))
         }
 
     fun setExportProfile(profile: RustExportProfileSnapshot): String =

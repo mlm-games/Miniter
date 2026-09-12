@@ -105,6 +105,7 @@ impl Clip {
         }
 
         self.opacity = self.opacity.clamp(0.0, 1.0);
+        self.keyframes.sort_by_offset();
     }
 }
 

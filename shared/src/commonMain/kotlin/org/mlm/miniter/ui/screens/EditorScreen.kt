@@ -36,9 +36,12 @@ fun EditorScreen(
     val snackbarManager: SnackbarManager = koinInject()
     val projectVm: ProjectViewModel = koinInject()
     val recentProjects by editorViewModel.recentProjects.collectAsState()
+    val projectState by projectVm.state.collectAsState()
 
     LaunchedEffect(Unit) {
-        projectVm.reset()
+        if (projectState.snapshot == null && !projectState.isDirty) {
+            projectVm.reset()
+        }
     }
 
     var pendingImportFile by remember { mutableStateOf<PlatformFile?>(null) }

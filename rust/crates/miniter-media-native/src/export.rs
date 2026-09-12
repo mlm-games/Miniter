@@ -411,12 +411,20 @@ fn parse_ass_cues(path: &Path, preserve_styles: bool) -> Result<Vec<SourceSubtit
                 continue;
             }
 
-            let start_cs = event
-                .start_time_cs()
-                .map_err(|e| format!("invalid ASS start time in '{}': {}", path.display(), e))?;
-            let end_cs = event
-                .end_time_cs()
-                .map_err(|e| format!("invalid ASS end time in '{}': {}", path.display(), e))?;
+            let start_cs = match event.start_time_cs() {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("Skipping ASS event with invalid start time: {}", e);
+                    continue;
+                }
+            };
+            let end_cs = match event.end_time_cs() {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("Skipping ASS event with invalid end time: {}", e);
+                    continue;
+                }
+            };
             if end_cs <= start_cs {
                 continue;
             }
@@ -829,8 +837,7 @@ where
     on_progress(100_000);
 
     if let Some(oe) = audio_encoded {
-        let start_anchor_us = first_decoded_video_pts_us.load(Ordering::Relaxed).max(0) as u64;
-        write_audio_packets(&mut muxer, &oe, start_anchor_us)?;
+        write_audio_packets(&mut muxer, &oe, 0)?;
     }
 
     write_soft_subtitle_samples(&mut muxer, &subtitle_samples)?;
@@ -1175,7 +1182,7 @@ where
 
     on_progress(5);
 
-    let fps_int = fps.round().max(1.0) as u32;
+    let (fps_num, fps_den) = fps_to_rational(fps);
     let mut encoder = Av1EncodeSession::new(width, height, fps, bitrate_kbps, matrix)?;
 
     let mut ivf_file: Option<File> = None;
@@ -1188,8 +1195,8 @@ where
                 &mut file,
                 width as usize,
                 height as usize,
-                fps_int as usize,
-                1,
+                fps_num as usize,
+                fps_den as usize,
             );
             ivf_file = Some(file);
         }
@@ -1263,8 +1270,7 @@ where
                     .as_mut()
                     .expect("IVF file must exist for AV1 IVF export");
                 for packet in packets {
-                    // NOTE: previously, At 30fps, PTS=33333 (1/30s in μs) was interpreted by players as 33333 × 1/30 = 1111s.
-                    let pts_tbn = (packet.pts * fps_int as u64 + 500_000) / 1_000_000;
+                    let pts_tbn = pts_us_to_timebase(packet.pts, fps_num, fps_den);
                     ivf::write_ivf_frame(file, pts_tbn, &packet.data);
                     ivf_packet_count = ivf_packet_count.saturating_add(1);
                 }
@@ -1296,7 +1302,7 @@ where
                 .expect("IVF file must exist for AV1 IVF export");
 
             for packet in finish_packets {
-                let pts_tbn = (packet.pts * fps_int as u64 + 500_000) / 1_000_000;
+                let pts_tbn = pts_us_to_timebase(packet.pts, fps_num, fps_den);
                 ivf::write_ivf_frame(file, pts_tbn, &packet.data);
                 ivf_packet_count = ivf_packet_count.saturating_add(1);
             }
@@ -1313,9 +1319,7 @@ where
             write_av1_packets_to_mux(muxer, &finish_packets)?;
 
             if let Some(oe) = audio_encoded {
-                let start_anchor_us =
-                    first_decoded_video_pts_us.load(Ordering::Relaxed).max(0) as u64;
-                write_audio_packets(muxer, &oe, start_anchor_us)?;
+                write_audio_packets(muxer, &oe, 0)?;
             }
 
             write_soft_subtitle_samples(muxer, &subtitle_samples)?;

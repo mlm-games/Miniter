@@ -23,4 +23,17 @@ class RustCoreRepository {
     fun clear() {
         synchronized(lock) { current = null }
     }
+
+    fun <T> withSession(block: (RustCoreSession) -> T): T? =
+        synchronized(lock) {
+            val session = current ?: return@synchronized null
+            block(session)
+        }
+
+    fun clearAtomically(afterClear: () -> Unit) {
+        synchronized(lock) {
+            current = null
+            afterClear()
+        }
+    }
 }

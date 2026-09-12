@@ -180,7 +180,7 @@ fn probe_media_info_from_mss(
                 codec: codec_name,
                 width: v.width.unwrap_or(0) as u32,
                 height: v.height.unwrap_or(0) as u32,
-                frame_rate: 0.0,
+                frame_rate: track_frame_rate(track, duration_us),
                 bitrate: 0,
                 decoder_available: decoder_supported(v.codec),
                 hardware_acceleration_required: requires_hardware_acceleration(v.codec),
@@ -201,6 +201,32 @@ fn probe_media_info_from_mss(
         video_streams,
         audio_streams,
     })
+}
+
+/// Estimate frame rate from symphonia track params (num_frames + time base +
+/// duration) instead of hardcoding 0.0.
+fn track_frame_rate(track: &symphonia::core::formats::Track, duration_us: Option<i64>) -> f64 {
+    if let (Some(frames), Some(tb), Some(dur)) = (track.num_frames, track.time_base, track.duration)
+    {
+        let ticks = dur.get() as f64;
+        let secs_per_tick = tb.numer.get() as f64 / tb.denom.get().max(1) as f64;
+        let secs = ticks * secs_per_tick;
+        if secs > 0.0 && frames > 0 {
+            let fps = frames as f64 / secs;
+            if fps.is_finite() && fps > 0.0 && fps < 240.0 {
+                return fps;
+            }
+        }
+    }
+    if let (Some(frames), Some(dus)) = (track.num_frames, duration_us) {
+        if dus > 0 && frames > 0 {
+            let fps = frames as f64 / (dus as f64 / 1_000_000.0);
+            if fps.is_finite() && fps > 0.0 && fps < 240.0 {
+                return fps;
+            }
+        }
+    }
+    0.0
 }
 
 fn probe_ivf(path: &Path) -> Result<MediaInfo, MediaProbeError> {

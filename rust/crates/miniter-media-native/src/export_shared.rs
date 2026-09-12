@@ -23,17 +23,55 @@ pub(crate) fn subtitle_track_config() -> SubtitleTrackConfigOut {
     }
 }
 
-/// Write audio packets to an MP4 muxer, adjusting PTS by start_anchor_us.
+/// Write audio packets to an MP4 muxer.
+/// `start_anchor_us` must be 0: mixed audio is already timeline-aligned, so
+/// adding the first decoded video PTS would shift audio out of sync.
 pub(crate) fn write_audio_packets<W: Write>(
     muxer: &mut Mp4Muxer<W>,
     audio: &EncodedOpus,
     start_anchor_us: u64,
 ) -> Result<(), crate::mux::MuxError> {
+    debug_assert_eq!(
+        start_anchor_us, 0,
+        "audio is timeline-aligned; non-zero anchor shifts audio"
+    );
     for packet in &audio.packets {
         let pts = start_anchor_us.saturating_add(packet.pts_us);
         muxer.write_audio_sample_at(pts, &packet.bytes)?;
     }
     Ok(())
+}
+
+/// Map an f64 fps to an exact rational (num, den) for IVF/rav1e timebases.
+/// Handles NTSC-style rates (24000/1001 etc.) instead of rounding to int.
+pub(crate) fn fps_to_rational(fps: f64) -> (u32, u32) {
+    if !fps.is_finite() || fps <= 0.0 {
+        return (30, 1);
+    }
+    const NTSC: &[(f64, (u32, u32))] = &[
+        (24000.0 / 1001.0, (24000, 1001)),
+        (30000.0 / 1001.0, (30000, 1001)),
+        (60000.0 / 1001.0, (60000, 1001)),
+        (120000.0 / 1001.0, (120000, 1001)),
+    ];
+    for (target, rational) in NTSC {
+        if (fps - target).abs() < 0.01 {
+            return *rational;
+        }
+    }
+    let rounded = fps.round();
+    if (fps - rounded).abs() < 0.005 && rounded >= 1.0 && rounded <= 240.0 {
+        return (rounded as u32, 1);
+    }
+    let num = (fps * 1000.0).round().max(1.0) as u32;
+    (num, 1000)
+}
+
+/// Convert a PTS in microseconds to IVF timebase ticks: pts_us * num / (den * 1e6).
+pub(crate) fn pts_us_to_timebase(pts_us: u64, fps_num: u32, fps_den: u32) -> u64 {
+    let num = fps_num.max(1) as u128;
+    let den = fps_den.max(1) as u128;
+    ((pts_us as u128 * num) / (den * 1_000_000)).min(u64::MAX as u128) as u64
 }
 
 /// Write soft subtitle samples to an MP4 muxer.
@@ -467,6 +505,48 @@ pub(crate) fn crop_rgba(
     out
 }
 
+pub(crate) fn crop_output_dims(
+    width: usize,
+    height: usize,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+) -> (usize, usize) {
+    let l = (left.clamp(0.0, 1.0) * width as f32).round() as usize;
+    let t = (top.clamp(0.0, 1.0) * height as f32).round() as usize;
+    let r = (right.clamp(0.0, 1.0) * width as f32).round() as usize;
+    let b = (bottom.clamp(0.0, 1.0) * height as f32).round() as usize;
+    let l = l.min(width);
+    let r = r.max(l).min(width);
+    let t = t.min(height);
+    let b = b.max(t).min(height);
+    (r.saturating_sub(l), b.saturating_sub(t))
+}
+
+fn fit_rgba_into_canvas_fallback(cropped: &[u8], dst_w: usize, dst_h: usize) -> Vec<u8> {
+    if dst_w == 0 || dst_h == 0 {
+        return transparent_rgba(dst_w, dst_h);
+    }
+    let mut canvas = transparent_rgba(dst_w, dst_h);
+    if cropped.len() % 4 != 0 || cropped.is_empty() {
+        return canvas;
+    }
+    let src_pixels = cropped.len() / 4;
+    let copy_pixels = src_pixels.min(dst_w * dst_h);
+    let copy_bytes = copy_pixels * 4;
+    let dst_off = (dst_w * dst_h * 4).saturating_sub(copy_bytes) / 2 / 4 * 4;
+    if dst_off + copy_bytes <= canvas.len() {
+        for (d, s) in canvas[dst_off..dst_off + copy_bytes]
+            .chunks_exact_mut(4)
+            .zip(cropped[..copy_bytes].chunks_exact(4))
+        {
+            alpha_over_pixel(d, s);
+        }
+    }
+    canvas
+}
+
 pub(crate) fn transform_rgba(
     src: &[u8],
     width: usize,
@@ -552,8 +632,8 @@ pub(crate) fn fit_rgba_into_canvas(
     let scaled = scale_rgba(src, src_w, src_h, scaled_w, scaled_h);
     let mut canvas = transparent_rgba(dst_w, dst_h);
 
-    let off_x = ((dst_w - scaled_w) / 2) as i32;
-    let off_y = ((dst_h - scaled_h) / 2) as i32;
+    let off_x = (dst_w as i32 - scaled_w as i32) / 2;
+    let off_y = (dst_h as i32 - scaled_h as i32) / 2;
     alpha_over_with_offset(
         &mut canvas,
         &scaled,
@@ -602,7 +682,17 @@ pub(crate) fn apply_video_filters(
                 right,
                 bottom,
             } => {
-                *pixels = crop_rgba(pixels, w, h, *left, *top, *right, *bottom);
+                let cropped = crop_rgba(pixels, w, h, *left, *top, *right, *bottom);
+                if cropped.len() == w.saturating_mul(h).saturating_mul(4) {
+                    *pixels = cropped;
+                } else {
+                    let (cw, ch) = crop_output_dims(w, h, *left, *top, *right, *bottom);
+                    if cw == 0 || ch == 0 || cropped.len() != cw * ch * 4 {
+                        *pixels = fit_rgba_into_canvas_fallback(&cropped, w, h);
+                    } else {
+                        *pixels = fit_rgba_into_canvas(&cropped, cw, ch, w, h);
+                    }
+                }
             }
             VideoFilter::Transform {
                 scale,
@@ -714,8 +804,10 @@ pub(crate) fn render_text_overlay(
         },
         _ => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
     };
-    let font = Font::from_bytes(font_data.as_slice(), FontSettings::default())
-        .expect("Failed to load font");
+    let Ok(font) = Font::from_bytes(font_data.as_slice(), FontSettings::default()) else {
+        log::warn!("Failed to load font; rendering transparent text layer");
+        return canvas;
+    };
     let font_size = overlay.style.font_size.max(1.0);
     let italic_shear = if overlay.style.italic { 0.2 } else { 0.0 };
 
@@ -1243,7 +1335,10 @@ pub fn subtitle_text_at_from_srt(content: &str, timestamp_us: i64) -> Option<Str
             continue;
         }
 
-        let (start_us, end_us) = parse_srt_time_range(lines[cursor])?;
+        let (start_us, end_us) = match parse_srt_time_range(lines[cursor]) {
+            Some(v) => v,
+            None => continue,
+        };
         cursor += 1;
         if cursor >= lines.len() || end_us <= start_us {
             continue;
@@ -1266,8 +1361,12 @@ pub fn subtitle_text_at_from_ass(content: &str, timestamp_us: i64) -> Option<Str
             if !event.is_dialogue() {
                 continue;
             }
-            let start_cs = event.start_time_cs().ok()?;
-            let end_cs = event.end_time_cs().ok()?;
+            let Ok(start_cs) = event.start_time_cs() else {
+                continue;
+            };
+            let Ok(end_cs) = event.end_time_cs() else {
+                continue;
+            };
             if end_cs <= start_cs {
                 continue;
             }

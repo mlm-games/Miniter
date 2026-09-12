@@ -188,7 +188,7 @@ impl SymphoniaDemuxer {
                 offset += 1;
             }
             if nalu_len == 0 || offset + nalu_len > data.len() {
-                continue;
+                break;
             }
             output.extend_from_slice(start_code);
             output.extend_from_slice(&data[offset..offset + nalu_len]);
@@ -217,7 +217,10 @@ impl Demuxer for SymphoniaDemuxer {
     }
 
     fn timescale(&self) -> u32 {
-        self.time_base_denom / self.time_base_numer
+        if self.time_base_numer == 0 {
+            return 0;
+        }
+        ((self.time_base_denom as f64) / (self.time_base_numer as f64)).round() as u32
     }
 
     fn total_samples(&self) -> u32 {
@@ -290,12 +293,18 @@ impl Demuxer for SymphoniaDemuxer {
     fn seek_to_sample(&mut self, sample_id: u32) -> DemuxResult<()> {
         use symphonia::core::formats::{SeekMode, SeekTo};
         use symphonia::core::units::Time;
-        let _ = sample_id;
+        let seconds = if self.time_base_numer > 0 && self.time_base_denom > 0 {
+            f64::from(sample_id) * f64::from(self.time_base_numer) / f64::from(self.time_base_denom)
+        } else {
+            f64::from(sample_id) / 30.0
+        };
+        let seconds = seconds.max(0.0);
+        let time = Time::try_from_secs_f64(seconds).unwrap_or_default();
         self.format
             .seek(
                 SeekMode::Accurate,
                 SeekTo::Time {
-                    time: Time::default(),
+                    time,
                     track_id: Some(self.track_id),
                 },
             )

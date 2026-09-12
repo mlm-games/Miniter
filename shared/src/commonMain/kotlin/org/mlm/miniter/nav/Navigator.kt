@@ -10,10 +10,14 @@ import androidx.navigation3.runtime.NavKey
 import androidx.savedstate.serialization.SavedStateConfiguration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.contextual
 import kotlinx.serialization.modules.polymorphic
 import org.mlm.miniter.editor.model.RustExportResolution
+import org.mlm.miniter.editor.model.RustExportResolutionSerializer
 
 const val NAV_ANIM_DURATION = 450
+
+const val MAX_EXTRA_IMPORT_PATHS = 32
 
 @Serializable
 sealed interface Route : NavKey {
@@ -34,6 +38,7 @@ sealed interface Route : NavKey {
 }
 
 val routeSerializersModule = SerializersModule {
+    contextual(RustExportResolution::class, RustExportResolutionSerializer)
     polymorphic(NavKey::class) {
         subclass(Route.Editor::class, Route.Editor.serializer())
         subclass(Route.Settings::class, Route.Settings.serializer())
@@ -42,6 +47,10 @@ val routeSerializersModule = SerializersModule {
         subclass(Route.Export::class, Route.Export.serializer())
     }
 }
+
+fun Route.Project.withCappedImports(): Route.Project =
+    if (extraImportPaths.size <= MAX_EXTRA_IMPORT_PATHS) this
+    else copy(extraImportPaths = extraImportPaths.take(MAX_EXTRA_IMPORT_PATHS))
 
 val navSavedStateConfiguration = SavedStateConfiguration {
     serializersModule = routeSerializersModule

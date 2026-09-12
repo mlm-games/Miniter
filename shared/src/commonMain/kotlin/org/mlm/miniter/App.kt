@@ -68,7 +68,8 @@ fun App() {
                             path = first.path,
                             name = first.name,
                             openAsProject = false,
-                            extraImportPaths = openedMedia.drop(1).map { it.path },
+                            extraImportPaths = openedMedia.drop(1).map { it.path }
+                                .take(MAX_EXTRA_IMPORT_PATHS),
                         )
                     )
                     consumePendingMediaOpens()

@@ -1,7 +1,9 @@
 package org.mlm.miniter.engine
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.await
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -61,6 +63,7 @@ actual class PlatformVideoEngine actual constructor() {
             activeSession = session
 
             while (true) {
+                ensureActive()
                 if (exportCancelled) {
                     session.cancel()
                     _exportProgress.value = ExportProgress(
@@ -93,8 +96,8 @@ actual class PlatformVideoEngine actual constructor() {
                 )
 
                 if (response.done) {
-                    val payload = response.payload!!
-                        if (payload.ok && !exportCancelled) {
+                    val payload = response.payload
+                    if (payload != null && payload.ok && !exportCancelled) {
                         wasmDownloadBlob(payload.fileName, payload.mimeType, payload.bytesBase64)
                         _exportProgress.value = ExportProgress(
                             phase = "Export complete",
@@ -102,10 +105,15 @@ actual class PlatformVideoEngine actual constructor() {
                             isComplete = true,
                             hardwareFallback = response.hardwareFallback,
                         )
-                    } else {
+                    } else if (exportCancelled) {
                         _exportProgress.value = ExportProgress(
                             phase = "Export cancelled",
                             isCancelled = true,
+                        )
+                    } else {
+                        _exportProgress.value = ExportProgress(
+                            error = if (payload == null) "Export failed (empty payload)"
+                            else "Export failed",
                         )
                     }
                     return
@@ -113,6 +121,14 @@ actual class PlatformVideoEngine actual constructor() {
 
                 kotlinx.coroutines.delay(0)
             }
+        } catch (e: CancellationException) {
+            activeSession?.cancel()
+            exportCancelled = true
+            _exportProgress.value = ExportProgress(
+                phase = "Export cancelled",
+                isCancelled = true,
+            )
+            throw e
         } catch (e: Throwable) {
             println("Export failed: $e")
             val cancelled = exportCancelled ||
@@ -177,8 +193,11 @@ actual class PlatformVideoEngine actual constructor() {
     }
 
     actual fun cancelExport() {
+        val session = activeSession ?: return
+        val current = _exportProgress.value
+        if (current.isComplete || current.isCancelled || current.error != null) return
         exportCancelled = true
-        activeSession?.cancel()
+        session.cancel()
         _exportProgress.value = ExportProgress(
             phase = "Cancelled",
             isCancelled = true,

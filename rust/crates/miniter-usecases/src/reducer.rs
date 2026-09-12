@@ -662,6 +662,12 @@ fn apply_move_clip(
     moved.timeline_start = clamped_start;
 
     if src_track_idx == dst_track_idx {
+        {
+            let track = &state.project.timeline.tracks[src_track_idx];
+            track
+                .can_insert_clip(&moved, Some(clip_id))
+                .map_err(ApplyError::Overlap)?;
+        }
         let track = &mut state.project.timeline.tracks[src_track_idx];
         track.clips[clip_idx] = moved;
         track.sort_clips();
@@ -756,11 +762,14 @@ fn apply_trim_clip_end(
     let max_duration = match &original.kind {
         ClipKind::Text(_) | ClipKind::Subtitle(_) => new_duration,
         _ => {
-            let max_source_end = original.source_total_duration;
-            MediaDuration::from_micros(unscale_us_round(
-                max_source_end.as_micros() - original.source_start.as_micros(),
-                original.speed,
-            ))
+            if original.source_total_duration.as_micros() <= original.source_start.as_micros() {
+                new_duration
+            } else {
+                MediaDuration::from_micros(unscale_us_round(
+                    original.source_total_duration.as_micros() - original.source_start.as_micros(),
+                    original.speed,
+                ))
+            }
         }
     };
     let max_by_neighbor = next_clip_start_after(

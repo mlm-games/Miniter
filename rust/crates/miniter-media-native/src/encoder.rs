@@ -1,6 +1,12 @@
 //! H.264 video encoder.
 //!
 //! Uses less-avc only for now ( since it works on all platforms including wasm, but the output size is questionable).
+//!
+//! Tradeoff note (kept intentionally): every frame is encoded as a keyframe
+//! (all-intra). This keeps seeking/preview trivially correct and avoids any
+//! inter-frame dependency bugs, at the cost of larger output files. Do not
+//! "optimize" into P/B-frames without also fixing SPS/PPS propagation, mux
+//! sample flags, and the export preview path.
 
 use crate::frame::RgbaFrame;
 use crate::yuv::rgba_to_yuv420;

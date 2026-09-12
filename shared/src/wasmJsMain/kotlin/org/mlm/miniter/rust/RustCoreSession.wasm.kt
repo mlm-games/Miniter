@@ -50,48 +50,18 @@ internal data class WasmExportPayload(
     val mimeType: String,
 )
 
+@OptIn(ExperimentalEncodingApi::class)
 private fun decodeBase64ToBytes(encoded: String): ByteArray {
     if (encoded.isEmpty()) return ByteArray(0)
-
-    val clean = encoded.trim().replace("\n", "").replace("\r", "")
-    val output = ByteArray((clean.length * 3) / 4)
-    var outIndex = 0
-    var i = 0
-
-    fun value(ch: Char): Int = when (ch) {
-        in 'A'..'Z' -> ch.code - 'A'.code
-        in 'a'..'z' -> ch.code - 'a'.code + 26
-        in '0'..'9' -> ch.code - '0'.code + 52
-        '+' -> 62
-        '/' -> 63
-        else -> -1
-    }
-
-    while (i < clean.length) {
-        val c0 = clean.getOrNull(i++) ?: break
-        val c1 = clean.getOrNull(i++) ?: break
-        val c2 = clean.getOrNull(i++) ?: '='
-        val c3 = clean.getOrNull(i++) ?: '='
-
-        val b0 = value(c0)
-        val b1 = value(c1)
-        val b2 = if (c2 == '=') -1 else value(c2)
-        val b3 = if (c3 == '=') -1 else value(c3)
-
-        if (b0 < 0 || b1 < 0 || (b2 < 0 && c2 != '=') || (b3 < 0 && c3 != '=')) {
-            return ByteArray(0)
+    return try {
+        Base64.decode(encoded.trim())
+    } catch (_: IllegalArgumentException) {
+        try {
+            Base64.decode(encoded.filterNot { it.isWhitespace() })
+        } catch (_: IllegalArgumentException) {
+            ByteArray(0)
         }
-
-        val triple = (b0 shl 18) or (b1 shl 12) or
-            ((if (b2 >= 0) b2 else 0) shl 6) or
-            (if (b3 >= 0) b3 else 0)
-
-        if (outIndex < output.size) output[outIndex++] = ((triple shr 16) and 0xFF).toByte()
-        if (c2 != '=' && outIndex < output.size) output[outIndex++] = ((triple shr 8) and 0xFF).toByte()
-        if (c3 != '=' && outIndex < output.size) output[outIndex++] = (triple and 0xFF).toByte()
     }
-
-    return if (outIndex == output.size) output else output.copyOf(outIndex)
 }
 
 private fun WasmFramePayload.toImageData(): ImageData {
@@ -162,6 +132,10 @@ actual class RustCoreSession private constructor(
             if (!ok) {
                 error("Failed to register wasm file: $path")
             }
+        }
+
+        fun unregisterFile(path: String) {
+            runCatching { wasmUnregisterFile(path) }
         }
 
         fun mediaBlobUrl(path: String): String = wasmMediaBlobUrl(path)
@@ -310,4 +284,5 @@ private external fun wasmIsWebCodecsHardwareAccelerated(): Boolean
 """)
 private external fun wasmGetSupportedHwCodecs(): JsArray<JsString>
 
-
+@JsName("unregisterFile")
+private external fun wasmUnregisterFile(path: String): Unit

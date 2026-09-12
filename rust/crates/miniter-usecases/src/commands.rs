@@ -124,10 +124,12 @@ pub enum EditCommand {
     },
     SetTransitionIn {
         clip_id: ClipId,
+        #[serde(default)]
         transition: Option<Transition>,
     },
     SetTransitionOut {
         clip_id: ClipId,
+        #[serde(default)]
         transition: Option<Transition>,
     },
     UpdateTextContent {
@@ -140,6 +142,7 @@ pub enum EditCommand {
     },
     SetSubtitleFont {
         clip_id: ClipId,
+        #[serde(default)]
         font_path: Option<String>,
     },
     SetExportProfile {

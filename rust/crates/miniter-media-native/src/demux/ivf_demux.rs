@@ -146,8 +146,8 @@ impl<R: Read + Seek + Send> Demuxer for IvfDemuxer<R> {
             Err(e) => return Err(DemuxError::Io(e)),
         }
 
-        self.current_frame += 1;
         self.pts_us = (self.current_frame as f64 * 1_000_000.0 / self.fps) as i64;
+        self.current_frame += 1;
 
         let is_key = data[0] & 1 != 0;
         Ok(Some(DemuxedSample::new(data, self.pts_us, is_key)))

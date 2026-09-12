@@ -79,10 +79,10 @@ class MainActivity : ComponentActivity() {
                 intent.data?.let { result += it }
             }
             Intent.ACTION_SEND -> {
-                intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.let { result += it }
+                parcelableExtra<Uri>(intent, Intent.EXTRA_STREAM)?.let { result += it }
             }
             Intent.ACTION_SEND_MULTIPLE -> {
-                intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.forEach { result += it }
+                parcelableArrayListExtra<Uri>(intent, Intent.EXTRA_STREAM)?.forEach { result += it }
             }
         }
 
@@ -111,6 +111,11 @@ class MainActivity : ComponentActivity() {
             arrayOf(
                 Manifest.permission.READ_MEDIA_VIDEO,
                 Manifest.permission.READ_MEDIA_AUDIO,
+                Manifest.permission.READ_MEDIA_IMAGES,
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
             )
         } else {
             arrayOf(
@@ -123,6 +128,30 @@ class MainActivity : ComponentActivity() {
         }
         if (needed.isNotEmpty()) {
             permissionLauncher.launch(needed.toTypedArray())
+        }
+    }
+
+    private inline fun <reified T : android.os.Parcelable> parcelableExtra(
+        intent: Intent,
+        key: String,
+    ): T? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(key, T::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(key) as? T
+        }
+    }
+
+    private inline fun <reified T : android.os.Parcelable> parcelableArrayListExtra(
+        intent: Intent,
+        key: String,
+    ): ArrayList<T>? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableArrayListExtra(key, T::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra(key)
         }
     }
 }

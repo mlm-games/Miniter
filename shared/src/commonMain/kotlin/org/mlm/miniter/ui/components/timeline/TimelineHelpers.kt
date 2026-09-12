@@ -162,21 +162,33 @@ fun AddTrackRow(onAddTrack: (RustTrackKind) -> Unit) {
 }
 
 fun formatRulerTime(ms: Long): String {
-    val totalSec = ms / 1000
-    val min = totalSec / 60
+    val sign = if (ms < 0) "-" else ""
+    val absMs = kotlin.math.abs(ms)
+    val totalSec = absMs / 1000
+    val hours = totalSec / 3600
+    val min = (totalSec % 3600) / 60
     val sec = totalSec % 60
-    val tenths = (ms % 1000) / 100
-    return if (min > 0) {
-        buildString {
+    val tenths = (absMs % 1000) / 100
+    return buildString {
+        append(sign)
+        if (hours > 0) {
+            append(hours)
+            append(':')
+            if (min < 10) append('0')
             append(min)
             append(':')
             if (sec < 10) append('0')
             append(sec)
             append('.')
             append(tenths)
-        }
-    } else {
-        buildString {
+        } else if (min > 0) {
+            append(min)
+            append(':')
+            if (sec < 10) append('0')
+            append(sec)
+            append('.')
+            append(tenths)
+        } else {
             append(sec)
             append('.')
             append(tenths)
