@@ -173,12 +173,13 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
         VideoPlanes::Cpu(data) => match frame.format {
             PixelFormat::Yuv420p => {
                 let luma = w * h;
-                let chroma = (w / 2) * (h / 2);
+                let cw = (w + 1) / 2;
+                let ch = (h + 1) / 2;
+                let chroma = cw * ch;
                 if data.len() >= luma + 2 * chroma {
                     let (y, rest) = data.split_at(luma);
                     let (u, v) = rest.split_at(chroma);
-                    let rgba =
-                        crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, w / 2, w / 2, color_info);
+                    let rgba = crate::yuv::yuv420_to_rgba(y, u, v, w, h, w, cw, cw, color_info);
                     Ok(RgbaFrame {
                         width: frame.dimensions.width,
                         height: frame.dimensions.height,
@@ -193,7 +194,7 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 }
             }
             PixelFormat::Nv12 => {
-                let expected = w * h * 3 / 2;
+                let expected = w * h + w * ((h + 1) / 2);
                 if data.len() < expected {
                     return Err(DecodeBackendError::Other(format!(
                         "NV12 plane data too small: got {} expected {}",
@@ -330,28 +331,33 @@ fn drain_raw_frames(
 
     while let Ok(pending) = copy_rx.try_recv() {
         let expected_size = match pending.format {
-            PixelFormat::Yuv420p => (pending.width * pending.height * 3 / 2) as usize,
-            PixelFormat::Nv12 => (pending.width * pending.height * 3 / 2) as usize,
+            PixelFormat::Yuv420p | PixelFormat::Nv12 => {
+                (pending.width as usize) * (pending.height as usize)
+                    + (pending.width as usize) * ((pending.height as usize + 1) / 2)
+            }
             PixelFormat::Rgba8 | PixelFormat::Bgra8 => {
                 (pending.width * pending.height * 4) as usize
             }
             _ => pending.data.len(),
         };
-        if pending.data.len() != expected_size {
+        if pending.data.len() < expected_size {
             log::warn!(
-                "copy_rx: size mismatch for {}x{} fmt={:?}: got {} expected {}",
+                "copy_rx: size mismatch for {}x{} fmt={:?}: got {} expected at least {}",
                 pending.width,
                 pending.height,
                 pending.format,
                 pending.data.len(),
                 expected_size,
             );
+            continue;
         }
+        let mut data = pending.data;
+        data.truncate(expected_size);
         let baaba_frame = BaabaFrame {
             dimensions: Dimensions::new(pending.width, pending.height),
             format: pending.format,
             timestamp: Duration::from_micros(pending.pts_us as u64),
-            planes: VideoPlanes::Cpu(pending.data),
+            planes: VideoPlanes::Cpu(data),
         };
         frame_buffer.push_back(convert_baaba_frame(baaba_frame)?);
     }
@@ -448,6 +454,12 @@ impl VideoDecoderBackend for BaabaBackend {
 
         #[cfg(target_arch = "wasm32")]
         {
+            while self
+                .output
+                .try_frame_raw()
+                .map(|f| f.is_some())
+                .unwrap_or(false)
+            {}
             while self.copy_rx.try_recv().is_ok() {}
         }
     }
