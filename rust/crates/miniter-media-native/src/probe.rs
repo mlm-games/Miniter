@@ -149,7 +149,7 @@ fn probe_media_info_from_mss(
     let mut reader = miniter_audio::util::probe(mss, ext)
         .map_err(|e| MediaProbeError::Symphonia(e.to_string()))?;
 
-    let duration_us = reader
+    let mut duration_us = reader
         .tracks()
         .iter()
         .find_map(|t| {
@@ -157,7 +157,8 @@ fn probe_media_info_from_mss(
             let dur = t.duration?;
             let ts = symphonia::core::units::Timestamp::new(dur.get() as i64);
             let time = tb.calc_time(ts)?;
-            Some(time.as_micros() as i64)
+            let us = time.as_micros() as i64;
+            (us > 0).then_some(us)
         })
         // Fallback to media-level duration for formats like MKV/WebM
         .or_else(|| {
@@ -166,8 +167,26 @@ fn probe_media_info_from_mss(
             let dur = mi.duration?;
             let ts = symphonia::core::units::Timestamp::new(dur.get() as i64);
             let time = tb.calc_time(ts)?;
-            Some(time.as_micros() as i64)
+            let us = time.as_micros() as i64;
+            (us > 0).then_some(us)
         });
+
+    // Last resort for containers whose header lacks Duration AND Cues (e.g.
+    // streamed MediaRecorder output).
+    let mut scanned_packet_counts: std::collections::HashMap<u32, u64> =
+        std::collections::HashMap::new();
+    if duration_us.is_none_or(|us| us <= 0) {
+        let (scanned_us, counts) = estimate_duration_by_packet_scan(&mut reader);
+        scanned_packet_counts = counts;
+        if let Some(us) = scanned_us {
+            if us > 0 {
+                log::debug!(
+                    "probe: header duration missing (ext={ext:?}), using packet-scan estimate {us}us"
+                );
+                duration_us = Some(us);
+            }
+        }
+    }
 
     let mut video_streams = Vec::new();
     let mut audio_streams = Vec::new();
@@ -175,12 +194,27 @@ fn probe_media_info_from_mss(
     for track in reader.tracks() {
         if let Some(v) = track.codec_params.as_ref().and_then(|p| p.video()) {
             let codec_name = crate::demux::symphonia_demux::format_codec_name(v.codec);
+            let mut fps = track_frame_rate(track, duration_us);
+            // Cueless WebM often lacks num_frames too; estimate fps from
+            // scanned packet count when header-based estimation failed.
+            if fps <= 0.0 {
+                if let (Some(&count), Some(dus)) =
+                    (scanned_packet_counts.get(&track.id), duration_us)
+                {
+                    if dus > 0 && count > 0 {
+                        let est = count as f64 / (dus as f64 / 1_000_000.0);
+                        if est.is_finite() && est > 0.0 && est < 240.0 {
+                            fps = est;
+                        }
+                    }
+                }
+            }
             video_streams.push(VideoStreamInfo {
                 track_id: track.id,
                 codec: codec_name,
                 width: v.width.unwrap_or(0) as u32,
                 height: v.height.unwrap_or(0) as u32,
-                frame_rate: track_frame_rate(track, duration_us),
+                frame_rate: fps,
                 bitrate: 0,
                 decoder_available: decoder_supported(v.codec),
                 hardware_acceleration_required: requires_hardware_acceleration(v.codec),
@@ -227,6 +261,69 @@ fn track_frame_rate(track: &symphonia::core::formats::Track, duration_us: Option
         }
     }
     0.0
+}
+
+/// Last-resort duration estimation for containers (notably streamed WebM/MKV)
+/// whose header lacks both Duration and Cues. Scans demuxed packets and
+/// returns the max (pts + dur) converted to microseconds, plus per-track
+/// packet counts for fps estimation. Bounded by MAX_PACKETS; returns
+/// (None, counts) when no usable timestamps exist.
+fn estimate_duration_by_packet_scan(
+    reader: &mut Box<dyn symphonia::core::formats::FormatReader + '_>,
+) -> (Option<i64>, std::collections::HashMap<u32, u64>) {
+    use std::collections::HashMap;
+    use symphonia::core::units::Timestamp;
+
+    let time_bases: HashMap<u32, symphonia::core::units::TimeBase> = reader
+        .tracks()
+        .iter()
+        .filter_map(|t| t.time_base.map(|tb| (t.id, tb)))
+        .collect();
+
+    let mut counts: HashMap<u32, u64> = HashMap::new();
+    let mut max_us: i64 = 0;
+    let mut packets: u64 = 0;
+    // Guard against pathological/corrupt files; 2M packets is far beyond any
+    // realistic probe while still bounding scan time.
+    const MAX_PACKETS: u64 = 2_000_000;
+
+    loop {
+        if packets >= MAX_PACKETS {
+            log::warn!("probe: packet scan hit {MAX_PACKETS} packet cap, using partial estimate");
+            break;
+        }
+        let pkt = match reader.next_packet() {
+            Ok(Some(p)) => p,
+            Ok(None) => break, // EOF
+            Err(_) => break,   // Use partial max on mid-stream errors
+        };
+        packets += 1;
+        *counts.entry(pkt.track_id).or_insert(0) += 1;
+
+        let Some(tb) = time_bases.get(&pkt.track_id).copied() else {
+            continue;
+        };
+        // End timestamp = pts + dur (dur may be 0 when the muxer omits
+        // BlockDuration; pts alone still advances the max).
+        let end_ticks = pkt.pts.get().saturating_add(pkt.dur.get() as i64);
+        let end_ticks = end_ticks.max(pkt.pts.get());
+        if end_ticks <= 0 {
+            continue;
+        }
+        let Some(time) = tb.calc_time(Timestamp::new(end_ticks)) else {
+            continue;
+        };
+        let us = time.as_micros().min(i64::MAX as i128) as i64;
+        if us > max_us {
+            max_us = us;
+        }
+    }
+
+    if max_us > 0 {
+        (Some(max_us), counts)
+    } else {
+        (None, counts)
+    }
 }
 
 fn probe_ivf(path: &Path) -> Result<MediaInfo, MediaProbeError> {
