@@ -8,6 +8,21 @@ use rav1e::prelude::*;
 
 const MIN_DIM: u32 = 16;
 
+/// Keyframe interval for seeking/thumbnailing: one keyframe ≈ every 2 s of
+/// video, clamped to [30, 240] frames.
+///
+/// Equal min/max forces a deterministic grid. rav1e's defaults otherwise emit
+/// only sparse scene-cut keyframes (e.g. 3 in 300 frames), and OS file
+/// managers (Nautilus via ffmpegthumbnailer, …) fail to seek such files —
+/// falling back to frame 0, which is legitimately black in fade-from-black
+/// projects — so exports show no thumbnail. See `tests/export_thumbnail_regression.rs`.
+pub(crate) fn key_frame_interval(fps: f64) -> u64 {
+    if !fps.is_finite() || fps <= 0.0 {
+        return 60;
+    }
+    (2.0 * fps).round().clamp(30.0, 240.0) as u64
+}
+
 fn rav1e_color_description(matrix: MatrixCoeffs) -> ColorDescription {
     let (primaries, transfer, matrix_coefficients) = match matrix {
         MatrixCoeffs::Bt601 => (
@@ -91,8 +106,9 @@ impl Av1EncodeSession {
         enc.chroma_sampling = ChromaSampling::Cs420;
         enc.time_base = Rational::new(fps_den as u64, fps_num as u64);
         enc.bitrate = bitrate_kbps.saturating_mul(1000).min(i32::MAX as u32) as i32;
-        enc.min_key_frame_interval = 0;
-        enc.max_key_frame_interval = 60;
+        let keyint = key_frame_interval(fps);
+        enc.min_key_frame_interval = keyint;
+        enc.max_key_frame_interval = keyint;
         enc.color_description = Some(rav1e_color_description(matrix));
         enc.pixel_range = PixelRange::Full;
 
@@ -159,7 +175,11 @@ impl Av1EncodeSession {
                     packets.push(Av1Packet {
                         pts,
                         data: packet.data,
-                        is_keyframe: matches!(packet.frame_type, FrameType::KEY),
+                        // All-intra frames (KEY + INTRA_ONLY) are independently
+                        // decodable, hence valid MP4 sync samples. SWITCH/INTER
+                        // frames need references and must not be marked sync —
+                        // mislabeled sync samples break seek-based thumbnailers.
+                        is_keyframe: packet.frame_type.all_intra(),
                     });
                 }
                 Err(EncoderStatus::Encoded) => continue,
@@ -191,7 +211,8 @@ impl Av1EncodeSession {
                     packets.push(Av1Packet {
                         pts,
                         data: packet.data,
-                        is_keyframe: matches!(packet.frame_type, FrameType::KEY),
+                        // See encode_frame: only all-intra frames are sync samples.
+                        is_keyframe: packet.frame_type.all_intra(),
                     });
                 }
                 Err(EncoderStatus::Encoded) => continue,
@@ -202,5 +223,31 @@ impl Av1EncodeSession {
             }
         }
         Ok(packets)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::key_frame_interval;
+
+    #[test]
+    fn keyframe_grid_is_two_seconds_clamped() {
+        assert_eq!(key_frame_interval(30.0), 60);
+        assert_eq!(key_frame_interval(60.0), 120);
+        assert_eq!(key_frame_interval(25.0), 50);
+        // Degenerate input falls back to a sane default instead of
+        // disabling periodic keyframes (which breaks seeking/thumbnails).
+        assert_eq!(key_frame_interval(0.0), 60);
+        assert_eq!(key_frame_interval(f64::NAN), 60);
+        assert_eq!(key_frame_interval(-5.0), 60);
+    }
+
+    #[test]
+    fn keyframe_grid_is_bounded() {
+        // Very low fps must not collapse to all-intra; very high fps must
+        // not starve keyframes beyond a seekable horizon.
+        assert_eq!(key_frame_interval(5.0), 30);
+        assert_eq!(key_frame_interval(240.0), 240);
+        assert_eq!(key_frame_interval(1000.0), 240);
     }
 }
