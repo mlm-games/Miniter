@@ -17,7 +17,6 @@ import io.github.vinceglb.filekit.dialogs.init
 import org.koin.core.context.GlobalContext
 import org.mlm.miniter.di.initKoin
 import org.mlm.miniter.platform.AndroidContext
-import org.mlm.miniter.platform.MicPermissionRegistry
 import org.mlm.miniter.platform.PendingMediaOpen
 import org.mlm.miniter.platform.PendingMediaOpens
 import org.mlm.miniter.platform.mediaOpenDisplayName
@@ -29,30 +28,10 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
 
-    private var pendingMicResult: ((Boolean) -> Unit)? = null
-    private val micPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        pendingMicResult?.invoke(granted)
-        pendingMicResult = null
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         AndroidContext.init(applicationContext)
-
-        MicPermissionRegistry.register { onResult ->
-            if (ContextCompat.checkSelfPermission(
-                    this, Manifest.permission.RECORD_AUDIO
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                onResult(true)
-            } else {
-                pendingMicResult = onResult
-                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        }
 
         FileKit.init(this)
         enableEdgeToEdge()

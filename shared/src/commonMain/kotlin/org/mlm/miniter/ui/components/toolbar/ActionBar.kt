@@ -27,9 +27,6 @@ fun ActionBar(
     onProperties: () -> Unit,
     autoKeyframeEnabled: Boolean = false,
     onToggleAutoKeyframe: () -> Unit = {},
-    isRecordingVoiceover: Boolean = false,
-    onToggleVoiceover: () -> Unit = {},
-    showVoiceover: Boolean = true,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -110,55 +107,8 @@ fun ActionBar(
                     }
                 }
             }
-            VoiceoverChip(
-                isRecording = isRecordingVoiceover,
-                onClick = onToggleVoiceover,
-                showVoiceover = showVoiceover,
-            )
         }
     }
-}
-
-@Composable
-private fun VoiceoverChip(
-    isRecording: Boolean,
-    onClick: () -> Unit,
-    showVoiceover: Boolean = true,
-) {
-    if (!showVoiceover && !isRecording) return
-    val containerColor = if (isRecording) {
-        MaterialTheme.colorScheme.errorContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerHigh
-    }
-    val contentColor = if (isRecording) {
-        MaterialTheme.colorScheme.onErrorContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    AssistChip(
-        onClick = onClick,
-        label = {
-            Text(
-                if (isRecording) "Stop" else "Voiceover",
-                style = MaterialTheme.typography.labelSmall,
-            )
-        },
-        leadingIcon = {
-            Icon(
-                if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-                "Record voiceover",
-                Modifier.size(16.dp),
-                tint = contentColor,
-            )
-        },
-        colors = AssistChipDefaults.assistChipColors(
-            containerColor = containerColor,
-            labelColor = contentColor,
-            leadingIconContentColor = contentColor,
-        ),
-        modifier = Modifier.height(32.dp),
-    )
 }
 
 @Composable

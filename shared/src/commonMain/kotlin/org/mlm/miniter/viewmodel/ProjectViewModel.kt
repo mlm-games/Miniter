@@ -62,9 +62,6 @@ import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.SupportedFormats
-import org.mlm.miniter.platform.VoiceRecorder
-import org.mlm.miniter.platform.isVoiceoverSupported
-import org.mlm.miniter.platform.requestMicPermission
 import org.mlm.miniter.platform.msToUs
 import org.mlm.miniter.platform.usToMs
 import org.mlm.miniter.platform.platformPath
@@ -1695,127 +1692,6 @@ class ProjectViewModel(
 
     fun removeFilter(clipId: String, filterIndex: Int) {
         dispatchAndSync(rustStore.commands.removeVideoFilter(clipId, filterIndex))
-    }
-
-    private val _isRecordingVoiceover = MutableStateFlow(false)
-    val isRecordingVoiceover: StateFlow<Boolean> = _isRecordingVoiceover
-    private var voiceoverPath: String? = null
-
-    fun toggleVoiceover() {
-        if (_isRecordingVoiceover.value) stopVoiceoverAndImport() else startVoiceover()
-    }
-
-    fun startVoiceover() {
-        if (_isRecordingVoiceover.value) return
-        if (!isVoiceoverSupported) {
-            snackbarManager.showError("Voiceover not supported on this device")
-            return
-        }
-        if (rustStore.snapshot.value == null) {
-            snackbarManager.showError("Open a project first")
-            return
-        }
-        requestMicPermission { granted ->
-            if (!granted) {
-                snackbarManager.showError("Microphone permission denied")
-                return@requestMicPermission
-            }
-            viewModelScope.launch { beginVoiceoverRecording() }
-        }
-    }
-
-    private suspend fun beginVoiceoverRecording() {
-        if (_isRecordingVoiceover.value) return
-        if (rustStore.snapshot.value == null) {
-            snackbarManager.showError("Open a project first")
-            return
-        }
-        try {
-            val dir = PlatformFileSystem.getAppDataDirectory("Miniter")
-            val name = "voiceover_${Clock.System.now().toEpochMilliseconds()}.${VoiceRecorder.fileExtension}"
-            val path = PlatformFileSystem.combinePath(dir, name)
-            val started = withContext(Dispatchers.Default) { VoiceRecorder.start(path) }
-            if (!started) {
-                snackbarManager.showError("Microphone unavailable on this device")
-                return
-            }
-            voiceoverPath = path
-            _isRecordingVoiceover.update { true }
-            snackbarManager.show("Recording voiceover… tap again to stop")
-        } catch (e: Exception) {
-            snackbarManager.showError("Could not start recording: ${e.message}")
-        }
-    }
-
-    fun stopVoiceoverAndImport() {
-        if (!_isRecordingVoiceover.value) return
-        viewModelScope.launch {
-            val path = voiceoverPath
-            voiceoverPath = null
-            val stopped = withContext(Dispatchers.Default) { VoiceRecorder.stop() }
-            _isRecordingVoiceover.update { false }
-            if (!stopped || path == null) {
-                snackbarManager.showError("Recording failed")
-                return@launch
-            }
-            try {
-                val staged = PlatformFileSystem.stageForNativeAccess(path)
-                val info = engine.probeVideo(staged)
-                val durationUs = info.durationMs.msToUs
-                if (durationUs <= 0L || !info.hasAudio) {
-                    snackbarManager.showError("Recording is empty, discarded")
-                    return@launch
-                }
-                val startUs = _state.value.playheadMs.msToUs
-                val endUs = startUs + durationUs
-                val snap = rustStore.snapshot.value ?: return@launch
-                var trackId = snap.timeline.tracks
-                    .filter { it.kind == RustTrackKind.Audio }
-                    .firstOrNull { track -> track.clips.none { it.overlapsRange(startUs, endUs) } }?.id
-                if (trackId == null) {
-                    // All existing audio tracks overlap: create a fresh one instead of
-                    // reusing an occupied track (ensureTrack would return the first
-                    // audio track, and addClip would then be rejected on overlap).
-                    val newName = "Voiceover ${snap.timeline.tracks.count { it.kind == RustTrackKind.Audio } + 1}"
-                    rustStore.dispatch(rustStore.commands.addTrack(RustTrackKind.Audio, newName))
-                    trackId = rustStore.snapshot.value?.timeline?.tracks
-                        ?.filter { it.kind == RustTrackKind.Audio }
-                        ?.firstOrNull { track -> track.clips.none { it.overlapsRange(startUs, endUs) } }?.id
-                        ?: error("Voiceover track creation failed")
-                }
-                val clipId = randomUuid()
-                dispatchAndSync(
-                    rustStore.commands.addClip(
-                        trackId,
-                        RustClipSnapshot(
-                            id = clipId,
-                            timelineStartUs = startUs,
-                            timelineDurationUs = durationUs,
-                            sourceStartUs = 0L,
-                            sourceEndUs = durationUs,
-                            sourceTotalDurationUs = durationUs,
-                            speed = 1.0,
-                            volume = 1.0f,
-                            opacity = 1.0f,
-                            muted = false,
-                            transitionIn = null,
-                            transitionOut = null,
-                            kind = RustAudioClipKind(
-                                sourcePath = staged,
-                                sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
-                                channels = info.audioChannels.coerceAtLeast(1),
-                                filters = emptyList(),
-                            ),
-                        ),
-                    ),
-                    selectedClipId = clipId,
-                )
-                snackbarManager.show("Voiceover added at playhead")
-            } catch (e: Exception) {
-                Napier.e("Failed to import voiceover", e)
-                snackbarManager.showError("Could not add voiceover: ${e.message}")
-            }
-        }
     }
 
     fun setFilterEnabled(clipId: String, filterIndex: Int, enabled: Boolean) {
