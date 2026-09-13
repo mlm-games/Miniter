@@ -29,6 +29,7 @@ fun ActionBar(
     onToggleAutoKeyframe: () -> Unit = {},
     isRecordingVoiceover: Boolean = false,
     onToggleVoiceover: () -> Unit = {},
+    showVoiceover: Boolean = true,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -112,6 +113,7 @@ fun ActionBar(
             VoiceoverChip(
                 isRecording = isRecordingVoiceover,
                 onClick = onToggleVoiceover,
+                showVoiceover = showVoiceover,
             )
         }
     }
@@ -121,7 +123,9 @@ fun ActionBar(
 private fun VoiceoverChip(
     isRecording: Boolean,
     onClick: () -> Unit,
+    showVoiceover: Boolean = true,
 ) {
+    if (!showVoiceover && !isRecording) return
     val containerColor = if (isRecording) {
         MaterialTheme.colorScheme.errorContainer
     } else {

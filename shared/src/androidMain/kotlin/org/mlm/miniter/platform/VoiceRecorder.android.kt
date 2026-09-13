@@ -1,6 +1,7 @@
 package org.mlm.miniter.platform
 
 import android.media.MediaRecorder
+import android.os.Build
 import java.io.File
 
 actual object VoiceRecorder {
@@ -11,11 +12,18 @@ actual object VoiceRecorder {
 
     actual fun start(outputPath: String): Boolean {
         if (recorder != null) return false
+        // Manifest permission alone is not enough on Android 6+; without a
+        // runtime grant setAudioSource(MIC) throws SecurityException.
+        if (!hasMicPermission()) return false
         return try {
             val file = File(outputPath)
             file.parentFile?.mkdirs()
-            @Suppress("DEPRECATION")
-            val rec = MediaRecorder().apply {
+            val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(AndroidContext.get())
+            } else {
+                @Suppress("DEPRECATION")
+                MediaRecorder()
+            }.apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)

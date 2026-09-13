@@ -63,6 +63,8 @@ import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.platform.VoiceRecorder
+import org.mlm.miniter.platform.isVoiceoverSupported
+import org.mlm.miniter.platform.requestMicPermission
 import org.mlm.miniter.platform.msToUs
 import org.mlm.miniter.platform.usToMs
 import org.mlm.miniter.platform.platformPath
@@ -164,18 +166,22 @@ class ProjectViewModel(
     fun requestWaveform(sourcePath: String, buckets: Int = 80) {
         if (sourcePath.isBlank()) return
         if (_waveforms.value.containsKey(sourcePath)) return
-        synchronized(waveformInFlight) {
-            if (!waveformInFlight.add(sourcePath)) return
-        }
+        // Called from the UI thread; viewModelScope also completes on Main,
+        // so a plain set check is sufficient (no synchronized in common code).
+        if (!waveformInFlight.add(sourcePath)) return
         viewModelScope.launch {
             try {
                 val json = withContext(Dispatchers.Default) {
                     RustCoreSession.extractWaveform(sourcePath, buckets)
                 }
-                _waveforms.update { it + (sourcePath to parseWaveformPeaks(json)) }
+                val peaks = parseWaveformPeaks(json)
+                // Cache even empty/failed results so silent clips and missing files
+                // don't trigger an endless request loop from TimelinePanel.
+                _waveforms.update { it + (sourcePath to peaks) }
             } catch (_: Exception) {
+                _waveforms.update { it + (sourcePath to emptyList()) }
             } finally {
-                synchronized(waveformInFlight) { waveformInFlight.remove(sourcePath) }
+                waveformInFlight.remove(sourcePath)
             }
         }
     }
@@ -909,7 +915,8 @@ class ProjectViewModel(
                         .map { it.lowercase() }
                     // Still images probe with zero duration — give them a default
                     // 5s timeline duration so logos/overlays/PiP just work.
-                    val durationUs = if (info.durationMs.msToUs <= 0L && isImage && hasVideo) {
+                    // Probe may report hasVideo=false for stills, so key off extension alone.
+                    val durationUs = if (info.durationMs.msToUs <= 0L && isImage) {
                         DEFAULT_IMAGE_CLIP_DURATION_US
                     } else {
                         info.durationMs.msToUs
@@ -1700,26 +1707,43 @@ class ProjectViewModel(
 
     fun startVoiceover() {
         if (_isRecordingVoiceover.value) return
+        if (!isVoiceoverSupported) {
+            snackbarManager.showError("Voiceover not supported on this device")
+            return
+        }
         if (rustStore.snapshot.value == null) {
             snackbarManager.showError("Open a project first")
             return
         }
-        viewModelScope.launch {
-            try {
-                val dir = PlatformFileSystem.getAppDataDirectory("Miniter")
-                val name = "voiceover_${Clock.System.now().toEpochMilliseconds()}.${VoiceRecorder.fileExtension}"
-                val path = PlatformFileSystem.combinePath(dir, name)
-                val started = withContext(Dispatchers.Default) { VoiceRecorder.start(path) }
-                if (!started) {
-                    snackbarManager.showError("Microphone unavailable on this device")
-                    return@launch
-                }
-                voiceoverPath = path
-                _isRecordingVoiceover.update { true }
-                snackbarManager.show("Recording voiceover… tap again to stop")
-            } catch (e: Exception) {
-                snackbarManager.showError("Could not start recording: ${e.message}")
+        requestMicPermission { granted ->
+            if (!granted) {
+                snackbarManager.showError("Microphone permission denied")
+                return@requestMicPermission
             }
+            viewModelScope.launch { beginVoiceoverRecording() }
+        }
+    }
+
+    private suspend fun beginVoiceoverRecording() {
+        if (_isRecordingVoiceover.value) return
+        if (rustStore.snapshot.value == null) {
+            snackbarManager.showError("Open a project first")
+            return
+        }
+        try {
+            val dir = PlatformFileSystem.getAppDataDirectory("Miniter")
+            val name = "voiceover_${Clock.System.now().toEpochMilliseconds()}.${VoiceRecorder.fileExtension}"
+            val path = PlatformFileSystem.combinePath(dir, name)
+            val started = withContext(Dispatchers.Default) { VoiceRecorder.start(path) }
+            if (!started) {
+                snackbarManager.showError("Microphone unavailable on this device")
+                return
+            }
+            voiceoverPath = path
+            _isRecordingVoiceover.update { true }
+            snackbarManager.show("Recording voiceover… tap again to stop")
+        } catch (e: Exception) {
+            snackbarManager.showError("Could not start recording: ${e.message}")
         }
     }
 
@@ -1749,7 +1773,15 @@ class ProjectViewModel(
                     .filter { it.kind == RustTrackKind.Audio }
                     .firstOrNull { track -> track.clips.none { it.overlapsRange(startUs, endUs) } }?.id
                 if (trackId == null) {
-                    trackId = ensureTrack(RustTrackKind.Audio, "Voiceover ${snap.timeline.tracks.count { it.kind == RustTrackKind.Audio } + 1}")
+                    // All existing audio tracks overlap: create a fresh one instead of
+                    // reusing an occupied track (ensureTrack would return the first
+                    // audio track, and addClip would then be rejected on overlap).
+                    val newName = "Voiceover ${snap.timeline.tracks.count { it.kind == RustTrackKind.Audio } + 1}"
+                    rustStore.dispatch(rustStore.commands.addTrack(RustTrackKind.Audio, newName))
+                    trackId = rustStore.snapshot.value?.timeline?.tracks
+                        ?.filter { it.kind == RustTrackKind.Audio }
+                        ?.firstOrNull { track -> track.clips.none { it.overlapsRange(startUs, endUs) } }?.id
+                        ?: error("Voiceover track creation failed")
                 }
                 val clipId = randomUuid()
                 dispatchAndSync(

@@ -7,7 +7,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustClipSnapshot
+import org.mlm.miniter.editor.model.RustVideoClipKind
 
 @Composable
 fun ClipContextMenu(
@@ -53,7 +55,8 @@ fun ClipContextMenu(
             text = { Text(if (clip.muted) "Unmute clip" else "Mute clip") },
             leadingIcon = { Icon(if (clip.muted) Icons.Default.VolumeUp else Icons.Default.VolumeOff, null, Modifier.size(18.dp)) },
             onClick = { onToggleMute(); onDismiss() },
-            enabled = !isLocked,
+            // Muting only makes sense for clips that can carry audio.
+            enabled = !isLocked && (clip.kind is RustAudioClipKind || clip.kind is RustVideoClipKind),
         )
 
         DropdownMenuItem(

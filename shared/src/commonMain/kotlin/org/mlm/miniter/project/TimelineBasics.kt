@@ -25,7 +25,9 @@ object TimelineBasics {
 
     fun compactMoves(track: RustTrackSnapshot): Map<String, Long> {
         val sorted = track.clips.sortedBy { it.timelineStartUs }
-        var cursor = 0L
+        // Preserve any intentional leading gap: pack against the first clip,
+        // don't pull everything to zero.
+        var cursor = sorted.firstOrNull()?.timelineStartUs ?: 0L
         val moves = mutableMapOf<String, Long>()
         for (clip in sorted) {
             if (clip.timelineStartUs != cursor) moves[clip.id] = cursor

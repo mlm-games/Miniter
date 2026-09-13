@@ -244,12 +244,13 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)                ) {
                     Text("Resolution", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Row(
-                        Modifier.fillMaxWidth(),
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         FilterChip(
                             selected = customWidth == "1280" && customHeight == "720",
@@ -270,26 +271,44 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             label = { Text("4K") },
                         )
                     }
-                    Row(
-                        Modifier.fillMaxWidth(),
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        val aspectW = customWidth.toIntOrNull() ?: 0
+                        val aspectH = customHeight.toIntOrNull() ?: 0
+                        fun matchesRatio(aw: Int, ah: Int): Boolean {
+                            if (aspectW <= 0 || aspectH <= 0) return false
+                            return aspectW.toLong() * ah == aspectH.toLong() * aw
+                        }
+                        // Aspect chips match by ratio (1080p is also 16:9) and
+                        // preserve the current width, only adjusting height.
+                        fun applyAspect(aw: Int, ah: Int, fallbackW: String, fallbackH: String) {
+                            val baseW = customWidth.toIntOrNull()?.takeIf { it > 0 }
+                            if (baseW == null) {
+                                customWidth = fallbackW; customHeight = fallbackH
+                            } else {
+                                val h = (baseW.toLong() * ah / aw).toInt().let { (it / 2) * 2 }
+                                customWidth = baseW.toString(); customHeight = h.toString()
+                            }
+                        }
                         FilterChip(
-                            selected = customWidth == "1920" && customHeight == "1080",
-                            onClick = { customWidth = "1920"; customHeight = "1080" },
+                            selected = matchesRatio(16, 9),
+                            onClick = { applyAspect(16, 9, "1920", "1080") },
                             enabled = !isExporting,
                             label = { Text("16:9") },
                         )
                         FilterChip(
-                            selected = customWidth == "1080" && customHeight == "1920",
-                            onClick = { customWidth = "1080"; customHeight = "1920" },
+                            selected = matchesRatio(9, 16),
+                            onClick = { applyAspect(9, 16, "1080", "1920") },
                             enabled = !isExporting,
                             label = { Text("9:16") },
                         )
                         FilterChip(
-                            selected = customWidth == "1080" && customHeight == "1080",
-                            onClick = { customWidth = "1080"; customHeight = "1080" },
+                            selected = matchesRatio(1, 1),
+                            onClick = { applyAspect(1, 1, "1080", "1080") },
                             enabled = !isExporting,
                             label = { Text("1:1") },
                         )

@@ -22,6 +22,7 @@ import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.nav.Route
 import org.mlm.miniter.platform.SupportedFormats
+import org.mlm.miniter.platform.isVoiceoverSupported
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.components.preview.EditorVideoPreview
@@ -233,6 +234,7 @@ fun ProjectScreen(
             onToggleAutoKeyframe = { autoKeyframeEnabled = !autoKeyframeEnabled },
             isRecordingVoiceover = vm.isRecordingVoiceover.collectAsState().value,
             onToggleVoiceover = { vm.toggleVoiceover() },
+            showVoiceover = isVoiceoverSupported,
         )
 
         HorizontalDivider(thickness = 0.5.dp)

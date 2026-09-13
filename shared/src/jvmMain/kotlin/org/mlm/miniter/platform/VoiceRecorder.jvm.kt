@@ -13,8 +13,11 @@ actual object VoiceRecorder {
     actual val isRecording: Boolean get() = recordingThread != null
 
     private const val SAMPLE_RATE = 44_100f
+    @Volatile
     private var line: TargetDataLine? = null
+    @Volatile
     private var recordingThread: Thread? = null
+    @Volatile
     private var outputFile: File? = null
 
     actual fun start(outputPath: String): Boolean {
@@ -59,7 +62,9 @@ actual object VoiceRecorder {
             recordingThread = null
             line?.stop()
             line?.close()
-            worker.join(3000)
+            // Unbounded join: the worker holds the file stream open, so patching
+            // the header before it exits would corrupt the WAV.
+            worker.join()
             patchWavHeader()
             true
         } catch (_: Exception) {
@@ -79,12 +84,10 @@ actual object VoiceRecorder {
         val file = outputFile ?: return
         try {
             val dataSize = (file.length() - 44).coerceAtLeast(0).toInt()
-            FileOutputStream(file, false).use { /* rewrite below via random access */ }
-            val raf = java.io.RandomAccessFile(file, "rw")
-            raf.use {
+            // Overwrite just the 44-byte header in place; never truncate the file.
+            java.io.RandomAccessFile(file, "rw").use {
                 it.seek(0)
-                val header = wavHeader(dataSize)
-                it.write(header)
+                it.write(wavHeader(dataSize))
             }
         } catch (_: Exception) {
         }

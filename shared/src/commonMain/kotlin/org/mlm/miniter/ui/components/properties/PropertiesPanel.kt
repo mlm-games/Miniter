@@ -404,17 +404,27 @@ private fun VideoClipProperties(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val hasFadeIn = clip.transitionIn?.kind == RustTransitionKind.CrossFade
         AssistChip(
             onClick = {
-                onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+                onSetTransitionIn(
+                    clip.id,
+                    if (hasFadeIn) null
+                    else RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L),
+                )
             },
-            label = { Text("Fade in from black") },
+            label = { Text(if (hasFadeIn) "Remove fade in" else "Fade in from black") },
         )
+        val hasFadeOut = clip.transitionOut?.kind == RustTransitionKind.CrossFade
         AssistChip(
             onClick = {
-                onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+                onSetTransitionOut(
+                    clip.id,
+                    if (hasFadeOut) null
+                    else RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L),
+                )
             },
-            label = { Text("Fade out to black") },
+            label = { Text(if (hasFadeOut) "Remove fade out" else "Fade out to black") },
         )
     }
     Spacer(Modifier.height(8.dp))

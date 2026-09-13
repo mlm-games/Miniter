@@ -527,7 +527,10 @@ private fun ClipBlock(
             tonalElevation = if (isSelected) 4.dp else 1.dp,
         ) {
             Box(Modifier.fillMaxSize()) {
-                if (waveform.isNotEmpty() &&
+                val visibleWaveform = remember(waveform, clip.sourceStartUs, clip.sourceEndUs, clip.sourceTotalDurationUs) {
+                    sliceWaveformForClip(waveform, clip.sourceStartUs, clip.sourceEndUs, clip.sourceTotalDurationUs)
+                }
+                if (visibleWaveform.isNotEmpty() &&
                     (trackKind == RustTrackKind.Audio || trackKind == RustTrackKind.Video)
                 ) {
                     val barColor = onContainerColor.copy(alpha = 0.45f)
@@ -535,12 +538,12 @@ private fun ClipBlock(
                         modifier = Modifier.fillMaxSize()
                             .padding(horizontal = 6.dp, vertical = 5.dp),
                     ) {
-                        val n = waveform.size
+                        val n = visibleWaveform.size
                         val w = size.width
                         val h = size.height
                         val stepX = w / n.coerceAtLeast(1)
-                        for (i in waveform.indices) {
-                            val peak = waveform[i].coerceIn(0f, 1f)
+                        for (i in visibleWaveform.indices) {
+                            val peak = visibleWaveform[i].coerceIn(0f, 1f)
                             val barH = (peak * h * 0.9f).coerceAtLeast(1f)
                             val cx = i * stepX + stepX / 2f
                             drawLine(
@@ -695,6 +698,30 @@ private fun ClipBlock(
 }
 
 private fun clipStartMs(clip: RustClipSnapshot): Long = clip.timelineStartUs / 1000L
+
+/**
+ * Full-file waveform buckets cover [0, totalDurationUs]; the clip only shows
+ * [sourceStartUs, sourceEndUs], so slice to the visible range. Falls back to
+ * the full waveform when range metadata is missing.
+ */
+private fun sliceWaveformForClip(
+    full: List<Float>,
+    sourceStartUs: Long,
+    sourceEndUs: Long,
+    totalDurationUs: Long,
+): List<Float> {
+    if (full.isEmpty()) return full
+    if (totalDurationUs <= 0L) return full
+    if (sourceEndUs <= sourceStartUs) return full
+    val n = full.size
+    val start = sourceStartUs.coerceIn(0L, totalDurationUs)
+    val end = sourceEndUs.coerceIn(start, totalDurationUs)
+    if (start == 0L && end == totalDurationUs) return full
+    val fromIdx = ((start.toDouble() / totalDurationUs) * n).toInt().coerceIn(0, n - 1)
+    val toIdx = ((end.toDouble() / totalDurationUs) * n).toInt().coerceIn(fromIdx + 1, n)
+    if (fromIdx == 0 && toIdx == n) return full
+    return full.subList(fromIdx, toIdx)
+}
 
 private fun clipDurationMs(clip: RustClipSnapshot): Long = clip.timelineDurationUs / 1000L
 
