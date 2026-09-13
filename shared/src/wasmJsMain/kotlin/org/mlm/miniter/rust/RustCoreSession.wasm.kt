@@ -225,13 +225,17 @@ actual class RustCoreSession private constructor(
 
         actual fun exportPreviewFrame(): ImageData? {
             val json = wasmExportPreviewFrame()
-            if (json == "null") return null
+            if (json.trim() == "null" || json.isBlank()) return null
             return try {
                 val payload = wasmBridgeJson.decodeFromString<WasmFramePayload>(json)
                 payload.toImageData()
             } catch (_: Exception) {
                 null
             }
+        }
+
+        actual fun clearExportPreview() {
+            wasmClearExportPreview()
         }
 
         actual fun exportProgress(): UInt = wasmExportProgress().toUInt()

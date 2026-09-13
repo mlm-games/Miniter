@@ -14,6 +14,11 @@ pub fn take_wasm_export_preview() -> Option<(u32, u32, Vec<u8>)> {
     wasm_preview_store().lock().ok()?.take()
 }
 
+/// Non-destructive read; see `export::peek_export_preview`.
+pub fn peek_wasm_export_preview() -> Option<(u32, u32, Vec<u8>)> {
+    wasm_preview_store().lock().ok()?.clone()
+}
+
 pub fn clear_wasm_export_preview() {
     if let Ok(mut preview) = wasm_preview_store().lock() {
         *preview = None;

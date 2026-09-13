@@ -1445,3 +1445,42 @@ pub(crate) fn map_subtitle_cue_to_timeline_sample(
         text: text.to_string(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::downscale_rgba_for_preview;
+
+    fn solid_rgba(w: u32, h: u32) -> Vec<u8> {
+        vec![128u8; (w as usize) * (h as usize) * 4]
+    }
+
+    #[test]
+    fn preview_downscale_preserves_aspect_and_size_invariant() {
+        let (pw, ph, out) =
+            downscale_rgba_for_preview(&solid_rgba(1920, 1080), 1920, 1080).expect("downscale");
+        assert_eq!((pw, ph), (160, 90));
+        assert_eq!(out.len(), 160 * 90 * 4);
+
+        let (pw, ph, out) =
+            downscale_rgba_for_preview(&solid_rgba(1080, 1920), 1080, 1920).expect("downscale");
+        assert_eq!((pw, ph), (90, 160));
+        assert_eq!(out.len(), 90 * 160 * 4);
+    }
+
+    #[test]
+    fn preview_small_frames_are_not_upscaled() {
+        assert!(downscale_rgba_for_preview(&solid_rgba(160, 90), 160, 90).is_none());
+        assert!(downscale_rgba_for_preview(&solid_rgba(80, 60), 80, 60).is_none());
+    }
+
+    #[test]
+    fn preview_output_never_empty_or_mismatched() {
+        for (w, h) in [(1920, 1080), (3840, 2160), (640, 480), (161, 161)] {
+            if let Some((pw, ph, out)) = downscale_rgba_for_preview(&solid_rgba(w, h), w, h) {
+                assert!(pw >= 1 && ph >= 1);
+                assert!(pw <= 160 && ph <= 160);
+                assert_eq!(out.len(), (pw as usize) * (ph as usize) * 4);
+            }
+        }
+    }
+}

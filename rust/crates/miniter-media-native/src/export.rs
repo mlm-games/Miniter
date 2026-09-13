@@ -49,6 +49,15 @@ pub fn take_export_preview() -> Option<(u32, u32, Vec<u8>)> {
     preview_store().lock().ok()?.take()
 }
 
+/// Non-destructive read of the latest export preview frame.
+///
+/// Prefer this from polling loops: `take_*` consumes the frame, so a poll
+/// that arrives before the next rendered frame sees `None` and the UI
+/// flickers. `peek_*` keeps the last frame visible until a newer one arrives.
+pub fn peek_export_preview() -> Option<(u32, u32, Vec<u8>)> {
+    preview_store().lock().ok()?.clone()
+}
+
 pub fn clear_export_preview() {
     if let Ok(mut preview) = preview_store().lock() {
         *preview = None;

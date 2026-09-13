@@ -29,6 +29,7 @@ actual class PlatformVideoEngine actual constructor() {
         outputPath: String,
     ) = withContext(Dispatchers.IO) {
         exportCancelled = false
+        RustCoreSession.clearExportPreview()
         _exportProgress.value = ExportProgress(
             phase = "Encoding video…",
             progress = 0f,
@@ -177,6 +178,7 @@ actual class PlatformVideoEngine actual constructor() {
 
     actual fun reset() {
         exportCancelled = false
+        runCatching { RustCoreSession.clearExportPreview() }
         _exportProgress.value = ExportProgress()
     }
 }

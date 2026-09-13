@@ -46,6 +46,7 @@ expect class RustCoreSession {
         fun cancelExport()
         fun exportProgress(): UInt
         fun exportPreviewFrame(): ImageData?
+        fun clearExportPreview()
         fun wasExportHardwareAccelerated(): Boolean
         fun subtitleTextAt(path: String, timestampUs: Long): String?
     }

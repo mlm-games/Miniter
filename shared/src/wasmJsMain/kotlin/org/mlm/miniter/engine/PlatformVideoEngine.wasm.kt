@@ -54,6 +54,7 @@ actual class PlatformVideoEngine actual constructor() {
         outputPath: String,
     ) {
         exportCancelled = false
+        runCatching { RustCoreSession.clearExportPreview() }
         _exportProgress.value = ExportProgress(
             phase = "Encoding video…",
             progress = 0f,
@@ -62,6 +63,7 @@ actual class PlatformVideoEngine actual constructor() {
         try {
             val session = WasmExportSession(projectJson, outputPath)
             activeSession = session
+            var lastPreview: ImageData? = null
 
             while (true) {
                 currentCoroutineContext().ensureActive()
@@ -88,11 +90,12 @@ actual class PlatformVideoEngine actual constructor() {
                     return
                 }
 
-                val previewFrame = RustCoreSession.exportPreviewFrame()
+                val freshPreview = RustCoreSession.exportPreviewFrame()
+                if (freshPreview != null) lastPreview = freshPreview
                 _exportProgress.value = ExportProgress(
                     phase = "Encoding video…",
                     progress = (response.progress.toFloat() / 100_000f).coerceIn(0f, 1f),
-                    previewFrame = previewFrame,
+                    previewFrame = lastPreview,
                     hardwareFallback = response.hardwareFallback,
                 )
 
@@ -208,6 +211,7 @@ actual class PlatformVideoEngine actual constructor() {
     actual fun reset() {
         exportCancelled = false
         activeSession = null
+        runCatching { RustCoreSession.clearExportPreview() }
         _exportProgress.value = ExportProgress()
     }
 }

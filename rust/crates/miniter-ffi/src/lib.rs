@@ -472,6 +472,11 @@ mod native_ffi {
     }
 
     #[uniffi::export]
+    pub fn clear_export_preview() {
+        miniter_media_native::export::clear_export_preview();
+    }
+
+    #[uniffi::export]
     pub fn was_export_hardware_accelerated() -> bool {
         !miniter_media_native::was_hardware_fallback()
     }
@@ -483,7 +488,7 @@ mod native_ffi {
 
     #[uniffi::export]
     pub fn export_preview_frame() -> Option<FrameData> {
-        let (width, height, rgba) = miniter_media_native::export::take_export_preview()?;
+        let (width, height, rgba) = miniter_media_native::export::peek_export_preview()?;
         Some(FrameData {
             width,
             height,
@@ -870,6 +875,10 @@ mod web_ffi {
         hardware_acceleration: bool,
     ) -> Result<RgbaFrame, JsValue> {
         if let Some(file) = get_registered_file(path) {
+            if miniter_audio::util::is_image_extension(file.extension_hint.as_deref()) {
+                return miniter_media_native::thumbnailer::load_image_bytes_as_frame(&file.bytes)
+                    .map_err(|e| JsValue::from_str(&format!("Media error: {e}")));
+            }
             let size = file.bytes.len() as u64;
             let reader = Cursor::new(file.bytes);
             let mut session = miniter_media_native::decoder::VideoDecodeSession::from_reader(
@@ -945,8 +954,18 @@ mod web_ffi {
         hardware_acceleration: bool,
     ) -> Result<Vec<RgbaFrame>, JsValue> {
         if let Some(file) = get_registered_file(path) {
-            if count == 0 || duration_us <= 0.0 {
+            let count_usize = count as usize;
+            let duration_i64 = duration_us as i64;
+            let targets =
+                miniter_media_native::thumbnailer::thumbnail_targets(count_usize, duration_i64);
+            if targets.is_empty() {
                 return Ok(Vec::new());
+            }
+            if miniter_audio::util::is_image_extension(file.extension_hint.as_deref()) {
+                let frame =
+                    miniter_media_native::thumbnailer::load_image_bytes_as_frame(&file.bytes)
+                        .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
+                return Ok(vec![frame; count_usize.max(1)]);
             }
             let size = file.bytes.len() as u64;
             let reader = Cursor::new(file.bytes);
@@ -957,9 +976,6 @@ mod web_ffi {
             )
             .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
 
-            let duration = duration_us as i64;
-            let interval_us = duration / count as i64;
-            let targets: Vec<i64> = (0..count as i64).map(|idx| idx * interval_us).collect();
             let mut results = Vec::with_capacity(count as usize);
             let mut target_idx = 0usize;
             let mut last_frame: Option<RgbaFrame> = None;
@@ -980,14 +996,15 @@ mod web_ffi {
                         }
                         last_frame = Some(frame);
                     }
-                    None => {
-                        if let Some(frame) = last_frame {
+                    None if session.is_eos() => {
+                        if let Some(ref f) = last_frame {
                             while results.len() < count as usize {
-                                results.push(frame.clone());
+                                results.push(f.clone());
                             }
                         }
                         break;
                     }
+                    None => {}
                 }
             }
             Ok(results)
@@ -1091,10 +1108,15 @@ mod web_ffi {
         EXPORT_CANCELLED.store(true, Ordering::SeqCst);
     }
 
+    #[wasm_bindgen(js_name = clearExportPreview)]
+    pub fn clear_export_preview() {
+        miniter_media_native::wasm_export::clear_wasm_export_preview();
+    }
+
     #[wasm_bindgen(js_name = exportPreviewFrame)]
     pub fn export_preview_frame() -> String {
         let Some((width, height, rgba)) =
-            miniter_media_native::wasm_export::take_wasm_export_preview()
+            miniter_media_native::wasm_export::peek_wasm_export_preview()
         else {
             return "null".to_string();
         };
