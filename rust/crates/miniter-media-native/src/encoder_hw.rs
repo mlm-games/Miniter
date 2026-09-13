@@ -66,6 +66,10 @@ mod hw {
         frame_index: u32,
         #[cfg(target_arch = "wasm32")]
         is_h264: bool,
+        /// Force an AV1 keyframe every N frames so seek-based thumbnailers
+        /// work (0 = disabled, e.g. H.264 which is left to the platform).
+        #[cfg(target_arch = "wasm32")]
+        av1_keyframe_interval: u32,
         #[cfg(target_arch = "wasm32")]
         sps_pps_prepended: bool,
         #[cfg(target_arch = "wasm32")]
@@ -119,6 +123,14 @@ mod hw {
             let rt = Runtime::new().map_err(|e| EncodeError::LessAvc(format!("tokio: {e}")))?;
 
             let is_h264 = mime.contains("avc") || mime.contains("h264");
+            // Same ~2 s grid as the SW AV1 encoder (rav1e). WebCodecs AV1
+            // otherwise emits scene-cut-only keyframes, breaking seek-based
+            // thumbnailers (Nautilus/ffmpegthumbnailer fall back to frame 0).
+            let av1_keyframe_interval = if mime.contains("av01") || mime.contains("av1") {
+                (2.0 * fps as f64).round().clamp(30.0, 240.0) as u32
+            } else {
+                0
+            };
             Ok(Self {
                 input,
                 output,
@@ -130,6 +142,8 @@ mod hw {
                 frame_index: 0,
                 #[cfg(target_arch = "wasm32")]
                 is_h264,
+                #[cfg(target_arch = "wasm32")]
+                av1_keyframe_interval,
                 #[cfg(target_arch = "wasm32")]
                 sps_pps_prepended: false,
                 #[cfg(target_arch = "wasm32")]
@@ -180,13 +194,22 @@ mod hw {
                 )));
             }
             let video_frame = self.build_video_frame(frame);
-            // Force a keyframe only for the first submitted frame; letting the
-            // platform encoder place the rest avoids an all-intra stream.
-            // (Passing `Some(true)` unconditionally produced all-keyframe output.)
-            let is_first = self.frame_index == 0;
+            // Keyframe grid: first frame always, plus a periodic AV1 keyframe
+            // (~every 2 s) so seek-based thumbnailers work. H.264 is left to
+            // the platform encoder (forcing every frame was all-intra).
+            #[cfg(target_arch = "wasm32")]
+            let force_key = if self.frame_index == 0 {
+                true
+            } else if self.av1_keyframe_interval > 0 {
+                self.frame_index % self.av1_keyframe_interval == 0
+            } else {
+                false
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            let force_key = self.frame_index == 0;
             self.frame_index += 1;
             self.input
-                .encode(video_frame, if is_first { Some(true) } else { None })
+                .encode(video_frame, if force_key { Some(true) } else { None })
                 .map_err(|e| EncodeError::LessAvc(format!("HwEncoder encode: {e:?}")))?;
             Ok(())
         }
