@@ -41,6 +41,7 @@ import io.github.kdroidfilter.composemediaplayer.rememberVideoPlayerState
 import io.github.mlmgames.settings.core.SettingsRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
 import org.koin.compose.koinInject
 import org.mlm.miniter.editor.model.*
 import org.mlm.miniter.engine.ImageData

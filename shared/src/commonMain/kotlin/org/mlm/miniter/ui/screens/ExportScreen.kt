@@ -324,7 +324,8 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     )
                 } catch (_: Exception) { null }
             }
-            if (validationJson != null && validationJson.trim() != "[]" && validationJson.trim().isNotEmpty()) {
+            val currentValidation = validationJson
+            if (currentValidation != null && currentValidation.trim() != "[]" && currentValidation.trim().isNotEmpty()) {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -343,7 +344,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         }
                         SelectionContainer {
                             Text(
-                                validationJson,
+                                currentValidation,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                             )

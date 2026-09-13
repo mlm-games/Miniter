@@ -3,6 +3,7 @@ package org.mlm.miniter.engine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.await
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,7 +64,7 @@ actual class PlatformVideoEngine actual constructor() {
             activeSession = session
 
             while (true) {
-                ensureActive()
+                currentCoroutineContext().ensureActive()
                 if (exportCancelled) {
                     session.cancel()
                     _exportProgress.value = ExportProgress(
