@@ -248,6 +248,54 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     Text("Resolution", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Row(
                         Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilterChip(
+                            selected = customWidth == "1280" && customHeight == "720",
+                            onClick = { customWidth = "1280"; customHeight = "720" },
+                            enabled = !isExporting,
+                            label = { Text("720p") },
+                        )
+                        FilterChip(
+                            selected = customWidth == "1920" && customHeight == "1080",
+                            onClick = { customWidth = "1920"; customHeight = "1080" },
+                            enabled = !isExporting,
+                            label = { Text("1080p") },
+                        )
+                        FilterChip(
+                            selected = customWidth == "3840" && customHeight == "2160",
+                            onClick = { customWidth = "3840"; customHeight = "2160" },
+                            enabled = !isExporting,
+                            label = { Text("4K") },
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilterChip(
+                            selected = customWidth == "1920" && customHeight == "1080",
+                            onClick = { customWidth = "1920"; customHeight = "1080" },
+                            enabled = !isExporting,
+                            label = { Text("16:9") },
+                        )
+                        FilterChip(
+                            selected = customWidth == "1080" && customHeight == "1920",
+                            onClick = { customWidth = "1080"; customHeight = "1920" },
+                            enabled = !isExporting,
+                            label = { Text("9:16") },
+                        )
+                        FilterChip(
+                            selected = customWidth == "1080" && customHeight == "1080",
+                            onClick = { customWidth = "1080"; customHeight = "1080" },
+                            enabled = !isExporting,
+                            label = { Text("1:1") },
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {

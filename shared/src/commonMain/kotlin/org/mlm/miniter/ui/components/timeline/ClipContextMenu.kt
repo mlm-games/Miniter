@@ -20,6 +20,10 @@ fun ClipContextMenu(
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     onSetAsPlayhead: () -> Unit,
+    onRippleDelete: () -> Unit = {},
+    onToggleMute: () -> Unit = {},
+    onSplitAll: () -> Unit = {},
+    onCloseGap: () -> Unit = {},
 ) {
     DropdownMenu(
         expanded = expanded,
@@ -45,6 +49,27 @@ fun ClipContextMenu(
             enabled = !isLocked,
         )
 
+        DropdownMenuItem(
+            text = { Text(if (clip.muted) "Unmute clip" else "Mute clip") },
+            leadingIcon = { Icon(if (clip.muted) Icons.Default.VolumeUp else Icons.Default.VolumeOff, null, Modifier.size(18.dp)) },
+            onClick = { onToggleMute(); onDismiss() },
+            enabled = !isLocked,
+        )
+
+        DropdownMenuItem(
+            text = { Text("Split all at playhead") },
+            leadingIcon = { Icon(Icons.Default.Splitscreen, null, Modifier.size(18.dp)) },
+            onClick = { onSplitAll(); onDismiss() },
+            enabled = !isLocked,
+        )
+
+        DropdownMenuItem(
+            text = { Text("Close gap on track") },
+            leadingIcon = { Icon(Icons.Default.Compress, null, Modifier.size(18.dp)) },
+            onClick = { onCloseGap(); onDismiss() },
+            enabled = !isLocked,
+        )
+
         HorizontalDivider()
 
         DropdownMenuItem(
@@ -57,6 +82,19 @@ fun ClipContextMenu(
                 )
             },
             onClick = { onDelete(); onDismiss() },
+            enabled = !isLocked,
+        )
+
+        DropdownMenuItem(
+            text = { Text("Ripple delete", color = MaterialTheme.colorScheme.error) },
+            leadingIcon = {
+                Icon(
+                    Icons.Default.DeleteSweep, null,
+                    Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            },
+            onClick = { onRippleDelete(); onDismiss() },
             enabled = !isLocked,
         )
     }

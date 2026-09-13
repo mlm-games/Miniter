@@ -31,6 +31,10 @@ import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
+import org.mlm.miniter.editor.model.RustCropFilterSnapshot
+import org.mlm.miniter.editor.model.RustFlipFilterSnapshot
+import org.mlm.miniter.editor.model.RustHueFilterSnapshot
+import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
@@ -44,6 +48,7 @@ import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
+import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustVideoClipKind
 
 import org.mlm.miniter.editor.model.RustEasing
@@ -346,6 +351,36 @@ private fun VideoClipProperties(
         }
     }
 
+    clipFilters.forEachIndexed { index, effect ->
+        val flip = effect.filter as? RustFlipFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilterChip(
+                selected = flip.horizontal,
+                onClick = {
+                    onUpdateFilterParams(
+                        clip.id, index,
+                        mapOf("horizontal" to if (flip.horizontal) 0f else 1f),
+                    )
+                },
+                label = { Text("Flip H") },
+            )
+            FilterChip(
+                selected = flip.vertical,
+                onClick = {
+                    onUpdateFilterParams(
+                        clip.id, index,
+                        mapOf("vertical" to if (flip.vertical) 0f else 1f),
+                    )
+                },
+                label = { Text("Flip V") },
+            )
+        }
+    }
+
     Spacer(Modifier.height(16.dp))
     Text("Masks", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(4.dp))
@@ -365,6 +400,24 @@ private fun VideoClipProperties(
         onRemoveKeyframe = onRemoveKeyframe,
         onUpdateKeyframe = onUpdateKeyframe,
     )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AssistChip(
+            onClick = {
+                onSetTransitionIn(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+            },
+            label = { Text("Fade in from black") },
+        )
+        AssistChip(
+            onClick = {
+                onSetTransitionOut(clip.id, RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L))
+            },
+            label = { Text("Fade out to black") },
+        )
+    }
+    Spacer(Modifier.height(8.dp))
     FadeTransitionsPair(
         transitionIn = clip.transitionIn,
         transitionOut = clip.transitionOut,
@@ -758,6 +811,10 @@ private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
     RustBlurFilterSnapshot(5f),
     RustSharpenFilterSnapshot(1f),
     RustSepiaFilterSnapshot,
+    RustCropFilterSnapshot(left = 0f, top = 0f, right = 0f, bottom = 0f),
+    RustRotateFilterSnapshot(degrees = 0f),
+    RustHueFilterSnapshot(degrees = 0f),
+    RustFlipFilterSnapshot(horizontal = false, vertical = false),
 )
 
 @Composable
@@ -972,6 +1029,7 @@ private fun RustVideoFilterSnapshot.displayName(): String =
     filterDefByType(this)?.displayName ?: when (this) {
         RustGrayscaleFilterSnapshot -> "Grayscale"
         RustSepiaFilterSnapshot -> "Sepia"
+        is RustFlipFilterSnapshot -> "Flip"
         else -> "Filter"
     }
 

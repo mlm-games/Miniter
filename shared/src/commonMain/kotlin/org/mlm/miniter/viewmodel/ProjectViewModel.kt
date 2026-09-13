@@ -7,6 +7,7 @@ import io.github.mlmgames.settings.core.SettingsRepository
 import io.github.vinceglb.filekit.PlatformFile
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import org.mlm.miniter.editor.RustDispatchException
 import org.mlm.miniter.editor.RustProjectStore
 import org.mlm.miniter.nav.MAX_EXTRA_IMPORT_PATHS
@@ -23,6 +25,9 @@ import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
+import org.mlm.miniter.editor.model.RustCropFilterSnapshot
+import org.mlm.miniter.editor.model.RustFlipFilterSnapshot
+import org.mlm.miniter.editor.model.RustHueFilterSnapshot
 import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
@@ -34,6 +39,7 @@ import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustMaskEffect
 import org.mlm.miniter.editor.model.RustProjectSnapshot
+import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
@@ -55,11 +61,16 @@ import org.mlm.miniter.engine.ThumbnailResult
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.PlatformFileSystem
+import org.mlm.miniter.platform.SupportedFormats
+import org.mlm.miniter.platform.VoiceRecorder
 import org.mlm.miniter.platform.msToUs
 import org.mlm.miniter.platform.usToMs
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.RecentProjectsRepository
+import org.mlm.miniter.project.KeyframeParams
+import org.mlm.miniter.project.defaultOf
+import org.mlm.miniter.rust.RustCoreSession
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.util.toArgbHex
 import kotlin.time.Clock
@@ -128,6 +139,7 @@ class ProjectViewModel(
 
     companion object {
         private const val DEFAULT_TEXT_CLIP_DURATION_US = 3_000_000L
+        private const val DEFAULT_IMAGE_CLIP_DURATION_US = 5_000_000L
         private const val DEFAULT_SUBTITLE_DURATION_MS = 60_000L
         private const val MIN_SAMPLE_RATE = 44_100
         private const val MIN_TRIM_DURATION_US = 100_000L
@@ -144,6 +156,43 @@ class ProjectViewModel(
     private var thumbnailJob: Job? = null
     private var thumbnailRequestId: Long = 0L
     private var thumbnailRequestPath: String? = null
+
+    private val _waveforms = MutableStateFlow<Map<String, List<Float>>>(emptyMap())
+    val waveforms: StateFlow<Map<String, List<Float>>> = _waveforms
+    private val waveformInFlight = mutableSetOf<String>()
+
+    fun requestWaveform(sourcePath: String, buckets: Int = 80) {
+        if (sourcePath.isBlank()) return
+        if (_waveforms.value.containsKey(sourcePath)) return
+        synchronized(waveformInFlight) {
+            if (!waveformInFlight.add(sourcePath)) return
+        }
+        viewModelScope.launch {
+            try {
+                val json = withContext(Dispatchers.Default) {
+                    RustCoreSession.extractWaveform(sourcePath, buckets)
+                }
+                _waveforms.update { it + (sourcePath to parseWaveformPeaks(json)) }
+            } catch (_: Exception) {
+            } finally {
+                synchronized(waveformInFlight) { waveformInFlight.remove(sourcePath) }
+            }
+        }
+    }
+
+    private fun parseWaveformPeaks(json: String): List<Float> {
+        val trimmed = json.trim()
+        if (trimmed.length < 4) return emptyList()
+        return trimmed.removePrefix("[").removeSuffix("]")
+            .split("],[")
+            .mapNotNull { pair ->
+                val nums = pair.replace("[", "").replace("]", "").split(",")
+                val lo = nums.getOrNull(0)?.trim()?.toFloatOrNull()
+                val hi = nums.getOrNull(1)?.trim()?.toFloatOrNull()
+                if (lo == null || hi == null) null
+                else maxOf(kotlin.math.abs(lo), kotlin.math.abs(hi)).coerceIn(0f, 1f)
+            }
+    }
 
     init {
         viewModelScope.launch {
@@ -856,7 +905,15 @@ class ProjectViewModel(
                     val info = item.info
                     val hasVideo = info.hasVideo
                     val hasAudio = info.hasAudio
-                    val durationUs = info.durationMs.msToUs
+                    val isImage = item.path.substringAfterLast(".").lowercase() in SupportedFormats.imageExtensions
+                        .map { it.lowercase() }
+                    // Still images probe with zero duration — give them a default
+                    // 5s timeline duration so logos/overlays/PiP just work.
+                    val durationUs = if (info.durationMs.msToUs <= 0L && isImage && hasVideo) {
+                        DEFAULT_IMAGE_CLIP_DURATION_US
+                    } else {
+                        info.durationMs.msToUs
+                    }
 
                     if (durationUs <= 0L) {
                         snackbarManager.show("Warning: Skipping '${item.path.substringAfterLast("/").substringAfterLast("\\")}' (zero duration)")
@@ -1334,6 +1391,78 @@ class ProjectViewModel(
         dispatchAndSync(rustStore.commands.removeClip(clipId))
     }
 
+    fun toggleClipMute(clipId: String) {
+        val clip = findRustClip(clipId) ?: return
+        dispatchAndSync(rustStore.commands.setClipMuted(clipId, !clip.muted))
+    }
+
+    fun rippleDeleteClip(clipId: String) {
+        val snapshot = rustStore.snapshot.value ?: return
+        val track = snapshot.timeline.tracks.firstOrNull { t -> t.clips.any { it.id == clipId } } ?: run {
+            removeClip(clipId)
+            return
+        }
+        val clip = track.clips.firstOrNull { it.id == clipId } ?: return
+        selectClip(null)
+        val moves = org.mlm.miniter.project.TimelineBasics.rippleMovesForRemoval(track, clip)
+        if (moves.isEmpty()) {
+            dispatchAndSync(rustStore.commands.removeClip(clipId))
+            return
+        }
+        val cmds = buildList {
+            add(rustStore.commands.removeClip(clipId))
+            moves.forEach { (id, newStart) ->
+                add(rustStore.commands.moveClip(id, track.id, newStart))
+            }
+        }
+        try {
+            rustStore.dispatch(rustStore.commands.batch("RippleDelete", cmds))
+            syncFromRust(selectedClipId = null, isDirty = true)
+        } catch (e: Exception) {
+            handleError(e.message ?: "Ripple delete failed")
+        }
+    }
+
+    fun closeGapOnTrack(trackId: String) {
+        val snapshot = rustStore.snapshot.value ?: return
+        val track = snapshot.timeline.tracks.firstOrNull { it.id == trackId } ?: return
+        val moves = org.mlm.miniter.project.TimelineBasics.compactMoves(track)
+        if (moves.isEmpty()) {
+            snackbarManager.show("No gaps to close")
+            return
+        }
+        val cmds = moves.map { (id, newStart) ->
+            rustStore.commands.moveClip(id, track.id, newStart)
+        }
+        try {
+            rustStore.dispatch(rustStore.commands.batch("CloseGap", cmds))
+            syncFromRust(isDirty = true)
+        } catch (e: Exception) {
+            handleError(e.message ?: "Close gap failed")
+        }
+    }
+
+    fun splitAllAtPlayhead() {
+        val snapshot = rustStore.snapshot.value ?: return
+        val atUs = _state.value.playheadMs.msToUs
+        val targets = org.mlm.miniter.project.TimelineBasics.splitTargetsAt(
+            snapshot.timeline.tracks, atUs,
+        )
+        if (targets.isEmpty()) {
+            snackbarManager.show("Nothing to split at playhead")
+            return
+        }
+        val cmds = targets.map { target ->
+            rustStore.commands.splitClip(target.clipId, target.atUs, randomUuid())
+        }
+        try {
+            rustStore.dispatch(rustStore.commands.batch("SplitAll", cmds))
+            syncFromRust(isDirty = true)
+        } catch (e: Exception) {
+            handleError(e.message ?: "Split all failed")
+        }
+    }
+
     fun duplicateClip(clipId: String) {
         val track = rustStore.snapshot.value
             ?.timeline
@@ -1491,6 +1620,22 @@ class ProjectViewModel(
                 translateY = newParams["translate_y"] ?: filter.translateY,
                 rotate = newParams["rotate"] ?: filter.rotate,
             )
+            is RustCropFilterSnapshot -> RustCropFilterSnapshot(
+                left = newParams["left"] ?: filter.left,
+                top = newParams["top"] ?: filter.top,
+                right = newParams["right"] ?: filter.right,
+                bottom = newParams["bottom"] ?: filter.bottom,
+            )
+            is RustRotateFilterSnapshot -> RustRotateFilterSnapshot(
+                degrees = newParams["degrees"] ?: filter.degrees,
+            )
+            is RustHueFilterSnapshot -> RustHueFilterSnapshot(
+                degrees = newParams["degrees"] ?: filter.degrees,
+            )
+            is RustFlipFilterSnapshot -> RustFlipFilterSnapshot(
+                horizontal = newParams["horizontal"]?.let { it > 0.5f } ?: filter.horizontal,
+                vertical = newParams["vertical"]?.let { it > 0.5f } ?: filter.vertical,
+            )
             else -> filter
         }
 
@@ -1513,8 +1658,132 @@ class ProjectViewModel(
         )
     }
 
+    fun updateClipTransform(clipId: String, scale: Float, translateX: Float, translateY: Float, rotate: Float) {
+        val video = findRustClip(clipId)?.kind as? RustVideoClipKind ?: return
+        var index = video.filters.indexOfFirst { it.filter is RustTransformFilterSnapshot }
+        if (index == -1) {
+            dispatchCoalescing(
+                rustStore.commands.addVideoFilter(
+                    clipId = clipId,
+                    filter = RustVideoEffectSnapshot(
+                        filter = RustTransformFilterSnapshot(
+                            scale = defaultOf(KeyframeParams.TRANSFORM_SCALE),
+                            translateX = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X),
+                            translateY = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y),
+                            rotate = defaultOf(KeyframeParams.TRANSFORM_ROTATE),
+                        ),
+                        enabled = true,
+                    ),
+                ),
+                "Transform",
+            )
+            index = findRustClip(clipId)?.let { (it.kind as? RustVideoClipKind)?.filters?.indexOfFirst { f -> f.filter is RustTransformFilterSnapshot } } ?: -1
+            if (index == -1) return
+        }
+        updateFilterParams(
+            clipId, index,
+            mapOf("scale" to scale, "translate_x" to translateX, "translate_y" to translateY, "rotate" to rotate),
+        )
+    }
+
     fun removeFilter(clipId: String, filterIndex: Int) {
         dispatchAndSync(rustStore.commands.removeVideoFilter(clipId, filterIndex))
+    }
+
+    private val _isRecordingVoiceover = MutableStateFlow(false)
+    val isRecordingVoiceover: StateFlow<Boolean> = _isRecordingVoiceover
+    private var voiceoverPath: String? = null
+
+    fun toggleVoiceover() {
+        if (_isRecordingVoiceover.value) stopVoiceoverAndImport() else startVoiceover()
+    }
+
+    fun startVoiceover() {
+        if (_isRecordingVoiceover.value) return
+        if (rustStore.snapshot.value == null) {
+            snackbarManager.showError("Open a project first")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val dir = PlatformFileSystem.getAppDataDirectory("Miniter")
+                val name = "voiceover_${Clock.System.now().toEpochMilliseconds()}.${VoiceRecorder.fileExtension}"
+                val path = PlatformFileSystem.combinePath(dir, name)
+                val started = withContext(Dispatchers.Default) { VoiceRecorder.start(path) }
+                if (!started) {
+                    snackbarManager.showError("Microphone unavailable on this device")
+                    return@launch
+                }
+                voiceoverPath = path
+                _isRecordingVoiceover.update { true }
+                snackbarManager.show("Recording voiceover… tap again to stop")
+            } catch (e: Exception) {
+                snackbarManager.showError("Could not start recording: ${e.message}")
+            }
+        }
+    }
+
+    fun stopVoiceoverAndImport() {
+        if (!_isRecordingVoiceover.value) return
+        viewModelScope.launch {
+            val path = voiceoverPath
+            voiceoverPath = null
+            val stopped = withContext(Dispatchers.Default) { VoiceRecorder.stop() }
+            _isRecordingVoiceover.update { false }
+            if (!stopped || path == null) {
+                snackbarManager.showError("Recording failed")
+                return@launch
+            }
+            try {
+                val staged = PlatformFileSystem.stageForNativeAccess(path)
+                val info = engine.probeVideo(staged)
+                val durationUs = info.durationMs.msToUs
+                if (durationUs <= 0L || !info.hasAudio) {
+                    snackbarManager.showError("Recording is empty, discarded")
+                    return@launch
+                }
+                val startUs = _state.value.playheadMs.msToUs
+                val endUs = startUs + durationUs
+                val snap = rustStore.snapshot.value ?: return@launch
+                var trackId = snap.timeline.tracks
+                    .filter { it.kind == RustTrackKind.Audio }
+                    .firstOrNull { track -> track.clips.none { it.overlapsRange(startUs, endUs) } }?.id
+                if (trackId == null) {
+                    trackId = ensureTrack(RustTrackKind.Audio, "Voiceover ${snap.timeline.tracks.count { it.kind == RustTrackKind.Audio } + 1}")
+                }
+                val clipId = randomUuid()
+                dispatchAndSync(
+                    rustStore.commands.addClip(
+                        trackId,
+                        RustClipSnapshot(
+                            id = clipId,
+                            timelineStartUs = startUs,
+                            timelineDurationUs = durationUs,
+                            sourceStartUs = 0L,
+                            sourceEndUs = durationUs,
+                            sourceTotalDurationUs = durationUs,
+                            speed = 1.0,
+                            volume = 1.0f,
+                            opacity = 1.0f,
+                            muted = false,
+                            transitionIn = null,
+                            transitionOut = null,
+                            kind = RustAudioClipKind(
+                                sourcePath = staged,
+                                sampleRate = info.audioSampleRate.coerceAtLeast(MIN_SAMPLE_RATE),
+                                channels = info.audioChannels.coerceAtLeast(1),
+                                filters = emptyList(),
+                            ),
+                        ),
+                    ),
+                    selectedClipId = clipId,
+                )
+                snackbarManager.show("Voiceover added at playhead")
+            } catch (e: Exception) {
+                Napier.e("Failed to import voiceover", e)
+                snackbarManager.showError("Could not add voiceover: ${e.message}")
+            }
+        }
     }
 
     fun setFilterEnabled(clipId: String, filterIndex: Int, enabled: Boolean) {

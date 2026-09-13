@@ -3,6 +3,9 @@ package org.mlm.miniter.ui.components.properties
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
+import org.mlm.miniter.editor.model.RustCropFilterSnapshot
+import org.mlm.miniter.editor.model.RustHueFilterSnapshot
+import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
@@ -36,6 +39,18 @@ val FILTERS: List<FilterDef> = listOf(
     FilterDef("Sharpen", "Sharpen", listOf(
         FilterPropertyDef("amount", "Sharpen amount", 0f..3f, 29, ::fmt1d, "sharpen_amount"),
     )),
+    FilterDef("Crop", "Crop", listOf(
+        FilterPropertyDef("left", "Crop left", 0f..1f, format = ::fmtPct, keyframeSuffix = "crop_left"),
+        FilterPropertyDef("top", "Crop top", 0f..1f, format = ::fmtPct, keyframeSuffix = "crop_top"),
+        FilterPropertyDef("right", "Crop right", 0f..1f, format = ::fmtPct, keyframeSuffix = "crop_right"),
+        FilterPropertyDef("bottom", "Crop bottom", 0f..1f, format = ::fmtPct, keyframeSuffix = "crop_bottom"),
+    )),
+    FilterDef("Rotate", "Rotate", listOf(
+        FilterPropertyDef("degrees", "Rotate", -180f..180f, format = ::fmtDeg, keyframeSuffix = "rotate_deg"),
+    )),
+    FilterDef("Hue", "Hue", listOf(
+        FilterPropertyDef("degrees", "Hue shift", -180f..180f, format = ::fmtDeg, keyframeSuffix = "hue_deg"),
+    )),
 )
 
 private val FILTERS_BY_SERIAL_NAME: Map<String, FilterDef> = FILTERS.associateBy { it.serialName }
@@ -47,6 +62,9 @@ fun filterDefByType(filter: RustVideoFilterSnapshot): FilterDef? = when (filter)
     is RustBlurFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Blur"]
     is RustSharpenFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Sharpen"]
     is RustTransformFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Transform"]
+    is RustCropFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Crop"]
+    is RustRotateFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Rotate"]
+    is RustHueFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Hue"]
     else -> null
 }
 
@@ -56,6 +74,15 @@ fun readFilterProperty(filter: RustVideoFilterSnapshot, paramKey: String): Float
     is RustSaturationFilterSnapshot -> filter.value
     is RustBlurFilterSnapshot -> filter.radius
     is RustSharpenFilterSnapshot -> filter.amount
+    is RustCropFilterSnapshot -> when (paramKey) {
+        "left" -> filter.left
+        "top" -> filter.top
+        "right" -> filter.right
+        "bottom" -> filter.bottom
+        else -> 0f
+    }
+    is RustRotateFilterSnapshot -> filter.degrees
+    is RustHueFilterSnapshot -> filter.degrees
     is RustTransformFilterSnapshot -> when (paramKey) {
         "scale" -> filter.scale
         "translate_x" -> filter.translateX

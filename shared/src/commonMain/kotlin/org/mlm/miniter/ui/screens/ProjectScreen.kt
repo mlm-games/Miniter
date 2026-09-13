@@ -141,6 +141,16 @@ fun ProjectScreen(
         val videoKind = selectedClip?.kind as? org.mlm.miniter.editor.model.RustVideoClipKind
         val transformFilterIndex = videoKind?.filters?.indexOfFirst { it.filter is org.mlm.miniter.editor.model.RustTransformFilterSnapshot } ?: -1
         val transformFilter = if (transformFilterIndex != -1) videoKind?.filters?.get(transformFilterIndex)?.filter as? org.mlm.miniter.editor.model.RustTransformFilterSnapshot else null
+        // Fallback default enables preview drag-resize (PiP) even when the clip
+        // has no Transform filter yet — updateClipTransform creates one on drop.
+        val effectiveTransformFilter = transformFilter ?: if (videoKind != null) {
+            org.mlm.miniter.editor.model.RustTransformFilterSnapshot(
+                scale = defaultOf(KeyframeParams.TRANSFORM_SCALE),
+                translateX = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X),
+                translateY = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y),
+                rotate = defaultOf(KeyframeParams.TRANSFORM_ROTATE),
+            )
+        } else null
 
         EditorVideoPreview(
             snapshot = snapshot,
@@ -150,22 +160,13 @@ fun ProjectScreen(
             onPlayheadChange = { vm.seekTo(it) },
             thumbnailFallback = uiState.thumbnails.firstOrNull(),
             selectedClipId = selectedClipId,
-            transformFilter = transformFilter,
+            transformFilter = effectiveTransformFilter,
             onDragStart = {
                 if (selectedClipId != null) vm.beginEdit()
             },
             onTransformChanged = { scale, tx, ty, rot ->
-                if (selectedClipId != null && transformFilterIndex != -1) {
-                    vm.updateFilterParams(
-                        selectedClipId,
-                        transformFilterIndex,
-                        mapOf(
-                            "scale" to scale,
-                            "translate_x" to tx,
-                            "translate_y" to ty,
-                            "rotate" to rot
-                        )
-                    )
+                if (selectedClipId != null) {
+                    vm.updateClipTransform(selectedClipId, scale, tx, ty, rot)
                 }
             },
             onCommitTransform = {
@@ -230,6 +231,8 @@ fun ProjectScreen(
             onProperties = { showPropertiesSheet = true },
             autoKeyframeEnabled = autoKeyframeEnabled,
             onToggleAutoKeyframe = { autoKeyframeEnabled = !autoKeyframeEnabled },
+            isRecordingVoiceover = vm.isRecordingVoiceover.collectAsState().value,
+            onToggleVoiceover = { vm.toggleVoiceover() },
         )
 
         HorizontalDivider(thickness = 0.5.dp)
@@ -265,6 +268,12 @@ fun ProjectScreen(
                 onSplitClip = vm::splitClipAtPlayhead,
                 onDuplicateClip = vm::duplicateClip,
                 onDeleteClip = vm::removeClip,
+                onRippleDeleteClip = vm::rippleDeleteClip,
+                onToggleClipMute = vm::toggleClipMute,
+                onSplitAll = vm::splitAllAtPlayhead,
+                onCloseGap = vm::closeGapOnTrack,
+                waveforms = vm.waveforms.collectAsState().value,
+                onNeedWaveform = vm::requestWaveform,
             )
         }
     }

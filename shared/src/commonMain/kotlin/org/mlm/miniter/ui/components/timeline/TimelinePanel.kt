@@ -77,6 +77,12 @@ fun TimelinePanel(
     onSplitClip: (String) -> Unit = {},
     onDuplicateClip: (String) -> Unit = {},
     onDeleteClip: (String) -> Unit = {},
+    onRippleDeleteClip: (String) -> Unit = {},
+    onToggleClipMute: (String) -> Unit = {},
+    onSplitAll: () -> Unit = {},
+    onCloseGap: (String) -> Unit = {},
+    waveforms: Map<String, List<Float>> = emptyMap(),
+    onNeedWaveform: (String) -> Unit = {},
 ) {
     if (snapshot == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -163,6 +169,12 @@ fun TimelinePanel(
                     onSplitClip = onSplitClip,
                     onDuplicateClip = onDuplicateClip,
                     onDeleteClip = onDeleteClip,
+                    onRippleDeleteClip = onRippleDeleteClip,
+                    onToggleClipMute = onToggleClipMute,
+                    onSplitAll = onSplitAll,
+                    onCloseGap = onCloseGap,
+                    waveforms = waveforms,
+                    onNeedWaveform = onNeedWaveform,
                 )
                 HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
             }
@@ -268,6 +280,12 @@ private fun TrackRow(
     onSplitClip: (String) -> Unit,
     onDuplicateClip: (String) -> Unit,
     onDeleteClip: (String) -> Unit,
+    onRippleDeleteClip: (String) -> Unit = {},
+    onToggleClipMute: (String) -> Unit = {},
+    onSplitAll: () -> Unit = {},
+    onCloseGap: (String) -> Unit = {},
+    waveforms: Map<String, List<Float>> = emptyMap(),
+    onNeedWaveform: (String) -> Unit = {},
 ) {
     val density = LocalDensity.current
 
@@ -324,6 +342,15 @@ private fun TrackRow(
                         onSplit = { onSplitClip(clip.id) },
                         onDuplicate = { onDuplicateClip(clip.id) },
                         onDelete = { onDeleteClip(clip.id) },
+                        onRippleDelete = { onRippleDeleteClip(clip.id) },
+                        onToggleMute = { onToggleClipMute(clip.id) },
+                        onSplitAll = onSplitAll,
+                        onCloseGap = { onCloseGap(track.id) },
+                        waveform = waveforms[
+                            (clip.kind as? RustAudioClipKind)?.sourcePath
+                                ?: (clip.kind as? RustVideoClipKind)?.sourcePath
+                        ].orEmpty(),
+                        onNeedWaveform = onNeedWaveform,
                         trackId = track.id,
                         sameTypeIndex = sameTypeIndex,
                         sameTypeTrackIds = sameTypeUnlocked,
@@ -379,6 +406,12 @@ private fun ClipBlock(
     onSplit: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
+    onRippleDelete: () -> Unit = {},
+    onToggleMute: () -> Unit = {},
+    onSplitAll: () -> Unit = {},
+    onCloseGap: () -> Unit = {},
+    waveform: List<Float> = emptyList(),
+    onNeedWaveform: (String) -> Unit = {},
     trackId: String,
     sameTypeIndex: Int,
     sameTypeTrackIds: List<String>,
@@ -418,11 +451,21 @@ private fun ClipBlock(
         is RustSubtitleClipKind -> kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
     }
 
-    val canSplit = clip.kind is RustVideoClipKind &&
+    val canSplit = isTrimmableClip(clip) &&
             playheadMs > clipStartMs(clip) &&
             playheadMs < clipEndMs(clip)
 
     var showContextMenu by remember { mutableStateOf(false) }
+
+    val waveformSourcePath = (clip.kind as? RustAudioClipKind)?.sourcePath
+        ?: (clip.kind as? RustVideoClipKind)?.sourcePath
+    LaunchedEffect(waveformSourcePath) {
+        if (waveformSourcePath != null &&
+            (trackKind == RustTrackKind.Audio || trackKind == RustTrackKind.Video)
+        ) {
+            onNeedWaveform(waveformSourcePath)
+        }
+    }
 
     Box(modifier = modifier.width(widthDp)) {
         Surface(
@@ -483,10 +526,36 @@ private fun ClipBlock(
             shape = RoundedCornerShape(6.dp),
             tonalElevation = if (isSelected) 4.dp else 1.dp,
         ) {
-            Row(
-                Modifier.fillMaxSize().padding(horizontal = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Box(Modifier.fillMaxSize()) {
+                if (waveform.isNotEmpty() &&
+                    (trackKind == RustTrackKind.Audio || trackKind == RustTrackKind.Video)
+                ) {
+                    val barColor = onContainerColor.copy(alpha = 0.45f)
+                    Canvas(
+                        modifier = Modifier.fillMaxSize()
+                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                    ) {
+                        val n = waveform.size
+                        val w = size.width
+                        val h = size.height
+                        val stepX = w / n.coerceAtLeast(1)
+                        for (i in waveform.indices) {
+                            val peak = waveform[i].coerceIn(0f, 1f)
+                            val barH = (peak * h * 0.9f).coerceAtLeast(1f)
+                            val cx = i * stepX + stepX / 2f
+                            drawLine(
+                                barColor,
+                                Offset(cx, (h - barH) / 2f),
+                                Offset(cx, (h + barH) / 2f),
+                                strokeWidth = (stepX * 0.6f).coerceAtLeast(1f),
+                            )
+                        }
+                    }
+                }
+                Row(
+                    Modifier.fillMaxSize().padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                 if (clip.kind is RustVideoClipKind && clip.speed != 1.0) {
                     Text("${clip.speed}x", style = MaterialTheme.typography.labelSmall,
                         color = onContainerColor.copy(alpha = 0.7f), fontSize = 8.sp)
@@ -508,6 +577,7 @@ private fun ClipBlock(
                 if (isMuted) {
                     Icon(Icons.AutoMirrored.Filled.VolumeOff, null,
                         Modifier.size(10.dp), tint = onContainerColor.copy(0.5f))
+                }
                 }
             }
         }
@@ -578,6 +648,10 @@ private fun ClipBlock(
             onDuplicate = onDuplicate,
             onDelete = onDelete,
             onSetAsPlayhead = onSetPlayhead,
+            onRippleDelete = onRippleDelete,
+            onToggleMute = onToggleMute,
+            onSplitAll = onSplitAll,
+            onCloseGap = onCloseGap,
         )
 
         val kfs = clip.keyframes.keyframes
