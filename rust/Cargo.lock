@@ -3198,9 +3198,9 @@ dependencies = [
 
 [[package]]
 name = "reassarus-core"
-version = "0.1.3"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "322e8fe4416cba99ccaa2e29360a0ee3f4db1aa0e1ead97c209d739c1c09c176"
+checksum = "48f81381f4ea08885b48e0c2e4162205fdf09165304a959f70157c86307fb723"
 dependencies = [
  "ahash",
  "bitflags",
@@ -3213,9 +3213,9 @@ dependencies = [
 
 [[package]]
 name = "reassarus-renderer"
-version = "0.1.3"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2dff87e3af484d37b78c354562251742fa6b4eedf9a3fc6cfe5aadd17e8f24f"
+checksum = "3252bfbcdb623cb63d9647d3c71e7d5b897131ba8709f2f04c1145c093c3552d"
 dependencies = [
  "ahash",
  "fontdb",
