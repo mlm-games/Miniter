@@ -230,7 +230,7 @@ fn test_one(
 
     // Optional encode+mux
     if !skip_encode {
-        let _ = encode_and_mux(tv.path, hw, n)?;
+        encode_and_mux(tv.path, hw, n)?;
     }
 
     if !errors.is_empty() {
@@ -316,14 +316,15 @@ fn encode_and_mux(input_path: &str, hw: bool, _n: u32) -> Result<(), Box<dyn std
         };
 
         encoder_pts_list.push((enc_frame_idx, enc_pts_us));
-        if let Some(prev) = enc_prev_pts {
-            if enc_pts_us < prev && prev - enc_pts_us > 100 {
-                enc_dips += 1;
-                eprintln!(
-                    "  ⚠️  Encoder PTS dip #{}: frame_idx={}, prev={}µs -> curr={}µs",
-                    enc_dips, enc_frame_idx, prev, enc_pts_us
-                );
-            }
+        if let Some(prev) = enc_prev_pts
+            && enc_pts_us < prev
+            && prev - enc_pts_us > 100
+        {
+            enc_dips += 1;
+            eprintln!(
+                "  ⚠️  Encoder PTS dip #{}: frame_idx={}, prev={}µs -> curr={}µs",
+                enc_dips, enc_frame_idx, prev, enc_pts_us
+            );
         }
         enc_prev_pts = Some(enc_pts_us);
         enc_frame_idx += 1;
@@ -395,10 +396,11 @@ fn encode_and_mux(input_path: &str, hw: bool, _n: u32) -> Result<(), Box<dyn std
     while let Some(f) = re_session.next_frame()? {
         let pts = f.pts_us;
         re_frames.push((re_count, pts));
-        if let Some(p) = prev {
-            if pts < p && p - pts > 100 {
-                re_dips += 1;
-            }
+        if let Some(p) = prev
+            && pts < p
+            && p - pts > 100
+        {
+            re_dips += 1;
         }
         prev = Some(pts);
         re_count += 1;
@@ -428,8 +430,6 @@ fn check_visual_ffmpeg(
     width: u32,
     height: u32,
 ) -> Result<f64, Box<dyn std::error::Error>> {
-    use std::io::Write;
-
     // decode with our pipeline
     let mut our_frames: Vec<Vec<u8>> = Vec::new();
     {

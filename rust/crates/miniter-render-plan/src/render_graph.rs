@@ -105,10 +105,10 @@ fn apply_mask_transform_keyframes(
     curve: &KeyframeCurve,
     local_time: MediaDuration,
 ) {
-    if let Some(feather) = curve.evaluate(param::MASK_FEATHER, local_time) {
-        if let MaskSource::Shape { feather: f, .. } = &mut mask.source {
-            *f = feather.max(0.0);
-        }
+    if let Some(feather) = curve.evaluate(param::MASK_FEATHER, local_time)
+        && let MaskSource::Shape { feather: f, .. } = &mut mask.source
+    {
+        *f = feather.max(0.0);
     }
     let scale = curve.evaluate(param::MASK_SCALE, local_time);
     let tx = curve.evaluate(param::MASK_TRANSLATE_X, local_time);
@@ -499,6 +499,27 @@ fn transition_out_progress(clip: &Clip, trans: &Transition, t: Timestamp) -> f32
         (elapsed / total).clamp(0.0, 1.0) as f32
     }
 }
+fn scale_node_opacity(node: &mut RenderNode, factor: f32) {
+    match node {
+        RenderNode::VideoFrame { opacity, .. }
+        | RenderNode::Text { opacity, .. }
+        | RenderNode::Subtitle { opacity, .. } => {
+            *opacity = (*opacity * factor).clamp(0.0, 1.0);
+        }
+        RenderNode::TransitionBlend { bottom, top, .. } => {
+            scale_node_opacity(bottom, factor);
+            scale_node_opacity(top, factor);
+        }
+        RenderNode::Stack(children) => {
+            for child in children {
+                scale_node_opacity(child, factor);
+            }
+        }
+        RenderNode::Masked { source, .. } => {
+            scale_node_opacity(source, factor);
+        }
+    }
+}
 
 #[cfg(test)]
 mod reverse_plan_tests {
@@ -581,26 +602,5 @@ mod reverse_plan_tests {
         let clip = &timeline.tracks[0].clips[0];
         let pts = mirror_source_pts(clip, Timestamp::from_micros(99_000_000));
         assert!(pts.as_micros() >= 1_000_000);
-    }
-}
-fn scale_node_opacity(node: &mut RenderNode, factor: f32) {
-    match node {
-        RenderNode::VideoFrame { opacity, .. }
-        | RenderNode::Text { opacity, .. }
-        | RenderNode::Subtitle { opacity, .. } => {
-            *opacity = (*opacity * factor).clamp(0.0, 1.0);
-        }
-        RenderNode::TransitionBlend { bottom, top, .. } => {
-            scale_node_opacity(bottom, factor);
-            scale_node_opacity(top, factor);
-        }
-        RenderNode::Stack(children) => {
-            for child in children {
-                scale_node_opacity(child, factor);
-            }
-        }
-        RenderNode::Masked { source, .. } => {
-            scale_node_opacity(source, factor);
-        }
     }
 }

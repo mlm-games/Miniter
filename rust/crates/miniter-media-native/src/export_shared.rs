@@ -125,7 +125,7 @@ pub(crate) fn fps_to_rational(fps: f64) -> (u32, u32) {
         }
     }
     let rounded = fps.round();
-    if (fps - rounded).abs() < 0.005 && rounded >= 1.0 && rounded <= 240.0 {
+    if (fps - rounded).abs() < 0.005 && (1.0..=240.0).contains(&rounded) {
         return (rounded as u32, 1);
     }
     let num = (fps * 1000.0).round().max(1.0) as u32;
@@ -220,7 +220,12 @@ pub(crate) fn transparent_rgba(width: usize, height: usize) -> Vec<u8> {
 }
 
 pub(crate) fn alpha_over(dst: &mut [u8], src: &[u8]) {
-    for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+    for (d, s) in dst
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(src.chunks_exact(4))
+    {
         alpha_over_pixel(d, s);
     }
 }
@@ -264,7 +269,12 @@ pub(crate) fn alpha_over_pixel(dst: &mut [u8], src: &[u8]) {
 }
 
 pub fn blend_over(dst: &mut [u8], src: &[u8], mode: BlendMode) {
-    for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+    for (d, s) in dst
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(src.chunks_exact(4))
+    {
         blend_over_pixel(d, s, mode);
     }
 }
@@ -474,7 +484,12 @@ pub(crate) fn apply_mask_to_alpha(
     operation: MaskOperation,
     composition: MaskComposition,
 ) {
-    for (p, m) in pixels.chunks_exact_mut(4).zip(mask.chunks_exact(4)) {
+    for (p, m) in pixels
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(mask.chunks_exact(4))
+    {
         let mask_value = match operation {
             MaskOperation::Alpha => m[3] as f32 / 255.0,
             MaskOperation::Luma => {
@@ -513,7 +528,7 @@ pub(crate) fn feather_mask(mask: &mut [u8], width: usize, height: usize, feather
 }
 
 pub(crate) fn flatten_on_black(img: &mut [u8]) {
-    for px in img.chunks_exact_mut(4) {
+    for px in img.as_chunks_mut::<4>().0 {
         let a = px[3] as f32 / 255.0;
         px[0] = ((px[0] as f32) * a).round().clamp(0.0, 255.0) as u8;
         px[1] = ((px[1] as f32) * a).round().clamp(0.0, 255.0) as u8;
@@ -636,7 +651,7 @@ fn fit_rgba_into_canvas_fallback(cropped: &[u8], dst_w: usize, dst_h: usize) -> 
         return transparent_rgba(dst_w, dst_h);
     }
     let mut canvas = transparent_rgba(dst_w, dst_h);
-    if cropped.len() % 4 != 0 || cropped.is_empty() {
+    if !cropped.len().is_multiple_of(4) || cropped.is_empty() {
         return canvas;
     }
     let src_pixels = cropped.len() / 4;
@@ -645,7 +660,9 @@ fn fit_rgba_into_canvas_fallback(cropped: &[u8], dst_w: usize, dst_h: usize) -> 
     let dst_off = (dst_w * dst_h * 4).saturating_sub(copy_bytes) / 2 / 4 * 4;
     if dst_off + copy_bytes <= canvas.len() {
         for (d, s) in canvas[dst_off..dst_off + copy_bytes]
-            .chunks_exact_mut(4)
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
             .zip(cropped[..copy_bytes].chunks_exact(4))
         {
             alpha_over_pixel(d, s);
@@ -819,7 +836,7 @@ pub(crate) fn paint_canvas_background(
             let cover = cover_scale_rgba(src, src_w, src_h, dst_w, dst_h);
             let mut blurred = cover;
             filters::blur_rgba(&mut blurred, dst_w, dst_h, blur_radius.max(1.0));
-            for px in blurred.chunks_exact_mut(4) {
+            for px in blurred.as_chunks_mut::<4>().0 {
                 for c in 0..3 {
                     px[c] = ((px[c] as f32) * 0.85).round().clamp(0.0, 255.0) as u8;
                 }
@@ -856,7 +873,7 @@ fn cover_scale_rgba(src: &[u8], src_w: usize, src_h: usize, dst_w: usize, dst_h:
 }
 
 fn paint_transparent_surround(canvas: &mut [u8], fill: [u8; 4]) {
-    for px in canvas.chunks_exact_mut(4) {
+    for px in canvas.as_chunks_mut::<4>().0 {
         if px[3] == 0 {
             px.copy_from_slice(&fill);
         }
@@ -984,17 +1001,16 @@ pub(crate) fn font_bytes_for_path(
 ) -> Option<Vec<u8>> {
     let path = font_path.filter(|p| !p.is_empty())?;
     // Wasm/container picks live in the registered-file map, not the fs.
-    if let Some(bytes) = registered_files.get(path) {
-        if !bytes.is_empty() {
-            return Some(bytes.clone());
-        }
+    if let Some(bytes) = registered_files.get(path)
+        && !bytes.is_empty()
+    {
+        return Some(bytes.clone());
     }
-    if std::path::Path::new(path).exists() {
-        if let Ok(bytes) = std::fs::read(path) {
-            if !bytes.is_empty() {
-                return Some(bytes);
-            }
-        }
+    if std::path::Path::new(path).exists()
+        && let Ok(bytes) = std::fs::read(path)
+        && !bytes.is_empty()
+    {
+        return Some(bytes);
     }
     None
 }
@@ -1083,10 +1099,10 @@ pub(crate) fn render_text_overlay_with_files(
         let mut w = 0.0f32;
         let mut prev_ch: Option<char> = None;
         for ch in line.chars() {
-            if let Some(prev) = prev_ch {
-                if let Some(kern) = font.horizontal_kern(prev, ch, font_size) {
-                    w += kern;
-                }
+            if let Some(prev) = prev_ch
+                && let Some(kern) = font.horizontal_kern(prev, ch, font_size)
+            {
+                w += kern;
             }
             let (metrics, bitmap) = font.rasterize(ch, font_size);
             w += metrics.advance_width;
@@ -1127,10 +1143,10 @@ pub(crate) fn render_text_overlay_with_files(
         let mut prev_char: Option<char> = None;
         for (ch_idx, g) in glyphs.iter().enumerate() {
             let ch = line_chars[ch_idx];
-            if let Some(prev) = prev_char {
-                if let Some(kern) = font.horizontal_kern(prev, ch, font_size) {
-                    pen_x += kern;
-                }
+            if let Some(prev) = prev_char
+                && let Some(kern) = font.horizontal_kern(prev, ch, font_size)
+            {
+                pen_x += kern;
             }
             let m = &g.metrics;
             let gx = pen_x + m.xmin as f32;
@@ -1152,26 +1168,24 @@ pub(crate) fn render_text_overlay_with_files(
                 );
             }
 
-            if has_outline {
-                if let Some(oc) = outline_color {
-                    for oy in -outline_width..=outline_width {
-                        for ox in -outline_width..=outline_width {
-                            if ox == 0 && oy == 0 {
-                                continue;
-                            }
-                            blit_glyph(
-                                &mut canvas,
-                                width,
-                                height,
-                                &g.bitmap,
-                                m.width,
-                                m.height,
-                                gx as i32 + ox,
-                                gy as i32 + oy,
-                                oc,
-                                italic_shear,
-                            );
+            if has_outline && let Some(oc) = outline_color {
+                for oy in -outline_width..=outline_width {
+                    for ox in -outline_width..=outline_width {
+                        if ox == 0 && oy == 0 {
+                            continue;
                         }
+                        blit_glyph(
+                            &mut canvas,
+                            width,
+                            height,
+                            &g.bitmap,
+                            m.width,
+                            m.height,
+                            gx as i32 + ox,
+                            gy as i32 + oy,
+                            oc,
+                            italic_shear,
+                        );
                     }
                 }
             }
@@ -1408,7 +1422,7 @@ pub(crate) fn encode_flac(mixed: &miniter_audio::mix::MixedAudio) -> Result<Enco
     if sample_rate == 0 || sample_rate > 655_350 {
         return Err(format!("Unsupported sample rate: {sample_rate}"));
     }
-    if mixed.samples.len() % channels.max(1) as usize != 0 {
+    if !mixed.samples.len().is_multiple_of(channels.max(1) as usize) {
         return Err("Truncated final sample frame".to_string());
     }
 
@@ -1651,7 +1665,7 @@ mod canvas_background_tests {
 
     fn opaque_red(w: usize, h: usize) -> Vec<u8> {
         let mut v = vec![0u8; w * h * 4];
-        for px in v.chunks_exact_mut(4) {
+        for px in v.as_chunks_mut::<4>().0 {
             px[0] = 255;
             px[3] = 255;
         }
@@ -1711,7 +1725,7 @@ mod canvas_background_tests {
             "FF000000",
             4.0,
         );
-        assert!(canvas.chunks_exact(4).all(|px| px[3] == 255));
+        assert!(canvas.as_chunks::<4>().0.iter().all(|px| px[3] == 255));
     }
 }
 

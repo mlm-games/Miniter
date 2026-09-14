@@ -115,11 +115,11 @@ impl History {
     /// Record one applied command and its apply-time inverse.
     pub fn record(&mut self, forward: EditCommand, inverse: EditCommand) {
         if let Some(t) = &mut self.open {
-            if let Some(last) = t.forward.last_mut() {
-                if coalesce(last, &forward) {
-                    *last = forward;
-                    return;
-                }
+            if let Some(last) = t.forward.last_mut()
+                && coalesce(last, &forward)
+            {
+                *last = forward;
+                return;
             }
             t.forward.push(forward);
             t.inverse.push(inverse);
@@ -153,8 +153,8 @@ impl History {
                         .last()
                         .zip(t.forward.first())
                         .is_some_and(|(a, b)| {
-                            let mut a = a.clone();
-                            coalesce(&mut a, b)
+                            let a = a.clone();
+                            coalesce(&a, b)
                         })
             });
         if merge {

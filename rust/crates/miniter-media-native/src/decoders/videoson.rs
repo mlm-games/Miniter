@@ -321,7 +321,7 @@ static DIAG_N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(
 fn diag_trace(name: &str, fmt: &str, w: usize, h: usize, extra: &str, pts: i64) {
     use std::sync::atomic::Ordering;
     let n = DIAG_N.fetch_add(1, Ordering::Relaxed);
-    if n < 8 || n % 50 == 0 {
+    if n < 8 || n.is_multiple_of(50) {
         log::warn!("SWDEC n={n} {name} {fmt} {w}x{h} {extra} pts={pts}");
     }
 }
@@ -329,7 +329,7 @@ fn diag_trace(name: &str, fmt: &str, w: usize, h: usize, extra: &str, pts: i64) 
 fn map_videoson_color(reported: &videoson::ColorInfo, height: u32) -> ColorInfo {
     let matrix = match reported.matrix {
         1 => MatrixCoeffs::Bt709,
-        4 | 5 | 6 | 7 => MatrixCoeffs::Bt601,
+        4..=7 => MatrixCoeffs::Bt601,
         9 | 10 => MatrixCoeffs::Bt2020Ncl,
         _ => return ColorInfo::infer(height),
     };

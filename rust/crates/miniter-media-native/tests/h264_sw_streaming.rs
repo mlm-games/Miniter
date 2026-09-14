@@ -15,7 +15,7 @@ use miniter_media_native::frame::RgbaFrame;
 
 fn solid_frame(width: u32, height: u32, pts_us: i64, luma: u8) -> RgbaFrame {
     let mut data = vec![0u8; width as usize * height as usize * 4];
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         px[0] = luma;
         px[1] = luma;
         px[2] = luma;

@@ -177,13 +177,13 @@ fn probe_media_info_from_mss(
     if duration_us.is_none_or(|us| us <= 0) {
         let (scanned_us, counts) = estimate_duration_by_packet_scan(&mut reader);
         scanned_packet_counts = counts;
-        if let Some(us) = scanned_us {
-            if us > 0 {
-                log::debug!(
-                    "probe: header duration missing (ext={ext:?}), using packet-scan estimate {us}us"
-                );
-                duration_us = Some(us);
-            }
+        if let Some(us) = scanned_us
+            && us > 0
+        {
+            log::debug!(
+                "probe: header duration missing (ext={ext:?}), using packet-scan estimate {us}us"
+            );
+            duration_us = Some(us);
         }
     }
 
@@ -196,16 +196,15 @@ fn probe_media_info_from_mss(
             let mut fps = track_frame_rate(track, duration_us);
             // Cueless WebM often lacks num_frames too; estimate fps from
             // scanned packet count when header-based estimation failed.
-            if fps <= 0.0 {
-                if let (Some(&count), Some(dus)) =
+            if fps <= 0.0
+                && let (Some(&count), Some(dus)) =
                     (scanned_packet_counts.get(&track.id), duration_us)
-                {
-                    if dus > 0 && count > 0 {
-                        let est = count as f64 / (dus as f64 / 1_000_000.0);
-                        if est.is_finite() && est > 0.0 && est < 240.0 {
-                            fps = est;
-                        }
-                    }
+                && dus > 0
+                && count > 0
+            {
+                let est = count as f64 / (dus as f64 / 1_000_000.0);
+                if est.is_finite() && est > 0.0 && est < 240.0 {
+                    fps = est;
                 }
             }
             video_streams.push(VideoStreamInfo {
@@ -251,12 +250,13 @@ fn track_frame_rate(track: &symphonia::core::formats::Track, duration_us: Option
             }
         }
     }
-    if let (Some(frames), Some(dus)) = (track.num_frames, duration_us) {
-        if dus > 0 && frames > 0 {
-            let fps = frames as f64 / (dus as f64 / 1_000_000.0);
-            if fps.is_finite() && fps > 0.0 && fps < 240.0 {
-                return fps;
-            }
+    if let (Some(frames), Some(dus)) = (track.num_frames, duration_us)
+        && dus > 0
+        && frames > 0
+    {
+        let fps = frames as f64 / (dus as f64 / 1_000_000.0);
+        if fps.is_finite() && fps > 0.0 && fps < 240.0 {
+            return fps;
         }
     }
     0.0

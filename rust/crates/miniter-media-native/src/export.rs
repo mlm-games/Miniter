@@ -121,10 +121,10 @@ where
     let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
 
-    if let Some(parent) = output_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            create_dir_all(parent)?;
-        }
+    if let Some(parent) = output_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        create_dir_all(parent)?;
     }
 
     let result = match project.export_profile.format {
@@ -599,7 +599,7 @@ impl ExportDecodeCache {
                 let frame = self
                     .image_cache
                     .get_frame(path)
-                    .map_err(|e| DecodeError::NoVideoStream)?;
+                    .map_err(|_e| DecodeError::NoVideoStream)?;
                 let entry = ImageSession { frame };
                 self.sessions.insert(clip_id, ExportSession::Image(entry));
             } else {
@@ -636,10 +636,10 @@ impl ExportDecodeCache {
                         entry.pending_frame = None;
                     }
                 }
-                if let Some(ref last) = entry.last_frame {
-                    if last.pts_us == target_us {
-                        return Ok(last.clone());
-                    }
+                if let Some(ref last) = entry.last_frame
+                    && last.pts_us == target_us
+                {
+                    return Ok(last.clone());
                 }
 
                 loop {
@@ -652,7 +652,7 @@ impl ExportDecodeCache {
                                 return Ok(frame);
                             }
                             if frame.pts_us > target_us {
-                                let has_last = entry.last_frame.is_some();
+                                let _has_last = entry.last_frame.is_some();
                                 if let Some(ref last) = entry.last_frame {
                                     entry.pending_frame = Some(frame.clone());
                                     return Ok(last.clone());
@@ -883,10 +883,10 @@ where
     let mut staged: Vec<(u64, Vec<u8>, bool)> = Vec::new();
     let mut muxer: Option<Mp4Muxer<BufWriter<File>>> = None;
     let mut frame_index: u32 = 0;
-    let mut emit = |encoded: EncodedVideoOutput,
-                    frame_index: u32,
-                    staged: &mut Vec<(u64, Vec<u8>, bool)>,
-                    muxer: &mut Option<Mp4Muxer<BufWriter<File>>>|
+    let emit = |encoded: EncodedVideoOutput,
+                frame_index: u32,
+                staged: &mut Vec<(u64, Vec<u8>, bool)>,
+                muxer: &mut Option<Mp4Muxer<BufWriter<File>>>|
      -> Result<(), ExportError> {
         let (bytes, is_keyframe, pts_us) = match encoded {
             EncodedVideoOutput::Sample {
@@ -1117,10 +1117,10 @@ where
     let mut staged: Vec<(u64, Vec<u8>, bool)> = Vec::new();
     let mut muxer: Option<MkvMuxer<BufWriter<File>>> = None;
     let mut frame_index: u32 = 0;
-    let mut emit = |encoded: EncodedVideoOutput,
-                    frame_index: u32,
-                    staged: &mut Vec<(u64, Vec<u8>, bool)>,
-                    muxer: &mut Option<MkvMuxer<BufWriter<File>>>|
+    let emit = |encoded: EncodedVideoOutput,
+                frame_index: u32,
+                staged: &mut Vec<(u64, Vec<u8>, bool)>,
+                muxer: &mut Option<MkvMuxer<BufWriter<File>>>|
      -> Result<(), ExportError> {
         let (bytes, is_keyframe, pts_us) = match encoded {
             EncodedVideoOutput::Sample {
@@ -1314,7 +1314,7 @@ fn render_node(
 
             match ext.as_deref() {
                 Some("ass" | "ssa") => {
-                    let time_cs = (source_pts.as_micros() / 10_000) as i64;
+                    let time_cs = source_pts.as_micros() / 10_000;
                     match decode_cache.get_subtitle_renderer(
                         source_path,
                         width as u32,
@@ -1466,7 +1466,7 @@ fn render_node(
                         feather_mask(&mut mask, width, height, *feather);
                     }
                     if *invert {
-                        for px in mask.chunks_exact_mut(4) {
+                        for px in mask.as_chunks_mut::<4>().0 {
                             px[0] = 255 - px[0];
                             px[1] = 255 - px[1];
                             px[2] = 255 - px[2];
@@ -1555,8 +1555,8 @@ where
 
     let matrix = sniff_source_matrix(project);
 
-    if project.export_profile.hardware_acceleration {
-        if HwEncodeSession::new(
+    if project.export_profile.hardware_acceleration
+        && HwEncodeSession::new(
             width,
             height,
             video_bitrate_bps(bitrate_kbps),
@@ -1565,10 +1565,9 @@ where
             matrix,
         )
         .is_err()
-        {
-            log::warn!("HW AV1 encoder not available, falling back to software");
-            HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
-        }
+    {
+        log::warn!("HW AV1 encoder not available, falling back to software");
+        HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
     }
 
     on_progress(5);
@@ -1874,7 +1873,7 @@ fn encode_opus(
     mixed: &MixedAudio,
     bitrate_bps: u32,
 ) -> Result<crate::export_shared::EncodedOpus, OpusEncodeError> {
-    crate::export_shared::encode_opus(mixed, bitrate_bps).map_err(|e| OpusEncodeError::Encoder(e))
+    crate::export_shared::encode_opus(mixed, bitrate_bps).map_err(OpusEncodeError::Encoder)
 }
 
 fn export_flac<F>(

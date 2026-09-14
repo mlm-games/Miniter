@@ -173,8 +173,8 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
         VideoPlanes::Cpu(data) => match frame.format {
             PixelFormat::Yuv420p => {
                 let luma = w * h;
-                let cw = (w + 1) / 2;
-                let ch = (h + 1) / 2;
+                let cw = w.div_ceil(2);
+                let ch = h.div_ceil(2);
                 let chroma = cw * ch;
                 if data.len() >= luma + 2 * chroma {
                     let (y, rest) = data.split_at(luma);
@@ -194,7 +194,7 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                 }
             }
             PixelFormat::Nv12 => {
-                let expected = w * h + w * ((h + 1) / 2);
+                let expected = w * h + w * h.div_ceil(2);
                 if data.len() < expected {
                     return Err(DecodeBackendError::Other(format!(
                         "NV12 plane data too small: got {} expected {}",
@@ -238,7 +238,7 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
                     )));
                 }
                 let mut rgba = Vec::with_capacity(expected);
-                for bgra in data[..expected].chunks_exact(4) {
+                for bgra in data[..expected].as_chunks::<4>().0 {
                     rgba.push(bgra[2]); // R
                     rgba.push(bgra[1]); // G
                     rgba.push(bgra[0]); // B

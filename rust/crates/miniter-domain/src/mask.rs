@@ -2,17 +2,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum BlendMode {
+    #[default]
     Normal,
     Multiply,
     Screen,
     Overlay,
-}
-
-impl Default for BlendMode {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,32 +42,24 @@ pub enum MaskSource {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum MaskOperation {
+    #[default]
     Alpha,
     Luma,
     InvertAlpha,
     InvertLuma,
 }
 
-impl Default for MaskOperation {
-    fn default() -> Self {
-        Self::Alpha
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum MaskComposition {
+    #[default]
     Replace,
     Union,
     Intersect,
     Subtract,
-}
-
-impl Default for MaskComposition {
-    fn default() -> Self {
-        Self::Replace
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

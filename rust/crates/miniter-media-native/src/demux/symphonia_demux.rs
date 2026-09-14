@@ -1,6 +1,5 @@
 //! MKV, WebM, MP4, AVI, OGG, and other containers via symphonia.
 
-use std::io::Read;
 use std::io::Seek;
 
 use symphonia::core::codecs::video::VideoCodecId;
@@ -67,7 +66,7 @@ impl SymphoniaDemuxer {
         )?;
 
         use symphonia::core::codecs::video::well_known::{
-            CODEC_ID_AV1, CODEC_ID_H264, CODEC_ID_HEVC,
+            CODEC_ID_H264, CODEC_ID_HEVC,
             extra_data::{
                 VIDEO_EXTRA_DATA_ID_AVC_DECODER_CONFIG, VIDEO_EXTRA_DATA_ID_HEVC_DECODER_CONFIG,
             },
@@ -255,7 +254,7 @@ impl Demuxer for SymphoniaDemuxer {
                 continue;
             }
 
-            let pts = ((packet.pts.get() as i64 * self.time_base_numer as i64 * 1_000_000)
+            let pts = ((packet.pts.get() * self.time_base_numer as i64 * 1_000_000)
                 + (self.time_base_denom as i64 / 2))
                 / self.time_base_denom as i64;
 

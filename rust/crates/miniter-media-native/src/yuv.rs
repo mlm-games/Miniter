@@ -85,8 +85,8 @@ pub fn yuv420_to_rgba(
         1.0
     };
 
-    let cw = (width + 1) / 2;
-    let ch = (height + 1) / 2;
+    let cw = width.div_ceil(2);
+    let ch = height.div_ceil(2);
 
     if y.len() < height.saturating_mul(y_stride)
         || u.len() < ch.saturating_mul(u_stride)
@@ -187,8 +187,8 @@ fn nv12_to_rgba_impl(
         1.0
     };
 
-    let cw = (width + 1) / 2;
-    let ch = (height + 1) / 2;
+    let cw = width.div_ceil(2);
+    let ch = height.div_ceil(2);
 
     if y.len() < height.saturating_mul(y_stride)
         || uv.len() < ch.saturating_mul(uv_stride)

@@ -73,10 +73,10 @@ fn validate_node(node: &RenderNode, t: Timestamp, out: &mut Vec<PlanViolation>) 
         }
         RenderNode::Text { opacity, .. } | RenderNode::Subtitle { opacity, .. } => {
             check_opacity(t, *opacity, out);
-            if let RenderNode::Subtitle { source_pts, .. } = node {
-                if source_pts.as_micros() < 0 {
-                    out.push(PlanViolation::NegativeSourcePts { timestamp: t });
-                }
+            if let RenderNode::Subtitle { source_pts, .. } = node
+                && source_pts.as_micros() < 0
+            {
+                out.push(PlanViolation::NegativeSourcePts { timestamp: t });
             }
         }
         RenderNode::Stack(nodes) => {

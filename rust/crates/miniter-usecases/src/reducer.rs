@@ -1773,7 +1773,7 @@ mod tests {
         let track = Track::new(TrackKind::Audio, "Audio 1");
         let track_id = track.id;
         let mut state = state_with_tracks(vec![track]);
-        let mut clip = video_clip(0, 5_000_000);
+        let clip = video_clip(0, 5_000_000);
         let err = apply(
             &mut state,
             EditCommand::AddClip {
@@ -1789,7 +1789,7 @@ mod tests {
     #[test]
     fn trim_start_left_extension_needs_source_headroom() {
         let mut track = Track::new(TrackKind::Video, "Video 1");
-        let mut clip = video_clip(5_000_000, 5_000_000);
+        let clip = video_clip(5_000_000, 5_000_000);
         let clip_id = clip.id;
         track.insert_clip(clip).unwrap();
         let mut state = state_with_tracks(vec![track]);

@@ -19,7 +19,7 @@ pub fn sharpen_rgba(buf: &mut [u8], width: usize, height: usize, amount: f32) {
     }
     let mut blurred = buf.to_vec();
     blur_rgba(&mut blurred, width, height, 1.0);
-    for (i, px) in buf.chunks_exact_mut(4).enumerate() {
+    for (i, px) in buf.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         for c in 0..3 {
             let orig = px[c] as f32;
             let blur = blurred[i * 4 + c] as f32;
@@ -32,7 +32,7 @@ fn apply_in_linear<F>(buf: &mut [u8], f: F)
 where
     F: Fn(&mut LinSrgba),
 {
-    for px in buf.chunks_exact_mut(4) {
+    for px in buf.as_chunks_mut::<4>().0 {
         let srgba = Srgba::new(
             px[0] as f32 / 255.0,
             px[1] as f32 / 255.0,
@@ -103,7 +103,7 @@ pub fn adjust_hue(buf: &mut [u8], degrees: f32) {
 }
 
 pub fn apply_grayscale(buf: &mut [u8]) {
-    for px in buf.chunks_exact_mut(4) {
+    for px in buf.as_chunks_mut::<4>().0 {
         let gray = (0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32)
             .round()
             .clamp(0.0, 255.0) as u8;
@@ -114,7 +114,7 @@ pub fn apply_grayscale(buf: &mut [u8]) {
 }
 
 pub fn apply_sepia(buf: &mut [u8]) {
-    for px in buf.chunks_exact_mut(4) {
+    for px in buf.as_chunks_mut::<4>().0 {
         let r = px[0] as f32;
         let g = px[1] as f32;
         let b = px[2] as f32;
@@ -132,13 +132,13 @@ pub fn apply_sepia(buf: &mut [u8]) {
 
 pub fn scale_alpha(buf: &mut [u8], factor: f32) {
     let a = factor.clamp(0.0, 1.0);
-    for px in buf.chunks_exact_mut(4) {
+    for px in buf.as_chunks_mut::<4>().0 {
         px[3] = ((px[3] as f32) * a).round().clamp(0.0, 255.0) as u8;
     }
 }
 
 pub fn premultiply_alpha(buf: &mut [u8]) {
-    for px in buf.chunks_exact_mut(4) {
+    for px in buf.as_chunks_mut::<4>().0 {
         let a = px[3] as f32 / 255.0;
         px[0] = ((px[0] as f32) * a).round().clamp(0.0, 255.0) as u8;
         px[1] = ((px[1] as f32) * a).round().clamp(0.0, 255.0) as u8;
