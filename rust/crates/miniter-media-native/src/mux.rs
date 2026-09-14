@@ -4,6 +4,7 @@ use muxfin::api::{
     AudioCodec, Muxer as InnerMuxer, MuxerBuilder, MuxerError as InnerMuxError, SubtitleCodec,
     VideoCodec,
 };
+use muxfin::time::SubtitleCue;
 use std::io::Write;
 
 #[derive(Debug, thiserror::Error)]
@@ -138,9 +139,12 @@ impl<W: Write> Mp4Muxer<W> {
         duration_us: u64,
         text: &str,
     ) -> Result<(), MuxError> {
-        let pts = start_time_us as f64 / 1_000_000.0;
-        let duration = duration_us.max(1) as f64 / 1_000_000.0;
-        self.writer.write_subtitle(pts, duration, text)?;
+        // Subtitle track timescale is 1_000 (builder default) ms ticks.
+        let start_ms = start_time_us.div_ceil(1_000);
+        let duration_ms = duration_us.div_ceil(1_000).max(1) as u32;
+        let start = i64::try_from(start_ms).unwrap_or(i64::MAX);
+        let cue = SubtitleCue::new(start, duration_ms, text)?;
+        self.writer.write_subtitle_cue(cue)?;
         Ok(())
     }
 
