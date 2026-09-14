@@ -51,6 +51,17 @@ private val ADD_TRACK_ROW_HEIGHT = 36.dp
 private const val MIN_TIMELINE_DURATION_MS = 30_000L
 private const val TIMELINE_PADDING_MS = 5000L
 
+/**
+ * Long-term fix for #14: cap the composable timeline width so deep zoom on
+ * long media cannot ask Compose/Skia to lay out a multi-million-dp layer
+ * (OOM / native canvas crash on desktop). Content stays pannable inside the
+ * cap; interaction math keeps using the uncapped dpPerMs.
+ */
+private const val MAX_TIMELINE_WIDTH_DP = 200_000f
+
+private fun cappedTimelineWidthDp(timelineDurationMs: Long, dpPerMs: Float): Float =
+    (timelineDurationMs.toDouble() * dpPerMs.toDouble()).coerceAtMost(MAX_TIMELINE_WIDTH_DP.toDouble()).toFloat()
+
 @Composable
 fun TimelinePanel(
     snapshot: RustProjectSnapshot?,
@@ -100,7 +111,7 @@ fun TimelinePanel(
         MIN_TIMELINE_DURATION_MS,
         tracks.flatMap { it.clips }.maxOfOrNull { clipEndMs(it) } ?: 0L,
     ) + TIMELINE_PADDING_MS
-    val totalContentWidthDp = (timelineDurationMs * dpPerMs).dp
+    val totalContentWidthDp = cappedTimelineWidthDp(timelineDurationMs, dpPerMs).dp
 
     val horizontalScrollState = rememberScrollState()
 
@@ -215,7 +226,7 @@ private fun TimelineRuler(
                     detectTapGestures { offset -> onTap(offset.x / density.density) }
                 }
         ) {
-            Canvas(Modifier.width((timelineDurationMs * dpPerMs).dp).fillMaxHeight()) {
+            Canvas(Modifier.width(cappedTimelineWidthDp(timelineDurationMs, dpPerMs).dp).fillMaxHeight()) {
                 val h = size.height
                 val majorMs = when {
                     dpPerMs >= 0.5f -> 1_000L; dpPerMs >= 0.2f -> 2_000L
@@ -223,8 +234,11 @@ private fun TimelineRuler(
                     else -> 30_000L
                 }
                 val minorMs = majorMs / 5
+                val cappedWidthDp = cappedTimelineWidthDp(timelineDurationMs, dpPerMs)
+                val visibleDurationMs = (cappedWidthDp / dpPerMs).toLong()
+                    .coerceIn(0L, timelineDurationMs)
                 var ms = 0L
-                while (ms <= timelineDurationMs) {
+                while (ms <= visibleDurationMs) {
                     val x = ms * dpPerMs * density.density
                     if (ms % majorMs == 0L) {
                         drawLine(rulerLineColor, Offset(x, h * 0.4f), Offset(x, h), 1.5f)

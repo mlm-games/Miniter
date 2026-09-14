@@ -239,6 +239,15 @@ private fun scaleRgba(
     dstW: Int,
     dstH: Int,
 ): ImageData {
+    if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
+        return ImageData.create(1, 1, byteArrayOf(0, 0, 0, 0xFF.toByte()))
+    }
+    if (src.size.toLong() != srcW.toLong() * srcH * 4) {
+        return ImageData.create(dstW, dstH, ByteArray(dstW * dstH * 4))
+    }
+    if (dstW.toLong() * dstH > 16_000_000L) {
+        return ImageData.create(1, 1, byteArrayOf(0, 0, 0, 0xFF.toByte()))
+    }
     val dst = ByteArray(dstW * dstH * 4)
     for (y in 0 until dstH) {
         val srcY = y * srcH / dstH

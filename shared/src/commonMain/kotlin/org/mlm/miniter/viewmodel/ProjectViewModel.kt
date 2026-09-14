@@ -1740,7 +1740,7 @@ class ProjectViewModel(
     }
 
     fun setZoom(zoom: Float) {
-        _state.update { it.copy(zoomLevel = zoom.coerceIn(0.1f, 10f)) }
+        _state.update { it.copy(zoomLevel = zoom.coerceIn(0.1f, 4f)) }
     }
 
     fun snapPosition(ms: Long, excludeClipId: String? = null): Long {
