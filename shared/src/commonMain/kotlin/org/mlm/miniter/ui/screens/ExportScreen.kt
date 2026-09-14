@@ -514,7 +514,11 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             width = draft.widthText,
                             height = draft.heightText,
                             fps = draft.fpsText,
-                            sourceHint = if (hasSourceDimensions) sourceResolutionText else "",
+                            sourceHint = if (hasSourceDimensions) {
+                                "Empty = source ($sourceResolutionText)"
+                            } else {
+                                "Empty = source"
+                            },
                             enabled = !isExporting,
                             errors = validationErrors,
                             onWidthChange = { draft = draft.copy(widthText = it) },
