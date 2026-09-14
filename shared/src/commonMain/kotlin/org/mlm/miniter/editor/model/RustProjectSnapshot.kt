@@ -360,6 +360,25 @@ data class RustFlipFilterSnapshot(
 data class RustSpeedFilterSnapshot(val factor: Double) : RustVideoFilterSnapshot
 
 @Serializable
+@SerialName("Reverse")
+data object RustReverseVideoFilterSnapshot : RustVideoFilterSnapshot
+
+@Serializable
+@SerialName("CanvasBackground")
+data class RustCanvasBackgroundFilterSnapshot(
+    val mode: RustCanvasBackgroundMode = RustCanvasBackgroundMode.Color,
+    val color: String = "FF000000",
+    @SerialName("blur_radius")
+    val blurRadius: Float = 24f,
+) : RustVideoFilterSnapshot
+
+@Serializable
+enum class RustCanvasBackgroundMode {
+    Color,
+    Blur,
+}
+
+@Serializable
 @SerialName("Opacity")
 data class RustOpacityFilterSnapshot(val value: Float) : RustVideoFilterSnapshot
 
@@ -472,6 +491,10 @@ data class RustFadeOutAudioFilterSnapshot(
 @Serializable
 @SerialName("Normalize")
 data object RustNormalizeAudioFilterSnapshot : RustAudioFilterSnapshot
+
+@Serializable
+@SerialName("Reverse")
+data object RustReverseAudioFilterSnapshot : RustAudioFilterSnapshot
 
 @Serializable
 data class RustExportProfileSnapshot(

@@ -6,6 +6,7 @@ import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.ffi.EditorHandle as NativeEditorHandle
 import org.mlm.miniter.ffi.cancelExport as nativeCancelExport
 import org.mlm.miniter.ffi.clearExportPreview as nativeClearExportPreview
+import org.mlm.miniter.ffi.detectBeats as nativeDetectBeats
 import org.mlm.miniter.ffi.exportPreviewFrame as nativeExportPreviewFrame
 import org.mlm.miniter.ffi.exportProgress as nativeExportProgress
 import org.mlm.miniter.ffi.exportProjectJson as nativeExportProjectJson
@@ -86,6 +87,15 @@ actual class RustCoreSession private constructor(
 
         actual fun extractWaveform(path: String, buckets: Int): String =
             nativeExtractWaveform(path, buckets.toUInt())
+
+        actual fun detectBeats(path: String): BeatTrack {
+            val result = nativeDetectBeats(path)
+            return BeatTrack(
+                onsetsMs = result.onsetsMs.toList().map { it.toLong() },
+                windowEnergy = result.windowEnergy.toList(),
+                windowMs = result.windowMs.toInt(),
+            )
+        }
 
         actual fun probeVideo(path: String): VideoInfo {
             val result = nativeProbeVideo(path)

@@ -3,6 +3,21 @@ package org.mlm.miniter.rust
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.VideoInfo
 
+
+data class BeatTrack(
+    val onsetsMs: List<Long> = emptyList(),
+    val windowEnergy: List<Float> = emptyList(),
+    val windowMs: Int = 20,
+) {
+    /** Snap [timeMs] to the nearest onset within [toleranceMs], if any. */
+    fun snap(timeMs: Long, toleranceMs: Long): Long? =
+        onsetsMs
+            .map { it to kotlin.math.abs(it - timeMs) }
+            .filter { (_, dist) -> dist <= toleranceMs }
+            .minByOrNull { (_, dist) -> dist }
+            ?.first
+}
+
 expect val isWebCodecsHardwareAccelerated: Boolean
 
 expect val supportedHwCodecs: List<String>
@@ -39,6 +54,7 @@ expect class RustCoreSession {
         fun fromJson(json: String): RustCoreSession
         fun probeAudio(path: String): String
         fun extractWaveform(path: String, buckets: Int): String
+        fun detectBeats(path: String): BeatTrack
         fun probeVideo(path: String): VideoInfo
         suspend fun extractThumbnail(path: String, timestampUs: Long, hardwareAcceleration: Boolean): ImageData
         suspend fun extractThumbnails(path: String, count: Int, durationUs: Long, hardwareAcceleration: Boolean): List<ImageData>

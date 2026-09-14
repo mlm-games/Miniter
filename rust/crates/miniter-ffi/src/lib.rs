@@ -352,6 +352,33 @@ mod native_ffi {
         })
     }
 
+    #[derive(uniffi::Record)]
+    pub struct BeatTrackResult {
+        /// Onset positions in milliseconds, ascending, debounced.
+        pub onsets_ms: Vec<u64>,
+        /// Per-window mean-square energy, for UI visualization.
+        pub window_energy: Vec<f32>,
+        pub window_ms: u32,
+    }
+
+    /// Energy-based onset detection: 20 ms RMS windows vs a ~1 s moving
+    /// average, 1.4x threshold, local-max check, 200 ms debounce. Used
+    /// for beat snapping and beat-aligned edits.
+    #[uniffi::export]
+    pub fn detect_beats(path: String) -> Result<BeatTrackResult, MiniterError> {
+        let track =
+            miniter_audio::beats::detect_beats(std::path::Path::new(&path)).map_err(|e| {
+                MiniterError::Media {
+                    detail: e.to_string(),
+                }
+            })?;
+        Ok(BeatTrackResult {
+            onsets_ms: track.onsets_ms,
+            window_energy: track.window_energy,
+            window_ms: track.window_ms,
+        })
+    }
+
     #[uniffi::export]
     pub fn probe_video(path: String) -> Result<VideoProbeResult, MiniterError> {
         let info =
@@ -451,13 +478,21 @@ mod native_ffi {
             || EXPORT_CANCELLED.load(Ordering::SeqCst),
             |pct| EXPORT_PROGRESS.store(pct, Ordering::SeqCst),
         ) {
-            Ok(()) => Ok(true),
+            Ok(()) => match std::fs::metadata(&output_path) {
+                Ok(meta) if meta.len() > 0 => Ok(true),
+                Ok(_) => Err(MiniterError::with_code(
+                    miniter_audio::loudness::ErrorCode::EncodeFailed,
+                    "Export produced an empty file (encoder emitted no data)",
+                )),
+                Err(e) => Err(MiniterError::with_code(
+                    miniter_audio::loudness::ErrorCode::OutputWriteFailed,
+                    format!("Export finished but output is missing: {e}"),
+                )),
+            },
             Err(miniter_media_native::export::ExportError::Cancelled) => {
                 Err(MiniterError::Cancelled)
             }
-            Err(e) => Err(MiniterError::Media {
-                detail: e.to_string(),
-            }),
+            Err(e) => Err(MiniterError::from_export_error(&e)),
         }
     }
 
@@ -733,6 +768,14 @@ mod web_ffi {
 
     #[derive(Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
+    struct WasmBeatTrackResult {
+        onsets_ms: Vec<u64>,
+        window_energy: Vec<f32>,
+        window_ms: u32,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
 
     struct WasmExportPayload {
         ok: bool,
@@ -783,6 +826,26 @@ mod web_ffi {
 
         let json: Vec<[f32; 2]> = data.peaks.iter().map(|(lo, hi)| [*lo, *hi]).collect();
         serde_json::to_string(&json)
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+    }
+
+    /// WASM twin of the native `detect_beats`: onset detection over a
+    /// registered in-memory file (browser picks have no fs path).
+    #[wasm_bindgen(js_name = detectBeats)]
+    pub fn detect_beats(path: String) -> Result<String, JsValue> {
+        let track = if let Some(file) = get_registered_file(&path) {
+            miniter_audio::beats::detect_beats_bytes(&file.bytes, file.extension_hint.as_deref())
+        } else {
+            miniter_audio::beats::detect_beats(std::path::Path::new(&path))
+        }
+        .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
+
+        let payload = WasmBeatTrackResult {
+            onsets_ms: track.onsets_ms,
+            window_energy: track.window_energy,
+            window_ms: track.window_ms,
+        };
+        serde_json::to_string(&payload)
             .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
     }
 
@@ -1565,11 +1628,64 @@ pub enum MiniterError {
     #[error("Media error: {detail}")]
     Media { detail: String },
 
+    #[error("[{code}] {detail}")]
+    Coded { code: String, detail: String },
+
     #[error("Export cancelled")]
     Cancelled,
 
     #[error("Lock poisoned")]
     LockPoisoned,
+}
+
+impl MiniterError {
+    /// Attach a stable [`miniter_audio::loudness::ErrorCode`] so Kotlin can
+    /// show a short code plus telemetry without parsing prose. Keeps the
+    /// original detail string untouched.
+    pub fn with_code(code: miniter_audio::loudness::ErrorCode, detail: impl Into<String>) -> Self {
+        Self::Coded {
+            code: code.code().to_string(),
+            detail: detail.into(),
+        }
+    }
+
+    /// Map a native export failure to the closest stable code.
+    /// Heuristic on purpose: the string match is a fallback ladder, and the
+    /// raw message is always preserved in `detail`.
+    pub fn from_export_error(e: &miniter_media_native::export::ExportError) -> Self {
+        use miniter_audio::loudness::ErrorCode as Code;
+        use miniter_media_native::export::ExportError as E;
+        let msg = e.to_string();
+        let lower = msg.to_lowercase();
+        let code = if matches!(e, E::Cancelled) {
+            return Self::Cancelled;
+        } else if lower.contains("no video stream")
+            || lower.contains("no audio track")
+            || lower.contains("no decodable")
+        {
+            Code::NoDecodableStream
+        } else if lower.contains("unsupported")
+            || lower.contains("no decoder")
+            || lower.contains("not yet available")
+        {
+            Code::UnsupportedCodec
+        } else if lower.contains("truncat")
+            || lower.contains("corrupt")
+            || lower.contains("invalid data")
+        {
+            Code::CorruptMedia
+        } else if lower.contains("font") {
+            Code::FontLoadFailed
+        } else if lower.contains("io:")
+            || lower.contains("permission")
+            || lower.contains("no such file")
+        {
+            Code::SourceUnreadable
+        } else {
+            Code::EncodeFailed
+        };
+        Self::with_code(code, msg)
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

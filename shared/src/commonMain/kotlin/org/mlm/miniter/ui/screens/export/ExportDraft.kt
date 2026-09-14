@@ -24,33 +24,39 @@ data class ExportDraft(
         val errors: Map<String, String>,
     )
 
-    fun validate(): Validation {
+    fun validate(audioOnly: Boolean = false): Validation {
         val errors = mutableMapOf<String, String>()
 
-        val rawWidth = widthText.trim()
-        val rawHeight = heightText.trim()
-        val width = rawWidth.toIntOrNull()
-        val height = rawHeight.toIntOrNull()
-        if (rawWidth.isEmpty() || rawHeight.isEmpty()) {
-            errors["resolution"] = "Enter a width and height, or clear both for source."
-        } else if (width == null || height == null || width <= 0 || height <= 0) {
-            errors["resolution"] = "Resolution must be positive whole numbers."
-        } else if (width > 7680 || height > 7680) {
-            errors["resolution"] = "Resolution is capped at 7680×7680."
-        }
-        val evenWidth = if (width != null && width > 0) (width / 2) * 2 else 0
-        val evenHeight = if (height != null && height > 0) (height / 2) * 2 else 0
+        var evenWidth = 0
+        var evenHeight = 0
+        var fps: Double? = null
+        var videoBitrate: Int? = null
+        if (!audioOnly) {
+            val rawWidth = widthText.trim()
+            val rawHeight = heightText.trim()
+            val width = rawWidth.toIntOrNull()
+            val height = rawHeight.toIntOrNull()
+            if (rawWidth.isEmpty() || rawHeight.isEmpty()) {
+                errors["resolution"] = "Enter a width and height, or clear both for source."
+            } else if (width == null || height == null || width <= 0 || height <= 0) {
+                errors["resolution"] = "Resolution must be positive whole numbers."
+            } else if (width > 7680 || height > 7680) {
+                errors["resolution"] = "Resolution is capped at 7680×7680."
+            }
+            evenWidth = if (width != null && width > 0) (width / 2) * 2 else 0
+            evenHeight = if (height != null && height > 0) (height / 2) * 2 else 0
 
-        val fps = fpsText.trim().toDoubleOrNull()
-        if (fps == null || fps !in 1.0..240.0) {
-            errors["fps"] = "FPS must be between 1 and 240."
-        }
+            fps = fpsText.trim().toDoubleOrNull()
+            if (fps == null || fps !in 1.0..240.0) {
+                errors["fps"] = "FPS must be between 1 and 240."
+            }
 
-        val videoBitrate = videoBitrateKbpsText.trim().toIntOrNull()
-        if (videoBitrate == null || videoBitrate < 500) {
-            errors["videoBitrate"] = "Video bitrate must be at least 500 kbps."
-        } else if (videoBitrate > 100_000) {
-            errors["videoBitrate"] = "Video bitrate is capped at 100,000 kbps."
+            videoBitrate = videoBitrateKbpsText.trim().toIntOrNull()
+            if (videoBitrate == null || videoBitrate < 500) {
+                errors["videoBitrate"] = "Video bitrate must be at least 500 kbps."
+            } else if (videoBitrate > 100_000) {
+                errors["videoBitrate"] = "Video bitrate is capped at 100,000 kbps."
+            }
         }
 
         val audioBitrate = audioBitrateText.trim().toIntOrNull()
@@ -62,8 +68,8 @@ data class ExportDraft(
             Parsed(
                 width = evenWidth,
                 height = evenHeight,
-                fps = fps!!,
-                videoBitrateKbps = videoBitrate!!,
+                fps = fps ?: 30.0,
+                videoBitrateKbps = videoBitrate ?: 8000,
                 audioBitrateKbps = audioBitrate!!,
             )
         } else {
@@ -77,8 +83,9 @@ fun ExportDraft.applyTo(
     profile: RustExportProfileSnapshot,
     sourceWidth: Int,
     sourceHeight: Int,
+    audioOnly: Boolean = false,
 ): RustExportProfileSnapshot? {
-    val parsed = validate().parsed ?: return null
+    val parsed = validate(audioOnly).parsed ?: return null
     return profile.copy(
         resolution = when {
             parsed.width <= 0 || parsed.height <= 0 -> RustExportResolution.Source

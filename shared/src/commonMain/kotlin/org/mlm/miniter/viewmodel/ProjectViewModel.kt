@@ -61,6 +61,7 @@ import org.mlm.miniter.engine.ThumbnailResult
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.PlatformFileSystem
+import org.mlm.miniter.platform.FontManager
 import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.platform.msToUs
 import org.mlm.miniter.platform.usToMs
@@ -69,6 +70,7 @@ import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
+import org.mlm.miniter.rust.BeatTrack
 import org.mlm.miniter.rust.RustCoreSession
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.util.toArgbHex
@@ -160,6 +162,10 @@ class ProjectViewModel(
     val waveforms: StateFlow<Map<String, List<Float>>> = _waveforms
     private val waveformInFlight = mutableSetOf<String>()
 
+    private val _beats = MutableStateFlow<Map<String, BeatTrack>>(emptyMap())
+    val beats: StateFlow<Map<String, BeatTrack>> = _beats
+    private val beatsInFlight = mutableSetOf<String>()
+
     fun requestWaveform(sourcePath: String, buckets: Int = 80) {
         if (sourcePath.isBlank()) return
         if (_waveforms.value.containsKey(sourcePath)) return
@@ -196,6 +202,28 @@ class ProjectViewModel(
                 else maxOf(kotlin.math.abs(lo), kotlin.math.abs(hi)).coerceIn(0f, 1f)
             }
     }
+
+    fun requestBeats(sourcePath: String) {
+        if (sourcePath.isBlank()) return
+        if (_beats.value.containsKey(sourcePath)) return
+        if (!beatsInFlight.add(sourcePath)) return
+        viewModelScope.launch {
+            try {
+                val track = withContext(Dispatchers.Default) {
+                    RustCoreSession.detectBeats(sourcePath)
+                }
+                _beats.update { it + (sourcePath to track) }
+            } catch (_: Exception) {
+                _beats.update { it + (sourcePath to BeatTrack()) }
+            } finally {
+                beatsInFlight.remove(sourcePath)
+            }
+        }
+    }
+
+    /** Snap a playhead position to the nearest beat of [sourcePath]. */
+    fun snapToBeat(sourcePath: String, timeMs: Long, toleranceMs: Long = 150L): Long? =
+        _beats.value[sourcePath]?.snap(timeMs, toleranceMs)
 
     init {
         viewModelScope.launch {
@@ -1574,6 +1602,18 @@ class ProjectViewModel(
         fontFamily: String? = null,
     ) {
         val clip = findRustClip(clipId)?.kind as? RustTextClipKind ?: return
+        if (fontFamily != null && (fontFamily.contains("/") || fontFamily.contains("\\"))) {
+            viewModelScope.launch {
+                val staged = FontManager.importFont(fontFamily)
+                if (staged == null) {
+                    snackbarManager.showError("Not a usable font file (need .ttf/.otf)")
+                    return@launch
+                }
+                val style = clip.style.copy(fontFamily = staged)
+                dispatchCoalescing(rustStore.commands.updateTextStyle(clipId, style), "Style")
+            }
+            return
+        }
         val style = clip.style.copy(
             fontSize = fontSizeSp ?: clip.style.fontSize,
             color = colorHex?.toArgbHex() ?: clip.style.color,
@@ -1599,7 +1639,11 @@ class ProjectViewModel(
         }
         viewModelScope.launch {
             try {
-                val stagedPath = PlatformFileSystem.stageForNativeAccess(fontPath)
+                val stagedPath = FontManager.importFont(fontPath)
+                if (stagedPath == null) {
+                    snackbarManager.showError("Not a usable font file (need .ttf/.otf)")
+                    return@launch
+                }
                 dispatchAndSync(rustStore.commands.setSubtitleFont(clipId, stagedPath))
             } catch (e: Exception) {
                 Napier.e("Failed to stage subtitle font", e)

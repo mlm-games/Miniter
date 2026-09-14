@@ -1264,122 +1264,25 @@ fn collect_soft_subtitle_samples(
 }
 
 fn parse_srt_cues(content: &str) -> Vec<SubtitleCue> {
-    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
-    let mut cues = Vec::new();
-
-    for block in normalized.split("\n\n") {
-        let lines: Vec<&str> = block.lines().collect();
-        if lines.is_empty() {
-            continue;
-        }
-
-        let mut cursor = 0usize;
-        if lines[cursor].trim().chars().all(|c| c.is_ascii_digit()) {
-            cursor += 1;
-        }
-        if cursor >= lines.len() {
-            continue;
-        }
-
-        let Some((start_us, end_us)) = parse_srt_time_range(lines[cursor]) else {
-            continue;
-        };
-        cursor += 1;
-        if cursor >= lines.len() || end_us <= start_us {
-            continue;
-        }
-
-        let text = lines[cursor..].join("\n").trim().to_string();
-        if text.is_empty() {
-            continue;
-        }
-
-        cues.push(SubtitleCue {
-            start_us,
-            end_us,
-            text,
-        });
-    }
-
-    cues
+    crate::subtitles::parse_srt_content(content)
+        .into_iter()
+        .map(|cue| SubtitleCue {
+            start_us: cue.start_us,
+            end_us: cue.end_us,
+            text: cue.text,
+        })
+        .collect()
 }
 
 fn parse_ass_cues(content: &str) -> Vec<SubtitleCue> {
-    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
-    let mut cues = Vec::new();
-
-    for line in normalized.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("Dialogue:") {
-            continue;
-        }
-
-        let payload = trimmed.trim_start_matches("Dialogue:").trim();
-        let fields: Vec<&str> = payload.splitn(10, ',').collect();
-        if fields.len() < 10 {
-            continue;
-        }
-
-        let Some(start_us) = parse_ass_timestamp_us(fields[1].trim()) else {
-            continue;
-        };
-        let Some(end_us) = parse_ass_timestamp_us(fields[2].trim()) else {
-            continue;
-        };
-        if end_us <= start_us {
-            continue;
-        }
-
-        let text = normalize_ass_text(fields[9]).trim().to_string();
-        if text.is_empty() {
-            continue;
-        }
-
-        cues.push(SubtitleCue {
-            start_us,
-            end_us,
-            text,
-        });
-    }
-
-    cues
-}
-
-fn normalize_ass_text(input: &str) -> String {
-    let mut text = input
-        .replace("\\N", "\n")
-        .replace("\\n", "\n")
-        .replace("\\h", " ");
-    text = strip_ass_override_tags(&text);
-    text
-}
-
-fn parse_ass_timestamp_us(value: &str) -> Option<i64> {
-    let mut hms = value.trim().split(':');
-    let h: i64 = hms.next()?.parse().ok()?;
-    let m: i64 = hms.next()?.parse().ok()?;
-    let sec_frac = hms.next()?;
-    if hms.next().is_some() {
-        return None;
-    }
-
-    let mut sf = sec_frac.split('.');
-    let s: i64 = sf.next()?.parse().ok()?;
-    let cs_str = sf.next()?;
-    if sf.next().is_some() {
-        return None;
-    }
-    let cs: i64 = match cs_str.len() {
-        0 => return None,
-        1 => cs_str.parse::<i64>().ok()?.saturating_mul(10),
-        _ => cs_str.get(0..2)?.parse::<i64>().ok()?,
-    };
-
-    if !(0..60).contains(&m) || !(0..60).contains(&s) {
-        return None;
-    }
-
-    Some(((h * 3600 + m * 60 + s) * 1_000_000) + (cs * 10_000))
+    crate::subtitles::parse_ass_dialogue_lines(content)
+        .into_iter()
+        .map(|cue| SubtitleCue {
+            start_us: cue.start_us,
+            end_us: cue.end_us,
+            text: cue.text,
+        })
+        .collect()
 }
 
 fn resolve_render_settings(project: &Project) -> RenderSettings {
@@ -1930,6 +1833,12 @@ impl WasmExportChunker {
                     .map_err(|e| format!("MP4 finalize failed: {e}"))?;
                 drop(muxer);
 
+                if output.is_empty() {
+                    return Err(
+                        "[LC-101] Export produced an empty file (encoder emitted no data)"
+                            .to_string(),
+                    );
+                }
                 Ok(WasmExportArtifact {
                     bytes: output,
                     file_name,
@@ -1963,8 +1872,15 @@ impl WasmExportChunker {
                     .write_all(&packet_count.to_le_bytes())
                     .map_err(|e| format!("IVF packet-count write failed: {e}"))?;
 
+                let bytes = cursor.into_inner();
+                if bytes.len() <= 32 {
+                    return Err(
+                        "[LC-101] Export produced an empty file (encoder emitted no data)"
+                            .to_string(),
+                    );
+                }
                 Ok(WasmExportArtifact {
-                    bytes: cursor.into_inner(),
+                    bytes,
                     file_name,
                     mime_type: mime_type.to_string(),
                 })
@@ -2037,12 +1953,13 @@ fn render_node(
             let frame =
                 decode_cache.extract_frame(*clip_id, source_path, source_pts.as_micros().max(0))?;
             decode_cache.remember_first_decoded_video_pts(frame.pts_us);
-            let mut fitted = fit_rgba_into_canvas(
+            let mut fitted = fit_rgba_into_canvas_with_background(
                 &frame.data,
                 frame.width as usize,
                 frame.height as usize,
                 width,
                 height,
+                canvas_background_spec(filters),
             );
             apply_video_filters(&mut fitted, width, height, filters);
             filters::scale_alpha(&mut fitted, *opacity);

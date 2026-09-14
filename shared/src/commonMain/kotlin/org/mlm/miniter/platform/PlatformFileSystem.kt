@@ -4,6 +4,8 @@ expect object PlatformFileSystem {
     suspend fun readText(path: String): String
     suspend fun writeText(path: String, content: String)
     suspend fun readBytes(path: String): ByteArray
+    suspend fun writeBytes(path: String, bytes: ByteArray)
+    suspend fun createDirectories(path: String)
     fun exists(path: String): Boolean
     fun delete(path: String): Boolean
     fun getParentDirectory(path: String): String

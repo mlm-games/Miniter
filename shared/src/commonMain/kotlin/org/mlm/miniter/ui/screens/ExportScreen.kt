@@ -315,7 +315,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         val currentSnapshot = snapshot ?: return
         val currentProfile = profile ?: return
 
-        val validation = draft.validate()
+        val validation = draft.validate(audioOnly = isAudioOnly)
         validationErrors = validation.errors
         val parsed = validation.parsed
         if (parsed == null) {
@@ -334,7 +334,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         }
 
         val applied = vm.updateExportProfile(
-            draft.applyTo(currentProfile, sourceWidth, sourceHeight)!!.copy(
+            draft.applyTo(currentProfile, sourceWidth, sourceHeight, audioOnly = isAudioOnly)!!.copy(
                 format = format,
                 audioSampleRate = draft.audioSampleRate,
                 outputPath = "",
@@ -688,6 +688,13 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 color = if (hwInfo.available) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (hwInfo.codecs.isNotEmpty()) {
+                                Text(
+                                    hwInfo.codecs.joinToString(", "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             SliderHeader(title = "Encode effort", value = encodeEffort.toInt().toString())
                             Slider(
                                 value = encodeEffort,
@@ -696,6 +703,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 steps = 9,
                                 enabled = !isExporting,
                             )
+                            MutedLabel("Hardware encoders may ignore this.")
                         }
                     }
 

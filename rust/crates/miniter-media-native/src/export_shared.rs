@@ -687,6 +687,21 @@ pub(crate) fn fit_rgba_into_canvas(
     dst_w: usize,
     dst_h: usize,
 ) -> Vec<u8> {
+    fit_rgba_into_canvas_with_background(src, src_w, src_h, dst_w, dst_h, None)
+}
+
+/// `fit_rgba_into_canvas` variant honoring an explicit canvas background:
+/// instead of transparent bars around the fitted frame, paint a solid
+/// color or a blurred cover crop. Runs before `flatten_on_black` so the
+/// bars stay opaque instead of black.
+pub(crate) fn fit_rgba_into_canvas_with_background(
+    src: &[u8],
+    src_w: usize,
+    src_h: usize,
+    dst_w: usize,
+    dst_h: usize,
+    background: Option<(&miniter_domain::filter::CanvasBackgroundMode, &str, f32)>,
+) -> Vec<u8> {
     if src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0 {
         return transparent_rgba(dst_w, dst_h);
     }
@@ -711,7 +726,115 @@ pub(crate) fn fit_rgba_into_canvas(
         off_y,
     );
 
+    if let Some((mode, color, blur_radius)) = background {
+        paint_canvas_background(
+            &mut canvas,
+            src,
+            src_w,
+            src_h,
+            dst_w,
+            dst_h,
+            mode,
+            color,
+            blur_radius,
+        );
+    }
+
     canvas
+}
+
+/// Fill the transparent surround of a fitted frame with the canvas
+/// background. `canvas` is the `dst_w`×`dst_h` buffer already containing the
+/// fitted frame; `src` is the original decoded frame (used for blur covers).
+pub(crate) fn paint_canvas_background(
+    canvas: &mut [u8],
+    src: &[u8],
+    src_w: usize,
+    src_h: usize,
+    dst_w: usize,
+    dst_h: usize,
+    mode: &miniter_domain::filter::CanvasBackgroundMode,
+    color: &str,
+    blur_radius: f32,
+) {
+    use miniter_domain::filter::CanvasBackgroundMode;
+    debug_assert_eq!(canvas.len(), dst_w * dst_h * 4);
+    match mode {
+        CanvasBackgroundMode::Color => {
+            let fill = parse_argb_hex(color, [0, 0, 0, 255]);
+            paint_transparent_surround(canvas, fill);
+        }
+        CanvasBackgroundMode::Blur => {
+            if src_w == 0
+                || src_h == 0
+                || dst_w == 0
+                || dst_h == 0
+                || src.len() != src_w * src_h * 4
+                || canvas.len() != dst_w * dst_h * 4
+            {
+                paint_transparent_surround(canvas, parse_argb_hex(color, [0, 0, 0, 255]));
+                return;
+            }
+            let cover = cover_scale_rgba(src, src_w, src_h, dst_w, dst_h);
+            let mut blurred = cover;
+            filters::blur_rgba(&mut blurred, dst_w, dst_h, blur_radius.max(1.0));
+            for px in blurred.chunks_exact_mut(4) {
+                for c in 0..3 {
+                    px[c] = ((px[c] as f32) * 0.85).round().clamp(0.0, 255.0) as u8;
+                }
+                px[3] = 255;
+            }
+            let mut merged = blurred;
+            alpha_over(&mut merged, canvas);
+            canvas.copy_from_slice(&merged);
+        }
+        _ => {}
+    }
+}
+
+/// Scale `src` to *cover* `dst_w`×`dst_h` (fill + center-crop), for blurred
+/// canvas backgrounds.
+fn cover_scale_rgba(src: &[u8], src_w: usize, src_h: usize, dst_w: usize, dst_h: usize) -> Vec<u8> {
+    let scale = f64::max(dst_w as f64 / src_w as f64, dst_h as f64 / src_h as f64);
+    let scaled_w = ((src_w as f64 * scale).round() as usize).max(1);
+    let scaled_h = ((src_h as f64 * scale).round() as usize).max(1);
+    let scaled = scale_rgba(src, src_w, src_h, scaled_w, scaled_h);
+    let off_x = (scaled_w as i32 - dst_w as i32).max(0) / 2;
+    let off_y = (scaled_h as i32 - dst_h as i32).max(0) / 2;
+    let mut out = vec![0u8; dst_w * dst_h * 4];
+    for y in 0..dst_h {
+        for x in 0..dst_w {
+            let si = ((y + off_y as usize) * scaled_w + (x + off_x as usize)) * 4;
+            let di = (y * dst_w + x) * 4;
+            if si + 4 <= scaled.len() {
+                out[di..di + 4].copy_from_slice(&scaled[si..si + 4]);
+            }
+        }
+    }
+    out
+}
+
+fn paint_transparent_surround(canvas: &mut [u8], fill: [u8; 4]) {
+    for px in canvas.chunks_exact_mut(4) {
+        if px[3] == 0 {
+            px.copy_from_slice(&fill);
+        }
+    }
+}
+
+/// Extract the canvas-background spec from a clip's active filter list, if
+/// any. Shared by native and WASM render paths.
+pub(crate) fn canvas_background_spec(
+    filter_list: &[VideoFilter],
+) -> Option<(&miniter_domain::filter::CanvasBackgroundMode, &str, f32)> {
+    filter_list.iter().find_map(|f| match f {
+        VideoFilter::CanvasBackground {
+            mode,
+            color,
+            blur_radius,
+        } => Some((mode, color.as_str(), *blur_radius)),
+        _ => None,
+    })
 }
 
 pub(crate) fn apply_video_filters(
@@ -768,6 +891,7 @@ pub(crate) fn apply_video_filters(
             } => {
                 *pixels = transform_rgba(pixels, w, h, *scale, *translate_x, *translate_y, *rotate);
             }
+            VideoFilter::Reverse => {}
             VideoFilter::Speed { .. } => {}
             _ => {}
         }
@@ -800,7 +924,7 @@ pub(crate) fn normalize_even_dimension(value: u32, fallback: u32) -> u32 {
 pub(crate) fn parse_srt_time_range(line: &str) -> Option<(i64, i64)> {
     let mut parts = line.split("-->");
     let start = parts.next()?.trim();
-    let end = parts.next()?.trim();
+    let end = parts.next()?.split_whitespace().next().unwrap_or("").trim();
     if parts.next().is_some() {
         return None;
     }
@@ -885,7 +1009,13 @@ pub(crate) fn render_text_overlay(
     height: usize,
     font_path: Option<&str>,
 ) -> Vec<u8> {
-    render_text_overlay_with_files(overlay, width, height, font_path, &std::collections::HashMap::new())
+    render_text_overlay_with_files(
+        overlay,
+        width,
+        height,
+        font_path,
+        &std::collections::HashMap::new(),
+    )
 }
 
 /// `render_text_overlay` variant that also resolves `wasm://` / staged picks
@@ -1443,35 +1573,7 @@ pub fn subtitle_text_at(_path: &str, _timestamp_us: i64) -> Option<String> {
 }
 
 pub fn subtitle_text_at_from_srt(content: &str, timestamp_us: i64) -> Option<String> {
-    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
-    for block in normalized.split("\n\n") {
-        let lines: Vec<&str> = block.lines().collect();
-        if lines.is_empty() {
-            continue;
-        }
-
-        let mut cursor = 0usize;
-        if lines[cursor].trim().chars().all(|c| c.is_ascii_digit()) {
-            cursor += 1;
-        }
-        if cursor >= lines.len() {
-            continue;
-        }
-
-        let (start_us, end_us) = match parse_srt_time_range(lines[cursor]) {
-            Some(v) => v,
-            None => continue,
-        };
-        cursor += 1;
-        if cursor >= lines.len() || end_us <= start_us {
-            continue;
-        }
-
-        if timestamp_us >= start_us && timestamp_us < end_us {
-            return Some(lines[cursor..].join("\n").trim().to_string());
-        }
-    }
-    None
+    crate::subtitles::cue_text_at(&crate::subtitles::parse_srt_content(content), timestamp_us)
 }
 
 pub fn subtitle_text_at_from_ass(content: &str, timestamp_us: i64) -> Option<String> {
@@ -1566,6 +1668,79 @@ pub(crate) fn map_subtitle_cue_to_timeline_sample(
         duration_us: (sample_end - sample_start).max(1),
         text: text.to_string(),
     })
+}
+
+#[cfg(test)]
+mod canvas_background_tests {
+    use super::{
+        canvas_background_spec, fit_rgba_into_canvas_with_background, paint_canvas_background,
+    };
+    use miniter_domain::filter::{CanvasBackgroundMode, VideoFilter};
+
+    fn opaque_red(w: usize, h: usize) -> Vec<u8> {
+        let mut v = vec![0u8; w * h * 4];
+        for px in v.chunks_exact_mut(4) {
+            px[0] = 255;
+            px[3] = 255;
+        }
+        v
+    }
+
+    #[test]
+    fn spec_extraction_finds_canvas_filter() {
+        let list = vec![
+            VideoFilter::Grayscale,
+            VideoFilter::CanvasBackground {
+                mode: CanvasBackgroundMode::Blur,
+                color: "FF112233".into(),
+                blur_radius: 12.0,
+            },
+        ];
+        let (mode, color, radius) = canvas_background_spec(&list).expect("spec");
+        assert!(matches!(mode, CanvasBackgroundMode::Blur));
+        assert_eq!(color, "FF112233");
+        assert_eq!(radius, 12.0);
+        assert!(canvas_background_spec(&[VideoFilter::Grayscale]).is_none());
+    }
+
+    #[test]
+    fn color_fill_paints_transparent_surround_only() {
+        let src = opaque_red(4, 2);
+        let mut fitted = fit_rgba_into_canvas_with_background(
+            &src,
+            4,
+            2,
+            4,
+            4,
+            Some((&CanvasBackgroundMode::Color, "FF00FF00", 0.0)),
+        );
+        assert_eq!(fitted.len(), 4 * 4 * 4);
+        assert_eq!(&fitted[0..4], &[0, 255, 0, 255]);
+        let mid = 2 * 4 * 4;
+        assert_eq!(fitted[mid], 255);
+        assert_eq!(fitted[mid + 3], 255);
+        let plain = fit_rgba_into_canvas_with_background(&src, 4, 2, 4, 4, None);
+        assert_eq!(&plain[0..4], &[0, 0, 0, 0]);
+        let _ = &mut fitted;
+    }
+
+    #[test]
+    fn blur_cover_produces_opaque_canvas() {
+        let src = opaque_red(8, 8);
+        let mut canvas = super::fit_rgba_into_canvas(&src, 8, 8, 8, 4);
+        paint_canvas_background(
+            &mut canvas,
+            &src,
+            8,
+            8,
+            8,
+            4,
+            &CanvasBackgroundMode::Blur,
+            "FF000000",
+            4.0,
+        );
+        assert!(canvas.chunks_exact(4).all(|px| px[3] == 255));
+    }
 }
 
 #[cfg(test)]

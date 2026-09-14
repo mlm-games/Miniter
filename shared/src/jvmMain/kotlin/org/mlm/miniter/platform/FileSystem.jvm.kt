@@ -14,6 +14,17 @@ actual object PlatformFileSystem {
         File(path).readBytes()
     }
 
+    actual suspend fun writeBytes(path: String, bytes: ByteArray) = withContext(Dispatchers.IO) {
+        val file = File(path)
+        file.parentFile?.mkdirs()
+        file.writeBytes(bytes)
+    }
+
+    actual suspend fun createDirectories(path: String) = withContext(Dispatchers.IO) {
+        File(path).mkdirs()
+        Unit
+    }
+
     actual suspend fun writeText(path: String, content: String) = withContext(Dispatchers.IO) {
         val file = File(path)
         file.parentFile?.mkdirs()

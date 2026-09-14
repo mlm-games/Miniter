@@ -2,6 +2,7 @@ package org.mlm.miniter.ui.components.properties
 
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
+import org.mlm.miniter.editor.model.RustCanvasBackgroundFilterSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
 import org.mlm.miniter.editor.model.RustCropFilterSnapshot
 import org.mlm.miniter.editor.model.RustHueFilterSnapshot
@@ -51,6 +52,9 @@ val FILTERS: List<FilterDef> = listOf(
     FilterDef("Hue", "Hue", listOf(
         FilterPropertyDef("degrees", "Hue shift", -180f..180f, format = ::fmtDeg, keyframeSuffix = "hue_deg"),
     )),
+    FilterDef("CanvasBackground", "Canvas Background", listOf(
+        FilterPropertyDef("blur_radius", "Blur radius", 1f..60f, 29, { "${it.toInt()}px" }, "canvas_blur"),
+    )),
 )
 
 private val FILTERS_BY_SERIAL_NAME: Map<String, FilterDef> = FILTERS.associateBy { it.serialName }
@@ -65,6 +69,7 @@ fun filterDefByType(filter: RustVideoFilterSnapshot): FilterDef? = when (filter)
     is RustCropFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Crop"]
     is RustRotateFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Rotate"]
     is RustHueFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Hue"]
+    is RustCanvasBackgroundFilterSnapshot -> FILTERS_BY_SERIAL_NAME["CanvasBackground"]
     else -> null
 }
 
@@ -83,6 +88,10 @@ fun readFilterProperty(filter: RustVideoFilterSnapshot, paramKey: String): Float
     }
     is RustRotateFilterSnapshot -> filter.degrees
     is RustHueFilterSnapshot -> filter.degrees
+    is RustCanvasBackgroundFilterSnapshot -> when (paramKey) {
+        "blur_radius" -> filter.blurRadius
+        else -> 0f
+    }
     is RustTransformFilterSnapshot -> when (paramKey) {
         "scale" -> filter.scale
         "translate_x" -> filter.translateX

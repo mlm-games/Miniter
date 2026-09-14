@@ -137,11 +137,20 @@ fn mix_project_audio_internal(
             continue;
         }
 
+        let is_reversed = clip
+            .audio_filters
+            .iter()
+            .any(|f| matches!(f, AudioFilter::Reverse));
+
         for dst_offset in 0..clip.timeline_len_frames {
             let dst_frame = clip.timeline_start_frame + dst_offset;
-            let src_pos = clip.source_start_frame as f64 + (dst_offset as f64 * clip.speed);
+            let src_pos = if is_reversed {
+                source_end_frame as f64 - 1.0 - (dst_offset as f64 * clip.speed)
+            } else {
+                clip.source_start_frame as f64 + (dst_offset as f64 * clip.speed)
+            };
 
-            if src_pos >= source_end_frame as f64 {
+            if src_pos >= source_end_frame as f64 || src_pos < clip.source_start_frame as f64 {
                 break;
             }
 

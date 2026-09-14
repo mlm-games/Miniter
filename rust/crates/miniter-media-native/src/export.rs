@@ -363,106 +363,27 @@ fn parse_srt_cues(path: &Path) -> Result<Vec<SourceSubtitleCue>, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read SRT '{}': {}", path.display(), e))?;
 
-    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
-    let mut cues = Vec::new();
-
-    for block in normalized.split("\n\n") {
-        let lines: Vec<&str> = block.lines().collect();
-        if lines.is_empty() {
-            continue;
-        }
-
-        let mut cursor = 0usize;
-        if lines[cursor].trim().chars().all(|c| c.is_ascii_digit()) {
-            cursor += 1;
-        }
-        if cursor >= lines.len() {
-            continue;
-        }
-
-        let Some((start_us, end_us)) = parse_srt_time_range(lines[cursor]) else {
-            continue;
-        };
-        cursor += 1;
-        if cursor >= lines.len() || end_us <= start_us {
-            continue;
-        }
-
-        let text = lines[cursor..].join("\n").trim().to_string();
-        if text.is_empty() {
-            continue;
-        }
-
-        cues.push(SourceSubtitleCue {
-            start_us,
-            end_us,
-            text,
-        });
-    }
-
-    Ok(cues)
+    Ok(crate::subtitles::parse_srt_content(&content)
+        .into_iter()
+        .map(|cue| SourceSubtitleCue {
+            start_us: cue.start_us,
+            end_us: cue.end_us,
+            text: cue.text,
+        })
+        .collect())
 }
 
 fn parse_ass_cues(path: &Path, preserve_styles: bool) -> Result<Vec<SourceSubtitleCue>, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read ASS/SSA '{}': {}", path.display(), e))?;
-    let script = reassarus_core::Script::parse(&content)
-        .map_err(|e| format!("failed to parse ASS/SSA '{}': {}", path.display(), e))?;
-
-    let mut cues = Vec::new();
-
-    for section in script.sections() {
-        let reassarus_core::Section::Events(events) = section else {
-            continue;
-        };
-
-        for event in events {
-            if !event.is_dialogue() {
-                continue;
-            }
-
-            let start_cs = match event.start_time_cs() {
-                Ok(v) => v,
-                Err(e) => {
-                    log::warn!("Skipping ASS event with invalid start time: {}", e);
-                    continue;
-                }
-            };
-            let end_cs = match event.end_time_cs() {
-                Ok(v) => v,
-                Err(e) => {
-                    log::warn!("Skipping ASS event with invalid end time: {}", e);
-                    continue;
-                }
-            };
-            if end_cs <= start_cs {
-                continue;
-            }
-
-            let mut text = event
-                .text
-                .replace("\\N", "\n")
-                .replace("\\n", "\n")
-                .replace("\\h", " ");
-
-            if !preserve_styles {
-                text = strip_ass_override_tags(&text);
-            }
-
-            let text = text.trim().to_string();
-            if text.is_empty() {
-                continue;
-            }
-
-            cues.push(SourceSubtitleCue {
-                start_us: start_cs as i64 * 10_000,
-                end_us: end_cs as i64 * 10_000,
-                text,
-            });
-        }
-    }
-
-    Ok(cues)
+    Ok(crate::subtitles::parse_ass_content(&content, preserve_styles)
+        .into_iter()
+        .map(|cue| SourceSubtitleCue {
+            start_us: cue.start_us,
+            end_us: cue.end_us,
+            text: cue.text,
+        })
+        .collect())
 }
 
 struct ExportDecodeSession {
@@ -924,12 +845,13 @@ fn render_node(
                     Ordering::Relaxed,
                 );
             }
-            let mut fitted = fit_rgba_into_canvas(
+            let mut fitted = fit_rgba_into_canvas_with_background(
                 &frame.data,
                 frame.width as usize,
                 frame.height as usize,
                 width,
                 height,
+                canvas_background_spec(filters),
             );
             apply_video_filters(&mut fitted, width, height, filters);
             filters::scale_alpha(&mut fitted, *opacity);

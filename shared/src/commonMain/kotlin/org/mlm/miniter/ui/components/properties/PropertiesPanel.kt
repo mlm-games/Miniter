@@ -30,11 +30,13 @@ import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
+import org.mlm.miniter.editor.model.RustCanvasBackgroundFilterSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
 import org.mlm.miniter.editor.model.RustCropFilterSnapshot
 import org.mlm.miniter.editor.model.RustFlipFilterSnapshot
 import org.mlm.miniter.editor.model.RustHueFilterSnapshot
 import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
+import org.mlm.miniter.editor.model.RustReverseVideoFilterSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
@@ -43,6 +45,7 @@ import org.mlm.miniter.editor.model.RustFadeInAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
 import org.mlm.miniter.editor.model.RustNormalizeAudioFilterSnapshot
+import org.mlm.miniter.editor.model.RustReverseAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustSubtitleClipKind
@@ -509,6 +512,13 @@ private fun AudioClipProperties(
                     audioFilterExpanded = false
                 },
             )
+            DropdownMenuItem(
+                text = { Text("Reverse") },
+                onClick = {
+                    onAddAudioFilter(clip.id, RustReverseAudioFilterSnapshot)
+                    audioFilterExpanded = false
+                },
+            )
         }
     }
 
@@ -567,6 +577,18 @@ private fun AudioClipProperties(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Normalize", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
+                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            is RustReverseAudioFilterSnapshot -> {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Reverse", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                     IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
                         Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
                     }
@@ -825,6 +847,8 @@ private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
     RustRotateFilterSnapshot(degrees = 0f),
     RustHueFilterSnapshot(degrees = 0f),
     RustFlipFilterSnapshot(horizontal = false, vertical = false),
+    RustReverseVideoFilterSnapshot,
+    RustCanvasBackgroundFilterSnapshot(),
 )
 
 @Composable
@@ -1040,6 +1064,7 @@ private fun RustVideoFilterSnapshot.displayName(): String =
         RustGrayscaleFilterSnapshot -> "Grayscale"
         RustSepiaFilterSnapshot -> "Sepia"
         is RustFlipFilterSnapshot -> "Flip"
+        RustReverseVideoFilterSnapshot -> "Reverse"
         else -> "Filter"
     }
 

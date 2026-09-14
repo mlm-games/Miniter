@@ -152,6 +152,28 @@ actual class RustCoreSession private constructor(
         actual fun extractWaveform(path: String, buckets: Int): String =
             wasmExtractWaveform(path, buckets.toDouble())
 
+        @Serializable
+        private data class WasmBeatTrackPayload(
+            val onsetsMs: List<Long> = emptyList(),
+            val windowEnergy: List<Float> = emptyList(),
+            val windowMs: Int = 20,
+        )
+
+        actual fun detectBeats(path: String): BeatTrack {
+            return try {
+                val payload = wasmBridgeJson.decodeFromString<WasmBeatTrackPayload>(
+                    wasmDetectBeats(path),
+                )
+                BeatTrack(
+                    onsetsMs = payload.onsetsMs,
+                    windowEnergy = payload.windowEnergy,
+                    windowMs = payload.windowMs,
+                )
+            } catch (_: SerializationException) {
+                BeatTrack()
+            }
+        }
+
         actual fun probeVideo(path: String): VideoInfo {
             val payload = try {
                 wasmBridgeJson.decodeFromString<WasmVideoProbePayload>(wasmProbeVideo(path))

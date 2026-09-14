@@ -35,6 +35,27 @@ actual object PlatformFileSystem {
             ?: throw FileNotFoundException("Cannot read: $path")
     }
 
+    actual suspend fun writeBytes(path: String, bytes: ByteArray) = withContext(Dispatchers.IO) {
+        if (!path.startsWith("content://")) {
+            val file = File(path)
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+            return@withContext
+        }
+        AndroidContext.get()
+            .contentResolver
+            .openOutputStream(Uri.parse(path))
+            ?.use { it.write(bytes) }
+            ?: throw FileNotFoundException("Cannot write: $path")
+    }
+
+    actual suspend fun createDirectories(path: String) = withContext(Dispatchers.IO) {
+        if (!path.startsWith("content://")) {
+            File(path).mkdirs()
+        }
+        Unit
+    }
+
     actual suspend fun writeText(path: String, content: String) = withContext(Dispatchers.IO) {
         if (!path.startsWith("content://")) {
             val file = File(path)

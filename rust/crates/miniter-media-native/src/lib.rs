@@ -25,6 +25,7 @@ pub mod mux;
 pub mod probe;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod subtitle;
+pub mod subtitles;
 pub mod thumbnailer;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_export;

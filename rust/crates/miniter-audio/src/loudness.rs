@@ -10,6 +10,66 @@ pub struct LoudnessProfile {
     pub rms_db: Vec<f32>,
 }
 
+/// Stable error codes for user-facing diagnostics and telemetry (ffmpeg-like).
+/// Numbering:
+/// - `LC-101` encode failure
+/// - `LC-102` font load failure
+/// - `LC-201` source file unreadable/missing
+/// - `LC-202` gallery/output write failure
+/// - `LC-301` out of memory during export
+/// - `LC-500` unexpected crash
+/// - `MT-401` no decodable stream (audio/video/subtitle)
+/// - `MT-402` unsupported codec or container
+/// - `MT-403` corrupt/truncated media
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ErrorCode {
+    EncodeFailed,
+    FontLoadFailed,
+    SourceUnreadable,
+    OutputWriteFailed,
+    OutOfMemory,
+    UnexpectedCrash,
+    NoDecodableStream,
+    UnsupportedCodec,
+    CorruptMedia,
+}
+
+impl ErrorCode {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::EncodeFailed => "LC-101",
+            Self::FontLoadFailed => "LC-102",
+            Self::SourceUnreadable => "LC-201",
+            Self::OutputWriteFailed => "LC-202",
+            Self::OutOfMemory => "LC-301",
+            Self::UnexpectedCrash => "LC-500",
+            Self::NoDecodableStream => "MT-401",
+            Self::UnsupportedCodec => "MT-402",
+            Self::CorruptMedia => "MT-403",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::EncodeFailed => "Encoding failed",
+            Self::FontLoadFailed => "Font could not be loaded",
+            Self::SourceUnreadable => "Source file is missing or unreadable",
+            Self::OutputWriteFailed => "Output could not be written",
+            Self::OutOfMemory => "Out of memory during export",
+            Self::UnexpectedCrash => "Unexpected error",
+            Self::NoDecodableStream => "No decodable audio/video stream",
+            Self::UnsupportedCodec => "Unsupported codec or container",
+            Self::CorruptMedia => "Media file is corrupt or truncated",
+        }
+    }
+}
+
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code(), self.description())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LoudnessError {
     #[error("IO: {0}")]

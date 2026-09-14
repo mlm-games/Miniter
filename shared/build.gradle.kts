@@ -137,6 +137,8 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
         sb.appendLine("external fun wasmProbeAudio(path: String): String")
         sb.appendLine("@JsName(\"extractWaveform\")")
         sb.appendLine("external fun wasmExtractWaveform(path: String, buckets: Double): String")
+        sb.appendLine("@JsName(\"detectBeats\")")
+        sb.appendLine("external fun wasmDetectBeats(path: String): String")
         sb.appendLine("@JsName(\"probeVideo\")")
         sb.appendLine("external fun wasmProbeVideo(path: String): String")
         sb.appendLine("@JsName(\"extractThumbnail\")")

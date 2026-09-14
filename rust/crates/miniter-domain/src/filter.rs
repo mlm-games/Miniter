@@ -21,6 +21,29 @@ impl VideoEffect {
             filter,
         }
     }
+
+    /// Singleton semantics: at most one of these filter types may be
+    /// active on a clip; adding a second replaces the first.
+    pub fn is_singleton(filter: &VideoFilter) -> bool {
+        matches!(
+            filter,
+            VideoFilter::Crop { .. }
+                | VideoFilter::Speed { .. }
+                | VideoFilter::Reverse
+                | VideoFilter::CanvasBackground { .. }
+        )
+    }
+
+    /// Discriminant key used to find a conflicting singleton.
+    pub fn singleton_key(filter: &VideoFilter) -> Option<&'static str> {
+        match filter {
+            VideoFilter::Crop { .. } => Some("Crop"),
+            VideoFilter::Speed { .. } => Some("Speed"),
+            VideoFilter::Reverse => Some("Reverse"),
+            VideoFilter::CanvasBackground { .. } => Some("CanvasBackground"),
+            _ => None,
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for VideoEffect {
@@ -96,12 +119,46 @@ pub enum VideoFilter {
     Speed {
         factor: f64,
     },
+    /// Reverse playback: frames are sampled back-to-front from the
+    /// source range.
+    Reverse,
+    /// Canvas background fill for letterboxed frames: replaces the default
+    /// black bars when the source aspect differs from the export frame.
+    CanvasBackground {
+        #[serde(default)]
+        mode: CanvasBackgroundMode,
+        /// Solid color as ARGB hex (matches `TextStyle` color encoding).
+        /// Used when `mode` is `Color`.
+        #[serde(default = "default_canvas_color")]
+        color: String,
+        /// Blur radius in pixels for `Blur` mode.
+        #[serde(default = "default_canvas_blur")]
+        blur_radius: f32,
+    },
     Opacity {
         value: f32,
     },
     BlendMode {
         mode: BlendMode,
     },
+}
+
+fn default_canvas_color() -> String {
+    "FF000000".to_string()
+}
+
+fn default_canvas_blur() -> f32 {
+    24.0
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub enum CanvasBackgroundMode {
+    /// Solid `color` fill.
+    #[default]
+    Color,
+    /// Source frame scaled to cover, blurred by `blur_radius`, dimmed.
+    Blur,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,4 +169,6 @@ pub enum AudioFilter {
     FadeIn { duration_us: i64 },
     FadeOut { duration_us: i64 },
     Normalize,
+    /// Reverse playback of the clip's audio samples.
+    Reverse,
 }

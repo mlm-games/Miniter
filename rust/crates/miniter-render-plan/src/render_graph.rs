@@ -251,6 +251,11 @@ fn node_for_clip(
             let opacity = clip_opacity_at(clip, local_offset);
             let mut filters = active_filters(&v.filters);
             apply_transform_keyframes(&mut filters, &clip.keyframes, local_offset);
+            let source_pts = if filters.iter().any(|f| matches!(f, VideoFilter::Reverse)) {
+                mirror_source_pts(clip, source_pts)
+            } else {
+                source_pts
+            };
             let mut base_node = RenderNode::VideoFrame {
                 clip_id: clip.id,
                 source_path: v.source_path.clone(),
@@ -297,11 +302,17 @@ fn node_for_clip(
                 );
                 if let ClipKind::Video(pv) = &prev.kind {
                     let prev_opacity = clip_opacity_at(prev, t - prev.timeline_start);
+                    let prev_filters = active_filters(&pv.filters);
+                    let prev_pts = if is_reversed(&prev_filters) {
+                        mirror_source_pts(prev, prev_pts)
+                    } else {
+                        prev_pts
+                    };
                     let prev_node = RenderNode::VideoFrame {
                         clip_id: prev.id,
                         source_path: pv.source_path.clone(),
                         source_pts: prev_pts,
-                        filters: active_filters(&pv.filters),
+                        filters: prev_filters,
                         opacity: prev_opacity,
                         blend_mode: prev.blend_mode,
                     };
@@ -337,11 +348,17 @@ fn node_for_clip(
                             ),
                     );
                     let next_opacity = clip_opacity_at(next, next_t - next.timeline_start);
+                    let next_filters = active_filters(&nv.filters);
+                    let next_pts = if is_reversed(&next_filters) {
+                        mirror_source_pts(next, next_pts)
+                    } else {
+                        next_pts
+                    };
                     let next_node = RenderNode::VideoFrame {
                         clip_id: next.id,
                         source_path: nv.source_path.clone(),
                         source_pts: next_pts,
-                        filters: active_filters(&nv.filters),
+                        filters: next_filters,
                         opacity: next_opacity,
                         blend_mode: next.blend_mode,
                     };
@@ -426,6 +443,18 @@ fn active_filters(filters: &[VideoEffect]) -> Vec<VideoFilter> {
         .collect()
 }
 
+/// Mirror a source timestamp for reversed playback: the first timeline
+/// microsecond maps to the last source microsecond of the clip range.
+fn mirror_source_pts(clip: &Clip, forward_pts: Timestamp) -> Timestamp {
+    let start = clip.source_start.as_micros();
+    let end = clip.source_end.as_micros().max(start + 1);
+    Timestamp::from_micros((start + (end - forward_pts.as_micros())).max(start))
+}
+
+fn is_reversed(filters: &[VideoFilter]) -> bool {
+    filters.iter().any(|f| matches!(f, VideoFilter::Reverse))
+}
+
 fn find_next_clip<'a>(track: &'a miniter_domain::track::Track, clip: &Clip) -> Option<&'a Clip> {
     let idx = track.clip_index(clip.id)?;
     if idx + 1 < track.clips.len() {
@@ -471,8 +500,89 @@ fn transition_out_progress(clip: &Clip, trans: &Transition, t: Timestamp) -> f32
     }
 }
 
-/// Scale the opacity of a render node (used for non-adjacent transition_in
-/// fallback: blend with black via opacity fade).
+#[cfg(test)]
+mod reverse_plan_tests {
+    use super::*;
+    use miniter_domain::clip::{Clip, ClipId, ClipKind, VideoClip};
+    use miniter_domain::filter::VideoEffect;
+    use miniter_domain::time::MediaDuration;
+    use miniter_domain::track::{Track, TrackKind};
+    use uuid::Uuid;
+
+    fn reversed_clip() -> (Timeline, ClipId) {
+        let mut track = Track::new(TrackKind::Video, "V1");
+        let clip = Clip {
+            id: ClipId(Uuid::new_v4()),
+            timeline_start: Timestamp::from_micros(0),
+            timeline_duration: MediaDuration::from_micros(4_000_000),
+            source_start: MediaDuration::from_micros(1_000_000),
+            source_end: MediaDuration::from_micros(5_000_000),
+            source_total_duration: MediaDuration::from_micros(10_000_000),
+            speed: 1.0,
+            volume: 1.0,
+            opacity: 1.0,
+            muted: false,
+            transition_in: None,
+            transition_out: None,
+            kind: ClipKind::Video(VideoClip {
+                source_path: "/tmp/a.mp4".into(),
+                width: 1920,
+                height: 1080,
+                fps: 30.0,
+                filters: vec![VideoEffect::new(VideoFilter::Reverse)],
+                audio_filters: vec![],
+                masks: vec![],
+            }),
+            keyframes: Default::default(),
+            blend_mode: Default::default(),
+        };
+        let id = clip.id;
+        track.insert_clip(clip).unwrap();
+        (
+            Timeline {
+                tracks: vec![track],
+            },
+            id,
+        )
+    }
+
+    #[test]
+    fn reversed_clip_mirrors_source_pts() {
+        use miniter_domain::export::SubtitleMode;
+        let (timeline, _) = reversed_clip();
+        for (t_us, expect_us) in [
+            (0, 5_000_000),
+            (2_000_000, 3_000_000),
+            (3_999_999, 1_000_001),
+        ] {
+            let plan = plan_frame(
+                &timeline,
+                Timestamp::from_micros(t_us),
+                1920,
+                1080,
+                SubtitleMode::Soft,
+            );
+            match plan.root {
+                RenderNode::VideoFrame { source_pts, .. } => {
+                    assert_eq!(
+                        source_pts.as_micros(),
+                        expect_us,
+                        "t={t_us}: reversed pts must mirror"
+                    );
+                }
+                other => panic!("expected VideoFrame, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn mirror_clamps_degenerate_ranges() {
+        let (timeline, _) = reversed_clip();
+        let clip = &timeline.tracks[0].clips[0];
+        let pts = mirror_source_pts(clip, Timestamp::from_micros(99_000_000));
+        assert!(pts.as_micros() >= 1_000_000);
+    }
+}
 fn scale_node_opacity(node: &mut RenderNode, factor: f32) {
     match node {
         RenderNode::VideoFrame { opacity, .. }

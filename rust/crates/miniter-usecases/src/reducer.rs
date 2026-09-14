@@ -2,7 +2,7 @@ use crate::commands::EditCommand;
 use crate::history::History;
 use crate::selection::Selection;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
-use miniter_domain::filter::AudioFilter;
+use miniter_domain::filter::{AudioFilter, VideoEffect};
 use miniter_domain::project::Project;
 use miniter_domain::time::{MediaDuration, Timestamp, scale_us_round, unscale_us_round};
 use miniter_domain::track::{Track, TrackId};
@@ -241,6 +241,19 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             let clip = find_clip_mut(state, clip_id)?;
             match &mut clip.kind {
                 ClipKind::Video(v) => {
+                    if let Some(key) = VideoEffect::singleton_key(&filter.filter)
+                        && let Some(idx) = v
+                            .filters
+                            .iter()
+                            .position(|fx| VideoEffect::singleton_key(&fx.filter) == Some(key))
+                    {
+                        let old = std::mem::replace(&mut v.filters[idx], filter);
+                        return Ok(EditCommand::UpdateVideoFilter {
+                            clip_id,
+                            index: idx,
+                            filter: old,
+                        });
+                    }
                     v.filters.push(filter);
                     let idx = v.filters.len() - 1;
                     Ok(EditCommand::RemoveVideoFilter {
@@ -1684,6 +1697,93 @@ mod tests {
         cancel_edit(&mut state).unwrap();
         assert_eq!(duration_of(&state, clip_id), 10_000_000);
         assert!(!state.history.can_undo());
+    }
+
+    #[test]
+    fn singleton_video_filters_replace_instead_of_stacking() {
+        let (mut state, clip_id) = state_with_clip();
+        for _ in 0..2 {
+            dispatch(
+                &mut state,
+                EditCommand::AddVideoFilter {
+                    clip_id,
+                    filter: VideoEffect::new(VideoFilter::Crop {
+                        left: 0.1,
+                        top: 0.1,
+                        right: 0.9,
+                        bottom: 0.9,
+                    }),
+                },
+            )
+            .unwrap();
+        }
+        let filters = match &state.project.timeline.tracks[0]
+            .clip_by_id(clip_id)
+            .unwrap()
+            .kind
+        {
+            ClipKind::Video(v) => v.filters.clone(),
+            _ => panic!("expected video clip"),
+        };
+        assert_eq!(filters.len(), 1, "Crop must stay a singleton");
+
+        dispatch(
+            &mut state,
+            EditCommand::AddVideoFilter {
+                clip_id,
+                filter: VideoEffect::new(VideoFilter::Speed { factor: 2.0 }),
+            },
+        )
+        .unwrap();
+        dispatch(
+            &mut state,
+            EditCommand::AddVideoFilter {
+                clip_id,
+                filter: VideoEffect::new(VideoFilter::Reverse),
+            },
+        )
+        .unwrap();
+        dispatch(
+            &mut state,
+            EditCommand::AddVideoFilter {
+                clip_id,
+                filter: VideoEffect::new(VideoFilter::Speed { factor: 0.5 }),
+            },
+        )
+        .unwrap();
+        let filters = match &state.project.timeline.tracks[0]
+            .clip_by_id(clip_id)
+            .unwrap()
+            .kind
+        {
+            ClipKind::Video(v) => v.filters.clone(),
+            _ => panic!("expected video clip"),
+        };
+        let speeds = filters
+            .iter()
+            .filter(|fx| matches!(fx.filter, VideoFilter::Speed { .. }))
+            .count();
+        assert_eq!(speeds, 1, "Speed must stay a singleton");
+        assert!(
+            filters
+                .iter()
+                .any(|fx| matches!(fx.filter, VideoFilter::Reverse)),
+            "Reverse must be present"
+        );
+        undo(&mut state).unwrap();
+        let filters = match &state.project.timeline.tracks[0]
+            .clip_by_id(clip_id)
+            .unwrap()
+            .kind
+        {
+            ClipKind::Video(v) => v.filters.clone(),
+            _ => panic!("expected video clip"),
+        };
+        let factor = filters.iter().find_map(|fx| match fx.filter {
+            VideoFilter::Speed { factor } => Some(factor),
+            _ => None,
+        });
+        assert_eq!(factor, Some(2.0));
     }
 
     #[test]

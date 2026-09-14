@@ -142,7 +142,11 @@ object FrameFilterProcessors {
                 is RustCropFilterSnapshot -> {
                     pixels = applyCropRgba(pixels, width, height, filter.left, filter.top, filter.right, filter.bottom)
                 }
-                else -> { }
+                RustReverseVideoFilterSnapshot,
+                is RustSpeedFilterSnapshot,
+                is RustCanvasBackgroundFilterSnapshot,
+                is RustOpacityFilterSnapshot,
+                is RustBlendModeFilterSnapshot -> { }
             }
         }
 

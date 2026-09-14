@@ -12,6 +12,7 @@ import org.mlm.miniter.rust.RustCoreSession
 actual object PlatformFileSystem {
 
     private val files = mutableMapOf<String, String>()
+    private val byteFiles = mutableMapOf<String, ByteArray>()
     private val nativeRegistered = mutableSetOf<String>()
     private val stageMutex = Mutex()
 
@@ -22,7 +23,8 @@ actual object PlatformFileSystem {
     }
 
     actual suspend fun readBytes(path: String): ByteArray = withContext(Dispatchers.Default) {
-        WasmPlatformFileRegistry.get(path)?.readBytes()
+        byteFiles[path]
+            ?: WasmPlatformFileRegistry.get(path)?.readBytes()
             ?: throw IllegalStateException("File not found in wasm fs: $path")
     }
 
@@ -30,13 +32,23 @@ actual object PlatformFileSystem {
         files[path] = content
     }
 
+    actual suspend fun writeBytes(path: String, bytes: ByteArray) = withContext(Dispatchers.Default) {
+        byteFiles[path] = bytes.copyOf()
+    }
+
+    actual suspend fun createDirectories(path: String) = withContext(Dispatchers.Default) {
+        Unit
+    }
+
     actual fun exists(path: String): Boolean =
-        files.containsKey(path) || WasmPlatformFileRegistry.contains(path)
+        files.containsKey(path) || byteFiles.containsKey(path) ||
+            WasmPlatformFileRegistry.contains(path)
 
     actual fun delete(path: String): Boolean {
         WasmPlaybackUriCache.forget(path)
         val deleted =
-            (files.remove(path) != null || WasmPlatformFileRegistry.remove(path))
+            (files.remove(path) != null || byteFiles.remove(path) != null ||
+                WasmPlatformFileRegistry.remove(path))
         if (deleted) {
             nativeRegistered.remove(path)
             runCatching { RustCoreSession.unregisterFile(path) }
