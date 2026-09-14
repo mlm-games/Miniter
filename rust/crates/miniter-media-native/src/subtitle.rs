@@ -1,3 +1,4 @@
+use fontdb::Database as FontDatabase;
 use reassarus_renderer::{BackendType, Frame, RenderContext, Renderer};
 use std::path::Path;
 use thiserror::Error;
@@ -12,6 +13,28 @@ pub enum SubtitleError {
     Render(#[from] reassarus_renderer::utils::RenderError),
 }
 
+/// Read a user-picked subtitle font into bytes.
+///
+/// Returns `None` when no override is set or the file cannot be read —
+/// callers fall back to default rendering. Never fails the export.
+fn load_custom_font_bytes(font_path: Option<&str>) -> Option<Vec<u8>> {
+    let path = font_path.filter(|p| !p.is_empty())?;
+    std::fs::read(Path::new(path)).ok().filter(|b| !b.is_empty())
+}
+
+/// Build a font database with the custom font pre-registered.
+///
+/// An empty database makes the renderer fall back to system fonts, so a
+/// missing/unreadable override degrades to previous behaviour instead of
+/// failing the frame.
+fn font_database_with_override(font_path: Option<&str>) -> FontDatabase {
+    let mut db = FontDatabase::new();
+    if let Some(bytes) = load_custom_font_bytes(font_path) {
+        db.load_font_data(bytes);
+    }
+    db
+}
+
 pub struct SubtitleRenderer {
     renderer: Renderer,
     script_content: Option<String>,
@@ -19,8 +42,24 @@ pub struct SubtitleRenderer {
 
 impl SubtitleRenderer {
     pub fn new(width: u32, height: u32) -> Result<Self, SubtitleError> {
+        Self::with_font_override(width, height, None)
+    }
+
+    /// Create a renderer with a user-picked font pre-registered.
+    ///
+    /// The override resolves by family name during shaping; when it is
+    /// absent or unreadable the renderer falls back to system fonts.
+    pub fn with_font_override(
+        width: u32,
+        height: u32,
+        font_path: Option<&str>,
+    ) -> Result<Self, SubtitleError> {
         let context = RenderContext::new(width, height);
-        let renderer = Renderer::new(BackendType::Repose, context)?;
+        let renderer = Renderer::with_font_database(
+            BackendType::Repose,
+            context,
+            font_database_with_override(font_path),
+        )?;
         Ok(Self {
             renderer,
             script_content: None,

@@ -1579,7 +1579,19 @@ class ProjectViewModel(
 
     fun setSubtitleFont(clipId: String, fontPath: String?) {
         findRustClip(clipId)?.kind as? RustSubtitleClipKind ?: return
-        dispatchAndSync(rustStore.commands.setSubtitleFont(clipId, fontPath))
+        if (fontPath == null) {
+            dispatchAndSync(rustStore.commands.setSubtitleFont(clipId, null))
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val stagedPath = PlatformFileSystem.stageForNativeAccess(fontPath)
+                dispatchAndSync(rustStore.commands.setSubtitleFont(clipId, stagedPath))
+            } catch (e: Exception) {
+                Napier.e("Failed to stage subtitle font", e)
+                snackbarManager.showError("Could not use font: ${e.message}")
+            }
+        }
     }
 
     fun addMask(clipId: String, mask: RustMaskEffect) {

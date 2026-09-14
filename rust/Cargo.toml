@@ -43,10 +43,11 @@ image = { version = "0.25", default-features = false, features = [
     "tiff",
 ] }
 fontdue = "0.9"
+fontdb = "0.24"
 
 baabaabaabaabababbababbaa = { version = "0.1" }
-reassarus-renderer = { version = "0.1", default-features = false }
-reassarus-core = { version = "0.1" }
+reassarus-renderer = { git = "https://github.com/mlm-games/ass-rs.git", rev = "c32f66e", default-features = false }
+reassarus-core = { git = "https://github.com/mlm-games/ass-rs.git", rev = "c32f66e" }
 
 miniter-domain = { path = "crates/miniter-domain", version = "0.1.8" }
 miniter-usecases = { path = "crates/miniter-usecases", version = "0.1.8" }

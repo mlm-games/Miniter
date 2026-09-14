@@ -50,6 +50,7 @@ import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
+import org.mlm.miniter.platform.rememberSubtitleFontFamily
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
 import kotlin.time.TimeSource
@@ -979,11 +980,13 @@ fun EditorVideoPreview(
                     }
 
                     subtitles.forEach { subtitle ->
-                        var subLayout by remember(subtitle.id, subtitle.text) { mutableStateOf<TextLayoutResult?>(null) }
+                        var subLayout by remember(subtitle.id, subtitle.text, subtitle.fontPath) { mutableStateOf<TextLayoutResult?>(null) }
+                        val subtitleFontFamily = rememberSubtitleFontFamily(subtitle.fontPath)
                         Text(
                             text = subtitle.text,
                             color = Color.White.copy(alpha = 0.9f),
                             fontSize = 16.sp,
+                            fontFamily = subtitleFontFamily,
                             textAlign = TextAlign.Center,
                             onTextLayout = { subLayout = it },
                             modifier = Modifier

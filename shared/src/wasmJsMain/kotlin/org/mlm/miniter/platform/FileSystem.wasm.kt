@@ -21,6 +21,11 @@ actual object PlatformFileSystem {
             ?: throw IllegalStateException("File not found in wasm fs: $path")
     }
 
+    actual suspend fun readBytes(path: String): ByteArray = withContext(Dispatchers.Default) {
+        WasmPlatformFileRegistry.get(path)?.readBytes()
+            ?: throw IllegalStateException("File not found in wasm fs: $path")
+    }
+
     actual suspend fun writeText(path: String, content: String) = withContext(Dispatchers.Default) {
         files[path] = content
     }

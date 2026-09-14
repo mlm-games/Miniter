@@ -23,6 +23,18 @@ actual object PlatformFileSystem {
             ?: throw FileNotFoundException("Cannot read: $path")
     }
 
+    actual suspend fun readBytes(path: String): ByteArray = withContext(Dispatchers.IO) {
+        if (!path.startsWith("content://")) {
+            return@withContext File(path).readBytes()
+        }
+
+        AndroidContext.get()
+            .contentResolver
+            .openInputStream(Uri.parse(path))
+            ?.use { it.readBytes() }
+            ?: throw FileNotFoundException("Cannot read: $path")
+    }
+
     actual suspend fun writeText(path: String, content: String) = withContext(Dispatchers.IO) {
         if (!path.startsWith("content://")) {
             val file = File(path)

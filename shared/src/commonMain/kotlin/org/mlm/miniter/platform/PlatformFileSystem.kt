@@ -3,6 +3,7 @@ package org.mlm.miniter.platform
 expect object PlatformFileSystem {
     suspend fun readText(path: String): String
     suspend fun writeText(path: String, content: String)
+    suspend fun readBytes(path: String): ByteArray
     fun exists(path: String): Boolean
     fun delete(path: String): Boolean
     fun getParentDirectory(path: String): String

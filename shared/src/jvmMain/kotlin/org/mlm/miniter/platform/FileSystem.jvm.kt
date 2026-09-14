@@ -10,6 +10,10 @@ actual object PlatformFileSystem {
         File(path).readText(Charsets.UTF_8)
     }
 
+    actual suspend fun readBytes(path: String): ByteArray = withContext(Dispatchers.IO) {
+        File(path).readBytes()
+    }
+
     actual suspend fun writeText(path: String, content: String) = withContext(Dispatchers.IO) {
         val file = File(path)
         file.parentFile?.mkdirs()

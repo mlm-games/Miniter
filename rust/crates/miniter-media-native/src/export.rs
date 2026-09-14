@@ -598,14 +598,20 @@ impl ExportDecodeCache {
         path: &str,
         width: u32,
         height: u32,
+        font_path: Option<&str>,
     ) -> Result<&mut crate::subtitle::SubtitleRenderer, crate::subtitle::SubtitleError> {
-        if !self.subtitle_renderers.contains_key(path) {
-            let mut renderer = crate::subtitle::SubtitleRenderer::new(width, height)?;
+        let cache_key = match font_path.filter(|p| !p.is_empty()) {
+            Some(fp) => format!("{path}\0font:{fp}"),
+            None => path.to_string(),
+        };
+        if !self.subtitle_renderers.contains_key(&cache_key) {
+            let mut renderer =
+                crate::subtitle::SubtitleRenderer::with_font_override(width, height, font_path)?;
             renderer.load_script(Path::new(path))?;
-            self.subtitle_renderers.insert(path.to_string(), renderer);
+            self.subtitle_renderers.insert(cache_key.clone(), renderer);
         }
 
-        self.subtitle_renderers.get_mut(path).ok_or_else(|| {
+        self.subtitle_renderers.get_mut(&cache_key).ok_or_else(|| {
             crate::subtitle::SubtitleError::Parse("subtitle renderer missing after insert".into())
         })
     }
@@ -966,6 +972,7 @@ fn render_node(
                         source_path,
                         width as u32,
                         height as u32,
+                        font_path.as_deref(),
                     ) {
                         Ok(renderer) => match renderer.render_frame(time_cs) {
                             Ok(frame) => {
