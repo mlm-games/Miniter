@@ -634,7 +634,6 @@ fn export_h264_mp4_bytes(
     let mut out_bytes = Vec::new();
     let mut frame_index: u32 = 0;
     {
-        let mut muxer: Option<Mp4Muxer<&mut Vec<u8>>> = None;
         let mut emit = |encoded: EncodedVideoOutput,
                         frame_index: u32,
                         muxer: &mut Mp4Muxer<&mut Vec<u8>>|
@@ -656,6 +655,27 @@ fn export_h264_mp4_bytes(
                 .write_sample_at(pts_us.max(0) as u64, &bytes, is_keyframe)
                 .map_err(|e| format!("MP4 write failed: {e}"))?;
             Ok(())
+        };
+        // Validate one AU and stage it for muxer creation. Returns
+        // `Some(sample)` when an AU is ready, `None` on `Skipped`.
+        let stage = |encoded: EncodedVideoOutput,
+                     frame_index: u32|
+         -> Result<Option<(u64, Vec<u8>, bool)>, String> {
+            match encoded {
+                EncodedVideoOutput::Sample {
+                    bytes,
+                    is_keyframe,
+                    pts_us,
+                } => {
+                    if bytes.is_empty() || !has_annexb_start_code(&bytes) {
+                        return Err(format!(
+                            "H.264 encoder produced empty frame at index {frame_index}"
+                        ));
+                    }
+                    Ok(Some((pts_us.max(0) as u64, bytes, is_keyframe)))
+                }
+                EncodedVideoOutput::Skipped => Ok(None),
+            }
         };
         // Head-start: feed frames until the first AU, validating each.
         // The muxer is created inline here (not in a closure) because it
