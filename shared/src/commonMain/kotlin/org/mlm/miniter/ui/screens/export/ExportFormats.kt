@@ -53,15 +53,6 @@ val RustExportFormat.label: String
         RustExportFormat.Opus -> "Opus / Ogg"
     }
 
-val RustExportFormat.description: String
-    get() = when (this) {
-        RustExportFormat.Mp4 -> "Most compatible video export."
-        RustExportFormat.Av1Mp4 -> "Smaller files with modern AV1 video."
-        RustExportFormat.Av1Ivf -> "Raw AV1 video stream; audio and embedded subtitles are not included."
-        RustExportFormat.Mov -> "QuickTime-compatible H.264 video."
-        RustExportFormat.Opus -> "Audio-only Ogg Opus export."
-    }
-
 val RustExportFormat.fileExtension: String
     get() = when (this) {
         RustExportFormat.Mp4 -> "mp4"

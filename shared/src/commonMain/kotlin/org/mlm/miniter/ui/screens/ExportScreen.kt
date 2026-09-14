@@ -125,7 +125,6 @@ import org.mlm.miniter.ui.screens.export.MutedLabel
 import org.mlm.miniter.ui.screens.export.SliderHeader
 import org.mlm.miniter.ui.screens.export.applyTo
 import org.mlm.miniter.ui.screens.export.capabilities
-import org.mlm.miniter.ui.screens.export.description
 import org.mlm.miniter.ui.screens.export.effectiveResolutionText
 import org.mlm.miniter.ui.screens.export.fileExtension
 import org.mlm.miniter.ui.screens.export.label
@@ -385,22 +384,18 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
             )
         },
         bottomBar = {
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val footerMax = if (maxWidth < 600.dp) maxWidth else 980.dp
-                val footerPadding = if (maxWidth < 600.dp) 16.dp else 24.dp
-                Surface(
-                    tonalElevation = 3.dp,
-                    shadowElevation = 6.dp,
-                    color = MaterialTheme.colorScheme.surface,
+            Surface(
+                tonalElevation = 3.dp,
+                shadowElevation = 6.dp,
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .widthIn(max = footerMax)
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = footerPadding, vertical = 12.dp),
-                    ) {
-                        ExportBottomBar(
+                    ExportBottomBar(
                             progress = progress,
                             isExporting = isExporting,
                             exportSupported = exportSupported,
@@ -423,7 +418,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             },
                             onBackToEditor = { backStack.popBack() },
                         )
-                    }
                 }
             }
         },
@@ -447,7 +441,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 ExportSectionCard(
                     title = "Format",
                     icon = Icons.Default.Movie,
-                    supportingText = "Pick the container and encoder before choosing quality.",
                 ) {
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -463,18 +456,12 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             )
                         }
                     }
-                    Text(
-                        format.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
 
                 if (isAudioOnly) {
                     ExportSectionCard(
                         title = "Audio-only export",
                         icon = Icons.Default.Audiotrack,
-                        supportingText = "Only audio settings apply for Opus/Ogg exports.",
                     ) {
                         AudioFields(
                             audioBitrate = draft.audioBitrateText,
@@ -489,7 +476,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     ExportSectionCard(
                         title = "Video",
                         icon = Icons.Default.Videocam,
-                        supportingText = "Resolution, frame rate, and visual quality.",
                     ) {
                         SliderHeader(
                             title = "Video bitrate",
@@ -528,11 +514,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             width = draft.widthText,
                             height = draft.heightText,
                             fps = draft.fpsText,
-                            sourceHint = if (hasSourceDimensions) {
-                                "Source $sourceResolutionText · even numbers"
-                            } else {
-                                "Even numbers"
-                            },
+                            sourceHint = if (hasSourceDimensions) sourceResolutionText else "",
                             enabled = !isExporting,
                             errors = validationErrors,
                             onWidthChange = { draft = draft.copy(widthText = it) },
@@ -545,13 +527,8 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         if (evenW != null && evenH != null && evenW > 0 && evenH > 0 &&
                             (evenW.toString() != draft.widthText.trim() || evenH.toString() != draft.heightText.trim())
                         ) {
-                            MutedLabel("Will export at ${evenW}×${evenH} (rounded down to even dimensions).")
+                            MutedLabel("Exports at ${evenW}×${evenH}.")
                         }
-                        MutedLabel(
-                            "Output: " + effectiveResolutionText(
-                                draft.widthText, draft.heightText, sourceWidth, sourceHeight, isAudioOnly = false,
-                            ) + " · Source: $sourceResolutionText",
-                        )
                     }
                 }
 
@@ -572,7 +549,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     ExportSectionCard(
                         title = "Save location",
                         icon = Icons.Default.Save,
-                        supportingText = "Choose where the rendered file should be written.",
                     ) {
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             if (maxWidth < 560.dp) {
@@ -622,7 +598,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 ) {
                     Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(if (showAdvanced) "Hide advanced settings" else "Advanced settings")
+                    Text(if (showAdvanced) "Hide advanced" else "Advanced")
                 }
 
                 if (showAdvanced) {
@@ -630,7 +606,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         ExportSectionCard(
                             title = "Audio",
                             icon = Icons.Default.Audiotrack,
-                            supportingText = "Audio quality for video exports.",
                         ) {
                             AudioFields(
                                 audioBitrate = draft.audioBitrateText,
@@ -647,11 +622,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         ExportSectionCard(
                             title = "Subtitles",
                             icon = Icons.Default.Subtitles,
-                            supportingText = if (capabilities.supportsEmbeddedSubtitles) {
-                                "Embed soft tracks or burn subtitles into frames."
-                            } else {
-                                "IVF carries no subtitle tracks; burn-in still affects rendered frames."
-                            },
                         ) {
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -697,7 +667,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                         ExportSectionCard(
                             title = "Encoder",
                             icon = Icons.Default.Speed,
-                            supportingText = "Prefer hardware acceleration when available; software is the fallback.",
                             trailing = {
                                 Switch(
                                     checked = hwEnabled && hwInfo.available,
@@ -719,15 +688,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 color = if (hwInfo.available) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (hwInfo.codecs.isNotEmpty()) {
-                                Text(
-                                    "Decoders: ${hwInfo.codecs.joinToString(", ")}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            MutedLabel("Hardware reports decoding support; encoding falls back to software when unavailable.")
-
                             SliderHeader(title = "Encode effort", value = encodeEffort.toInt().toString())
                             Slider(
                                 value = encodeEffort,
@@ -736,7 +696,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 steps = 9,
                                 enabled = !isExporting,
                             )
-                            MutedLabel("0 = slowest / best quality · 10 = fastest. Hardware encoders may ignore this.")
                         }
                     }
 
@@ -777,11 +736,6 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                         color = MaterialTheme.colorScheme.onErrorContainer,
                                     )
                                 }
-                                Text(
-                                    "Export will still run; violations will be logged.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.75f),
-                                )
                             }
                         }
                     }
