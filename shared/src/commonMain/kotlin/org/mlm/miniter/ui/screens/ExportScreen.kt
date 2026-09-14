@@ -233,7 +233,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val needsOutputPicker = requiresExplicitExportPathSelection
     val platformFormats = RustExportFormat.entries.filter { it != RustExportFormat.Mov }
     val capabilities = format.capabilities
-    val isAudioOnly = format == RustExportFormat.Opus
+    val isAudioOnly = format == RustExportFormat.Opus || format == RustExportFormat.Flac
 
     var hwInfo by remember {
         mutableStateOf(HwCapabilityInfo(false, "Checking device capabilities…", emptyList()))

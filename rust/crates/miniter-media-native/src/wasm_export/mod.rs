@@ -439,6 +439,9 @@ pub fn export_project_to_bytes(
         ExportFormat::Opus => {
             export_opus_ogg_bytes(project, registered_files, &is_cancelled, &on_progress)?
         }
+        ExportFormat::Flac => {
+            export_flac_bytes(project, registered_files, &is_cancelled, &on_progress)?
+        }
         ExportFormat::Mov => {
             return Err("MOV export is not supported on web yet".to_string());
         }
@@ -461,6 +464,7 @@ fn export_target_info(format: ExportFormat) -> Result<(&'static str, &'static st
         ExportFormat::Av1Mp4 => Ok(("mp4", "video/mp4")),
         ExportFormat::Av1Ivf => Ok(("ivf", "video/ivf")),
         ExportFormat::Opus => Ok(("ogg", "audio/ogg")),
+        ExportFormat::Flac => Ok(("flac", "audio/flac")),
         ExportFormat::Mov => Err("MOV export is not supported on web yet".to_string()),
         ExportFormat::Av1Mkv | ExportFormat::Av1WebM => {
             Err("MKV/WebM AV1 export is not supported on web yet".to_string())
@@ -1098,6 +1102,8 @@ fn export_opus_ogg_bytes(
     is_cancelled: &dyn Fn() -> bool,
     on_progress: &dyn Fn(u32),
 ) -> Result<Vec<u8>, String> {
+    use muxfin::api::{AudioCodec as MuxAudioCodec, MuxerBuilder};
+
     on_progress(1);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
     let mixed = mix_project_audio_with_source_map(project, config, registered_files)
@@ -1120,11 +1126,77 @@ fn export_opus_ogg_bytes(
         return Err("Export cancelled".to_string());
     }
 
-    let total_48k = total_samples_48k(&mixed);
+    let mut output = Vec::new();
+    {
+        let mut muxer = MuxerBuilder::new(&mut output)
+            .audio(MuxAudioCodec::Opus, 48_000, encoded.channels)
+            .with_opus_preskip(encoded.preskip_48k)
+            .build_ogg()
+            .map_err(|e| format!("Ogg muxer init failed: {e}"))?;
+        for packet in &encoded.packets {
+            if is_cancelled() {
+                return Err("Export cancelled".to_string());
+            }
+            muxer
+                .write_audio(packet.pts_us as f64 / 1_000_000.0, &packet.bytes)
+                .map_err(|e| format!("Ogg write failed: {e}"))?;
+        }
+        muxer
+            .finish()
+            .map_err(|e| format!("Ogg finalize failed: {e}"))?;
+    }
+
+    on_progress(100_000);
+    Ok(output)
+}
+
+fn export_flac_bytes(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+    is_cancelled: &dyn Fn() -> bool,
+    on_progress: &dyn Fn(u32),
+) -> Result<Vec<u8>, String> {
+    use muxfin::api::{AudioCodec as MuxAudioCodec, MuxerBuilder};
+
+    on_progress(1);
+    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
+    let mixed = mix_project_audio_with_source_map(project, config, registered_files)
+        .map_err(|e| format!("Audio mix failed: {e}"))?;
+    if mixed.samples.is_empty() {
+        return Err("No audio to export".to_string());
+    }
+    on_progress(10);
+
+    if is_cancelled() {
+        return Err("Export cancelled".to_string());
+    }
+
+    let encoded = encode_flac(&mixed)?;
+    on_progress(50);
+
+    if is_cancelled() {
+        return Err("Export cancelled".to_string());
+    }
 
     let mut output = Vec::new();
-    let mut cursor = Cursor::new(&mut output);
-    write_ogg_opus(&mut cursor, &encoded, total_48k, is_cancelled)?;
+    {
+        let mut muxer = MuxerBuilder::new(&mut output)
+            .audio(MuxAudioCodec::Flac, encoded.sample_rate, encoded.channels)
+            .with_flac_streaminfo(encoded.streaminfo.to_vec())
+            .build_flac()
+            .map_err(|e| format!("FLAC muxer init failed: {e}"))?;
+        for packet in &encoded.packets {
+            if is_cancelled() {
+                return Err("Export cancelled".to_string());
+            }
+            muxer
+                .write_audio(packet.pts_us as f64 / 1_000_000.0, &packet.bytes)
+                .map_err(|e| format!("FLAC write failed: {e}"))?;
+        }
+        muxer
+            .finish()
+            .map_err(|e| format!("FLAC finalize failed: {e}"))?;
+    }
 
     on_progress(100_000);
     Ok(output)
@@ -1183,6 +1255,25 @@ fn prepare_audio_track(
     let bitrate_bps = normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
         .saturating_mul(1000);
     let encoded = encode_opus(&mixed, bitrate_bps)?;
+    if encoded.packets.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(encoded))
+}
+
+fn prepare_flac_track(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+) -> Result<Option<EncodedFlac>, String> {
+    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
+    let mixed = mix_project_audio_with_source_map(project, config, registered_files)
+        .map_err(|e| format!("Audio mix failed: {e}"))?;
+    if mixed.samples.is_empty() {
+        return Ok(None);
+    }
+
+    let encoded = encode_flac(&mixed)?;
     if encoded.packets.is_empty() {
         return Ok(None);
     }
@@ -1360,9 +1451,8 @@ pub struct WasmExportChunker {
     seen_first_keyframe: bool,
     source_matrix: MatrixCoeffs,
     audio_encoded: Option<EncodedOpus>,
+    flac_encoded: Option<EncodedFlac>,
     subtitle_samples: Vec<SoftSubtitleSample>,
-    ogg_sample_rate: u32,
-    ogg_total_samples_48k: u64,
 }
 
 impl WasmExportChunker {
@@ -1385,8 +1475,18 @@ impl WasmExportChunker {
         decode_cache.default_width = settings.width;
         decode_cache.default_height = settings.height;
 
-        let audio_encoded = prepare_audio_track(project, &files_box)
-            .map_err(|e| format!("Audio prep failed: {e}"))?;
+        let audio_encoded = if format == ExportFormat::Flac {
+            None
+        } else {
+            prepare_audio_track(project, &files_box)
+                .map_err(|e| format!("Audio prep failed: {e}"))?
+        };
+        let flac_encoded = if format == ExportFormat::Flac {
+            prepare_flac_track(project, &files_box)
+                .map_err(|e| format!("Audio prep failed: {e}"))?
+        } else {
+            None
+        };
         let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
             collect_soft_subtitle_samples(project, &files_box)
         } else {
@@ -1440,18 +1540,7 @@ impl WasmExportChunker {
         let hw_requested = project.export_profile.hardware_acceleration;
         let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
 
-        if format == ExportFormat::Opus {
-            let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
-            let ogg_total_samples_48k = if let Some(ref audio) = audio_encoded {
-                audio.packets.len() as u64 * 960
-            } else {
-                0
-            };
-            let ogg_sample_rate = audio_encoded
-                .as_ref()
-                .map(|a| a.sample_rate)
-                .unwrap_or(sample_rate);
-
+        if format == ExportFormat::Opus || format == ExportFormat::Flac {
             return Ok(WasmExportChunker {
                 decode_cache,
                 _registered_files: files_box,
@@ -1473,9 +1562,8 @@ impl WasmExportChunker {
                 seen_first_keyframe: false,
                 source_matrix: MatrixCoeffs::Bt709,
                 audio_encoded,
+                flac_encoded,
                 subtitle_samples,
-                ogg_sample_rate,
-                ogg_total_samples_48k,
             });
         }
 
@@ -1520,9 +1608,8 @@ impl WasmExportChunker {
             seen_first_keyframe: false,
             source_matrix,
             audio_encoded,
+            flac_encoded,
             subtitle_samples,
-            ogg_sample_rate: 0,
-            ogg_total_samples_48k: 0,
         })
     }
 
@@ -1869,12 +1956,55 @@ impl WasmExportChunker {
                 })
             }
             ExportFormat::Opus => {
+                use muxfin::api::{AudioCodec as MuxAudioCodec, MuxerBuilder};
+
                 let Some(audio) = &self.audio_encoded else {
                     return Err("No audio data to export".to_string());
                 };
                 let mut output = Vec::new();
-                let mut cursor = std::io::Cursor::new(&mut output);
-                write_ogg_opus(&mut cursor, audio, self.ogg_total_samples_48k, &|| false)?;
+                {
+                    let mut muxer = MuxerBuilder::new(&mut output)
+                        .audio(MuxAudioCodec::Opus, 48_000, audio.channels)
+                        .with_opus_preskip(audio.preskip_48k)
+                        .build_ogg()
+                        .map_err(|e| format!("Ogg muxer init failed: {e}"))?;
+                    for packet in &audio.packets {
+                        muxer
+                            .write_audio(packet.pts_us as f64 / 1_000_000.0, &packet.bytes)
+                            .map_err(|e| format!("Ogg write failed: {e}"))?;
+                    }
+                    muxer
+                        .finish()
+                        .map_err(|e| format!("Ogg finalize failed: {e}"))?;
+                }
+                Ok(WasmExportArtifact {
+                    bytes: output,
+                    file_name,
+                    mime_type: mime_type.to_string(),
+                })
+            }
+            ExportFormat::Flac => {
+                use muxfin::api::{AudioCodec as MuxAudioCodec, MuxerBuilder};
+
+                let Some(flac) = &self.flac_encoded else {
+                    return Err("No audio data to export".to_string());
+                };
+                let mut output = Vec::new();
+                {
+                    let mut muxer = MuxerBuilder::new(&mut output)
+                        .audio(MuxAudioCodec::Flac, flac.sample_rate, flac.channels)
+                        .with_flac_streaminfo(flac.streaminfo.to_vec())
+                        .build_flac()
+                        .map_err(|e| format!("FLAC muxer init failed: {e}"))?;
+                    for packet in &flac.packets {
+                        muxer
+                            .write_audio(packet.pts_us as f64 / 1_000_000.0, &packet.bytes)
+                            .map_err(|e| format!("FLAC write failed: {e}"))?;
+                    }
+                    muxer
+                        .finish()
+                        .map_err(|e| format!("FLAC finalize failed: {e}"))?;
+                }
                 Ok(WasmExportArtifact {
                     bytes: output,
                     file_name,

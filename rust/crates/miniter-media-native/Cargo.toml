@@ -16,7 +16,7 @@ web-time.workspace = true
 
 image.workspace = true
 
-muxfin = "0.3"
+muxfin = "0.4"
 
 rusty_h264-encoder = { version = "0.16", default-features = false, features = ["libm"] }
 rusty_h264-common = { version = "0.16", default-features = false }
@@ -28,6 +28,8 @@ av-ivf = "0.5"
 symphonia = { workspace = true, features = ["isomp4", "mkv", "pcm", "ogg"] }
 
 oporus.workspace = true
+dissonia-codec-flac.workspace = true
+dissonia-core.workspace = true
 
 fast_image_resize = "6.0"
 

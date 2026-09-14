@@ -42,6 +42,12 @@ val RustExportFormat.capabilities: ExportCapabilities
             supportsBurnedInSubtitles = false,
             stylingWarning = false,
         )
+        RustExportFormat.Flac -> ExportCapabilities(
+            supportsAudio = true,
+            supportsEmbeddedSubtitles = false,
+            supportsBurnedInSubtitles = false,
+            stylingWarning = false,
+        )
     }
 
 val RustExportFormat.label: String
@@ -51,6 +57,7 @@ val RustExportFormat.label: String
         RustExportFormat.Av1Ivf -> "AV1 / IVF"
         RustExportFormat.Mov -> "H.264 / MOV"
         RustExportFormat.Opus -> "Opus / Ogg"
+        RustExportFormat.Flac -> "FLAC"
     }
 
 val RustExportFormat.fileExtension: String
@@ -60,4 +67,5 @@ val RustExportFormat.fileExtension: String
         RustExportFormat.Av1Mp4 -> "mp4"
         RustExportFormat.Mov -> "mov"
         RustExportFormat.Opus -> "ogg"
+        RustExportFormat.Flac -> "flac"
     }

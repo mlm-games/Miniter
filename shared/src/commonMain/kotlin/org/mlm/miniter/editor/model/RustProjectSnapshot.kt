@@ -532,6 +532,7 @@ enum class RustExportFormat {
     Av1Ivf,
     Mov,
     Opus,
+    Flac,
 }
 
 @Serializable(with = RustExportResolutionSerializer::class)

@@ -32,6 +32,8 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 
 symphonia = "0.6"
 symphonia-adapter-oporus = "0.1.3"
+dissonia-codec-flac = "0.1.5"
+dissonia-core = "0.1.5"
 oporus = "0.2.4"
 ivf = "0.1"
 image = { version = "0.25", default-features = false, features = [

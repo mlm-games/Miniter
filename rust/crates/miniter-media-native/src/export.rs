@@ -197,6 +197,7 @@ where
             &on_progress,
         ),
         ExportFormat::Opus => export_opus_ogg(project, output_path, &is_cancelled, &on_progress),
+        ExportFormat::Flac => export_flac(project, output_path, &is_cancelled, &on_progress),
         _ => return Err(ExportError::UnsupportedFormat),
     };
     clear_session_cache();
@@ -1373,8 +1374,9 @@ fn export_opus_ogg<F>(
 where
     F: Fn() -> bool,
 {
+    use muxfin::api::{AudioCodec as MuxAudioCodec, MuxerBuilder};
+
     on_progress(1);
-    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
     let mixed = mix_project_audio(project, config)?;
     if mixed.samples.is_empty() {
@@ -1395,16 +1397,26 @@ where
         return Err(ExportError::Cancelled);
     }
 
-    let total_48k = total_samples_48k(&mixed);
-
     let file = File::create(output_path)?;
-    let mut writer = BufWriter::new(file);
-    write_ogg_opus(&mut writer, &encoded, total_48k, is_cancelled)
-        .map_err(|e| ExportError::Mp4Mux(MuxError::OggMux(e)))?;
-    {
-        use std::io::Write;
-        writer.flush()?;
+    let writer = BufWriter::new(file);
+    let mut muxer = MuxerBuilder::new(writer)
+        .audio(
+            MuxAudioCodec::Opus,
+            48_000,
+            encoded.channels,
+        )
+        .with_opus_preskip(encoded.preskip_48k)
+        .build_ogg()
+        .map_err(MuxError::from)?;
+    for packet in &encoded.packets {
+        if is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+        muxer
+            .write_audio(packet.pts_us as f64 / 1_000_000.0, &packet.bytes)
+            .map_err(MuxError::from)?;
     }
+    muxer.finish().map_err(MuxError::from)?;
 
     on_progress(100_000);
     Ok(())
@@ -1415,6 +1427,57 @@ fn encode_opus(
     bitrate_bps: u32,
 ) -> Result<crate::export_shared::EncodedOpus, OpusEncodeError> {
     crate::export_shared::encode_opus(mixed, bitrate_bps).map_err(|e| OpusEncodeError::Encoder(e))
+}
+
+fn export_flac<F>(
+    project: &Project,
+    output_path: &Path,
+    is_cancelled: &F,
+    on_progress: &dyn Fn(u32),
+) -> Result<(), ExportError>
+where
+    F: Fn() -> bool,
+{
+    use muxfin::api::{AudioCodec as MuxAudioCodec, MuxerBuilder};
+
+    on_progress(1);
+    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
+    let mixed = mix_project_audio(project, config)?;
+    if mixed.samples.is_empty() {
+        return Err(ExportError::UnsupportedFormat);
+    }
+    on_progress(10);
+
+    if is_cancelled() {
+        return Err(ExportError::Cancelled);
+    }
+
+    let encoded = encode_flac(&mixed).map_err(OpusEncodeError::Encoder)?;
+    on_progress(50);
+
+    if is_cancelled() {
+        return Err(ExportError::Cancelled);
+    }
+
+    let file = File::create(output_path)?;
+    let writer = BufWriter::new(file);
+    let mut muxer = MuxerBuilder::new(writer)
+        .audio(MuxAudioCodec::Flac, encoded.sample_rate, encoded.channels)
+        .with_flac_streaminfo(encoded.streaminfo.to_vec())
+        .build_flac()
+        .map_err(MuxError::from)?;
+    for packet in &encoded.packets {
+        if is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+        muxer
+            .write_audio(packet.pts_us as f64 / 1_000_000.0, &packet.bytes)
+            .map_err(MuxError::from)?;
+    }
+    muxer.finish().map_err(MuxError::from)?;
+
+    on_progress(100_000);
+    Ok(())
 }
 
 /// Render a single frame from a timeline at the given timestamp.

@@ -10,6 +10,7 @@ pub enum ExportFormat {
     Av1Mkv,
     Av1WebM,
     Opus,
+    Flac,
 }
 
 impl ExportFormat {
@@ -22,6 +23,7 @@ impl ExportFormat {
             Self::Av1WebM => "webm",
             Self::Mov => "mov",
             Self::Opus => "opus",
+            Self::Flac => "flac",
         }
     }
 
@@ -34,6 +36,7 @@ impl ExportFormat {
             Self::Av1WebM => "video/webm",
             Self::Mov => "video/quicktime",
             Self::Opus => "audio/ogg",
+            Self::Flac => "audio/flac",
         }
     }
 }

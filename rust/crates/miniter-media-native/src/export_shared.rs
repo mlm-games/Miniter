@@ -160,7 +160,8 @@ pub(crate) struct EncodedOpus {
     pub channels: u16,
     pub packets: Vec<EncodedOpusPacket>,
     /// Encoder sample rate the packets were produced at (Opus-supported
-    /// rate, post-normalization — NOT the mix rate).
+    /// rate, post-normalization — NOT the mix rate). Used for the MP4
+    /// audio track declaration; the Ogg muxer always signals 48 kHz.
     pub sample_rate: u32,
     /// Encoder lookahead in 48 kHz samples (RFC 7845 `pre-skip`): decoders
     /// trim this many samples off the start on playback. Packet PTS are
@@ -1324,6 +1325,132 @@ pub(crate) fn encode_opus(
     })
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct EncodedFlacPacket {
+    pub pts_us: u64,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct EncodedFlac {
+    pub sample_rate: u32,
+    pub channels: u16,
+    /// Raw 34-byte STREAMINFO body for muxfin's `with_flac_streaminfo`
+    /// (totals zeroed; the muxer recomputes them from queued frames).
+    pub streaminfo: [u8; 34],
+    pub packets: Vec<EncodedFlacPacket>,
+}
+
+/// Encode mixed f32 PCM to native FLAC frames with dissonia (same
+/// encoder family yadaw uses for FLAC export), for muxfin's `FlacMuxer`.
+///
+/// 16-bit with triangular dither (yadaw's `encode_pcm_from_f32`
+/// shaping); FLAC has no 32-bit-float mode, so 32-bit requests are
+/// rejected rather than silently truncated.
+pub(crate) fn encode_flac(mixed: &miniter_audio::mix::MixedAudio) -> Result<EncodedFlac, String> {
+    use dissonia_codec_flac::FlacEncoder;
+    use dissonia_core::audio::{AudioBufferRef, AudioSpec, ChannelLayout, SampleFormat};
+    use dissonia_core::codecs::{Encoder, PacketSink};
+
+    let channels = mixed.channels;
+    let layout = match channels {
+        1 => ChannelLayout::MONO,
+        2 => ChannelLayout::STEREO,
+        other => return Err(format!("Unsupported channel count: {other}")),
+    };
+    let sample_rate = mixed.sample_rate;
+    if sample_rate == 0 || sample_rate > 655_350 {
+        return Err(format!("Unsupported sample rate: {sample_rate}"));
+    }
+    if mixed.samples.len() % channels.max(1) as usize != 0 {
+        return Err("Truncated final sample frame".to_string());
+    }
+
+    let spec = AudioSpec::new(sample_rate, layout, SampleFormat::I16);
+    let mut encoder = FlacEncoder::new(spec).map_err(|e| format!("FLAC encoder init failed: {e}"))?;
+    // Copy out before `encode` takes `&mut`: `info` borrows `encoder`.
+    let (min_block_size, max_block_size, bits_per_sample) = {
+        let info = encoder
+            .codec_parameters()
+            .flac_stream_info()
+            .ok_or_else(|| "FLAC encoder produced no stream info".to_string())?;
+        (
+            info.min_block_size,
+            info.max_block_size,
+            info.bits_per_sample,
+        )
+    };
+
+    // Triangular-dithered f32 -> i16 (yadaw shaping, deterministic seed).
+    let mut dither = 0x1234_5678_9ABC_DEF0u64;
+    let mut next_tri = move || {
+        dither = dither
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let r1 = ((dither >> 33) as f32) / (u32::MAX as f32) - 0.5;
+        dither = dither
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let r2 = ((dither >> 33) as f32) / (u32::MAX as f32) - 0.5;
+        r1 + r2
+    };
+    let pcm16: Vec<i16> = mixed
+        .samples
+        .iter()
+        .map(|&s| {
+            let v = s.clamp(-1.0, 1.0) * i16::MAX as f32 + next_tri();
+            v.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16
+        })
+        .collect();
+
+    struct VecSink {
+        packets: Vec<EncodedFlacPacket>,
+        next_pts_us: u64,
+        sample_rate: u64,
+    }
+    impl PacketSink for VecSink {
+        fn write_packet(
+            &mut self,
+            packet: dissonia_core::packet::EncodedPacket,
+        ) -> dissonia_core::Result<()> {
+            self.packets.push(EncodedFlacPacket {
+                pts_us: self.next_pts_us,
+                bytes: packet.data.into_vec(),
+            });
+            let duration = packet.duration.unwrap_or(0);
+            self.next_pts_us += duration * 1_000_000 / self.sample_rate.max(1);
+            Ok(())
+        }
+    }
+    let mut sink = VecSink {
+        packets: Vec::new(),
+        next_pts_us: 0,
+        sample_rate: u64::from(sample_rate),
+    };
+    encoder
+        .encode(AudioBufferRef::I16(&pcm16), &mut sink)
+        .map_err(|e| format!("FLAC encode failed: {e}"))?;
+    encoder
+        .flush(&mut sink)
+        .map_err(|e| format!("FLAC finalize failed: {e}"))?;
+
+    let streaminfo = muxfin::codec::flac::build_streaminfo(
+        min_block_size,
+        max_block_size,
+        sample_rate,
+        channels as u8,
+        bits_per_sample,
+        0,
+    );
+
+    Ok(EncodedFlac {
+        sample_rate,
+        channels,
+        streaminfo,
+        packets: sink.packets,
+    })
+}
+
 pub(crate) fn downscale_rgba_for_preview(
     data: &[u8],
     width: u32,
@@ -1356,148 +1483,6 @@ pub(crate) struct RenderSettings {
     pub width: u32,
     pub height: u32,
     pub fps: f64,
-}
-
-/// Ogg CRC-32: poly 0x04C11DB7, init 0, no reflection, no final XOR.
-pub(crate) fn ogg_crc32(data: &[u8]) -> u32 {
-    let mut crc: u32 = 0;
-    for &b in data {
-        crc ^= (b as u32) << 24;
-        for _ in 0..8 {
-            crc = if crc & 0x8000_0000 != 0 {
-                (crc << 1) ^ 0x04C1_1DB7
-            } else {
-                crc << 1
-            };
-        }
-    }
-    crc
-}
-
-pub(crate) fn write_ogg_page<W: Write>(
-    w: &mut W,
-    header_type: u8,
-    granule: u64,
-    serial: u32,
-    seq: u32,
-    packets: &[&[u8]],
-) -> Result<(), String> {
-    let mut segments = Vec::new();
-    for p in packets {
-        let mut rem = p.len();
-        loop {
-            if rem >= 255 {
-                segments.push(255u8);
-                rem -= 255;
-            } else {
-                segments.push(rem as u8);
-                break;
-            }
-        }
-    }
-    debug_assert!(segments.len() <= 255);
-
-    let body_len: usize = packets.iter().map(|p| p.len()).sum();
-    let mut page = Vec::with_capacity(27 + segments.len() + body_len);
-    page.extend_from_slice(b"OggS");
-    page.push(0);
-    page.push(header_type);
-    page.extend_from_slice(&granule.to_le_bytes());
-    page.extend_from_slice(&serial.to_le_bytes());
-    page.extend_from_slice(&seq.to_le_bytes());
-    page.extend_from_slice(&[0u8; 4]);
-    page.push(segments.len() as u8);
-    page.extend_from_slice(&segments);
-    for p in packets {
-        page.extend_from_slice(p);
-    }
-
-    let crc = ogg_crc32(&page);
-    page[22..26].copy_from_slice(&crc.to_le_bytes());
-    w.write_all(&page).map_err(|e| e.to_string())
-}
-
-pub(crate) fn write_ogg_opus<W: Write>(
-    w: &mut W,
-    encoded: &EncodedOpus,
-    total_samples_48k: u64,
-    is_cancelled: &dyn Fn() -> bool,
-) -> Result<(), String> {
-    const SAMPLES_PER_PACKET_48K: u64 = 960;
-    let serial: u32 = 0x4D49_4E49;
-    let mut seq: u32 = 0;
-
-    let mut head = Vec::with_capacity(19);
-    head.extend_from_slice(b"OpusHead");
-    head.push(1);
-    head.push(encoded.channels as u8);
-    head.extend_from_slice(&encoded.preskip_48k.to_le_bytes());
-    head.extend_from_slice(&encoded.sample_rate.to_le_bytes());
-    head.extend_from_slice(&0i16.to_le_bytes());
-    head.push(0);
-    write_ogg_page(w, 0x02, 0, serial, seq, &[&head])?;
-    seq += 1;
-
-    let vendor = b"miniter";
-    let mut tags = Vec::new();
-    tags.extend_from_slice(b"OpusTags");
-    tags.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
-    tags.extend_from_slice(vendor);
-    tags.extend_from_slice(&0u32.to_le_bytes());
-    write_ogg_page(w, 0x00, 0, serial, seq, &[&tags])?;
-    seq += 1;
-
-    let mut samples_done: u64 = 0;
-    let mut idx = 0usize;
-    while idx < encoded.packets.len() {
-        if is_cancelled() {
-            return Err("Export cancelled".to_string());
-        }
-
-        let mut batch: Vec<&[u8]> = Vec::new();
-        let mut seg_count = 0usize;
-        while idx < encoded.packets.len() && batch.len() < 50 {
-            let p = encoded.packets[idx].bytes.as_slice();
-            let segs = p.len() / 255 + 1;
-            if seg_count + segs > 255 {
-                break;
-            }
-            seg_count += segs;
-            batch.push(p);
-            samples_done += SAMPLES_PER_PACKET_48K;
-            idx += 1;
-        }
-
-        let is_last = idx >= encoded.packets.len();
-        let granule = if is_last {
-            total_samples_48k.saturating_add(encoded.preskip_48k as u64)
-        } else {
-            samples_done.saturating_add(encoded.preskip_48k as u64)
-        };
-        write_ogg_page(
-            w,
-            if is_last { 0x04 } else { 0x00 },
-            granule,
-            serial,
-            seq,
-            &batch,
-        )?;
-        seq += 1;
-    }
-
-    Ok(())
-}
-
-/// Total encodable audio length in 48 kHz samples: the value the Ogg final
-/// granule must report. Scales the mix length (which is in *mix-rate*
-/// units) — passing raw mix units here under-reports duration ~6x at 8 kHz.
-pub(crate) fn total_samples_48k(mixed: &miniter_audio::mix::MixedAudio) -> u64 {
-    let channels = mixed.channels.max(1) as u64;
-    let frames = mixed.samples.len() as u64 / channels;
-    if mixed.sample_rate == 0 || mixed.sample_rate == 48_000 {
-        return frames;
-    }
-    ((frames as u128 * 48_000) / mixed.sample_rate as u128).min(u64::MAX as u128) as u64
 }
 
 /// Get the plain subtitle text at a given timestamp from an SRT or ASS/SSA file.
@@ -1699,7 +1684,7 @@ mod tests {
     use super::{
         MAX_VIDEO_BITRATE_KBPS, MIN_VIDEO_BITRATE_KBPS, OPUS_MAX_BITRATE_KBPS,
         downscale_rgba_for_preview, normalize_audio_bitrate_kbps, normalize_audio_sample_rate,
-        normalize_even_dimension, pts_us_to_timebase, total_samples_48k, video_bitrate_bps,
+        normalize_even_dimension, pts_us_to_timebase, video_bitrate_bps,
     };
 
     fn solid_rgba(w: u32, h: u32) -> Vec<u8> {
@@ -1760,23 +1745,6 @@ mod tests {
         assert_eq!(normalize_audio_sample_rate(8_000), 8_000);
         assert_eq!(normalize_audio_sample_rate(44_100), 48_000);
         assert_eq!(normalize_audio_sample_rate(11_000), 12_000);
-    }
-
-    #[test]
-    fn total_samples_48k_scales_mix_rate() {
-        use miniter_audio::mix::MixedAudio;
-        let mixed = MixedAudio {
-            sample_rate: 8_000,
-            channels: 2,
-            samples: vec![0.0; 8_000 * 2],
-        };
-        assert_eq!(total_samples_48k(&mixed), 48_000);
-        let mixed = MixedAudio {
-            sample_rate: 48_000,
-            channels: 1,
-            samples: vec![0.0; 4_800],
-        };
-        assert_eq!(total_samples_48k(&mixed), 4_800);
     }
 
     #[test]
