@@ -1,24 +1,25 @@
 //! H.264 video encoder.
 //!
-//! Uses less-avc only for now ( since it works on all platforms including wasm, but the output size is questionable).
+//! Uses rusty_h264 (pure Rust, no C): P-frames, CABAC, adaptive quantization,
+//! and average-bitrate rate control. Replaces the previous less-avc backend,
+//! which was fixed all-intra with no rate-control API — the Quality slider
+//! was a no-op on the software path and files were ~10x larger.
 //!
-//! Tradeoff note (kept intentionally): every frame is encoded as a keyframe
-//! (all-intra). This keeps seeking/preview trivially correct and avoids any
-//! inter-frame dependency bugs, at the cost of larger output files. Do not
-//! "optimize" into P/B-frames without also fixing SPS/PPS propagation, mux
-//! sample flags, and the export preview path.
+//! `rusty_h264` may buffer input (mb-tree lookahead) and return empty bytes
+//! for a call, so this session queues `(pts, bytes)` pairs and drains them
+//! through [`EncodedVideoOutput`]. `finish()` flushes the tail; dropping the
+//! session without finishing would panic inside the encoder, so callers must
+//! drive every frame through `encode_frame` then `finish`.
 
 use crate::frame::RgbaFrame;
 use crate::yuv::rgba_to_yuv420;
-use less_avc::ycbcr_image::{DataPlane, Planes, YCbCrImage};
-use less_avc::{BitDepth, LessEncoder};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeError {
     #[error("IO: {0}")]
     Io(#[from] std::io::Error),
-    #[error("less-avc: {0}")]
-    LessAvc(String),
+    #[error("H.264 backend: {0}")]
+    Backend(String),
     #[error("Invalid dimensions: width and height must be > 0 and even")]
     InvalidDimensions,
     #[error("Encoder skipped frame {frame_index}")]
@@ -38,38 +39,55 @@ pub enum EncodedVideoOutput {
 }
 
 pub struct VideoEncodeSession {
-    encoder: Option<LessEncoder>,
+    encoder: rusty_h264_encoder::Encoder,
     width: u32,
     height: u32,
-    y_stride: usize,
-    uv_stride: usize,
-    y_rows: usize,
-    uv_rows: usize,
     frame_index: u32,
-}
-
-fn next_multiple(value: usize, base: usize) -> usize {
-    value.div_ceil(base) * base
+    /// Frames submitted but not yet emitted (lookahead buffering).
+    pending_pts: std::collections::VecDeque<i64>,
 }
 
 impl VideoEncodeSession {
-    pub fn new(width: u32, height: u32, _bitrate_bps: u32, _fps: f32) -> Result<Self, EncodeError> {
+    pub fn new(
+        width: u32,
+        height: u32,
+        bitrate_bps: u32,
+        fps: f32,
+        encode_effort: u8,
+    ) -> Result<Self, EncodeError> {
         if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             return Err(EncodeError::InvalidDimensions);
         }
-        let y_stride = next_multiple(width as usize, 16);
-        let uv_stride = next_multiple((width as usize) / 2, 8);
-        let y_rows = next_multiple(height as usize, 16);
-        let uv_rows = next_multiple((height as usize) / 2, 8);
+        let mut cfg = rusty_h264_encoder::EncoderConfig::new(width as usize, height as usize);
+        cfg.gop_size = 60;
+        cfg.scenecut = 0;
+        cfg.mbtree = false;
+        // Same 0..10 scale as the AV1 speed preset: 0-3 Quality, 4-7
+        // Balanced (default), 8-10 Fast.
+        cfg.preset = match encode_effort.min(10) {
+            0..=3 => rusty_h264_encoder::Preset::Quality,
+            4..=7 => rusty_h264_encoder::Preset::Balanced,
+            _ => rusty_h264_encoder::Preset::Fast,
+        };
+        if bitrate_bps >= 500_000 {
+            cfg.bitrate = bitrate_bps;
+            cfg.framerate = if fps.is_finite() && fps > 0.0 {
+                fps
+            } else {
+                30.0
+            };
+        } else {
+            cfg.bitrate = 0;
+            cfg.qp = 26;
+        }
+        let encoder = rusty_h264_encoder::Encoder::new(cfg)
+            .map_err(|e| EncodeError::Backend(e.to_string()))?;
         Ok(Self {
-            encoder: None,
+            encoder,
             width,
             height,
-            y_stride,
-            uv_stride,
-            y_rows,
-            uv_rows,
             frame_index: 0,
+            pending_pts: std::collections::VecDeque::new(),
         })
     }
 
@@ -81,49 +99,41 @@ impl VideoEncodeSession {
         }
 
         let (y_plane, u_plane, v_plane) = self.to_planes(frame)?;
-        let image = YCbCrImage {
-            planes: Planes::YCbCr((
-                DataPlane {
-                    data: &y_plane,
-                    stride: self.y_stride,
-                    bit_depth: BitDepth::Depth8,
-                },
-                DataPlane {
-                    data: &u_plane,
-                    stride: self.uv_stride,
-                    bit_depth: BitDepth::Depth8,
-                },
-                DataPlane {
-                    data: &v_plane,
-                    stride: self.uv_stride,
-                    bit_depth: BitDepth::Depth8,
-                },
-            )),
-            width: self.width,
-            height: self.height,
+        let input = rusty_h264_common::YuvFrame {
+            width: self.width as usize,
+            height: self.height as usize,
+            y: y_plane,
+            u: u_plane,
+            v: v_plane,
         };
-
-        let bytes = if let Some(enc) = &mut self.encoder {
-            enc.encode(&image)
-                .map_err(|e| EncodeError::LessAvc(e.to_string()))?
-                .to_annex_b_data()
-        } else {
-            let (init, enc) =
-                LessEncoder::new(&image).map_err(|e| EncodeError::LessAvc(e.to_string()))?;
-            self.encoder = Some(enc);
-            init.into_iter()
-                .flat_map(|nal| nal.to_annex_b_data())
-                .collect()
-        };
-
+        self.pending_pts.push_back(frame.pts_us);
+        let bytes = self.encoder.encode(&input);
+        if bytes.is_empty() {
+            return Ok(EncodedVideoOutput::Skipped);
+        }
+        let pts = self.pending_pts.pop_front().unwrap_or(frame.pts_us);
         if bytes.is_empty() {
             return Err(EncodeError::EmptyFrame { frame_index: idx });
         }
         Ok(EncodedVideoOutput::Sample {
+            is_keyframe: is_idr_access_unit(&bytes),
             bytes,
-            is_keyframe: true,
-            pts_us: frame.pts_us,
+            pts_us: pts,
         })
+    }
+
+    /// Flush lookahead tail. Returns drained samples in decode order.
+    pub fn finish(&mut self) -> Vec<EncodedVideoOutput> {
+        let mut out = Vec::new();
+        for bytes in [self.encoder.flush()].into_iter().filter(|b| !b.is_empty()) {
+            let pts = self.pending_pts.pop_front().unwrap_or(0);
+            out.push(EncodedVideoOutput::Sample {
+                is_keyframe: is_idr_access_unit(&bytes),
+                bytes,
+                pts_us: pts,
+            });
+        }
+        out
     }
 
     pub fn width(&self) -> u32 {
@@ -134,37 +144,33 @@ impl VideoEncodeSession {
     }
 
     fn to_planes(&self, frame: &RgbaFrame) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), EncodeError> {
-        let (y_src, u_src, v_src) = rgba_to_yuv420(
+        Ok(rgba_to_yuv420(
             &frame.data,
             self.width as usize,
             self.height as usize,
             frame.color_info.matrix,
-        );
-        let y_sz = self
-            .y_stride
-            .checked_mul(self.y_rows)
-            .ok_or(EncodeError::InvalidDimensions)?;
-        let uv_sz = self
-            .uv_stride
-            .checked_mul(self.uv_rows)
-            .ok_or(EncodeError::InvalidDimensions)?;
-        let mut y = vec![0u8; y_sz];
-        let mut u = vec![128u8; uv_sz];
-        let mut v = vec![128u8; uv_sz];
-        let w = self.width as usize;
-        let h = self.height as usize;
-        let cw = w / 2;
-        let ch = h / 2;
-        for row in 0..h {
-            y[row * self.y_stride..row * self.y_stride + w]
-                .copy_from_slice(&y_src[row * w..(row + 1) * w]);
-        }
-        for row in 0..ch {
-            u[row * self.uv_stride..row * self.uv_stride + cw]
-                .copy_from_slice(&u_src[row * cw..(row + 1) * cw]);
-            v[row * self.uv_stride..row * self.uv_stride + cw]
-                .copy_from_slice(&v_src[row * cw..(row + 1) * cw]);
-        }
-        Ok((y, u, v))
+        ))
     }
+}
+
+/// An access unit is a keyframe iff it carries an IDR slice (NAL type 5).
+/// SPS (7) / PPS (8) prefix every IDR, so scan all NAL headers.
+fn is_idr_access_unit(annex_b: &[u8]) -> bool {
+    let mut i = 0;
+    while i + 4 < annex_b.len() {
+        let (header_at, header_len) = if annex_b[i..].starts_with(&[0, 0, 0, 1]) {
+            (i + 4, 4)
+        } else if annex_b[i..].starts_with(&[0, 0, 1]) {
+            (i + 3, 3)
+        } else {
+            i += 1;
+            continue;
+        };
+        if header_at < annex_b.len() && annex_b[header_at] & 0x1F == 5 {
+            return true;
+        }
+        let _ = header_len;
+        i = header_at + 1;
+    }
+    false
 }

@@ -11,13 +11,13 @@ use crate::filters;
 use crate::frame::{MatrixCoeffs, RgbaFrame};
 use crate::image_cache::ImageCache;
 use crate::mux::{
-    ContainerFormat, Mp4Muxer, MuxError, OpusTrackConfigOut, SubtitleTrackCodecOut,
-    SubtitleTrackConfigOut, VideoTrackCodecOut, extract_sps_pps,
+    ContainerFormat, Mp4Muxer, MuxError, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
+    VideoTrackCodecOut, extract_sps_pps,
 };
 use crate::subtitle::SubtitleRenderer;
 
 use crate::export_shared::*;
-use miniter_audio::mix::{AudioMixError, MixConfig, MixedAudio, mix_project_audio};
+use miniter_audio::mix::{AudioMixError, MixedAudio, mix_project_audio};
 use miniter_domain::Project;
 use miniter_domain::clip::ClipId;
 use miniter_domain::clip::ClipKind;
@@ -671,7 +671,8 @@ where
     let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
-    let config = MixConfig::default();
+    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
+    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
     let mixed = mix_project_audio(project, config)?;
     let audio_encoded = if !mixed.samples.is_empty() {
         let bitrate_bps = project
@@ -685,11 +686,11 @@ where
     };
     on_progress(5);
 
-    let audio_track = audio_encoded.as_ref().map(|oe| OpusTrackConfigOut {
-        sample_rate: 48_000,
-        channels: oe.channels,
-    });
+    let audio_track = audio_encoded
+        .as_ref()
+        .map(|oe| audio_track_config(oe, sample_rate));
 
+    let effort = project.export_profile.encode_effort;
     let mut encoder = if project.export_profile.hardware_acceleration {
         match HwEncodeSession::new(
             width,
@@ -708,6 +709,7 @@ where
                     height,
                     bitrate_kbps * 1000,
                     fps as f32,
+                    effort,
                 )?)
             }
         }
@@ -717,6 +719,7 @@ where
             height,
             bitrate_kbps * 1000,
             fps as f32,
+            effort,
         )?)
     };
 
@@ -762,35 +765,25 @@ where
         pts_us: first_plan.timestamp.as_micros(),
         color_info: Default::default(),
     };
-    let first_output = encoder.encode_frame(&first_frame)?;
-    let (bytes, is_keyframe) = match first_output {
-        EncodedVideoOutput::Sample {
-            bytes, is_keyframe, ..
-        } => (bytes, is_keyframe),
-        EncodedVideoOutput::Skipped => {
-            return Err(EncodeError::SkippedFrame { frame_index: 0 }.into());
+    let mut samples: Vec<(u64, Vec<u8>, bool)> = Vec::new();
+    let mut push_output = |output: EncodedVideoOutput| -> Result<(), ExportError> {
+        match output {
+            EncodedVideoOutput::Sample {
+                bytes,
+                is_keyframe,
+                pts_us,
+            } => {
+                if bytes.is_empty() || !has_annexb_start_code(&bytes) {
+                    return Err(EncodeError::EmptyFrame { frame_index: 0 }.into());
+                }
+                samples.push((pts_us.max(0) as u64, bytes, is_keyframe));
+                Ok(())
+            }
+            EncodedVideoOutput::Skipped => Ok(()),
         }
     };
-    if bytes.is_empty() || !has_annexb_start_code(&bytes) {
-        return Err(EncodeError::EmptyFrame { frame_index: 0 }.into());
-    }
-    let (sps, pps) = extract_sps_pps(&bytes).ok_or(ExportError::MissingAvcConfig)?;
-
-    let file = File::create(output_path)?;
-    let writer = BufWriter::new(file);
-    let mut muxer = Mp4Muxer::new(
-        writer,
-        width,
-        height,
-        fps,
-        &sps,
-        &pps,
-        container,
-        audio_track,
-        subtitle_track,
-        VideoTrackCodecOut::H264,
-    )?;
-    muxer.write_sample_at(first_frame.pts_us as u64, &bytes, is_keyframe)?;
+    let first_output = encoder.encode_frame(&first_frame)?;
+    push_output(first_output)?;
 
     let mut frame_count: u32 = 1;
     for plan in iter {
@@ -818,30 +811,42 @@ where
             color_info: Default::default(),
         };
         let output = encoder.encode_frame(&frame)?;
-        let (bytes, is_keyframe) = match output {
-            EncodedVideoOutput::Sample {
-                bytes, is_keyframe, ..
-            } => (bytes, is_keyframe),
-            EncodedVideoOutput::Skipped => {
-                return Err(EncodeError::SkippedFrame {
-                    frame_index: frame_count,
-                }
-                .into());
-            }
-        };
-        if bytes.is_empty() || !has_annexb_start_code(&bytes) {
-            return Err(EncodeError::EmptyFrame {
-                frame_index: frame_count,
-            }
-            .into());
-        }
-        muxer.write_sample_at(frame.pts_us as u64, &bytes, is_keyframe)?;
+        push_output(output)?;
 
         frame_count += 1;
         if total_frames > 0 {
             let pct = ((frame_count as f64 / total_frames as f64) * 100_000.0) as u32;
             on_progress(pct);
         }
+    }
+
+    if let AnyEncoder::Sw(sw) = &mut encoder {
+        for output in sw.finish() {
+            push_output(output)?;
+        }
+    }
+
+    if samples.is_empty() {
+        return Err(EncodeError::EmptyFrame { frame_index: 0 }.into());
+    }
+    let (sps, pps) = extract_sps_pps(&samples[0].1).ok_or(ExportError::MissingAvcConfig)?;
+
+    let file = File::create(output_path)?;
+    let writer = BufWriter::new(file);
+    let mut muxer = Mp4Muxer::new(
+        writer,
+        width,
+        height,
+        fps,
+        &sps,
+        &pps,
+        container,
+        audio_track,
+        subtitle_track,
+        VideoTrackCodecOut::H264,
+    )?;
+    for (pts_us, bytes, is_keyframe) in &samples {
+        muxer.write_sample_at(*pts_us, bytes, *is_keyframe)?;
     }
 
     on_progress(100_000);
@@ -1149,7 +1154,8 @@ where
     on_progress(1);
 
     let (audio_track, audio_encoded) = if container == Av1Container::Mp4 {
-        let config = MixConfig::default();
+        let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
+        let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
         let mixed = mix_project_audio(project, config)?;
         let audio_encoded = if !mixed.samples.is_empty() {
             let bitrate_bps = project
@@ -1162,10 +1168,9 @@ where
             None
         };
 
-        let audio_track = audio_encoded.as_ref().map(|oe| OpusTrackConfigOut {
-            sample_rate: 48_000,
-            channels: oe.channels,
-        });
+        let audio_track = audio_encoded
+            .as_ref()
+            .map(|oe| audio_track_config(oe, sample_rate));
 
         (audio_track, audio_encoded)
     } else {
@@ -1193,7 +1198,9 @@ where
     on_progress(5);
 
     let (fps_num, fps_den) = fps_to_rational(fps);
-    let mut encoder = Av1EncodeSession::new(width, height, fps, bitrate_kbps, matrix)?;
+    let speed_preset = project.export_profile.encode_effort;
+    let mut encoder =
+        Av1EncodeSession::new(width, height, fps, bitrate_kbps, matrix, speed_preset)?;
 
     let mut ivf_file: Option<File> = None;
     let mut mp4_muxer: Option<Mp4Muxer<BufWriter<File>>> = None;
@@ -1307,11 +1314,9 @@ where
 
     match container {
         Av1Container::Ivf => {
-            let file = ivf_file
-                .as_mut()
-.ok_or_else(|| {
-                    ExportError::Internal("IVF writer missing for AV1 IVF export".into())
-                })?;
+            let file = ivf_file.as_mut().ok_or_else(|| {
+                ExportError::Internal("IVF writer missing for AV1 IVF export".into())
+            })?;
 
             for packet in finish_packets {
                 let pts_tbn = pts_us_to_timebase(packet.pts, fps_num, fps_den);
@@ -1325,11 +1330,9 @@ where
             file.seek(SeekFrom::End(0))?;
         }
         Av1Container::Mp4 => {
-            let muxer = mp4_muxer
-                .as_mut()
-.ok_or_else(|| {
-                    ExportError::Internal("MP4 muxer missing for AV1 MP4 export".into())
-                })?;
+            let muxer = mp4_muxer.as_mut().ok_or_else(|| {
+                ExportError::Internal("MP4 muxer missing for AV1 MP4 export".into())
+            })?;
             write_av1_packets_to_mux(muxer, &finish_packets)?;
 
             if let Some(oe) = audio_encoded {
@@ -1376,7 +1379,8 @@ where
     F: Fn() -> bool,
 {
     on_progress(1);
-    let config = MixConfig::default();
+    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
+    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
     let mixed = mix_project_audio(project, config)?;
     if mixed.samples.is_empty() {
         return Err(ExportError::UnsupportedFormat);
@@ -1401,14 +1405,8 @@ where
         return Err(ExportError::Cancelled);
     }
 
-    // Real stream length at 48 kHz, used to trim the encoder's final padded frame.
     let channels = (mixed.channels.max(1)) as u64;
-    let src_samples_per_ch = mixed.samples.len() as u64 / channels;
-    let total_samples_48k = if mixed.sample_rate == 48_000 {
-        src_samples_per_ch
-    } else {
-        src_samples_per_ch * 48_000 / mixed.sample_rate.max(1) as u64
-    };
+    let total_samples_48k = (mixed.samples.len() as u64 / channels).min(u64::MAX);
 
     let file = File::create(output_path)?;
     let mut writer = BufWriter::new(file);

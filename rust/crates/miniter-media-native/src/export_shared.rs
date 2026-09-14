@@ -9,10 +9,38 @@ use miniter_domain::mask::{BlendMode, MaskComposition, MaskOperation, MaskShape,
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use std::io::Write;
 
-pub(crate) fn audio_track_config(audio: &EncodedOpus) -> OpusTrackConfigOut {
+pub(crate) fn audio_track_config(audio: &EncodedOpus, sample_rate: u32) -> OpusTrackConfigOut {
     OpusTrackConfigOut {
-        sample_rate: 48_000,
+        sample_rate,
         channels: audio.channels,
+    }
+}
+
+/// Opus supports 8/12/16/24/48 kHz. Snap a profile value to the nearest
+/// supported rate so a corrupt/legacy profile can never fail encoder init.
+pub(crate) fn normalize_audio_sample_rate(requested: u32) -> u32 {
+    const SUPPORTED: [u32; 5] = [8_000, 12_000, 16_000, 24_000, 48_000];
+    if requested == 0 {
+        return 48_000;
+    }
+    let mut best = SUPPORTED[4];
+    let mut best_dist = u32::MAX;
+    for rate in SUPPORTED {
+        let dist = requested.abs_diff(rate);
+        if dist < best_dist {
+            best_dist = dist;
+            best = rate;
+        }
+    }
+    best
+}
+
+/// Mix config resolved from the export profile (was `MixConfig::default()`
+/// everywhere, which silently dropped the profile's `audio_sample_rate`).
+pub(crate) fn mix_config_for_profile(sample_rate: u32) -> miniter_audio::mix::MixConfig {
+    miniter_audio::mix::MixConfig {
+        sample_rate: normalize_audio_sample_rate(sample_rate),
+        channels: 2,
     }
 }
 
@@ -1082,7 +1110,7 @@ pub(crate) fn encode_opus(
         other => return Err(format!("Unsupported channel count: {other}")),
     };
 
-    let sample_rate = 48_000u32;
+    let sample_rate = normalize_audio_sample_rate(mixed.sample_rate);
     let pcm = if mixed.sample_rate == sample_rate {
         mixed.samples.clone()
     } else {

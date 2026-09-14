@@ -87,6 +87,7 @@ impl Av1EncodeSession {
         fps: f64,
         bitrate_kbps: u32,
         matrix: MatrixCoeffs,
+        speed_preset: u8,
     ) -> Result<Self, Av1EncodeError> {
         if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             return Err(Av1EncodeError::InvalidDimensions);
@@ -99,7 +100,8 @@ impl Av1EncodeSession {
         let enc_h = height as usize;
 
         let (fps_num, fps_den) = crate::export_shared::fps_to_rational(fps);
-        let mut enc = EncoderConfig::with_speed_preset(10);
+        let preset = speed_preset.min(10);
+        let mut enc = EncoderConfig::with_speed_preset(preset);
         enc.width = enc_w;
         enc.height = enc_h;
         enc.bit_depth = 8;

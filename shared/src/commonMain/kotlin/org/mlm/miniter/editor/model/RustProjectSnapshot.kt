@@ -490,6 +490,8 @@ data class RustExportProfileSnapshot(
     val subtitleMode: RustSubtitleMode = RustSubtitleMode.Soft,
     @SerialName("hardware_acceleration")
     val hardwareAcceleration: Boolean = true,
+    @SerialName("encode_effort")
+    val encodeEffort: Int = 6,
 )
 
 @Serializable

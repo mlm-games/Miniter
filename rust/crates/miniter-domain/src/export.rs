@@ -83,10 +83,19 @@ pub struct ExportProfile {
     pub subtitle_mode: SubtitleMode,
     #[serde(default = "default_hardware_acceleration")]
     pub hardware_acceleration: bool,
+    /// Encode effort 0 (slowest/best) .. 10 (fastest), honored by every
+    /// software backend: rav1e speed preset for AV1, rusty_h264 Preset
+    /// bucket for H.264. HW encoders ignore it (platform-controlled).
+    #[serde(default = "default_encode_effort")]
+    pub encode_effort: u8,
 }
 
 fn default_hardware_acceleration() -> bool {
     true
+}
+
+fn default_encode_effort() -> u8 {
+    6
 }
 
 impl Default for ExportProfile {
@@ -101,6 +110,7 @@ impl Default for ExportProfile {
             output_path: String::new(),
             subtitle_mode: SubtitleMode::Soft,
             hardware_acceleration: true,
+            encode_effort: default_encode_effort(),
         }
     }
 }

@@ -39,8 +39,14 @@ pub struct H264SwBackend {
 }
 
 impl H264SwBackend {
-    pub fn new(width: u32, height: u32, bitrate_bps: u32, fps: f32) -> Result<Self, String> {
-        VideoEncodeSession::new(width, height, bitrate_bps, fps)
+    pub fn new(
+        width: u32,
+        height: u32,
+        bitrate_bps: u32,
+        fps: f32,
+        encode_effort: u8,
+    ) -> Result<Self, String> {
+        VideoEncodeSession::new(width, height, bitrate_bps, fps, encode_effort)
             .map(|inner| Self { inner })
             .map_err(|e| format!("H.264 SW encoder init failed: {e}"))
     }
@@ -48,7 +54,7 @@ impl H264SwBackend {
 
 impl EncoderBackend for H264SwBackend {
     fn name(&self) -> &'static str {
-        "H.264 SW (videoson)"
+        "H.264 SW (rusty_h264)"
     }
 
     fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<Vec<EncodedPacket>, String> {
@@ -66,12 +72,28 @@ impl EncoderBackend for H264SwBackend {
                 is_keyframe,
                 pts_us: pts_us.max(0) as u64,
             }]),
-            EncodedVideoOutput::Skipped => Err("H.264 encoder skipped frame".to_string()),
+            EncodedVideoOutput::Skipped => Ok(Vec::new()),
         }
     }
 
     fn finish(&mut self) -> Result<Vec<EncodedPacket>, String> {
-        Ok(Vec::new())
+        Ok(self
+            .inner
+            .finish()
+            .into_iter()
+            .filter_map(|o| match o {
+                EncodedVideoOutput::Sample {
+                    bytes,
+                    is_keyframe,
+                    pts_us,
+                } if !bytes.is_empty() => Some(EncodedPacket {
+                    data: bytes,
+                    is_keyframe,
+                    pts_us: pts_us.max(0) as u64,
+                }),
+                _ => None,
+            })
+            .collect())
     }
 
     fn check_error(&self) -> Option<String> {
@@ -90,8 +112,9 @@ impl Av1SwBackend {
         fps: f64,
         bitrate_kbps: u32,
         matrix: MatrixCoeffs,
+        speed_preset: u8,
     ) -> Result<Self, String> {
-        Av1EncodeSession::new(width, height, fps, bitrate_kbps, matrix)
+        Av1EncodeSession::new(width, height, fps, bitrate_kbps, matrix, speed_preset)
             .map(|inner| Self { inner })
             .map_err(|e| format!("AV1 SW encoder init failed: {e}"))
     }
@@ -99,7 +122,7 @@ impl Av1SwBackend {
 
 impl EncoderBackend for Av1SwBackend {
     fn name(&self) -> &'static str {
-        "AV1 SW (videoson)"
+        "AV1 SW (rav1e)"
     }
 
     fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<Vec<EncodedPacket>, String> {
@@ -317,6 +340,7 @@ pub fn create_encoder_backend(
     fps: f64,
     hw_requested: bool,
     matrix: MatrixCoeffs,
+    encode_effort: u8,
 ) -> Result<Box<dyn EncoderBackend>, String> {
     match format {
         miniter_domain::export::ExportFormat::Mp4 | miniter_domain::export::ExportFormat::Mov => {
@@ -333,7 +357,7 @@ pub fn create_encoder_backend(
                 #[cfg(not(feature = "hw-decoder"))]
                 { /* TODO: print no HW decoder feature, fall through to SW */ }
             }
-            H264SwBackend::new(width, height, bitrate_bps, fps as f32)
+            H264SwBackend::new(width, height, bitrate_bps, fps as f32, encode_effort)
                 .map(|enc| Box::new(enc) as Box<dyn EncoderBackend>)
         }
         miniter_domain::export::ExportFormat::Av1Mp4
@@ -358,8 +382,15 @@ pub fn create_encoder_backend(
                 #[cfg(not(feature = "hw-decoder"))]
                 { /* TODO: print no HW decoder feature, fall through to SW */ }
             }
-            Av1SwBackend::new(width, height, fps, bitrate_kbps.max(500), matrix)
-                .map(|enc| Box::new(enc) as Box<dyn EncoderBackend>)
+            Av1SwBackend::new(
+                width,
+                height,
+                fps,
+                bitrate_kbps.max(500),
+                matrix,
+                encode_effort,
+            )
+            .map(|enc| Box::new(enc) as Box<dyn EncoderBackend>)
         }
         _ => Err("Unsupported export format".to_string()),
     }

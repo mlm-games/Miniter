@@ -117,10 +117,10 @@ mod hw {
 
             let (input, output) = host
                 .create_video_encoder(config)
-                .map_err(|e| EncodeError::LessAvc(format!("HwEncoder init: {e:?}")))?;
+                .map_err(|e| EncodeError::Backend(format!("HwEncoder init: {e:?}")))?;
 
             #[cfg(not(target_arch = "wasm32"))]
-            let rt = Runtime::new().map_err(|e| EncodeError::LessAvc(format!("tokio: {e}")))?;
+            let rt = Runtime::new().map_err(|e| EncodeError::Backend(format!("tokio: {e}")))?;
 
             let is_h264 = mime.contains("avc") || mime.contains("h264");
             // Same ~2 s grid as the SW AV1 encoder (rav1e). WebCodecs AV1
@@ -189,7 +189,7 @@ mod hw {
         #[cfg(target_arch = "wasm32")]
         pub fn submit_frame(&mut self, frame: &RgbaFrame) -> Result<(), EncodeError> {
             if let Some(err) = self.output.check_error() {
-                return Err(EncodeError::LessAvc(format!(
+                return Err(EncodeError::Backend(format!(
                     "HwEncoder error callback: {err:?}"
                 )));
             }
@@ -210,7 +210,7 @@ mod hw {
             self.frame_index += 1;
             self.input
                 .encode(video_frame, if force_key { Some(true) } else { None })
-                .map_err(|e| EncodeError::LessAvc(format!("HwEncoder encode: {e:?}")))?;
+                .map_err(|e| EncodeError::Backend(format!("HwEncoder encode: {e:?}")))?;
             Ok(())
         }
 
@@ -226,7 +226,7 @@ mod hw {
             while let Some(pkt) = self
                 .output
                 .try_packet()
-                .map_err(|e| EncodeError::LessAvc(format!("HwEncoder try_packet: {e:?}")))?
+                .map_err(|e| EncodeError::Backend(format!("HwEncoder try_packet: {e:?}")))?
             {
                 let mut bytes = if self.is_h264 && !has_annexb_start_code(&pkt.payload) {
                     avcc_to_annexb(&pkt.payload)
@@ -297,13 +297,13 @@ mod hw {
                 use baabaabaabaabababbababbaa::VideoEncoderInput;
                 self.input
                     .encode(video_frame, None)
-                    .map_err(|e| EncodeError::LessAvc(format!("HwEncoder encode: {e:?}")))?;
+                    .map_err(|e| EncodeError::Backend(format!("HwEncoder encode: {e:?}")))?;
 
                 use baabaabaabaabababbababbaa::VideoEncoderOutput;
                 let pkt = self
                     .rt
                     .block_on(self.output.packet())
-                    .map_err(|e| EncodeError::LessAvc(format!("HwEncoder packet: {e:?}")))?;
+                    .map_err(|e| EncodeError::Backend(format!("HwEncoder packet: {e:?}")))?;
 
                 match pkt {
                     Some(pkt) => {
@@ -338,7 +338,7 @@ mod hw {
         #[cfg(target_arch = "wasm32")]
         pub fn check_error(&self) -> Option<crate::encoder::EncodeError> {
             self.output.check_error().map(|e| {
-                crate::encoder::EncodeError::LessAvc(format!("HW enc error callback: {e:?}"))
+                crate::encoder::EncodeError::Backend(format!("HW enc error callback: {e:?}"))
             })
         }
 
@@ -374,7 +374,7 @@ mod hw {
             _mime: &str,
             _matrix: MatrixCoeffs,
         ) -> Result<Self, EncodeError> {
-            Err(EncodeError::LessAvc(
+            Err(EncodeError::Backend(
                 "HW encoder not available on this platform".into(),
             ))
         }
@@ -383,7 +383,7 @@ mod hw {
             &mut self,
             _frame: &RgbaFrame,
         ) -> Result<EncodedVideoOutput, EncodeError> {
-            Err(EncodeError::LessAvc("HW encoder not available".into()))
+            Err(EncodeError::Backend("HW encoder not available".into()))
         }
 
         pub fn width(&self) -> u32 {

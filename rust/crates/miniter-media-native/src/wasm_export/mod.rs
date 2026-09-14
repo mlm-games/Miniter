@@ -36,11 +36,11 @@ use crate::filters;
 use crate::frame::{MatrixCoeffs, RgbaFrame};
 use crate::image_cache::ImageCache;
 use crate::mux::{
-    ContainerFormat, Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
-    VideoTrackCodecOut, extract_sps_pps,
+    ContainerFormat, Mp4Muxer, SubtitleTrackCodecOut, SubtitleTrackConfigOut, VideoTrackCodecOut,
+    extract_sps_pps,
 };
 use crate::wasm_export::encoder::{EncodedPacket, EncoderBackend, create_encoder_backend};
-use miniter_audio::mix::{MixConfig, mix_project_audio_with_source_map};
+use miniter_audio::mix::mix_project_audio_with_source_map;
 use miniter_domain::clip::{ClipId, ClipKind, VideoClip};
 use miniter_domain::ease_in_out;
 use miniter_domain::export::{ExportFormat, SubtitleMode};
@@ -523,11 +523,11 @@ fn export_h264_mp4_bytes(
 ) -> Result<Vec<u8>, String> {
     let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
+    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
     let audio_encoded = prepare_audio_track(project, registered_files)?;
-    let audio_track = audio_encoded.as_ref().map(|encoded| OpusTrackConfigOut {
-        sample_rate: 48_000,
-        channels: encoded.channels,
-    });
+    let audio_track = audio_encoded
+        .as_ref()
+        .map(|encoded| audio_track_config(encoded, sample_rate));
     let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
         collect_soft_subtitle_samples(project, registered_files)
     } else {
@@ -548,6 +548,7 @@ fn export_h264_mp4_bytes(
     decode_cache.default_height = settings.height;
     on_progress(1);
     on_progress(5);
+    let effort = project.export_profile.encode_effort;
     let mut encoder: AnyH264Encoder = if hw_requested {
         match HwEncodeSession::new(
             settings.width,
@@ -567,6 +568,7 @@ fn export_h264_mp4_bytes(
                         settings.height,
                         bitrate_kbps * 1000,
                         settings.fps as f32,
+                        effort,
                     )
                     .map_err(|e| format!("H.264 SW encoder init failed: {e}"))?,
                 )
@@ -579,6 +581,7 @@ fn export_h264_mp4_bytes(
                 settings.height,
                 bitrate_kbps * 1000,
                 settings.fps as f32,
+                effort,
             )
             .map_err(|e| format!("H.264 encoder init failed: {e}"))?,
         )
@@ -628,21 +631,78 @@ fn export_h264_mp4_bytes(
         color_info: Default::default(),
     };
 
-    let first_output = encoder
-        .encode_frame(&first_frame)
-        .map_err(|e| format!("H.264 encode failed: {e}"))?;
-    let (first_bytes, first_keyframe) = match first_output {
-        EncodedVideoOutput::Sample {
-            bytes, is_keyframe, ..
-        } => (bytes, is_keyframe),
-        EncodedVideoOutput::Skipped => return Err("H.264 encoder skipped first frame".to_string()),
+    let mut samples: Vec<(u64, Vec<u8>, bool)> = Vec::new();
+    let mut push_output = |output: EncodedVideoOutput| -> Result<(), String> {
+        match output {
+            EncodedVideoOutput::Sample {
+                bytes,
+                is_keyframe,
+                pts_us,
+            } => {
+                if bytes.is_empty() || !has_annexb_start_code(&bytes) {
+                    return Err("H.264 encoder produced empty frame".to_string());
+                }
+                samples.push((pts_us.max(0) as u64, bytes, is_keyframe));
+                Ok(())
+            }
+            EncodedVideoOutput::Skipped => Ok(()),
+        }
     };
 
-    if first_bytes.is_empty() || !has_annexb_start_code(&first_bytes) {
-        return Err("H.264 encoder produced invalid first frame".to_string());
+    push_output(
+        encoder
+            .encode_frame(&first_frame)
+            .map_err(|e| format!("H.264 encode failed: {e}"))?,
+    )?;
+
+    let mut frame_count: u32 = 1;
+
+    for plan in iter {
+        if is_cancelled() {
+            return Err("Export cancelled".to_string());
+        }
+        {
+            let v = validate_frame_plan(&plan);
+            if !v.is_empty() {
+                log::warn!(
+                    "validate_frame_plan violations at {}: {:?}",
+                    plan.timestamp.as_micros(),
+                    v
+                );
+            }
+        }
+
+        let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
+        store_wasm_preview_frame(&rgba, settings.width, settings.height);
+        let frame = RgbaFrame {
+            width: settings.width,
+            height: settings.height,
+            data: rgba,
+            pts_us: plan.timestamp.as_micros(),
+            color_info: Default::default(),
+        };
+
+        push_output(
+            encoder
+                .encode_frame(&frame)
+                .map_err(|e| format!("H.264 encode failed: {e}"))?,
+        )?;
+
+        frame_count = frame_count.saturating_add(1);
+        let pct = ((frame_count as f64 / total_frames as f64) * 100_000.0) as u32;
+        on_progress(pct.min(100_000));
     }
 
-    let (sps, pps) = extract_sps_pps(&first_bytes)
+    if let AnyH264Encoder::Sw(sw) = &mut encoder {
+        for output in sw.finish() {
+            push_output(output)?;
+        }
+    }
+
+    if samples.is_empty() {
+        return Err("H.264 encoder produced no output".to_string());
+    }
+    let (sps, pps) = extract_sps_pps(&samples[0].1)
         .ok_or_else(|| "Could not extract SPS/PPS from H.264 stream".to_string())?;
 
     let mut output = Vec::new();
@@ -661,65 +721,10 @@ fn export_h264_mp4_bytes(
         )
         .map_err(|e| format!("MP4 muxer init failed: {e}"))?;
 
-        muxer
-            .write_sample_at(
-                first_frame.pts_us.max(0) as u64,
-                &first_bytes,
-                first_keyframe,
-            )
-            .map_err(|e| format!("MP4 write failed: {e}"))?;
-
-        let mut frame_count: u32 = 1;
-
-        for plan in iter {
-            if is_cancelled() {
-                return Err("Export cancelled".to_string());
-            }
-            {
-                let v = validate_frame_plan(&plan);
-                if !v.is_empty() {
-                    log::warn!(
-                        "validate_frame_plan violations at {}: {:?}",
-                        plan.timestamp.as_micros(),
-                        v
-                    );
-                }
-            }
-
-            let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
-            store_wasm_preview_frame(&rgba, settings.width, settings.height);
-            let frame = RgbaFrame {
-                width: settings.width,
-                height: settings.height,
-                data: rgba,
-                pts_us: plan.timestamp.as_micros(),
-                color_info: Default::default(),
-            };
-
-            let encoded = encoder
-                .encode_frame(&frame)
-                .map_err(|e| format!("H.264 encode failed: {e}"))?;
-
-            let (bytes, keyframe) = match encoded {
-                EncodedVideoOutput::Sample {
-                    bytes, is_keyframe, ..
-                } => (bytes, is_keyframe),
-                EncodedVideoOutput::Skipped => {
-                    return Err("H.264 encoder skipped frame".to_string());
-                }
-            };
-
-            if bytes.is_empty() || !has_annexb_start_code(&bytes) {
-                return Err("H.264 encoder produced empty frame".to_string());
-            }
-
+        for (pts_us, bytes, keyframe) in &samples {
             muxer
-                .write_sample_at(frame.pts_us.max(0) as u64, &bytes, keyframe)
+                .write_sample_at(*pts_us, bytes, *keyframe)
                 .map_err(|e| format!("MP4 write failed: {e}"))?;
-
-            frame_count = frame_count.saturating_add(1);
-            let pct = ((frame_count as f64 / total_frames as f64) * 100_000.0) as u32;
-            on_progress(pct.min(100_000));
         }
 
         if let Some(encoded_audio) = &audio_encoded {
@@ -747,11 +752,11 @@ fn export_av1_mp4_bytes(
 ) -> Result<Vec<u8>, String> {
     let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
+    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
     let audio_encoded = prepare_audio_track(project, registered_files)?;
-    let audio_track = audio_encoded.as_ref().map(|encoded| OpusTrackConfigOut {
-        sample_rate: 48_000,
-        channels: encoded.channels,
-    });
+    let audio_track = audio_encoded
+        .as_ref()
+        .map(|encoded| audio_track_config(encoded, sample_rate));
     let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
         collect_soft_subtitle_samples(project, registered_files)
     } else {
@@ -779,6 +784,7 @@ fn export_av1_mp4_bytes(
         settings.fps,
         bitrate_kbps,
         sniff_source_matrix(project, registered_files),
+        project.export_profile.encode_effort,
     )
     .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
 
@@ -905,6 +911,7 @@ fn export_av1_ivf_bytes(
         settings.fps,
         bitrate_kbps,
         sniff_source_matrix(project, registered_files),
+        project.export_profile.encode_effort,
     )
     .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
 
@@ -1008,7 +1015,8 @@ fn export_opus_ogg_bytes(
     on_progress: &dyn Fn(u32),
 ) -> Result<Vec<u8>, String> {
     on_progress(1);
-    let mixed = mix_project_audio_with_source_map(project, MixConfig::default(), registered_files)
+    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
+    let mixed = mix_project_audio_with_source_map(project, config, registered_files)
         .map_err(|e| format!("Audio mix failed: {e}"))?;
     if mixed.samples.is_empty() {
         return Err("No audio to export".to_string());
@@ -1033,12 +1041,7 @@ fn export_opus_ogg_bytes(
     }
 
     let channels = (mixed.channels.max(1)) as u64;
-    let src_samples_per_ch = mixed.samples.len() as u64 / channels;
-    let total_samples_48k = if mixed.sample_rate == 48_000 {
-        src_samples_per_ch
-    } else {
-        src_samples_per_ch * 48_000 / mixed.sample_rate.max(1) as u64
-    };
+    let total_samples_48k = mixed.samples.len() as u64 / channels;
 
     let mut output = Vec::new();
     let mut cursor = Cursor::new(&mut output);
@@ -1088,7 +1091,8 @@ fn prepare_audio_track(
     project: &Project,
     registered_files: &HashMap<String, Vec<u8>>,
 ) -> Result<Option<EncodedOpus>, String> {
-    let mixed = mix_project_audio_with_source_map(project, MixConfig::default(), registered_files)
+    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
+    let mixed = mix_project_audio_with_source_map(project, config, registered_files)
         .map_err(|e| format!("Audio mix failed: {e}"))?;
     if mixed.samples.is_empty() {
         return Ok(None);
@@ -1454,12 +1458,13 @@ impl WasmExportChunker {
         let fps_int = settings.fps.round().max(1.0) as u32;
 
         if format == ExportFormat::Opus {
+            let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
             let (ogg_sample_rate, ogg_total_samples_48k) = if let Some(ref audio) = audio_encoded {
                 let samples_per_packet = 960u64;
                 let total = audio.packets.len() as u64 * samples_per_packet;
-                (48_000, total)
+                (sample_rate, total)
             } else {
-                (48_000, 0)
+                (sample_rate, 0)
             };
 
             return Ok(WasmExportChunker {
@@ -1502,6 +1507,7 @@ impl WasmExportChunker {
                 settings.fps,
                 hw_requested,
                 source_matrix,
+                project.export_profile.encode_effort,
             )?;
             let sps = Vec::new();
             let pps = Vec::new();
@@ -1761,9 +1767,8 @@ impl WasmExportChunker {
                     ExportFormat::Mp4 => VideoTrackCodecOut::H264,
                     _ => VideoTrackCodecOut::Av1,
                 };
-                let audio_track = self.audio_encoded.as_ref().map(|e| OpusTrackConfigOut {
-                    sample_rate: 48_000,
-                    channels: e.channels,
+                let audio_track = self.audio_encoded.as_ref().map(|e| {
+                    audio_track_config(e, normalize_audio_sample_rate(self.ogg_sample_rate))
                 });
                 let subtitle_track = if self.subtitle_samples.is_empty() {
                     None

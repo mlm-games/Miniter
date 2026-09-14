@@ -95,9 +95,18 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     var quality by remember(profileQuality) { mutableFloatStateOf(profileQuality) }
     var customWidth by remember(displayWidth) { mutableStateOf(displayWidth.takeIf { it > 0 }?.toString() ?: "") }
     var customHeight by remember(displayHeight) { mutableStateOf(displayHeight.takeIf { it > 0 }?.toString() ?: "") }
-    var customFps by remember(profile?.fps) { mutableStateOf(profile?.fps?.toInt()?.toString() ?: "30") }
+    var customFps by remember(profile?.fps) { mutableStateOf(profile?.fps?.toString() ?: "30") }
     var subtitleMode by remember(profile?.subtitleMode) {
         mutableStateOf(profile?.subtitleMode ?: RustSubtitleMode.Soft)
+    }
+    var audioBitrate by remember(profile?.audioBitrateKbps) {
+        mutableStateOf((profile?.audioBitrateKbps ?: 192).toString())
+    }
+    var audioSampleRate by remember(profile?.audioSampleRate) {
+        mutableStateOf(profile?.audioSampleRate ?: 48_000)
+    }
+    var encodeEffort by remember(profile?.encodeEffort) {
+        mutableFloatStateOf((profile?.encodeEffort ?: 6).toFloat())
     }
 
     var outputFile by remember { mutableStateOf<PlatformFile?>(null) }
@@ -136,7 +145,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         fun evenDown(v: Int): Int = (v / 2) * 2
         val w = evenDown(customWidth.toIntOrNull() ?: 0)
         val h = evenDown(customHeight.toIntOrNull() ?: 0)
-        val f = customFps.toIntOrNull() ?: 0
+        val f = customFps.toDoubleOrNull() ?: 0.0
         if (w > 0 && h > 0) {
             delay(500)
             val newResolution = when {
@@ -343,11 +352,87 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     Text("Frame Rate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     OutlinedTextField(
                         value = customFps,
-                        onValueChange = { customFps = it.filter { c -> c.isDigit() } },
+                        onValueChange = { customFps = it.filter { c -> c.isDigit() || c == '.' } },
                         label = { Text("FPS") },
                         singleLine = true,
                         modifier = Modifier.width(100.dp),
                         enabled = !isExporting,
+                        supportingText = { Text("e.g. 30, 29.97, 60") },
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Audio", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = audioBitrate,
+                        onValueChange = { audioBitrate = it.filter { c -> c.isDigit() } },
+                        label = { Text("Bitrate (kbps)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        enabled = !isExporting,
+                        supportingText = { Text("32–510") },
+                    )
+                    val sampleRateOptions = listOf(8_000, 12_000, 16_000, 24_000, 48_000)
+                    var sampleRateExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = sampleRateExpanded,
+                        onExpandedChange = { if (!isExporting) sampleRateExpanded = it },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        OutlinedTextField(
+                            value = "${audioSampleRate / 1000} kHz",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Sample rate") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(sampleRateExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            enabled = !isExporting,
+                        )
+                        ExposedDropdownMenu(
+                            expanded = sampleRateExpanded,
+                            onDismissRequest = { sampleRateExpanded = false },
+                        ) {
+                            sampleRateOptions.forEach { rate ->
+                                DropdownMenuItem(
+                                    text = { Text("${rate / 1000} kHz") },
+                                    onClick = { audioSampleRate = rate; sampleRateExpanded = false },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (format != RustExportFormat.Opus) {
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Encode effort", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            encodeEffort.toInt().toString(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Slider(
+                        value = encodeEffort,
+                        onValueChange = { encodeEffort = it },
+                        valueRange = 0f..10f,
+                        steps = 9,
+                        enabled = !isExporting,
+                    )
+                    Text(
+                        "0 = slowest, best quality · 10 = fastest (software encoders; hardware ignores this)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -698,13 +783,14 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                                 )
                                                 else -> RustExportResolution.Source
                                             },
-                                            fps = (customFps.toIntOrNull()?.coerceIn(1, 240) ?: 30).toDouble(),
+                                            fps = (customFps.toDoubleOrNull()?.takeIf { it in 1.0..240.0 } ?: 30.0),
                                             videoBitrateKbps = (500 + quality * 80).toInt().coerceAtLeast(500),
-                                            audioBitrateKbps = 192,
-                                            audioSampleRate = 48_000,
+                                            audioBitrateKbps = (audioBitrate.toIntOrNull()?.coerceIn(32, 510) ?: 192),
+                                            audioSampleRate = audioSampleRate,
                                             outputPath = "",
                                             subtitleMode = subtitleMode,
                                             hardwareAcceleration = hwEnabled && hwAvailable,
+                                            encodeEffort = encodeEffort.toInt().coerceIn(0, 10),
                                         )
                                     )
                                     if (applied) vm.startExport(outputPath)
