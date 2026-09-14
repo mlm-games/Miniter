@@ -2094,9 +2094,9 @@ dependencies = [
 
 [[package]]
 name = "muxfin"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38a4033188817452a2626c94e2aae33dfcbabaaf1dc9fce25cc741262c24595e"
+checksum = "c7307ea750f80fc58d1f51add19f6a195fbbd6a4f6b31cc1c0666b3d1d16ccb5"
 dependencies = [
  "bytes",
  "mkv-element",
@@ -3108,9 +3108,9 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "repose-core"
-version = "0.30.4"
+version = "0.30.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f23d00325ad060b6ee2c1ef71997dddb557966db06c1795851850adae97b4fd"
+checksum = "81daa52741244baba417d6cb13fc55c1e5fd02a47274008bf5b9804993a3b436"
 dependencies = [
  "log",
  "parking_lot",
@@ -3122,9 +3122,9 @@ dependencies = [
 
 [[package]]
 name = "repose-macros"
-version = "0.30.4"
+version = "0.30.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87ba7ae82de12fd06fb63368a81caf3164c1de4a75320dc7564011d93127d0ec"
+checksum = "b74315c656a7b5b29457e2f3d58e92369a78861d77e1a1537a4673a1fe310122"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3133,9 +3133,9 @@ dependencies = [
 
 [[package]]
 name = "repose-render-wgpu"
-version = "0.30.4"
+version = "0.30.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3e991a83b97501f258e11d937fe30050cdca57efac0bd6c876b27303f429d2a"
+checksum = "5ae2c45d9265da99263d1b3e5b6c8a862dd5350997e34c945b23e9c63a14ccbf"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3152,9 +3152,9 @@ dependencies = [
 
 [[package]]
 name = "repose-text"
-version = "0.30.4"
+version = "0.30.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "493ec1db5f1ccedfb06690978cb7ad7e5a417209a22856a207b00afc4b47c91b"
+checksum = "5b6732f4d8542ddddfeec1b8e5ce6be1d25cb730c491d298fe236494c01377ab"
 dependencies = [
  "font-awl",
  "js-sys",
