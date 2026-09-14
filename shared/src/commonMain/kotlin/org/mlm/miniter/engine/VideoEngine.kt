@@ -32,4 +32,7 @@ expect class PlatformVideoEngine() {
     fun cancelExport()
 
     fun reset()
+
+    /** Enter an owned Preparing state before any suspension; ignored while a job is active. */
+    fun notePreparing(outputPath: String)
 }

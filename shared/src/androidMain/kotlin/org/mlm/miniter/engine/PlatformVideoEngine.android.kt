@@ -77,11 +77,13 @@ actual class PlatformVideoEngine actual constructor() {
                             progress = 1f,
                             isComplete = true,
                             hardwareFallback = !hwOk,
+                            outputPath = outputPath,
                         )
                     } else {
                         ExportProgress(
                             phase = "Export cancelled",
                             isCancelled = true,
+                            outputPath = outputPath,
                         )
                     }
                 } catch (e: CancellationException) {
@@ -116,10 +118,12 @@ actual class PlatformVideoEngine actual constructor() {
                 ExportProgress(
                     phase = "Export cancelled",
                     isCancelled = true,
+                    outputPath = outputPath,
                 )
             } else {
                 ExportProgress(
-                    error = e.message ?: "Export failed"
+                    error = e.message ?: "Export failed",
+                    outputPath = outputPath,
                 )
             }
         }
@@ -195,6 +199,18 @@ actual class PlatformVideoEngine actual constructor() {
         exportCancelled = false
         runCatching { RustCoreSession.clearExportPreview() }
         _exportProgress.value = ExportProgress()
+    }
+
+    actual fun notePreparing(outputPath: String) {
+        val current = _exportProgress.value
+        if (current.isActive()) return
+        exportCancelled = false
+        runCatching { RustCoreSession.clearExportPreview() }
+        _exportProgress.value = ExportProgress(
+            phase = ExportProgress.PHASE_PREPARING,
+            progress = 0f,
+            outputPath = outputPath,
+        )
     }
 }
 

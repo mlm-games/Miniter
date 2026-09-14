@@ -1163,11 +1163,15 @@ class ProjectViewModel(
         }
     }
 
+    private var exportJob: Job? = null
+
     fun exportProject(outputPath: String) {
-        val snapshot = rustStore.snapshot.value ?: return
-        viewModelScope.launch {
+        if (exportJob?.isActive == true) return
+        val frozen = rustStore.snapshot.value ?: return
+        engine.notePreparing(outputPath)
+        exportJob = viewModelScope.launch {
             var exportError: String? = null
-            for (path in snapshot.timeline.tracks.flatMap { it.clips }
+            for (path in frozen.timeline.tracks.flatMap { it.clips }
                 .mapNotNull { clipSnapshot -> (clipSnapshot.kind as? RustVideoClipKind)?.sourcePath }.distinct()) {
                 try {
                     val info = engine.probeVideo(path)
@@ -1213,11 +1217,19 @@ class ProjectViewModel(
         }
     }
 
-    fun cancelExport() = engine.cancelExport()
+    fun cancelExport() {
+        exportJob?.cancel()
+        engine.cancelExport()
+    }
 
-    fun resetExport() = engine.reset()
+    fun resetExport() {
+        exportJob?.cancel()
+        exportJob = null
+        engine.reset()
+    }
 
     fun updateExportProfile(profile: RustExportProfileSnapshot): Boolean {
+        if (exportJob?.isActive == true) return false
         return dispatchAndSync(rustStore.commands.setExportProfile(profile))
     }
 
@@ -1227,6 +1239,8 @@ class ProjectViewModel(
 
     fun reset() {
         stopAutoSave()
+        exportJob?.cancel()
+        exportJob = null
         thumbnailJob?.cancel()
         thumbnailRequestId += 1
         thumbnailRequestPath = null

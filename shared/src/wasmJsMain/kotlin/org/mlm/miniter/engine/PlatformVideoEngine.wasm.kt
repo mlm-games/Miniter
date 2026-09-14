@@ -108,6 +108,7 @@ actual class PlatformVideoEngine actual constructor() {
                             progress = 1f,
                             isComplete = true,
                             hardwareFallback = response.hardwareFallback,
+                            outputPath = outputPath,
                         )
                     } else if (exportCancelled) {
                         _exportProgress.value = ExportProgress(
@@ -213,6 +214,18 @@ actual class PlatformVideoEngine actual constructor() {
         activeSession = null
         runCatching { RustCoreSession.clearExportPreview() }
         _exportProgress.value = ExportProgress()
+    }
+
+    actual fun notePreparing(outputPath: String) {
+        val current = _exportProgress.value
+        if (current.isActive()) return
+        exportCancelled = false
+        runCatching { RustCoreSession.clearExportPreview() }
+        _exportProgress.value = ExportProgress(
+            phase = ExportProgress.PHASE_PREPARING,
+            progress = 0f,
+            outputPath = outputPath,
+        )
     }
 }
 
