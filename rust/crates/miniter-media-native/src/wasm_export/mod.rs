@@ -196,6 +196,10 @@ impl<'a> ExportDecodeCache<'a> {
         }
     }
 
+    fn registered_files(&self) -> &HashMap<String, Vec<u8>> {
+        self.registered_files
+    }
+
     fn extract_frame(
         &mut self,
         clip_id: ClipId,
@@ -2062,7 +2066,13 @@ fn render_node(
             };
 
             let fp = font_path.as_deref();
-            let mut img = render_text_overlay(&overlay, width, height, fp);
+            let mut img = render_text_overlay_with_files(
+                &overlay,
+                width,
+                height,
+                fp,
+                decode_cache.registered_files(),
+            );
             filters::scale_alpha(&mut img, *opacity);
             Ok(img)
         }

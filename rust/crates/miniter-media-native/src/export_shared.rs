@@ -851,11 +851,51 @@ pub(crate) fn strip_ass_override_tags(text: &str) -> String {
     out
 }
 
+pub(crate) fn font_bytes_for_path(
+    font_path: Option<&str>,
+    registered_files: &std::collections::HashMap<String, Vec<u8>>,
+) -> Option<Vec<u8>> {
+    let path = font_path.filter(|p| !p.is_empty())?;
+    // Wasm/container picks live in the registered-file map, not the fs.
+    if let Some(bytes) = registered_files.get(path) {
+        if !bytes.is_empty() {
+            return Some(bytes.clone());
+        }
+    }
+    if std::path::Path::new(path).exists() {
+        if let Ok(bytes) = std::fs::read(path) {
+            if !bytes.is_empty() {
+                return Some(bytes);
+            }
+        }
+    }
+    None
+}
+
+/// Backwards-compatible loader for callers without a registered-file map
+/// (native export): falls back to fs read, then the bundled font.
+fn load_font_data_or_fallback(font_path: Option<&str>) -> Vec<u8> {
+    font_bytes_for_path(font_path, &std::collections::HashMap::new())
+        .unwrap_or_else(|| include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec())
+}
+
 pub(crate) fn render_text_overlay(
     overlay: &TextOverlay,
     width: usize,
     height: usize,
     font_path: Option<&str>,
+) -> Vec<u8> {
+    render_text_overlay_with_files(overlay, width, height, font_path, &std::collections::HashMap::new())
+}
+
+/// `render_text_overlay` variant that also resolves `wasm://` / staged picks
+/// from the export's registered-file map before trying the filesystem.
+pub(crate) fn render_text_overlay_with_files(
+    overlay: &TextOverlay,
+    width: usize,
+    height: usize,
+    font_path: Option<&str>,
+    registered_files: &std::collections::HashMap<String, Vec<u8>>,
 ) -> Vec<u8> {
     let mut canvas = transparent_rgba(width, height);
     let lines: Vec<&str> = overlay.text.lines().collect();
@@ -863,12 +903,9 @@ pub(crate) fn render_text_overlay(
         return canvas;
     }
 
-    let font_data: Vec<u8> = match font_path {
-        Some(path) if std::path::Path::new(path).exists() => match std::fs::read(path) {
-            Ok(data) => data,
-            Err(_) => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
-        },
-        _ => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
+    let font_data: Vec<u8> = match font_bytes_for_path(font_path, registered_files) {
+        Some(data) => data,
+        None => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
     };
     let Ok(font) = Font::from_bytes(font_data.as_slice(), FontSettings::default()) else {
         log::warn!("Failed to load font; rendering transparent text layer");
@@ -1529,6 +1566,33 @@ pub(crate) fn map_subtitle_cue_to_timeline_sample(
         duration_us: (sample_end - sample_start).max(1),
         text: text.to_string(),
     })
+}
+
+#[cfg(test)]
+mod font_bytes_tests {
+    use super::font_bytes_for_path;
+    use std::collections::HashMap;
+
+    #[test]
+    fn registered_map_beats_filesystem() {
+        let mut map = HashMap::new();
+        map.insert("wasm://local/1/font.ttf".to_string(), vec![1u8, 2, 3]);
+        assert_eq!(
+            font_bytes_for_path(Some("wasm://local/1/font.ttf"), &map),
+            Some(vec![1u8, 2, 3])
+        );
+    }
+
+    #[test]
+    fn missing_path_yields_none() {
+        let map = HashMap::new();
+        assert_eq!(
+            font_bytes_for_path(Some("/definitely/not/here-xyz.ttf"), &map),
+            None
+        );
+        assert_eq!(font_bytes_for_path(None, &map), None);
+        assert_eq!(font_bytes_for_path(Some(""), &map), None);
+    }
 }
 
 #[cfg(test)]
