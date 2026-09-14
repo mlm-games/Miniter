@@ -124,11 +124,13 @@ mod hw {
             #[cfg(not(target_arch = "wasm32"))]
             let rt = Runtime::new().map_err(|e| EncodeError::Backend(format!("tokio: {e}")))?;
 
-            let _is_h264 = mime.contains("avc") || mime.contains("h264");
+            #[cfg(target_arch = "wasm32")]
+            let is_h264 = mime.contains("avc") || mime.contains("h264");
             // Same ~2 s grid as the SW AV1 encoder (rav1e). WebCodecs AV1
             // otherwise emits scene-cut-only keyframes, breaking seek-based
             // thumbnailers (Nautilus/ffmpegthumbnailer fall back to frame 0).
-            let _av1_keyframe_interval = if mime.contains("av01") || mime.contains("av1") {
+            #[cfg(target_arch = "wasm32")]
+            let av1_keyframe_interval = if mime.contains("av01") || mime.contains("av1") {
                 (2.0 * fps as f64).round().clamp(30.0, 240.0) as u32
             } else {
                 0
