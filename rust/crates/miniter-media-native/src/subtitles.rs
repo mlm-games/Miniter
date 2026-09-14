@@ -7,8 +7,8 @@
 //! - Optional numeric sequence line; `-->` line found by scan, with VTT
 //!   cue settings after the end timestamp ignored.
 //! - Timestamps `hh:mm:ss,ms`, `hh:mm:ss.ms`, `mm:ss.ms`, bare `ss.ms`.
-//! - ASS/SSA via `reassarus-core` on native, `Dialogue:` splitter as
-//!   fallback (also used on WASM).
+//! - ASS/SSA via `reassarus-core`, with the `Dialogue:` splitter as
+//!   fallback when the script fails to parse.
 
 use crate::export_shared::strip_ass_override_tags;
 
@@ -124,21 +124,17 @@ fn parse_hms_to_us(time_part: &str, ms: Option<i64>) -> Option<i64> {
     Some(((h * 3600 + m * 60 + s) * 1_000 + ms) * 1_000)
 }
 
-/// Parse ASS/SSA content into plain-text cues. Native builds try
-/// `reassarus-core` first, then the `Dialogue:` splitter below; WASM
-/// uses the splitter directly.
+/// Parse ASS/SSA content into plain-text cues. Tries `reassarus-core`
+/// first, then the `Dialogue:` splitter below, so a malformed header
+/// never drops every cue. Same path on every target.
 pub fn parse_ass_content(content: &str, preserve_styles: bool) -> Vec<ParsedSubtitleCue> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        match parse_ass_with_reassarus(content, preserve_styles) {
-            Some(cues) if !cues.is_empty() => return cues,
-            _ => {}
-        }
+    match parse_ass_with_reassarus(content, preserve_styles) {
+        Some(cues) if !cues.is_empty() => return cues,
+        _ => {}
     }
     parse_ass_dialogue_lines(content)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn parse_ass_with_reassarus(
     content: &str,
     preserve_styles: bool,
@@ -181,8 +177,8 @@ fn parse_ass_with_reassarus(
     Some(cues)
 }
 
-/// `Dialogue:` line parser, shared by WASM and native fallback.
-pub fn parse_ass_dialogue_lines(content: &str) -> Vec<ParsedSubtitleCue> {
+/// `Dialogue:` line parser, used when the full ASS parse rejects the file.
+fn parse_ass_dialogue_lines(content: &str) -> Vec<ParsedSubtitleCue> {
     let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
     let mut cues = Vec::new();
     for line in normalized.lines() {
@@ -217,7 +213,7 @@ pub fn parse_ass_dialogue_lines(content: &str) -> Vec<ParsedSubtitleCue> {
     cues
 }
 
-pub fn normalize_ass_text(input: &str) -> String {
+fn normalize_ass_text(input: &str) -> String {
     let text = input
         .replace("\\N", "\n")
         .replace("\\n", "\n")
@@ -226,7 +222,7 @@ pub fn normalize_ass_text(input: &str) -> String {
 }
 
 /// ASS timestamps are `h:mm:ss.cc` (centiseconds, 1-2+ digits accepted).
-pub fn parse_ass_timestamp_us(value: &str) -> Option<i64> {
+fn parse_ass_timestamp_us(value: &str) -> Option<i64> {
     let mut hms = value.trim().split(':');
     let h: i64 = hms.next()?.parse().ok()?;
     let m: i64 = hms.next()?.parse().ok()?;

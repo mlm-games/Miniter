@@ -73,7 +73,7 @@ impl SubtitleRenderer {
             .script_content
             .as_ref()
             .ok_or_else(|| SubtitleError::Parse("No script loaded".to_string()))?;
-        let script = reassarus_core::parser::Script::parse(content)
+        let script = reassarus_core::Script::parse(content)
             .map_err(|e| SubtitleError::Parse(format!("{:?}", e)))?;
         let frame = self.renderer.render_frame(&script, time_cs as u32)?;
         Ok(frame)

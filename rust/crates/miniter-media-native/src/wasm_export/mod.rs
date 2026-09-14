@@ -638,7 +638,7 @@ fn export_h264_mp4_bytes(
     let mut out_bytes = Vec::new();
     let mut frame_index: u32 = 0;
     {
-        let mut emit = |encoded: EncodedVideoOutput,
+        let emit = |encoded: EncodedVideoOutput,
                         frame_index: u32,
                         muxer: &mut Mp4Muxer<&mut Vec<u8>>|
          -> Result<(), String> {
@@ -684,7 +684,7 @@ fn export_h264_mp4_bytes(
         // Head-start: feed frames until the first AU, validating each.
         // The muxer is created inline here (not in a closure) because it
         // borrows `out_bytes` for the rest of the block.
-        let mut first_sample: Option<(u64, Vec<u8>, bool)> = None;
+        let mut first_sample: Option<(u64, Vec<u8>, bool)>;
         {
             let first_output = encoder
                 .encode_frame(&first_frame)
@@ -1275,7 +1275,7 @@ fn parse_srt_cues(content: &str) -> Vec<SubtitleCue> {
 }
 
 fn parse_ass_cues(content: &str) -> Vec<SubtitleCue> {
-    crate::subtitles::parse_ass_dialogue_lines(content)
+    crate::subtitles::parse_ass_content(content, false)
         .into_iter()
         .map(|cue| SubtitleCue {
             start_us: cue.start_us,
@@ -1363,7 +1363,6 @@ pub struct WasmExportChunker {
     encoder: Box<dyn EncoderBackend>,
     sps: Vec<u8>,
     pps: Vec<u8>,
-    fps_int: u32,
     buffered_frames: Vec<BufferedFrame>,
     seen_first_keyframe: bool,
     source_matrix: MatrixCoeffs,
@@ -1447,7 +1446,6 @@ impl WasmExportChunker {
 
         let hw_requested = project.export_profile.hardware_acceleration;
         let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
-        let fps_int = settings.fps.round().max(1.0) as u32;
 
         if format == ExportFormat::Opus {
             let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
@@ -1478,7 +1476,6 @@ impl WasmExportChunker {
                 encoder: Box::new(NoopBackend),
                 sps: Vec::new(),
                 pps: Vec::new(),
-                fps_int,
                 buffered_frames: Vec::new(),
                 seen_first_keyframe: false,
                 source_matrix: MatrixCoeffs::Bt709,
@@ -1526,7 +1523,6 @@ impl WasmExportChunker {
             encoder,
             sps,
             pps,
-            fps_int,
             buffered_frames: Vec::new(),
             seen_first_keyframe: false,
             source_matrix,

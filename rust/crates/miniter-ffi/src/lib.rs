@@ -1652,6 +1652,8 @@ impl MiniterError {
     /// Map a native export failure to the closest stable code.
     /// Heuristic on purpose: the string match is a fallback ladder, and the
     /// raw message is always preserved in `detail`.
+    /// Native only: `miniter_media_native::export` is not compiled on WASM.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_export_error(e: &miniter_media_native::export::ExportError) -> Self {
         use miniter_audio::loudness::ErrorCode as Code;
         use miniter_media_native::export::ExportError as E;

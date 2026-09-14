@@ -1,5 +1,5 @@
 use crate::filters;
-use crate::mux::{Mp4Muxer, OpusTrackConfigOut, SubtitleTrackCodecOut, SubtitleTrackConfigOut};
+use crate::mux::{Mp4Muxer, OpusTrackConfigOut};
 use fast_image_resize::images::{Image, ImageRef};
 use fast_image_resize::{PixelType, Resizer};
 use fontdue::{Font, FontSettings};
@@ -72,13 +72,6 @@ pub(crate) fn mix_config_for_profile(sample_rate: u32) -> miniter_audio::mix::Mi
     miniter_audio::mix::MixConfig {
         sample_rate: normalize_audio_sample_rate(sample_rate),
         channels: 2,
-    }
-}
-
-pub(crate) fn subtitle_track_config() -> SubtitleTrackConfigOut {
-    SubtitleTrackConfigOut {
-        codec: SubtitleTrackCodecOut::MovText,
-        language: Some("und".to_string()),
     }
 }
 
@@ -921,44 +914,6 @@ pub(crate) fn normalize_even_dimension(value: u32, fallback: u32) -> u32 {
     dim.max(2)
 }
 
-pub(crate) fn parse_srt_time_range(line: &str) -> Option<(i64, i64)> {
-    let mut parts = line.split("-->");
-    let start = parts.next()?.trim();
-    let end = parts.next()?.split_whitespace().next().unwrap_or("").trim();
-    if parts.next().is_some() {
-        return None;
-    }
-    Some((parse_srt_timestamp_us(start)?, parse_srt_timestamp_us(end)?))
-}
-
-pub(crate) fn parse_srt_timestamp_us(value: &str) -> Option<i64> {
-    let trimmed = value.trim();
-    let (time_part, frac_part) = if let Some((time, frac)) = trimmed.split_once(',') {
-        (time, frac)
-    } else if let Some((time, frac)) = trimmed.split_once('.') {
-        (time, frac)
-    } else {
-        return None;
-    };
-
-    let mut hms = time_part.split(':');
-    let h: i64 = hms.next()?.parse().ok()?;
-    let m: i64 = hms.next()?.parse().ok()?;
-    let s: i64 = hms.next()?.parse().ok()?;
-    if hms.next().is_some() || !(0..60).contains(&m) || !(0..60).contains(&s) {
-        return None;
-    }
-
-    let ms = match frac_part.len() {
-        0 => return None,
-        1 => frac_part.parse::<i64>().ok()?.saturating_mul(100),
-        2 => frac_part.parse::<i64>().ok()?.saturating_mul(10),
-        _ => frac_part.get(0..3)?.parse::<i64>().ok()?,
-    };
-
-    Some(((h * 3600 + m * 60 + s) * 1_000 + ms) * 1_000)
-}
-
 pub(crate) fn strip_ass_override_tags(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut in_tag = false;
@@ -994,13 +949,6 @@ pub(crate) fn font_bytes_for_path(
         }
     }
     None
-}
-
-/// Backwards-compatible loader for callers without a registered-file map
-/// (native export): falls back to fs read, then the bundled font.
-fn load_font_data_or_fallback(font_path: Option<&str>) -> Vec<u8> {
-    font_bytes_for_path(font_path, &std::collections::HashMap::new())
-        .unwrap_or_else(|| include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec())
 }
 
 pub(crate) fn render_text_overlay(
@@ -1577,32 +1525,8 @@ pub fn subtitle_text_at_from_srt(content: &str, timestamp_us: i64) -> Option<Str
 }
 
 pub fn subtitle_text_at_from_ass(content: &str, timestamp_us: i64) -> Option<String> {
-    let script = reassarus_core::parser::Script::parse(content).ok()?;
-    for section in script.sections() {
-        let reassarus_core::Section::Events(events) = section else {
-            continue;
-        };
-        for event in events {
-            if !event.is_dialogue() {
-                continue;
-            }
-            let Ok(start_cs) = event.start_time_cs() else {
-                continue;
-            };
-            let Ok(end_cs) = event.end_time_cs() else {
-                continue;
-            };
-            if end_cs <= start_cs {
-                continue;
-            }
-            let start_us = start_cs as i64 * 10_000;
-            let end_us = end_cs as i64 * 10_000;
-            if timestamp_us >= start_us && timestamp_us < end_us {
-                return Some(strip_ass_override_tags(event.text));
-            }
-        }
-    }
-    None
+    let cues = crate::subtitles::parse_ass_content(content, false);
+    crate::subtitles::cue_text_at(&cues, timestamp_us)
 }
 
 pub(crate) fn is_image_path(path: &str) -> bool {
