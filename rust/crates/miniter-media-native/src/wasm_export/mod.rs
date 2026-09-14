@@ -631,15 +631,15 @@ fn export_h264_mp4_bytes(
         color_info: Default::default(),
     };
 
-    let mut output = Vec::new();
+    let mut out_bytes = Vec::new();
     let mut frame_index: u32 = 0;
     {
         let mut muxer: Option<Mp4Muxer<&mut Vec<u8>>> = None;
-        let mut emit = |output: EncodedVideoOutput,
+        let mut emit = |encoded: EncodedVideoOutput,
                         frame_index: u32,
-                        muxer: &mut Option<Mp4Muxer<&mut Vec<u8>>>|
+                        muxer: &mut Mp4Muxer<&mut Vec<u8>>|
          -> Result<(), String> {
-            let (bytes, is_keyframe, pts_us) = match output {
+            let (bytes, is_keyframe, pts_us) = match encoded {
                 EncodedVideoOutput::Sample {
                     bytes,
                     is_keyframe,
@@ -652,43 +652,76 @@ fn export_h264_mp4_bytes(
                     "H.264 encoder produced empty frame at index {frame_index}"
                 ));
             }
-            if muxer.is_none() {
-                extract_sps_pps(&bytes)
-                    .ok_or_else(|| "Could not extract SPS/PPS from H.264 stream".to_string())?;
-                *muxer = Some(
-                    Mp4Muxer::new(
-                        &mut output,
-                        settings.width,
-                        settings.height,
-                        settings.fps,
-                        &[],
-                        &[],
-                        ContainerFormat::Mp4,
-                        audio_track,
-                        subtitle_track.clone(),
-                        VideoTrackCodecOut::H264,
-                    )
-                    .map_err(|e| format!("MP4 muxer init failed: {e}"))?,
-                );
-            }
             muxer
-                .as_mut()
-                .expect("muxer created above")
                 .write_sample_at(pts_us.max(0) as u64, &bytes, is_keyframe)
                 .map_err(|e| format!("MP4 write failed: {e}"))?;
             Ok(())
         };
-
-        emit(
-            encoder
+        // Head-start: feed frames until the first AU, validating each.
+        // The muxer is created inline here (not in a closure) because it
+        // borrows `out_bytes` for the rest of the block.
+        let mut first_sample: Option<(u64, Vec<u8>, bool)> = None;
+        {
+            let first_output = encoder
                 .encode_frame(&first_frame)
-                .map_err(|e| format!("H.264 encode failed: {e}"))?,
-            frame_index,
-            &mut muxer,
-        )?;
-        frame_index += 1;
-
+                .map_err(|e| format!("H.264 encode failed: {e}"))?;
+            first_sample = stage(first_output, frame_index)?;
+            frame_index += 1;
+        }
         let mut frame_count: u32 = 1;
+        let mut iter = iter.peekable();
+        while first_sample.is_none() {
+            let Some(plan) = iter.next() else {
+                break;
+            };
+            if is_cancelled() {
+                return Err("Export cancelled".to_string());
+            }
+            let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
+            store_wasm_preview_frame(&rgba, settings.width, settings.height);
+            let frame = RgbaFrame {
+                width: settings.width,
+                height: settings.height,
+                data: rgba,
+                pts_us: plan.timestamp.as_micros(),
+                color_info: Default::default(),
+            };
+            match encoder.encode_frame(&frame) {
+                Err(crate::encoder::EncodeError::BufferedFrame { .. }) => {}
+                other => {
+                    first_sample = stage(
+                        other.map_err(|e| format!("H.264 encode failed: {e}"))?,
+                        frame_index,
+                    )?;
+                }
+            }
+            frame_index += 1;
+            frame_count = frame_count.saturating_add(1);
+        }
+
+        let Some((first_pts, first_bytes, first_key)) = first_sample else {
+            return Err("H.264 encoder produced no output".to_string());
+        };
+        extract_sps_pps(&first_bytes)
+            .ok_or_else(|| "Could not extract SPS/PPS from H.264 stream".to_string())?;
+        let mut muxer = Mp4Muxer::new(
+            &mut out_bytes,
+            settings.width,
+            settings.height,
+            settings.fps,
+            &[],
+            &[],
+            ContainerFormat::Mp4,
+            audio_track,
+            subtitle_track,
+            VideoTrackCodecOut::H264,
+        )
+        .map_err(|e| format!("MP4 muxer init failed: {e}"))?;
+        muxer
+            .write_sample_at(first_pts, &first_bytes, first_key)
+            .map_err(|e| format!("MP4 write failed: {e}"))?;
+
+        let mut frame_count = frame_count;
 
         for plan in iter {
             if is_cancelled() {
@@ -715,6 +748,9 @@ fn export_h264_mp4_bytes(
                 color_info: Default::default(),
             };
 
+            // A HW `BufferedFrame` here means the platform encoder hasn't
+            // returned output yet (async WebCodecs), NOT a fatal skip: keep
+            // feeding frames, the AU arrives on a later drain.
             match encoder.encode_frame(&frame) {
                 Err(crate::encoder::EncodeError::BufferedFrame { .. }) => {}
                 other => emit(
@@ -758,16 +794,12 @@ fn export_h264_mp4_bytes(
             }
         }
 
-        let Some(muxer) = muxer.as_mut() else {
-            return Err("H.264 encoder produced no output".to_string());
-        };
-
         if let Some(encoded_audio) = &audio_encoded {
-            write_audio_packets(muxer, encoded_audio, 0)
+            write_audio_packets(&mut muxer, encoded_audio, 0)
                 .map_err(|e| format!("MP4 audio write failed: {e}"))?;
         }
 
-        write_soft_subtitle_samples(muxer, &subtitle_samples)
+        write_soft_subtitle_samples(&mut muxer, &subtitle_samples)
             .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
 
         muxer
@@ -776,7 +808,7 @@ fn export_h264_mp4_bytes(
     }
 
     on_progress(100_000);
-    Ok(output)
+    Ok(out_bytes)
 }
 
 fn export_av1_mp4_bytes(

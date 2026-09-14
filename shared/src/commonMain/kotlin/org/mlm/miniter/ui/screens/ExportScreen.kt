@@ -157,7 +157,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                 else -> RustExportResolution.Custom(w, h)
             }
             val currentProfile = profile ?: return@LaunchedEffect
-            val newFps = if (f in 1..240) f.toDouble() else currentProfile.fps
+            val newFps = if (f in 1.0..240.0) f else currentProfile.fps
             if (newResolution != currentProfile.resolution || newFps != currentProfile.fps) {
                 vm.updateExportProfile(currentProfile.copy(resolution = newResolution, fps = newFps))
             }

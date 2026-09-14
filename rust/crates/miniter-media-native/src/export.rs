@@ -764,12 +764,12 @@ where
     let mut staged: Vec<(u64, Vec<u8>, bool)> = Vec::new();
     let mut muxer: Option<Mp4Muxer<BufWriter<File>>> = None;
     let mut frame_index: u32 = 0;
-    let mut emit = |output: EncodedVideoOutput,
+    let mut emit = |encoded: EncodedVideoOutput,
                     frame_index: u32,
                     staged: &mut Vec<(u64, Vec<u8>, bool)>,
                     muxer: &mut Option<Mp4Muxer<BufWriter<File>>>|
      -> Result<(), ExportError> {
-        let (bytes, is_keyframe, pts_us) = match output {
+        let (bytes, is_keyframe, pts_us) = match encoded {
             EncodedVideoOutput::Sample {
                 bytes,
                 is_keyframe,
