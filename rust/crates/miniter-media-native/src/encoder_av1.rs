@@ -67,6 +67,16 @@ pub struct Av1Packet {
     pub data: Vec<u8>,
     pub is_keyframe: bool,
     pub pts: u64,
+    /// Decode timestamp in microseconds. rav1e emits packets in **decode
+    /// order** (`receive_packet` drains the output queue) while `pts` is
+    /// display order (`input_frameno`); with the B-frame pyramid enabled
+    /// (`low_latency=false`, `pyramid_depth=2`) these diverge from the first
+    /// GOP on, so PTS fed straight to muxfin's `write_video()` trips
+    /// `NonIncreasingVideoPts` (e.g. frame 6: PTS 0.200s after 0.667s).
+    /// Multiplex with `write_video_with_dts()` instead: this field steps one
+    /// frame duration per emission, strictly increasing by construction, and
+    /// muxfin's `ctts` table recovers display order.
+    pub dts_us: u64,
 }
 
 pub struct Av1EncodeSession {
@@ -77,11 +87,22 @@ pub struct Av1EncodeSession {
     fps: f64,
     seq_header: Vec<u8>,
     flushed: bool,
-    /// PTS for submitted frames in display order. Consumed as rav1e emits
-    /// packets (`packet_with_pts` drains through `input_frameno`), so the
-    /// queue stays bounded by in-flight frames instead of growing with the
-    /// whole export.
-    pending_frames: Vec<u64>,
+    /// Decode-order emission counter. `receive_packet` yields packets in the
+    /// order the decoder must consume them, so each emission takes the next
+    /// value and converts it to `Av1Packet::dts_us` via `dts_us_for_index`.
+    /// Monotonic across `encode_frame` and `finish` by construction.
+    next_dts_index: u64,
+    /// Submit-time PTS keyed by `input_frameno` (a dense 0-based index over
+    /// accepted frames). Keyed lookup — NOT a drain-through queue: rav1e's
+    /// pyramid emits out of order (e.g. input 4 before 2 and 1), so
+    /// draining `..=idx` on the first emission would discard the PTS of
+    /// not-yet-emitted frames and mislabel every later packet. Entries are
+    /// removed exactly when their packet arrives, so the map stays bounded
+    /// by in-flight frames.
+    pending_frames: std::collections::HashMap<u64, u64>,
+    /// Next `input_frameno` to assign. `send_frame` never skips, so this is
+    /// just a submission counter.
+    next_input_frameno: u64,
 }
 
 impl Av1EncodeSession {
@@ -130,7 +151,9 @@ impl Av1EncodeSession {
             fps,
             seq_header,
             flushed: false,
-            pending_frames: Vec::new(),
+            next_dts_index: 0,
+            pending_frames: std::collections::HashMap::new(),
+            next_input_frameno: 0,
         })
     }
 
@@ -181,7 +204,9 @@ impl Av1EncodeSession {
         f.planes[1].copy_from_raw_u8(&u_plane, self.enc_width / 2, 1);
         f.planes[2].copy_from_raw_u8(&v_plane, self.enc_width / 2, 1);
 
-        self.pending_frames.push(frame.pts_us.max(0) as u64);
+        self.pending_frames
+            .insert(self.next_input_frameno, frame.pts_us.max(0) as u64);
+        self.next_input_frameno = self.next_input_frameno.saturating_add(1);
 
         self.ctx
             .send_frame(Arc::new(f))
@@ -191,17 +216,7 @@ impl Av1EncodeSession {
         loop {
             match self.ctx.receive_packet() {
                 Ok(packet) => {
-                    let idx = packet.input_frameno as usize;
-                    let pts = if idx < self.pending_frames.len() {
-                        self.pending_frames.drain(..=idx).next_back().unwrap_or(0)
-                    } else {
-                        ((packet.input_frameno as f64 / self.fps) * 1_000_000.0).max(0.0) as u64
-                    };
-                    packets.push(Av1Packet {
-                        pts,
-                        data: packet.data,
-                        is_keyframe: packet.frame_type.all_intra(),
-                    });
+                    packets.push(self.packet_with_pts(packet));
                 }
                 Err(EncoderStatus::Encoded) => continue,
                 Err(EncoderStatus::NeedMoreData)
@@ -215,26 +230,46 @@ impl Av1EncodeSession {
     }
 
     /// Attach the submit-time PTS for `packet.input_frameno`, consuming the
-    /// corresponding queue entry. Shared by `encode_frame` and `finish`.
-    /// `input_frameno` is a dense 0-based index over accepted frames
-    /// (`send_frame` never skips), so drain through it: entries before `idx`
-    /// belong to already-returned packets and the head IS this packet.
-    /// Queue length also stays bounded (≤ in-flight frames) instead of
-    /// growing with the whole export.
+    /// corresponding map entry. Shared by `encode_frame` and `finish`.
+    ///
+    /// `dts_index` stamps decode order: `receive_packet` yields packets in
+    /// the order the decoder must consume them, so each emission takes the
+    /// next counter value. Paired with the display-order `pts`, this is the
+    /// (DTS, PTS) pair the MP4 `write_video_with_dts` path needs for
+    /// B-frame pyramids.
+    ///
+    /// Fallback (`input_frameno` not in the map) derives PTS from the frame
+    /// index on the export grid. Unreachable in practice — every accepted
+    /// frame registers its PTS before `send_frame`, and `flush` emits no
+    /// new `input_frameno`s — but keeps a corrupt-state bug from producing
+    /// a `0` timestamp that would collide with frame 0.
     fn packet_with_pts(&mut self, packet: Packet<u8>) -> Av1Packet {
-        let idx = packet.input_frameno as usize;
-        let pts = if idx < self.pending_frames.len() {
-            self.pending_frames.drain(..=idx).next_back().unwrap_or(0)
-        } else {
-            ((packet.input_frameno as f64 / self.fps) * 1_000_000.0).max(0.0) as u64
-        };
+        let pts = self
+            .pending_frames
+            .remove(&packet.input_frameno)
+            .unwrap_or_else(|| {
+                ((packet.input_frameno as f64 / self.fps) * 1_000_000.0).max(0.0) as u64
+            });
+        let dts_index = self.next_dts_index;
+        self.next_dts_index = self.next_dts_index.saturating_add(1);
         Av1Packet {
             pts,
+            dts_us: Self::dts_us_for_index(dts_index, self.fps),
             data: packet.data,
             is_keyframe: packet.frame_type.all_intra(),
         }
     }
 
+    /// Decode timestamp for an emission index: `index` steps of one frame
+    /// duration. Uses the exact frame-grid math (`round(i * 1e6 / fps)`),
+    /// matching `FramePlanIterator`, so DTS lands on frame boundaries at
+    /// NTSC rates instead of accumulating a truncated-step drift.
+    fn dts_us_for_index(dts_index: u64, fps: f64) -> u64 {
+        if !fps.is_finite() || fps <= 0.0 {
+            return dts_index.saturating_mul(33_333);
+        }
+        ((dts_index as f64 * 1_000_000.0 / fps).round().max(0.0)) as u64
+    }
     pub fn finish(&mut self) -> Result<Vec<Av1Packet>, Av1EncodeError> {
         if !self.flushed {
             self.ctx.flush();

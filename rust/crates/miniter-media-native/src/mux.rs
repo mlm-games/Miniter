@@ -100,6 +100,28 @@ impl<W: Write> Mp4Muxer<W> {
         Ok(())
     }
 
+    /// Write a video sample with an explicit decode timestamp for streams
+    /// with B-frames (PTS != DTS).
+    ///
+    /// Frames must be fed in decode order with strictly increasing DTS; PTS
+    /// may go backwards relative to the previous sample. muxfin records the
+    /// `pts - dts` offsets in the `ctts` box so players display in PTS
+    /// order. Use this for AV1 (rav1e emits decode-order packets); H.264
+    /// (P-frames only) keeps using `write_sample_at`.
+    pub fn write_sample_with_dts_at(
+        &mut self,
+        pts_us: u64,
+        dts_us: u64,
+        data: &[u8],
+        is_keyframe: bool,
+    ) -> Result<(), MuxError> {
+        let pts = pts_us as f64 / 1_000_000.0;
+        let dts = dts_us as f64 / 1_000_000.0;
+        self.writer
+            .write_video_with_dts(pts, dts, data, is_keyframe)?;
+        Ok(())
+    }
+
     pub fn write_audio_sample_at(
         &mut self,
         start_time_us: u64,

@@ -1147,11 +1147,17 @@ fn write_av1_packets_to_mux<W: Write>(
         if sample.is_empty() {
             continue;
         }
+        // DTS accounting even for dropped leading packets: the counter on
+        // the packet is emission-ordered, so skipping a non-keyframe leaves
+        // a DTS gap — exactly what the first-keyframe gate wants (muxer
+        // treats missing prefix as leading delay, durations stay valid).
+        // Do NOT renumber here; feeds use `packet.dts_us` verbatim.
         if !*seen_first_keyframe {
             if !packet.is_keyframe {
                 log::warn!(
-                    "EXPORT_DROP_LEADING: pts_us={} len={}",
+                    "EXPORT_DROP_LEADING: pts_us={} dts_us={} len={}",
                     packet.pts,
+                    packet.dts_us,
                     sample.len(),
                 );
                 continue;
@@ -1159,8 +1165,11 @@ fn write_av1_packets_to_mux<W: Write>(
             *seen_first_keyframe = true;
         }
 
+        // Same B-frame contract as native `export.rs`: decode-order feed
+        // with explicit DTS (see `Av1Packet::dts_us`). PTS is not monotonic
+        // under rav1e's pyramid, so `write_sample_at` would fail here too.
         muxer
-            .write_sample_at(packet.pts, sample, packet.is_keyframe)
+            .write_sample_with_dts_at(packet.pts, packet.dts_us, sample, packet.is_keyframe)
             .map_err(|e| format!("MP4 write failed: {e}"))?;
     }
 
@@ -1423,6 +1432,9 @@ impl EncoderBackend for NoopBackend {
 /// An encoded video frame buffered in memory.
 struct BufferedFrame {
     pts_us: u64,
+    /// `None` = in-order stream (H.264/HW): mux with `write_sample_at`.
+    /// `Some` = decode-order AV1 packet: mux with `write_sample_with_dts_at`.
+    dts_us: Option<u64>,
     data: Vec<u8>,
     is_keyframe: bool,
 }
@@ -1726,9 +1738,14 @@ impl WasmExportChunker {
 
             if !self.seen_first_keyframe {
                 if !packet.is_keyframe {
+                    // DTS note: the dropped packet keeps its `dts_us` slot —
+                    // the surviving stream starts at a non-zero DTS, which
+                    // muxfin treats as leading delay. Durations/ctts stay
+                    // valid; do NOT renumber survivors to 0.
                     log::warn!(
-                        "EXPORT_DROP_LEADING: pts_us={} len={}",
+                        "EXPORT_DROP_LEADING: pts_us={} dts_us={:?} len={}",
                         packet.pts_us,
+                        packet.dts_us,
                         sample.len(),
                     );
                     continue;
@@ -1738,6 +1755,7 @@ impl WasmExportChunker {
 
             self.buffered_frames.push(BufferedFrame {
                 pts_us: packet.pts_us,
+                dts_us: packet.dts_us,
                 data: sample,
                 is_keyframe: packet.is_keyframe,
             });
@@ -1831,6 +1849,7 @@ impl WasmExportChunker {
             }
             self.buffered_frames.push(BufferedFrame {
                 pts_us: p.pts_us,
+                dts_us: p.dts_us,
                 data: sample,
                 is_keyframe: p.is_keyframe,
             });
@@ -1874,9 +1893,16 @@ impl WasmExportChunker {
                 .map_err(|e| format!("MP4 muxer init failed: {e}"))?;
 
                 for f in &self.buffered_frames {
-                    muxer
-                        .write_sample_at(f.pts_us, &f.data, f.is_keyframe)
-                        .map_err(|e| format!("MP4 write failed: {e}"))?;
+                    match f.dts_us {
+                        // B-frame stream (AV1 SW): decode-order feed, ctts
+                        // recovers display order. See `Av1Packet::dts_us`.
+                        Some(dts_us) => muxer
+                            .write_sample_with_dts_at(f.pts_us, dts_us, &f.data, f.is_keyframe)
+                            .map_err(|e| format!("MP4 write failed: {e}"))?,
+                        None => muxer
+                            .write_sample_at(f.pts_us, &f.data, f.is_keyframe)
+                            .map_err(|e| format!("MP4 write failed: {e}"))?,
+                    }
                 }
 
                 if let Some(audio) = &self.audio_encoded {

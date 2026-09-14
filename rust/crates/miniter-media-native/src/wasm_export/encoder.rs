@@ -9,6 +9,11 @@ pub struct EncodedPacket {
     pub data: Vec<u8>,
     pub is_keyframe: bool,
     pub pts_us: u64,
+    /// Decode timestamp for B-frame streams (AV1 SW). `None` = "no DTS"
+    /// (H.264/HW paths are PTS==DTS in-order): the chunker mux loop uses
+    /// `write_sample_at` for those and `write_sample_with_dts_at` otherwise.
+    /// AV1 SW always stamps `Some` (see `Av1Packet::dts_us`).
+    pub dts_us: Option<u64>,
 }
 
 /// Common interface for all video encoder backends (HW and SW).
@@ -71,6 +76,7 @@ impl EncoderBackend for H264SwBackend {
                 data: bytes,
                 is_keyframe,
                 pts_us: pts_us.max(0) as u64,
+                dts_us: None,
             }]),
             EncodedVideoOutput::Skipped => Ok(Vec::new()),
         }
@@ -90,6 +96,7 @@ impl EncoderBackend for H264SwBackend {
                     data: bytes,
                     is_keyframe,
                     pts_us: pts_us.max(0) as u64,
+                    dts_us: None,
                 }),
                 _ => None,
             })
@@ -136,6 +143,7 @@ impl EncoderBackend for Av1SwBackend {
                 data: p.data,
                 is_keyframe: p.is_keyframe,
                 pts_us: p.pts,
+                dts_us: Some(p.dts_us),
             })
             .collect())
     }
@@ -151,6 +159,7 @@ impl EncoderBackend for Av1SwBackend {
                 data: p.data,
                 is_keyframe: p.is_keyframe,
                 pts_us: p.pts,
+                dts_us: Some(p.dts_us),
             })
             .collect())
     }
@@ -211,6 +220,7 @@ impl EncoderBackend for H264HwBackend {
                         data: f.bytes,
                         is_keyframe: f.is_keyframe,
                         pts_us: f.pts_us,
+                        dts_us: None,
                     })
                 }
             })
@@ -232,6 +242,7 @@ impl EncoderBackend for H264HwBackend {
                         data: f.bytes,
                         is_keyframe: f.is_keyframe,
                         pts_us: f.pts_us,
+                        dts_us: None,
                     })
                 }
             })
@@ -303,6 +314,7 @@ impl EncoderBackend for Av1HwBackend {
                         data: f.bytes,
                         is_keyframe: f.is_keyframe,
                         pts_us: f.pts_us,
+                        dts_us: None,
                     })
                 }
             })
@@ -324,6 +336,7 @@ impl EncoderBackend for Av1HwBackend {
                         data: f.bytes,
                         is_keyframe: f.is_keyframe,
                         pts_us: f.pts_us,
+                        dts_us: None,
                     })
                 }
             })
