@@ -165,9 +165,15 @@ pub enum CanvasBackgroundMode {
 #[serde(tag = "type")]
 #[non_exhaustive]
 pub enum AudioFilter {
-    Volume { value: f32 },
-    FadeIn { duration_us: i64 },
-    FadeOut { duration_us: i64 },
+    Volume {
+        value: f32,
+    },
+    FadeIn {
+        duration_us: i64,
+    },
+    FadeOut {
+        duration_us: i64,
+    },
     Normalize,
     /// Reverse playback of the clip's audio samples.
     Reverse,

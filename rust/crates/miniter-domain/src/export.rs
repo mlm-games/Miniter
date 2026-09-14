@@ -45,10 +45,7 @@ impl ExportFormat {
 
     /// Whether this format muxes through Matroska (`build_mkv`).
     pub fn is_matroska_family(self) -> bool {
-        matches!(
-            self,
-            Self::Av1Mkv | Self::Av1WebM | Self::H264Mkv
-        )
+        matches!(self, Self::Av1Mkv | Self::Av1WebM | Self::H264Mkv)
     }
 }
 

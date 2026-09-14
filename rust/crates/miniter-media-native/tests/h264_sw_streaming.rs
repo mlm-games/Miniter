@@ -55,7 +55,10 @@ fn sw_encode_streams_one_au_per_call_with_ordered_pts() {
     }
     for tail in session.finish() {
         if let EncodedVideoOutput::Sample { bytes, .. } = tail {
-            assert!(bytes.is_empty(), "flush tail must be empty with lookahead off");
+            assert!(
+                bytes.is_empty(),
+                "flush tail must be empty with lookahead off"
+            );
         }
     }
     assert_eq!(samples.len() as u32, n);
@@ -70,8 +73,7 @@ fn sw_encode_streams_one_au_per_call_with_ordered_pts() {
 #[test]
 fn sw_encode_first_au_is_idr_at_any_effort() {
     for effort in [0u8, 6, 10] {
-        let mut session =
-            VideoEncodeSession::new(160, 120, 2_000, 30.0, effort).expect("session");
+        let mut session = VideoEncodeSession::new(160, 120, 2_000, 30.0, effort).expect("session");
         let frame = solid_frame(160, 120, 0, 128);
         match session.encode_frame(&frame).expect("encode") {
             EncodedVideoOutput::Sample { is_keyframe, .. } => {

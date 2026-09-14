@@ -115,10 +115,7 @@ fn check_mask(
     check("mask.translate_x", transform.translate_x);
     check("mask.translate_y", transform.translate_y);
     check("mask.rotate", transform.rotate);
-    if let MaskSource::Shape {
-        shape, feather, ..
-    } = source
-    {
+    if let MaskSource::Shape { shape, feather, .. } = source {
         check("mask.feather", *feather);
         match shape {
             MaskShape::Rectangle {

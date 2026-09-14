@@ -375,12 +375,16 @@ mod hw {
         #[cfg(not(target_arch = "wasm32"))]
         pub fn drain_one(&mut self) -> Result<Option<EncodedVideoOutput>, EncodeError> {
             use baabaabaabaabababbababbaa::VideoEncoderOutput;
-            let pkt = self.rt.block_on(self.output.packet())
+            let pkt = self
+                .rt
+                .block_on(self.output.packet())
                 .map_err(|e| EncodeError::Backend(format!("HwEncoder drain: {e:?}")))?;
             match pkt {
                 Some(pkt) => {
                     let bytes = pkt.payload.to_vec();
-                    if bytes.is_empty() { return Ok(None); }
+                    if bytes.is_empty() {
+                        return Ok(None);
+                    }
                     self.emitted_frames = self.emitted_frames.saturating_add(1);
                     Ok(Some(EncodedVideoOutput::Sample {
                         bytes,
@@ -409,8 +413,12 @@ mod hw {
     pub struct HwEncodeSession;
 
     impl HwEncodeSession {
-        pub fn pending_frames(&self) -> u32 { 0 }
-        pub fn drain_one(&mut self) -> Result<Option<EncodedVideoOutput>, EncodeError> { Ok(None) }
+        pub fn pending_frames(&self) -> u32 {
+            0
+        }
+        pub fn drain_one(&mut self) -> Result<Option<EncodedVideoOutput>, EncodeError> {
+            Ok(None)
+        }
         pub fn new(
             _width: u32,
             _height: u32,

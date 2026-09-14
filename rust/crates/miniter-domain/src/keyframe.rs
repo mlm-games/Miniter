@@ -182,7 +182,11 @@ mod keyframe_curve_tests {
                 easing: Easing::Linear,
             });
         }
-        let offsets: Vec<i64> = curve.keyframes.iter().map(|k| k.offset.as_micros()).collect();
+        let offsets: Vec<i64> = curve
+            .keyframes
+            .iter()
+            .map(|k| k.offset.as_micros())
+            .collect();
         assert_eq!(offsets, vec![1_000_000, 2_000_000, 3_000_000]);
         assert_eq!(
             curve.evaluate("volume", MediaDuration::from_micros(1_500_000)),

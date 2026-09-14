@@ -1602,17 +1602,15 @@ fn collect_soft_subtitle_samples_mkv(
                     let timed = crate::subtitles::parse_ass_content(&content, true);
                     let fields = parse_dialogue_events(&content);
                     if timed.len() == fields.len() {
-                        samples.extend(timed.into_iter().zip(fields).filter_map(
-                            |(cue, event)| {
-                                map_subtitle_event_to_timeline_sample(
-                                    clip,
-                                    cue.start_us,
-                                    cue.end_us,
-                                    &cue.text,
-                                    Some(event),
-                                )
-                            },
-                        ));
+                        samples.extend(timed.into_iter().zip(fields).filter_map(|(cue, event)| {
+                            map_subtitle_event_to_timeline_sample(
+                                clip,
+                                cue.start_us,
+                                cue.end_us,
+                                &cue.text,
+                                Some(event),
+                            )
+                        }));
                     } else {
                         log::warn!(
                             "ASS '{}' Dialogue count mismatch; muxing as plain text",
@@ -1864,8 +1862,7 @@ impl WasmExportChunker {
                 ) {
                     // WebM collects nothing (no subtitle track); MKV paths
                     // collect styled samples + track declaration.
-                    let (samples, track) =
-                        collect_soft_subtitle_samples_mkv(project, &files_box);
+                    let (samples, track) = collect_soft_subtitle_samples_mkv(project, &files_box);
                     if format == ExportFormat::Av1WebM {
                         (Vec::new(), None)
                     } else {
