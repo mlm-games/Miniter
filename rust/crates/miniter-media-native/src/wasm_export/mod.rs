@@ -961,15 +961,8 @@ fn export_av1_mp4_bytes(
             .map_err(|e| format!("MP4 audio write failed: {e}"))?;
     }
 
-    for sample in &subtitle_samples {
-        muxer
-            .write_subtitle_sample_at(
-                sample.start_us.max(0) as u64,
-                sample.duration_us.max(1) as u64,
-                &sample.text,
-            )
-            .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
-    }
+    write_soft_subtitle_samples(&mut muxer, &subtitle_samples)
+        .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
 
     muxer
         .finish()
@@ -1814,15 +1807,8 @@ impl WasmExportChunker {
                     }
                 }
 
-                for sample in &self.subtitle_samples {
-                    muxer
-                        .write_subtitle_sample_at(
-                            sample.start_us.max(0) as u64,
-                            sample.duration_us.max(1) as u64,
-                            &sample.text,
-                        )
-                        .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
-                }
+                write_soft_subtitle_samples(&mut muxer, &self.subtitle_samples)
+                    .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
 
                 muxer
                     .finish()
