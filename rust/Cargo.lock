@@ -2131,7 +2131,6 @@ dependencies = [
  "bytemuck",
  "bytes",
  "fast_image_resize",
- "fontdb",
  "fontdue",
  "getrandom 0.4.3",
  "image",
@@ -3167,7 +3166,7 @@ dependencies = [
 [[package]]
 name = "reassarus-core"
 version = "0.1.5"
-source = "git+https://github.com/mlm-games/ass-rs.git?rev=c32f66e#c32f66e59a2c36e439775216108bce12d902a927"
+source = "git+https://github.com/mlm-games/ass-rs.git?rev=b577955#b577955d37c91775578cf8d2b001c353fdf275d7"
 dependencies = [
  "ahash",
  "bitflags",
@@ -3181,7 +3180,7 @@ dependencies = [
 [[package]]
 name = "reassarus-renderer"
 version = "0.1.5"
-source = "git+https://github.com/mlm-games/ass-rs.git?rev=c32f66e#c32f66e59a2c36e439775216108bce12d902a927"
+source = "git+https://github.com/mlm-games/ass-rs.git?rev=b577955#b577955d37c91775578cf8d2b001c353fdf275d7"
 dependencies = [
  "ahash",
  "fontdb",
@@ -3192,6 +3191,7 @@ dependencies = [
  "reassarus-core",
  "repose-core",
  "repose-render-wgpu",
+ "repose-text",
  "rustybuzz",
  "smallvec",
  "thiserror",

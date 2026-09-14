@@ -32,7 +32,6 @@ oporus.workspace = true
 fast_image_resize = "6.0"
 
 fontdue.workspace = true
-fontdb.workspace = true
 
 libblur = "0.24"
 palette = "0.7"

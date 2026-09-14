@@ -1,4 +1,3 @@
-use fontdb::Database as FontDatabase;
 use reassarus_renderer::{BackendType, Frame, RenderContext, Renderer};
 use std::path::Path;
 use thiserror::Error;
@@ -22,17 +21,19 @@ fn load_custom_font_bytes(font_path: Option<&str>) -> Option<Vec<u8>> {
     std::fs::read(Path::new(path)).ok().filter(|b| !b.is_empty())
 }
 
-/// Build a font database with the custom font pre-registered.
+/// Read a user-picked subtitle font into bytes.
 ///
-/// An empty database makes the renderer fall back to system fonts, so a
-/// missing/unreadable override degrades to previous behaviour instead of
-/// failing the frame.
-fn font_database_with_override(font_path: Option<&str>) -> FontDatabase {
-    let mut db = FontDatabase::new();
-    if let Some(bytes) = load_custom_font_bytes(font_path) {
-        db.load_font_data(bytes);
+/// Returns empty when no override is set or the file cannot be read —
+/// callers fall back to default rendering. Never fails the export.
+fn custom_font_bytes(font_path: Option<&str>) -> Vec<Vec<u8>> {
+    let path = match font_path.filter(|p| !p.is_empty()) {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    match std::fs::read(Path::new(path)) {
+        Ok(bytes) if !bytes.is_empty() => vec![bytes],
+        _ => Vec::new(),
     }
-    db
 }
 
 pub struct SubtitleRenderer {
@@ -47,18 +48,19 @@ impl SubtitleRenderer {
 
     /// Create a renderer with a user-picked font pre-registered.
     ///
-    /// The override resolves by family name during shaping; when it is
-    /// absent or unreadable the renderer falls back to system fonts.
+    /// The bytes are registered in the shaping database and the Repose
+    /// text stack, so the picked family resolves in both stages. An
+    /// absent or unreadable override falls back to system fonts.
     pub fn with_font_override(
         width: u32,
         height: u32,
         font_path: Option<&str>,
     ) -> Result<Self, SubtitleError> {
         let context = RenderContext::new(width, height);
-        let renderer = Renderer::with_font_database(
+        let renderer = Renderer::with_custom_fonts(
             BackendType::Repose,
             context,
-            font_database_with_override(font_path),
+            &custom_font_bytes(font_path),
         )?;
         Ok(Self {
             renderer,
