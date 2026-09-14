@@ -13,18 +13,14 @@ pub enum SubtitleError {
 }
 
 /// Read a user-picked subtitle font into bytes.
-///
-/// Returns `None` when no override is set or the file cannot be read —
-/// callers fall back to default rendering. Never fails the export.
 fn load_custom_font_bytes(font_path: Option<&str>) -> Option<Vec<u8>> {
     let path = font_path.filter(|p| !p.is_empty())?;
-    std::fs::read(Path::new(path)).ok().filter(|b| !b.is_empty())
+    std::fs::read(Path::new(path))
+        .ok()
+        .filter(|b| !b.is_empty())
 }
 
 /// Read a user-picked subtitle font into bytes.
-///
-/// Returns empty when no override is set or the file cannot be read —
-/// callers fall back to default rendering. Never fails the export.
 fn custom_font_bytes(font_path: Option<&str>) -> Vec<Vec<u8>> {
     let path = match font_path.filter(|p| !p.is_empty()) {
         Some(p) => p,

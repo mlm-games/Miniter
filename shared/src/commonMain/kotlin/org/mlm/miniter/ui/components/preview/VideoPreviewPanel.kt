@@ -720,7 +720,6 @@ fun EditorVideoPreview(
                     }
                 } while (event.changes.any { it.pressed })
 
-                // Gesture ended — all pointers up
                 if (transformFilter != null) {
                     isInteracting = false
                     if (currentAutoKeyframeEnabled && selectedClipId != null) {

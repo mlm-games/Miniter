@@ -11,7 +11,6 @@ use symphonia::core::codecs::video::well_known::{
 };
 
 /// Check whether a decoder is available for a given Symphonia codec at compile time.
-/// This does NOT instantiate a decoder — it only checks feature flags and platform cfg.
 fn decoder_supported(codec: VideoCodecId) -> bool {
     let hw_avail = cfg!(all(
         feature = "hw-decoder",

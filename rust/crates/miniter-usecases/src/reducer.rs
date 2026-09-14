@@ -1203,8 +1203,7 @@ pub enum ApplyError {
     Overlap(#[from] miniter_domain::track::TrackOverlapError),
 }
 
-/// Apply one command as its own undo step. Unlabeled steps never fold into
-/// each other — only explicit gesture labels opt into cross-commit merging.
+/// Apply one command as its own undo step.
 pub fn dispatch(state: &mut EditorState, cmd: EditCommand) -> Result<(), ApplyError> {
     dispatch_labeled(state, "", cmd)
 }

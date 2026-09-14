@@ -1,15 +1,10 @@
 //! H.264 video encoder.
 //!
-//! Uses rusty_h264 (pure Rust, no C): P-frames, CABAC, adaptive quantization,
-//! and average-bitrate rate control. Replaces the previous less-avc backend,
-//! which was fixed all-intra with no rate-control API — the Quality slider
-//! was a no-op on the software path and files were ~10x larger.
+
 //!
 //! `rusty_h264` with mb-tree off emits exactly one access unit per `encode`
 //! call (`Skipped` can never fire, but the variant is handled anyway so a
-//! backend behavior change can never silently drop a frame). `finish()`
-//! drains the (empty) tail and releases buffered state; dropping the session
-//! without finishing is safe but wastes nothing either way — no flush needed.
+//! backend behavior change can never silently drop a frame).
 
 use crate::export_shared::video_bitrate_bps;
 use crate::frame::RgbaFrame;

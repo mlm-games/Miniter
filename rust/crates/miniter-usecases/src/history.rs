@@ -112,10 +112,7 @@ impl History {
         });
     }
 
-    /// Record one applied command and its apply-time inverse. Inside an open
-    /// transaction, coalescable repeats replace the stored forward value (the
-    /// oldest inverse — the pre-gesture state — is kept). Outside one, the
-    /// command becomes its own single-command transaction.
+    /// Record one applied command and its apply-time inverse.
     pub fn record(&mut self, forward: EditCommand, inverse: EditCommand) {
         if let Some(t) = &mut self.open {
             if let Some(last) = t.forward.last_mut() {

@@ -160,7 +160,7 @@ pub(crate) struct EncodedOpus {
     pub channels: u16,
     pub packets: Vec<EncodedOpusPacket>,
     /// Encoder sample rate the packets were produced at (Opus-supported
-    /// rate, post-normalization — NOT the mix rate). Used for the MP4
+    /// rate, post-normalization, not mix rate....). Used for the MP4
     /// audio track declaration; the Ogg muxer always signals 48 kHz.
     pub sample_rate: u32,
     /// Encoder lookahead in 48 kHz samples (RFC 7845 `pre-skip`): decoders
@@ -1367,7 +1367,8 @@ pub(crate) fn encode_flac(mixed: &miniter_audio::mix::MixedAudio) -> Result<Enco
     }
 
     let spec = AudioSpec::new(sample_rate, layout, SampleFormat::I16);
-    let mut encoder = FlacEncoder::new(spec).map_err(|e| format!("FLAC encoder init failed: {e}"))?;
+    let mut encoder =
+        FlacEncoder::new(spec).map_err(|e| format!("FLAC encoder init failed: {e}"))?;
     // Copy out before `encode` takes `&mut`: `info` borrows `encoder`.
     let (min_block_size, max_block_size, bits_per_sample) = {
         let info = encoder

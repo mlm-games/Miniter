@@ -994,7 +994,7 @@ class ProjectViewModel(
                     val hasAudio = info.hasAudio
                     val isImage = item.path.substringAfterLast(".").lowercase() in SupportedFormats.imageExtensions
                         .map { it.lowercase() }
-                    // Still images probe with zero duration — give them a default
+                    // Still images probe with zero duration. give them a default
                     // 5s timeline duration so logos/overlays/PiP just work.
                     // Probe may report hasVideo=false for stills, so key off extension alone.
                     val durationUs = if (info.durationMs.msToUs <= 0L && isImage) {

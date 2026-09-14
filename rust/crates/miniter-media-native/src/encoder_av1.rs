@@ -11,11 +11,7 @@ const MIN_DIM: u32 = 16;
 /// Keyframe interval for seeking/thumbnailing: one keyframe ≈ every 2 s of
 /// video, clamped to [30, 240] frames.
 ///
-/// Equal min/max forces a deterministic grid. rav1e's defaults otherwise emit
-/// only sparse scene-cut keyframes (e.g. 3 in 300 frames), and OS file
-/// managers (Nautilus via ffmpegthumbnailer, …) fail to seek such files —
-/// falling back to frame 0, which is legitimately black in fade-from-black
-/// projects — so exports show no thumbnail. See `tests/export_thumbnail_regression.rs`.
+/// Equal min/max forces a deterministic grid.
 pub(crate) fn key_frame_interval(fps: f64) -> u64 {
     if !fps.is_finite() || fps <= 0.0 {
         return 60;
@@ -93,7 +89,7 @@ pub struct Av1EncodeSession {
     /// Monotonic across `encode_frame` and `finish` by construction.
     next_dts_index: u64,
     /// Submit-time PTS keyed by `input_frameno` (a dense 0-based index over
-    /// accepted frames). Keyed lookup — NOT a drain-through queue: rav1e's
+    /// accepted frames). rav1e's
     /// pyramid emits out of order (e.g. input 4 before 2 and 1), so
     /// draining `..=idx` on the first emission would discard the PTS of
     /// not-yet-emitted frames and mislabel every later packet. Entries are
@@ -239,10 +235,7 @@ impl Av1EncodeSession {
     /// B-frame pyramids.
     ///
     /// Fallback (`input_frameno` not in the map) derives PTS from the frame
-    /// index on the export grid. Unreachable in practice — every accepted
-    /// frame registers its PTS before `send_frame`, and `flush` emits no
-    /// new `input_frameno`s — but keeps a corrupt-state bug from producing
-    /// a `0` timestamp that would collide with frame 0.
+    /// index on the export grid.
     fn packet_with_pts(&mut self, packet: Packet<u8>) -> Av1Packet {
         let pts = self
             .pending_frames

@@ -33,8 +33,7 @@ pub struct OpusTrackConfigOut {
     pub channels: u16,
     /// Encoder delay in 48kHz samples, signalled via dOps so players skip
     /// it. Must match the PTS basis in `EncodedOpusPacket` (raw, WITHOUT
-    /// preskip subtracted) — muxfin writes the delay into the sample table
-    /// itself, so subtracting it from PTS as well double-counts ~6.5ms.
+    /// preskip subtracted).
     pub preskip_48k: u16,
 }
 

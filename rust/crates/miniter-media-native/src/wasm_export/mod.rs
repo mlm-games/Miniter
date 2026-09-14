@@ -1214,9 +1214,7 @@ fn write_av1_packets_to_mux<W: Write>(
         }
         // DTS accounting even for dropped leading packets: the counter on
         // the packet is emission-ordered, so skipping a non-keyframe leaves
-        // a DTS gap — exactly what the first-keyframe gate wants (muxer
-        // treats missing prefix as leading delay, durations stay valid).
-        // Do NOT renumber here; feeds use `packet.dts_us` verbatim.
+        // a DTS gap.
         if !*seen_first_keyframe {
             if !packet.is_keyframe {
                 log::warn!(
@@ -1717,9 +1715,7 @@ impl WasmExportChunker {
 
             if !self.seen_first_keyframe {
                 if !packet.is_keyframe {
-                    // DTS note: the dropped packet keeps its `dts_us` slot —
-                    // the surviving stream starts at a non-zero DTS, which
-                    // muxfin treats as leading delay. Durations/ctts stay
+                    // Durations/ctts stay
                     // valid; do NOT renumber survivors to 0.
                     log::warn!(
                         "EXPORT_DROP_LEADING: pts_us={} dts_us={:?} len={}",
