@@ -370,7 +370,9 @@ pub fn create_encoder_backend(
     encode_effort: u8,
 ) -> Result<Box<dyn EncoderBackend>, String> {
     match format {
-        miniter_domain::export::ExportFormat::Mp4 | miniter_domain::export::ExportFormat::Mov => {
+        miniter_domain::export::ExportFormat::Mp4
+        | miniter_domain::export::ExportFormat::H264Mkv
+        | miniter_domain::export::ExportFormat::Mov => {
             if hw_requested {
                 #[cfg(feature = "hw-decoder")]
                 match H264HwBackend::new(width, height, bitrate_kbps, fps as f32, matrix) {
