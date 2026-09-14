@@ -77,6 +77,10 @@ pub struct Av1EncodeSession {
     fps: f64,
     seq_header: Vec<u8>,
     flushed: bool,
+    /// PTS for submitted frames in display order. Consumed as rav1e emits
+    /// packets (`packet_with_pts` drains through `input_frameno`), so the
+    /// queue stays bounded by in-flight frames instead of growing with the
+    /// whole export.
     pending_frames: Vec<u64>,
 }
 
@@ -141,14 +145,33 @@ impl Av1EncodeSession {
 
         let (y_plane, u_plane, v_plane) = if frame_w != self.enc_width || frame_h != self.enc_height
         {
-            let stride = self.enc_width * 4;
-            let mut padded = vec![0u8; self.enc_width * self.enc_height * 4];
-            for row in 0..frame_h.min(self.enc_height) {
-                let src = &frame.data[row * frame_w * 4..][..frame_w * 4];
-                let dst = &mut padded[row * stride..][..frame_w * 4];
+            let mut padded = vec![16u8; self.enc_width * self.enc_height];
+            let mut padded_u = vec![128u8; self.enc_width / 2 * self.enc_height / 2];
+            let mut padded_v = vec![128u8; self.enc_width / 2 * self.enc_height / 2];
+            let (y_src, u_src, v_src) = rgba_to_yuv420(&frame.data, frame_w, frame_h, matrix);
+            let copy_w = frame_w.min(self.enc_width);
+            let copy_h = frame_h.min(self.enc_height);
+            let off_x = self.enc_width.saturating_sub(frame_w) / 2;
+            let off_y = self.enc_height.saturating_sub(frame_h) / 2;
+            for row in 0..copy_h {
+                let src = &y_src[row * frame_w..row * frame_w + copy_w];
+                let dst = &mut padded[(row + off_y) * self.enc_width + off_x..][..copy_w];
                 dst.copy_from_slice(src);
             }
-            rgba_to_yuv420(&padded, self.enc_width, self.enc_height, matrix)
+            let cw_src = frame_w / 2;
+            let cw_dst = self.enc_width / 2;
+            let ch = copy_h / 2;
+            let off_x_c = off_x / 2;
+            let off_y_c = off_y / 2;
+            for row in 0..ch {
+                let s = &u_src[row * cw_src..row * cw_src + copy_w / 2];
+                let d = &mut padded_u[(row + off_y_c) * cw_dst + off_x_c..][..copy_w / 2];
+                d.copy_from_slice(s);
+                let s = &v_src[row * cw_src..row * cw_src + copy_w / 2];
+                let d = &mut padded_v[(row + off_y_c) * cw_dst + off_x_c..][..copy_w / 2];
+                d.copy_from_slice(s);
+            }
+            (padded, padded_u, padded_v)
         } else {
             rgba_to_yuv420(&frame.data, self.enc_width, self.enc_height, matrix)
         };
@@ -158,7 +181,7 @@ impl Av1EncodeSession {
         f.planes[1].copy_from_raw_u8(&u_plane, self.enc_width / 2, 1);
         f.planes[2].copy_from_raw_u8(&v_plane, self.enc_width / 2, 1);
 
-        self.pending_frames.push(frame.pts_us as u64);
+        self.pending_frames.push(frame.pts_us.max(0) as u64);
 
         self.ctx
             .send_frame(Arc::new(f))
@@ -170,17 +193,13 @@ impl Av1EncodeSession {
                 Ok(packet) => {
                     let idx = packet.input_frameno as usize;
                     let pts = if idx < self.pending_frames.len() {
-                        self.pending_frames[idx]
+                        self.pending_frames.drain(..=idx).next_back().unwrap_or(0)
                     } else {
-                        ((packet.input_frameno as f64 / self.fps) * 1_000_000.0) as u64
+                        ((packet.input_frameno as f64 / self.fps) * 1_000_000.0).max(0.0) as u64
                     };
                     packets.push(Av1Packet {
                         pts,
                         data: packet.data,
-                        // All-intra frames (KEY + INTRA_ONLY) are independently
-                        // decodable, hence valid MP4 sync samples. SWITCH/INTER
-                        // frames need references and must not be marked sync —
-                        // mislabeled sync samples break seek-based thumbnailers.
                         is_keyframe: packet.frame_type.all_intra(),
                     });
                 }
@@ -195,6 +214,27 @@ impl Av1EncodeSession {
         Ok(packets)
     }
 
+    /// Attach the submit-time PTS for `packet.input_frameno`, consuming the
+    /// corresponding queue entry. Shared by `encode_frame` and `finish`.
+    /// `input_frameno` is a dense 0-based index over accepted frames
+    /// (`send_frame` never skips), so drain through it: entries before `idx`
+    /// belong to already-returned packets and the head IS this packet.
+    /// Queue length also stays bounded (≤ in-flight frames) instead of
+    /// growing with the whole export.
+    fn packet_with_pts(&mut self, packet: Packet<u8>) -> Av1Packet {
+        let idx = packet.input_frameno as usize;
+        let pts = if idx < self.pending_frames.len() {
+            self.pending_frames.drain(..=idx).next_back().unwrap_or(0)
+        } else {
+            ((packet.input_frameno as f64 / self.fps) * 1_000_000.0).max(0.0) as u64
+        };
+        Av1Packet {
+            pts,
+            data: packet.data,
+            is_keyframe: packet.frame_type.all_intra(),
+        }
+    }
+
     pub fn finish(&mut self) -> Result<Vec<Av1Packet>, Av1EncodeError> {
         if !self.flushed {
             self.ctx.flush();
@@ -204,18 +244,7 @@ impl Av1EncodeSession {
         loop {
             match self.ctx.receive_packet() {
                 Ok(packet) => {
-                    let idx = packet.input_frameno as usize;
-                    let pts = if idx < self.pending_frames.len() {
-                        self.pending_frames[idx]
-                    } else {
-                        ((packet.input_frameno as f64 / self.fps) * 1_000_000.0) as u64
-                    };
-                    packets.push(Av1Packet {
-                        pts,
-                        data: packet.data,
-                        // See encode_frame: only all-intra frames are sync samples.
-                        is_keyframe: packet.frame_type.all_intra(),
-                    });
+                    packets.push(self.packet_with_pts(packet));
                 }
                 Err(EncoderStatus::Encoded) => continue,
                 Err(EncoderStatus::NeedMoreData)

@@ -16,6 +16,37 @@ pub(crate) fn audio_track_config(audio: &EncodedOpus, sample_rate: u32) -> OpusT
     }
 }
 
+/// Clamp a profile audio bitrate (kbps) to the range the Opus encoders
+/// accept. The UI clamps 32..=510, but profiles can arrive from disk or
+/// older versions with anything, so every encode path goes through this.
+pub(crate) fn normalize_audio_bitrate_kbps(requested: u32) -> u32 {
+    requested.clamp(32, OPUS_MAX_BITRATE_KBPS)
+}
+
+/// Absolute ceiling for Opus (libopus tops out at 510 kbps).
+pub(crate) const OPUS_MAX_BITRATE_KBPS: u32 = 510;
+
+/// Floor for video ABR targets. Below this the rate controller cannot
+/// converge sanely, so every video path clamps up (never down into a
+/// silent CQP mode that ignores the caller's rate request).
+pub(crate) const MIN_VIDEO_BITRATE_KBPS: u32 = 500;
+
+/// Ceiling for video ABR targets. 200 Mbps exceeds any sane export; the cap
+/// exists so a corrupt profile value can never overflow the kbps→bps
+/// multiply (u32::MAX kbps * 1000 would wrap).
+pub(crate) const MAX_VIDEO_BITRATE_KBPS: u32 = 200_000;
+
+/// Normalize a profile video bitrate (kbps) into encoder bps.
+///
+/// Single choke point: every H.264/AV1 session (SW and HW, native and wasm)
+/// goes through this, so no call site multiplies raw profile values and the
+/// `kbps * 1000` overflow class is gone by construction (`saturating_mul`).
+pub(crate) fn video_bitrate_bps(bitrate_kbps: u32) -> u32 {
+    bitrate_kbps
+        .clamp(MIN_VIDEO_BITRATE_KBPS, MAX_VIDEO_BITRATE_KBPS)
+        .saturating_mul(1000)
+}
+
 /// Opus supports 8/12/16/24/48 kHz. Snap a profile value to the nearest
 /// supported rate so a corrupt/legacy profile can never fail encoder init.
 pub(crate) fn normalize_audio_sample_rate(requested: u32) -> u32 {
@@ -134,6 +165,13 @@ pub(crate) struct EncodedOpusPacket {
 pub(crate) struct EncodedOpus {
     pub channels: u16,
     pub packets: Vec<EncodedOpusPacket>,
+    /// Encoder sample rate the packets were produced at (Opus-supported
+    /// rate, post-normalization — NOT the mix rate).
+    pub sample_rate: u32,
+    /// Encoder lookahead in 48 kHz samples (RFC 7845 `pre-skip`): decoders
+    /// trim this many samples off the start on playback. Packet PTS are
+    /// already delay-compensated, so this is metadata, not a second offset.
+    pub preskip_48k: u16,
 }
 
 pub(crate) fn transparent_rgba(width: usize, height: usize) -> Vec<u8> {
@@ -1134,6 +1172,9 @@ pub(crate) fn encode_opus(
     let frame_size = (sample_rate / 50) as usize;
     let samples_per_packet = frame_size * channels as usize;
 
+    let preskip_48k = ((312 * 48_000 + sample_rate / 2) / sample_rate.max(1)) as u64;
+    let preskip_us = preskip_48k * 1_000_000 / 48_000;
+
     let mut packets = Vec::new();
     let mut out_buf = vec![0u8; 1275];
     let mut offset = 0usize;
@@ -1150,8 +1191,9 @@ pub(crate) fn encode_opus(
             .encode_float(&frame, &mut out_buf)
             .map_err(|e| format!("Opus encode failed: {e:?}"))?;
 
+        let raw_us = (pts_samples * 1_000_000) / sample_rate as u64;
         packets.push(EncodedOpusPacket {
-            pts_us: (pts_samples * 1_000_000) / sample_rate as u64,
+            pts_us: raw_us.saturating_sub(preskip_us),
             bytes: out_buf[..written].to_vec(),
         });
 
@@ -1159,7 +1201,12 @@ pub(crate) fn encode_opus(
         pts_samples += frame_size as u64;
     }
 
-    Ok(EncodedOpus { channels, packets })
+    Ok(EncodedOpus {
+        channels,
+        packets,
+        sample_rate,
+        preskip_48k: preskip_48k as u16,
+    })
 }
 
 pub(crate) fn downscale_rgba_for_preview(
@@ -1258,12 +1305,10 @@ pub(crate) fn write_ogg_page<W: Write>(
 pub(crate) fn write_ogg_opus<W: Write>(
     w: &mut W,
     encoded: &EncodedOpus,
-    input_sample_rate: u32,
     total_samples_48k: u64,
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<(), String> {
-    const PRE_SKIP: u16 = 0;
-    const SAMPLES_PER_PACKET: u64 = 960;
+    const SAMPLES_PER_PACKET_48K: u64 = 960;
     let serial: u32 = 0x4D49_4E49;
     let mut seq: u32 = 0;
 
@@ -1271,8 +1316,8 @@ pub(crate) fn write_ogg_opus<W: Write>(
     head.extend_from_slice(b"OpusHead");
     head.push(1);
     head.push(encoded.channels as u8);
-    head.extend_from_slice(&PRE_SKIP.to_le_bytes());
-    head.extend_from_slice(&input_sample_rate.to_le_bytes());
+    head.extend_from_slice(&encoded.preskip_48k.to_le_bytes());
+    head.extend_from_slice(&encoded.sample_rate.to_le_bytes());
     head.extend_from_slice(&0i16.to_le_bytes());
     head.push(0);
     write_ogg_page(w, 0x02, 0, serial, seq, &[&head])?;
@@ -1304,15 +1349,15 @@ pub(crate) fn write_ogg_opus<W: Write>(
             }
             seg_count += segs;
             batch.push(p);
-            samples_done += SAMPLES_PER_PACKET;
+            samples_done += SAMPLES_PER_PACKET_48K;
             idx += 1;
         }
 
         let is_last = idx >= encoded.packets.len();
         let granule = if is_last {
-            samples_done.min(total_samples_48k) + PRE_SKIP as u64
+            total_samples_48k.saturating_add(encoded.preskip_48k as u64)
         } else {
-            samples_done + PRE_SKIP as u64
+            samples_done.saturating_add(encoded.preskip_48k as u64)
         };
         write_ogg_page(
             w,
@@ -1326,6 +1371,18 @@ pub(crate) fn write_ogg_opus<W: Write>(
     }
 
     Ok(())
+}
+
+/// Total encodable audio length in 48 kHz samples: the value the Ogg final
+/// granule must report. Scales the mix length (which is in *mix-rate*
+/// units) — passing raw mix units here under-reports duration ~6x at 8 kHz.
+pub(crate) fn total_samples_48k(mixed: &miniter_audio::mix::MixedAudio) -> u64 {
+    let channels = mixed.channels.max(1) as u64;
+    let frames = mixed.samples.len() as u64 / channels;
+    if mixed.sample_rate == 0 || mixed.sample_rate == 48_000 {
+        return frames;
+    }
+    ((frames as u128 * 48_000) / mixed.sample_rate as u128).min(u64::MAX as u128) as u64
 }
 
 /// Get the plain subtitle text at a given timestamp from an SRT or ASS/SSA file.
@@ -1476,7 +1533,11 @@ pub(crate) fn map_subtitle_cue_to_timeline_sample(
 
 #[cfg(test)]
 mod tests {
-    use super::downscale_rgba_for_preview;
+    use super::{
+        MAX_VIDEO_BITRATE_KBPS, MIN_VIDEO_BITRATE_KBPS, OPUS_MAX_BITRATE_KBPS,
+        downscale_rgba_for_preview, normalize_audio_bitrate_kbps, normalize_audio_sample_rate,
+        normalize_even_dimension, pts_us_to_timebase, total_samples_48k, video_bitrate_bps,
+    };
 
     fn solid_rgba(w: u32, h: u32) -> Vec<u8> {
         vec![128u8; (w as usize) * (h as usize) * 4]
@@ -1510,5 +1571,64 @@ mod tests {
                 assert_eq!(out.len(), (pw as usize) * (ph as usize) * 4);
             }
         }
+    }
+
+    #[test]
+    fn video_bitrate_clamps_and_cannot_overflow() {
+        assert_eq!(video_bitrate_bps(0), MIN_VIDEO_BITRATE_KBPS * 1000);
+        assert_eq!(video_bitrate_bps(100), MIN_VIDEO_BITRATE_KBPS * 1000);
+        assert_eq!(video_bitrate_bps(8_000), 8_000_000);
+        assert_eq!(
+            video_bitrate_bps(u32::MAX),
+            MAX_VIDEO_BITRATE_KBPS.saturating_mul(1000)
+        );
+    }
+
+    #[test]
+    fn audio_bitrate_clamps_to_opus_range() {
+        assert_eq!(normalize_audio_bitrate_kbps(0), 32);
+        assert_eq!(normalize_audio_bitrate_kbps(192), 192);
+        assert_eq!(normalize_audio_bitrate_kbps(999_999), OPUS_MAX_BITRATE_KBPS);
+    }
+
+    #[test]
+    fn audio_sample_rate_snaps_to_supported() {
+        assert_eq!(normalize_audio_sample_rate(0), 48_000);
+        assert_eq!(normalize_audio_sample_rate(8_000), 8_000);
+        assert_eq!(normalize_audio_sample_rate(44_100), 48_000);
+        assert_eq!(normalize_audio_sample_rate(11_000), 12_000);
+    }
+
+    #[test]
+    fn total_samples_48k_scales_mix_rate() {
+        use miniter_audio::mix::MixedAudio;
+        let mixed = MixedAudio {
+            sample_rate: 8_000,
+            channels: 2,
+            samples: vec![0.0; 8_000 * 2],
+        };
+        assert_eq!(total_samples_48k(&mixed), 48_000);
+        let mixed = MixedAudio {
+            sample_rate: 48_000,
+            channels: 1,
+            samples: vec![0.0; 4_800],
+        };
+        assert_eq!(total_samples_48k(&mixed), 4_800);
+    }
+
+    #[test]
+    fn even_dimension_never_zero_or_odd() {
+        assert_eq!(normalize_even_dimension(0, 1920), 1920);
+        assert_eq!(normalize_even_dimension(853, 1920), 852);
+        assert_eq!(normalize_even_dimension(1, 1920), 2);
+    }
+
+    #[test]
+    fn timebase_conversion_matches_fps() {
+        assert_eq!(pts_us_to_timebase(1_000_000, 30, 1), 30);
+        assert_eq!(
+            pts_us_to_timebase(1_001_000, 30000, 1001),
+            (1_001_000u128 * 30000 / (1001 * 1_000_000)) as u64
+        );
     }
 }

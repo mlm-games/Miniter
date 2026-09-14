@@ -5,12 +5,13 @@
 //! which was fixed all-intra with no rate-control API — the Quality slider
 //! was a no-op on the software path and files were ~10x larger.
 //!
-//! `rusty_h264` may buffer input (mb-tree lookahead) and return empty bytes
-//! for a call, so this session queues `(pts, bytes)` pairs and drains them
-//! through [`EncodedVideoOutput`]. `finish()` flushes the tail; dropping the
-//! session without finishing would panic inside the encoder, so callers must
-//! drive every frame through `encode_frame` then `finish`.
+//! `rusty_h264` with mb-tree off emits exactly one access unit per `encode`
+//! call (`Skipped` can never fire, but the variant is handled anyway so a
+//! backend behavior change can never silently drop a frame). `finish()`
+//! drains the (empty) tail and releases buffered state; dropping the session
+//! without finishing is safe but wastes nothing either way — no flush needed.
 
+use crate::export_shared::video_bitrate_bps;
 use crate::frame::RgbaFrame;
 use crate::yuv::rgba_to_yuv420;
 
@@ -22,10 +23,14 @@ pub enum EncodeError {
     Backend(String),
     #[error("Invalid dimensions: width and height must be > 0 and even")]
     InvalidDimensions,
-    #[error("Encoder skipped frame {frame_index}")]
-    SkippedFrame { frame_index: u32 },
-    #[error("Encoder produced empty output for frame {frame_index}")]
+    #[error("Encoder produced no output for frame {frame_index}")]
     EmptyFrame { frame_index: u32 },
+    /// The HW/platform encoder buffered a frame and returned nothing yet
+    /// (async WebCodecs output). SW paths never emit this; the native and
+    /// wasm-immediate H.264 loops treat it as "feed more frames" instead of
+    /// failing the export.
+    #[error("Encoder buffered frame {frame_index} (output pending)")]
+    BufferedFrame { frame_index: u32 },
 }
 
 #[derive(Debug)]
@@ -43,7 +48,10 @@ pub struct VideoEncodeSession {
     width: u32,
     height: u32,
     frame_index: u32,
-    /// Frames submitted but not yet emitted (lookahead buffering).
+    /// PTS of frames submitted but not yet emitted. Always empty with the
+    /// current no-lookahead config, but kept so the accounting survives a
+    /// future config change (a `Skipped` output must map back to its input
+    /// PTS instead of inheriting a later frame's).
     pending_pts: std::collections::VecDeque<i64>,
 }
 
@@ -51,7 +59,7 @@ impl VideoEncodeSession {
     pub fn new(
         width: u32,
         height: u32,
-        bitrate_bps: u32,
+        bitrate_kbps: u32,
         fps: f32,
         encode_effort: u8,
     ) -> Result<Self, EncodeError> {
@@ -59,27 +67,24 @@ impl VideoEncodeSession {
             return Err(EncodeError::InvalidDimensions);
         }
         let mut cfg = rusty_h264_encoder::EncoderConfig::new(width as usize, height as usize);
-        cfg.gop_size = 60;
+        let fps = if fps.is_finite() && fps > 0.0 {
+            fps
+        } else {
+            30.0
+        };
+        cfg.gop_size = (2.0 * fps as f64).round().clamp(30.0, 240.0) as u32;
         cfg.scenecut = 0;
         cfg.mbtree = false;
-        // Same 0..10 scale as the AV1 speed preset: 0-3 Quality, 4-7
+
         // Balanced (default), 8-10 Fast.
         cfg.preset = match encode_effort.min(10) {
             0..=3 => rusty_h264_encoder::Preset::Quality,
             4..=7 => rusty_h264_encoder::Preset::Balanced,
             _ => rusty_h264_encoder::Preset::Fast,
         };
-        if bitrate_bps >= 500_000 {
-            cfg.bitrate = bitrate_bps;
-            cfg.framerate = if fps.is_finite() && fps > 0.0 {
-                fps
-            } else {
-                30.0
-            };
-        } else {
-            cfg.bitrate = 0;
-            cfg.qp = 26;
-        }
+        cfg.bitrate = video_bitrate_bps(bitrate_kbps);
+        cfg.framerate = fps;
+        cfg.qp = 26;
         let encoder = rusty_h264_encoder::Encoder::new(cfg)
             .map_err(|e| EncodeError::Backend(e.to_string()))?;
         Ok(Self {
@@ -92,7 +97,6 @@ impl VideoEncodeSession {
     }
 
     pub fn encode_frame(&mut self, frame: &RgbaFrame) -> Result<EncodedVideoOutput, EncodeError> {
-        let idx = self.frame_index;
         self.frame_index += 1;
         if frame.width != self.width || frame.height != self.height {
             return Err(EncodeError::InvalidDimensions);
@@ -112,9 +116,6 @@ impl VideoEncodeSession {
             return Ok(EncodedVideoOutput::Skipped);
         }
         let pts = self.pending_pts.pop_front().unwrap_or(frame.pts_us);
-        if bytes.is_empty() {
-            return Err(EncodeError::EmptyFrame { frame_index: idx });
-        }
         Ok(EncodedVideoOutput::Sample {
             is_keyframe: is_idr_access_unit(&bytes),
             bytes,
@@ -122,7 +123,8 @@ impl VideoEncodeSession {
         })
     }
 
-    /// Flush lookahead tail. Returns drained samples in decode order.
+    /// Drain any lookahead tail in decode order. Empty with the current
+    /// config; always safe to call.
     pub fn finish(&mut self) -> Vec<EncodedVideoOutput> {
         let mut out = Vec::new();
         for bytes in [self.encoder.flush()].into_iter().filter(|b| !b.is_empty()) {
@@ -157,11 +159,11 @@ impl VideoEncodeSession {
 /// SPS (7) / PPS (8) prefix every IDR, so scan all NAL headers.
 fn is_idr_access_unit(annex_b: &[u8]) -> bool {
     let mut i = 0;
-    while i + 4 < annex_b.len() {
-        let (header_at, header_len) = if annex_b[i..].starts_with(&[0, 0, 0, 1]) {
-            (i + 4, 4)
+    while i + 3 <= annex_b.len() {
+        let header_at = if annex_b[i..].starts_with(&[0, 0, 0, 1]) {
+            i + 4
         } else if annex_b[i..].starts_with(&[0, 0, 1]) {
-            (i + 3, 3)
+            i + 3
         } else {
             i += 1;
             continue;
@@ -169,8 +171,35 @@ fn is_idr_access_unit(annex_b: &[u8]) -> bool {
         if header_at < annex_b.len() && annex_b[header_at] & 0x1F == 5 {
             return true;
         }
-        let _ = header_len;
         i = header_at + 1;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_idr_access_unit;
+
+    #[test]
+    fn idr_detected_with_3_and_4_byte_start_codes() {
+        let au = vec![
+            0, 0, 0, 1, 0x67, 0xAA, // SPS (7)
+            0, 0, 0, 1, 0x68, 0xBB, // PPS (8)
+            0, 0, 1, 0x65, 0xCC, // IDR (5), 3-byte prefix
+        ];
+        assert!(is_idr_access_unit(&au));
+    }
+
+    #[test]
+    fn p_frame_is_not_keyframe() {
+        let au = vec![0, 0, 0, 1, 0x67, 0xAA, 0, 0, 1, 0x41, 0xBB];
+        assert!(!is_idr_access_unit(&au));
+    }
+
+    #[test]
+    fn trailing_idr_is_found() {
+        let mut au = vec![0u8; 64];
+        au.extend_from_slice(&[0, 0, 1, 0x65, 0xCC]);
+        assert!(is_idr_access_unit(&au));
+    }
 }

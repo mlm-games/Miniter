@@ -186,6 +186,10 @@ mod hw {
         }
 
         /// Output is collected later via `drain_completed()` (after JS yields).
+        /// Owns `frame_index`: every submitted frame bumps it exactly once,
+        /// so callers must NOT increment it themselves (the AV1 keyframe
+        /// grid and the first-frame force depend on the count matching
+        /// submitted frames 1:1).
         #[cfg(target_arch = "wasm32")]
         pub fn submit_frame(&mut self, frame: &RgbaFrame) -> Result<(), EncodeError> {
             if let Some(err) = self.output.check_error() {
@@ -273,9 +277,7 @@ mod hw {
             &mut self,
             frame: &RgbaFrame,
         ) -> Result<EncodedVideoOutput, EncodeError> {
-            let idx = self.frame_index;
-            self.frame_index += 1;
-            let is_first = idx == 0;
+            let is_first = self.frame_index == 0;
 
             #[cfg(target_arch = "wasm32")]
             {
@@ -287,12 +289,16 @@ mod hw {
                         is_keyframe: is_first || f.is_keyframe,
                         pts_us: f.pts_us as i64,
                     }),
-                    None => Err(EncodeError::SkippedFrame { frame_index: idx }),
+                    None => Err(EncodeError::BufferedFrame {
+                        frame_index: self.frame_index.saturating_sub(1),
+                    }),
                 }
             }
 
             #[cfg(not(target_arch = "wasm32"))]
             {
+                let idx = self.frame_index;
+                self.frame_index += 1;
                 let video_frame = self.build_video_frame(frame);
                 use baabaabaabaabababbababbaa::VideoEncoderInput;
                 self.input
@@ -317,7 +323,7 @@ mod hw {
                             pts_us: pkt.timestamp.as_micros() as i64,
                         })
                     }
-                    None => Err(EncodeError::SkippedFrame { frame_index: idx }),
+                    None => Err(EncodeError::BufferedFrame { frame_index: idx }),
                 }
             }
         }

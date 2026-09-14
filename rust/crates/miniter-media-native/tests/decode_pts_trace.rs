@@ -290,7 +290,7 @@ fn encode_and_mux(input_path: &str, hw: bool, _n: u32) -> Result<(), Box<dyn std
     }
     let mut encoder = match hw_enc {
         Ok(e) => Encoder::Hw(e),
-        Err(_) => Encoder::Sw(VideoEncodeSession::new(w, h, bitrate * 1000, fps as f32)?),
+        Err(_) => Encoder::Sw(VideoEncodeSession::new(w, h, bitrate, fps as f32, 6)?),
     };
 
     let mut encoded_packets: Vec<(u64, Vec<u8>, bool)> = Vec::new();
