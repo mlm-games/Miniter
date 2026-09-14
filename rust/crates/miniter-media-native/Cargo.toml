@@ -16,7 +16,7 @@ web-time.workspace = true
 
 image.workspace = true
 
-muxfin = "0.4"
+muxfin = "0.5"
 
 rusty_h264-encoder = { version = "0.16", default-features = false, features = ["libm"] }
 rusty_h264-common = { version = "0.16", default-features = false }
@@ -48,6 +48,9 @@ reassarus-renderer = { workspace = true, default-features = false, features = [
     "image",
     "simd",
 ] }
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }

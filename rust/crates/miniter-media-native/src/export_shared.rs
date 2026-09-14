@@ -1,5 +1,5 @@
 use crate::filters;
-use crate::mux::{Mp4Muxer, OpusTrackConfigOut};
+use crate::mux::{MkvMuxer, Mp4Muxer, OpusTrackConfigOut};
 use fast_image_resize::images::{Image, ImageRef};
 use fast_image_resize::{PixelType, Resizer};
 use fontdue::{Font, FontSettings};
@@ -95,6 +95,18 @@ pub(crate) fn write_audio_packets<W: Write>(
     Ok(())
 }
 
+/// Write audio packets to a Matroska muxer (same timeline-aligned
+/// contract as [`write_audio_packets`]).
+pub(crate) fn write_audio_packets_mkv<W: Write>(
+    muxer: &mut MkvMuxer<W>,
+    audio: &EncodedOpus,
+) -> Result<(), crate::mux::MuxError> {
+    for packet in &audio.packets {
+        muxer.write_audio_sample_at(packet.pts_us, &packet.bytes)?;
+    }
+    Ok(())
+}
+
 /// Map an f64 fps to an exact rational (num, den) for IVF/rav1e timebases.
 /// Handles NTSC-style rates (24000/1001 etc.) instead of rounding to int.
 pub(crate) fn fps_to_rational(fps: f64) -> (u32, u32) {
@@ -142,11 +154,45 @@ pub(crate) fn write_soft_subtitle_samples<W: Write>(
     Ok(())
 }
 
+/// Write soft subtitle samples to a Matroska muxer.
+///
+/// `Ssa`/`Ass` tracks emit per-event Blocks (styling preserved);
+/// `MovText`/unconfigured tracks fall back to plain UTF-8 text.
+pub(crate) fn write_soft_subtitle_samples_mkv<W: Write>(
+    muxer: &mut MkvMuxer<W>,
+    samples: &[SoftSubtitleSample],
+) -> Result<(), crate::mux::MuxError> {
+    for (index, sample) in samples.iter().enumerate() {
+        let read_order = (index + 1) as u32;
+        if let Some(event) = sample.ass_event.as_ref() {
+            muxer.write_ass_event_at(
+                sample.start_us.max(0) as u64,
+                sample.duration_us.max(1) as u64,
+                read_order,
+                event,
+            )?;
+        } else {
+            muxer.write_subtitle_sample_at(
+                sample.start_us.max(0) as u64,
+                sample.duration_us.max(1) as u64,
+                &sample.text,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// A soft subtitle cue mapped onto the export timeline.
+///
+/// `ass_event` carries the full Dialogue event (style, margins, effect)
+/// for `Ssa`/`Ass` Matroska tracks; `text` is the plain-text fallback
+/// used for MP4/MovText tracks and burn-in rendering.
 #[derive(Debug, Clone)]
 pub(crate) struct SoftSubtitleSample {
     pub start_us: i64,
     pub duration_us: i64,
     pub text: String,
+    pub ass_event: Option<muxfin::codec::ass::AssEvent>,
 }
 
 #[derive(Debug, Clone)]
@@ -1533,6 +1579,21 @@ pub(crate) fn map_subtitle_cue_to_timeline_sample(
     end_us: i64,
     text: &str,
 ) -> Option<SoftSubtitleSample> {
+    map_subtitle_event_to_timeline_sample(clip, start_us, end_us, text, None)
+}
+
+/// Map a subtitle cue plus its ASS Dialogue event to a timeline sample.
+///
+/// Carries the full [`muxfin::codec::ass::AssEvent`] (style, margins,
+/// effect) through clip trims/speed so Matroska `Ssa`/`Ass` tracks emit
+/// styled events with retimed start/duration.
+pub(crate) fn map_subtitle_event_to_timeline_sample(
+    clip: &miniter_domain::clip::Clip,
+    start_us: i64,
+    end_us: i64,
+    text: &str,
+    ass_event: Option<muxfin::codec::ass::AssEvent>,
+) -> Option<SoftSubtitleSample> {
     let speed = if clip.speed.is_finite() && clip.speed > 0.0 {
         clip.speed
     } else {
@@ -1577,6 +1638,7 @@ pub(crate) fn map_subtitle_cue_to_timeline_sample(
         start_us: sample_start,
         duration_us: (sample_end - sample_start).max(1),
         text: text.to_string(),
+        ass_event,
     })
 }
 

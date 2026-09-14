@@ -2082,6 +2082,7 @@ dependencies = [
  "reassarus-renderer",
  "rusty_h264-common",
  "rusty_h264-encoder",
+ "serde_json",
  "symphonia",
  "thiserror",
  "tokio",
@@ -2161,14 +2162,15 @@ dependencies = [
 
 [[package]]
 name = "muxfin"
-version = "0.4.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d1d59d76a637bd2b78c096c6913cb6ef9ce671cda79f352fe1eefca981c5f0b"
+checksum = "737a52d353736f160962924d7147f2b382f00c757b02076936a19f5bed7e9673"
 dependencies = [
  "bytes",
  "mkv-element",
  "serde",
  "serde_json",
+ "web-time",
 ]
 
 [[package]]

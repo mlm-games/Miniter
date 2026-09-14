@@ -9,6 +9,7 @@ pub enum ExportFormat {
     Av1Mp4,
     Av1Mkv,
     Av1WebM,
+    H264Mkv,
     Opus,
     Flac,
 }
@@ -21,6 +22,7 @@ impl ExportFormat {
             Self::Av1Mp4 => "mp4",
             Self::Av1Mkv => "mkv",
             Self::Av1WebM => "webm",
+            Self::H264Mkv => "mkv",
             Self::Mov => "mov",
             Self::Opus => "opus",
             Self::Flac => "flac",
@@ -34,10 +36,19 @@ impl ExportFormat {
             Self::Av1Mp4 => "video/mp4",
             Self::Av1Mkv => "video/x-matroska",
             Self::Av1WebM => "video/webm",
+            Self::H264Mkv => "video/x-matroska",
             Self::Mov => "video/quicktime",
             Self::Opus => "audio/ogg",
             Self::Flac => "audio/flac",
         }
+    }
+
+    /// Whether this format muxes through Matroska (`build_mkv`).
+    pub fn is_matroska_family(self) -> bool {
+        matches!(
+            self,
+            Self::Av1Mkv | Self::Av1WebM | Self::H264Mkv
+        )
     }
 }
 

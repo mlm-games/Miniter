@@ -527,8 +527,9 @@ enum class RustSubtitleMode {
 enum class RustExportFormat {
     Mp4,
     Av1Mp4,
-    // Av1Mkv,
-    // Av1WebM,
+    Av1Mkv,
+    Av1WebM,
+    H264Mkv,
     Av1Ivf,
     Mov,
     Opus,

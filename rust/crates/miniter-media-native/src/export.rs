@@ -11,7 +11,7 @@ use crate::filters;
 use crate::frame::{MatrixCoeffs, RgbaFrame};
 use crate::image_cache::ImageCache;
 use crate::mux::{
-    ContainerFormat, Mp4Muxer, MuxError, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
+    ContainerFormat, MkvMuxer, Mp4Muxer, MuxError, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
     VideoTrackCodecOut, extract_sps_pps,
 };
 use crate::subtitle::SubtitleRenderer;
@@ -96,8 +96,6 @@ pub enum ExportError {
     MissingAvcConfig,
     #[error("Export cancelled")]
     Cancelled,
-    #[error("{format} export is not yet available")]
-    MkvNotAvailable { format: String },
     #[error("Internal export state: {0}")]
     Internal(String),
     #[error("Unsupported export format")]
@@ -198,6 +196,16 @@ where
         ),
         ExportFormat::Opus => export_opus_ogg(project, output_path, &is_cancelled, &on_progress),
         ExportFormat::Flac => export_flac(project, output_path, &is_cancelled, &on_progress),
+        ExportFormat::H264Mkv => export_h264_mkv(
+            project,
+            output_path,
+            settings.width,
+            settings.height,
+            settings.fps,
+            bitrate_kbps,
+            &is_cancelled,
+            &on_progress,
+        ),
         _ => return Err(ExportError::UnsupportedFormat),
     };
     clear_session_cache();
@@ -283,6 +291,162 @@ struct SourceSubtitleCue {
     start_us: i64,
     end_us: i64,
     text: String,
+    ass_event: Option<muxfin::codec::ass::AssEvent>,
+}
+
+/// Collected soft-subtitle payload for one export: timeline-mapped samples
+/// plus the track declaration (codec + ASS CodecPrivate when styled).
+struct SoftSubtitlePayload {
+    samples: Vec<SoftSubtitleSample>,
+    track: Option<SubtitleTrackConfigOut>,
+}
+
+fn collect_soft_subtitle_samples_mkv(project: &Project) -> SoftSubtitlePayload {
+    use muxfin::codec::ass::{codec_private_from_script, parse_dialogue_events};
+
+    let mut samples = Vec::new();
+    let mut ass_private: Option<Vec<u8>> = None;
+    let mut ass_codec: Option<SubtitleTrackCodecOut> = None;
+
+    for track in &project.timeline.tracks {
+        if track.kind != TrackKind::Subtitle || track.muted {
+            continue;
+        }
+        for clip in &track.clips {
+            if clip.muted {
+                continue;
+            }
+            let ClipKind::Subtitle(sub) = &clip.kind else {
+                continue;
+            };
+            let path = Path::new(&sub.source_path);
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase());
+            match ext.as_deref() {
+                Some("srt") => match parse_srt_cues(path) {
+                    Ok(cues) => samples.extend(
+                        cues.into_iter()
+                            .filter_map(|cue| map_cue_to_timeline_sample(clip, cue)),
+                    ),
+                    Err(err) => {
+                        log::warn!("Failed to parse subtitle '{}': {}", path.display(), err)
+                    }
+                },
+                Some("ass") | Some("ssa") => {
+                    let is_ssa = ext.as_deref() == Some("ssa");
+                    let content = match std::fs::read_to_string(path) {
+                        Ok(c) => c,
+                        Err(err) => {
+                            log::warn!("Failed to read subtitle '{}': {}", path.display(), err);
+                            continue;
+                        }
+                    };
+                    if ass_private.is_none() {
+                        ass_private = codec_private_from_script(&content);
+                        if ass_private.is_none() {
+                            log::warn!(
+                                "ASS/SSA '{}' has no styles section; CodecPrivate unavailable, cues muxed as plain text",
+                                path.display()
+                            );
+                        } else {
+                            ass_codec = Some(if is_ssa {
+                                SubtitleTrackCodecOut::Ssa
+                            } else {
+                                SubtitleTrackCodecOut::Ass
+                            });
+                        }
+                    }
+                    let timed = crate::subtitles::parse_ass_content(&content, true);
+                    let fields = parse_dialogue_events(&content);
+                    let paired: Vec<SourceSubtitleCue> = if timed.len() == fields.len() {
+                        timed
+                            .into_iter()
+                            .zip(fields)
+                            .map(|(cue, event)| SourceSubtitleCue {
+                                start_us: cue.start_us,
+                                end_us: cue.end_us,
+                                text: cue.text,
+                                ass_event: Some(event),
+                            })
+                            .collect()
+                    } else {
+                        log::warn!(
+                            "ASS '{}' Dialogue count mismatch (timed {} vs raw {}); muxing as plain text",
+                            path.display(),
+                            timed.len(),
+                            fields.len()
+                        );
+                        timed
+                            .into_iter()
+                            .map(|cue| SourceSubtitleCue {
+                                start_us: cue.start_us,
+                                end_us: cue.end_us,
+                                text: cue.text,
+                                ass_event: None,
+                            })
+                            .collect()
+                    };
+                    samples.extend(
+                        paired
+                            .into_iter()
+                            .filter_map(|cue| map_event_to_timeline_sample(clip, cue)),
+                    );
+                }
+                _ => {
+                    log::warn!(
+                        "Unsupported subtitle extension for soft export: {}",
+                        path.display()
+                    );
+                    continue;
+                }
+            }
+        }
+    }
+
+    samples.sort_by_key(|s| s.start_us);
+
+    let track = if samples.is_empty() {
+        None
+    } else if let (Some(codec), Some(private)) = (ass_codec, ass_private) {
+        // Styled track: SRT cues mixed in are converted to minimal ASS
+        // events (Default style) so every sample can use write_ass_event.
+        for sample in &mut samples {
+            if sample.ass_event.is_none() {
+                sample.ass_event = Some(muxfin::codec::ass::AssEvent {
+                    layer: "0".to_string(),
+                    style: "Default".to_string(),
+                    name: String::new(),
+                    margin_l: "0".to_string(),
+                    margin_r: "0".to_string(),
+                    margin_v: "0".to_string(),
+                    effect: String::new(),
+                    text: sample.text.replace('\n', "\\N"),
+                });
+            }
+        }
+        Some(SubtitleTrackConfigOut {
+            codec,
+            language: Some("und".to_string()),
+            ass_codec_private: Some(private),
+        })
+    } else {
+        // Strip ASS events when no CodecPrivate is available (all-plain).
+        for sample in &mut samples {
+            sample.ass_event = None;
+        }
+        Some(SubtitleTrackConfigOut::mov_text(Some("und".to_string())))
+    };
+
+    SoftSubtitlePayload { samples, track }
+}
+
+fn map_event_to_timeline_sample(
+    clip: &miniter_domain::clip::Clip,
+    cue: SourceSubtitleCue,
+) -> Option<SoftSubtitleSample> {
+    map_subtitle_event_to_timeline_sample(clip, cue.start_us, cue.end_us, &cue.text, cue.ass_event)
 }
 
 fn collect_soft_subtitle_samples(project: &Project, output_path: &Path) -> Vec<SoftSubtitleSample> {
@@ -357,7 +521,7 @@ fn map_cue_to_timeline_sample(
     clip: &miniter_domain::clip::Clip,
     cue: SourceSubtitleCue,
 ) -> Option<SoftSubtitleSample> {
-    map_subtitle_cue_to_timeline_sample(clip, cue.start_us, cue.end_us, &cue.text)
+    map_subtitle_event_to_timeline_sample(clip, cue.start_us, cue.end_us, &cue.text, cue.ass_event)
 }
 
 fn parse_srt_cues(path: &Path) -> Result<Vec<SourceSubtitleCue>, String> {
@@ -370,6 +534,7 @@ fn parse_srt_cues(path: &Path) -> Result<Vec<SourceSubtitleCue>, String> {
             start_us: cue.start_us,
             end_us: cue.end_us,
             text: cue.text,
+            ass_event: None,
         })
         .collect())
 }
@@ -384,6 +549,7 @@ fn parse_ass_cues(path: &Path, preserve_styles: bool) -> Result<Vec<SourceSubtit
                 start_us: cue.start_us,
                 end_us: cue.end_us,
                 text: cue.text,
+                ass_event: None,
             })
             .collect(),
     )
@@ -617,10 +783,7 @@ where
     let subtitle_track = if subtitle_samples.is_empty() {
         None
     } else {
-        Some(SubtitleTrackConfigOut {
-            codec: SubtitleTrackCodecOut::MovText,
-            language: Some("und".to_string()),
-        })
+        Some(SubtitleTrackConfigOut::mov_text(Some("und".to_string())))
     };
 
     let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
@@ -834,6 +997,228 @@ where
     }
 
     write_soft_subtitle_samples(&mut muxer, &subtitle_samples)?;
+
+    muxer.finish()?;
+
+    Ok(())
+}
+
+/// H.264 video + Opus audio muxed into Matroska (`.mkv`).
+///
+/// Mirrors [`export_h264`] but targets [`MkvMuxer`]: ASS/SSA soft subtitles
+/// keep styling (CodecPrivate + per-event Blocks), SRT maps to `S_TEXT/UTF8`.
+fn export_h264_mkv<F>(
+    project: &Project,
+    output_path: &Path,
+    width: u32,
+    height: u32,
+    fps: f64,
+    bitrate_kbps: u32,
+    is_cancelled: &F,
+    on_progress: &dyn Fn(u32),
+) -> Result<(), ExportError>
+where
+    F: Fn() -> bool,
+{
+    let payload = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
+        collect_soft_subtitle_samples_mkv(project)
+    } else {
+        SoftSubtitlePayload {
+            samples: Vec::new(),
+            track: None,
+        }
+    };
+    let subtitle_track = payload.track.clone();
+
+    let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
+    let first_decoded_video_pts_us = AtomicI64::new(-1);
+    on_progress(1);
+    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
+    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
+    let mixed = mix_project_audio(project, config)?;
+    let audio_encoded = if !mixed.samples.is_empty() {
+        let bitrate_bps = normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
+            .saturating_mul(1000);
+        Some(encode_opus(&mixed, bitrate_bps)?)
+    } else {
+        None
+    };
+    on_progress(5);
+
+    let audio_track = audio_encoded
+        .as_ref()
+        .map(|oe| audio_track_config(oe, sample_rate));
+
+    let effort = project.export_profile.encode_effort;
+    let mut encoder = if project.export_profile.hardware_acceleration {
+        match HwEncodeSession::new(
+            width,
+            height,
+            video_bitrate_bps(bitrate_kbps),
+            fps as f32,
+            "video/avc",
+            sniff_source_matrix(project),
+        ) {
+            Ok(hw) => AnyEncoder::Hw(hw),
+            Err(e) => {
+                log::warn!("HW encoder failed, falling back to software: {e}");
+                HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
+                AnyEncoder::Sw(VideoEncodeSession::new(
+                    width,
+                    height,
+                    bitrate_kbps,
+                    fps as f32,
+                    effort,
+                )?)
+            }
+        }
+    } else {
+        AnyEncoder::Sw(VideoEncodeSession::new(
+            width,
+            height,
+            bitrate_kbps,
+            fps as f32,
+            effort,
+        )?)
+    };
+
+    let mut iter = FramePlanIterator::with_render_settings(
+        &project.timeline,
+        width,
+        height,
+        fps,
+        project.export_profile.subtitle_mode,
+    );
+    let total_frames = iter.total_frames() as u32;
+    let first_plan = iter.next().unwrap_or_else(|| {
+        plan_frame(
+            &project.timeline,
+            Timestamp::ZERO,
+            width,
+            height,
+            project.export_profile.subtitle_mode,
+        )
+    });
+
+    if is_cancelled() {
+        return Err(ExportError::Cancelled);
+    }
+
+    let first_rgba =
+        render_plan_to_rgba(&first_plan, &mut decode_cache, &first_decoded_video_pts_us)?;
+    store_preview_frame(&first_rgba, width, height);
+    let first_frame = RgbaFrame {
+        width,
+        height,
+        data: first_rgba,
+        pts_us: first_plan.timestamp.as_micros(),
+        color_info: Default::default(),
+    };
+    let mut staged: Vec<(u64, Vec<u8>, bool)> = Vec::new();
+    let mut muxer: Option<MkvMuxer<BufWriter<File>>> = None;
+    let mut frame_index: u32 = 0;
+    let mut emit = |encoded: EncodedVideoOutput,
+                    frame_index: u32,
+                    staged: &mut Vec<(u64, Vec<u8>, bool)>,
+                    muxer: &mut Option<MkvMuxer<BufWriter<File>>>|
+     -> Result<(), ExportError> {
+        let (bytes, is_keyframe, pts_us) = match encoded {
+            EncodedVideoOutput::Sample {
+                bytes,
+                is_keyframe,
+                pts_us,
+            } => (bytes, is_keyframe, pts_us),
+            EncodedVideoOutput::Skipped => return Ok(()),
+        };
+        if bytes.is_empty() || !has_annexb_start_code(&bytes) {
+            return Err(EncodeError::EmptyFrame { frame_index }.into());
+        }
+        let sample = (pts_us.max(0) as u64, bytes, is_keyframe);
+        if muxer.is_none() {
+            staged.push(sample);
+            extract_sps_pps(&staged[0].1).ok_or(ExportError::MissingAvcConfig)?;
+            let file = File::create(output_path)?;
+            let writer = BufWriter::new(file);
+            *muxer = Some(MkvMuxer::new(
+                writer,
+                width,
+                height,
+                fps,
+                true,
+                audio_track,
+                subtitle_track.clone(),
+                VideoTrackCodecOut::H264,
+            )?);
+        } else {
+            staged.push(sample);
+        }
+        for (pts, bytes, key) in staged.drain(..) {
+            muxer
+                .as_mut()
+                .expect("muxer created above")
+                .write_sample_at(pts, &bytes, key)?;
+        }
+        Ok(())
+    };
+    match encoder.encode_frame(&first_frame) {
+        Err(EncodeError::BufferedFrame { .. }) => {}
+        other => {
+            emit(other?, frame_index, &mut staged, &mut muxer)?;
+        }
+    }
+    frame_index += 1;
+
+    let mut frame_count: u32 = 1;
+    for plan in iter {
+        if is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+        let rgba = render_plan_to_rgba(&plan, &mut decode_cache, &first_decoded_video_pts_us)?;
+        store_preview_frame(&rgba, width, height);
+        let frame = RgbaFrame {
+            width,
+            height,
+            data: rgba,
+            pts_us: plan.timestamp.as_micros(),
+            color_info: Default::default(),
+        };
+        match encoder.encode_frame(&frame) {
+            Err(EncodeError::BufferedFrame { .. }) => {}
+            other => {
+                emit(other?, frame_index, &mut staged, &mut muxer)?;
+            }
+        }
+        frame_index += 1;
+
+        frame_count += 1;
+        if total_frames > 0 {
+            let pct = ((frame_count as f64 / total_frames as f64) * 100_000.0) as u32;
+            on_progress(pct);
+        }
+    }
+
+    if let AnyEncoder::Sw(sw) = &mut encoder {
+        for output in sw.finish() {
+            emit(output, frame_index, &mut staged, &mut muxer)?;
+        }
+    }
+    for output in encoder.finish_hw() {
+        emit(output, frame_index, &mut staged, &mut muxer)?;
+    }
+
+    let Some(muxer) = muxer else {
+        return Err(EncodeError::EmptyFrame { frame_index: 0 }.into());
+    };
+    debug_assert!(staged.is_empty(), "emit drains staged every call");
+
+    on_progress(100_000);
+
+    let mut muxer = muxer;
+    if let Some(oe) = audio_encoded {
+        write_audio_packets_mkv(&mut muxer, &oe)?;
+    }
+
+    write_soft_subtitle_samples_mkv(&mut muxer, &payload.samples)?;
 
     muxer.finish()?;
 
@@ -1113,47 +1498,60 @@ fn export_av1<F>(
 where
     F: Fn() -> bool,
 {
-    let subtitle_samples = if container == Av1Container::Mp4
-        && project.export_profile.subtitle_mode == SubtitleMode::Soft
-    {
-        collect_soft_subtitle_samples(project, output_path)
-    } else {
-        Vec::new()
-    };
-    let subtitle_track = if subtitle_samples.is_empty() {
-        None
-    } else {
-        Some(SubtitleTrackConfigOut {
-            codec: SubtitleTrackCodecOut::MovText,
-            language: Some("und".to_string()),
-        })
+    let (subtitle_samples, subtitle_track) = match container {
+        Av1Container::Mkv | Av1Container::WebM => {
+            // WebM rejects subtitles at finalize; skip collection so the
+            // track stays unconfigured instead of erroring late.
+            if container == Av1Container::Mkv
+                && project.export_profile.subtitle_mode == SubtitleMode::Soft
+            {
+                let payload = collect_soft_subtitle_samples_mkv(project);
+                (payload.samples, payload.track)
+            } else {
+                (Vec::new(), None)
+            }
+        }
+        _ => {
+            if project.export_profile.subtitle_mode == SubtitleMode::Soft {
+                let samples = collect_soft_subtitle_samples(project, output_path);
+                let track = if samples.is_empty() {
+                    None
+                } else {
+                    Some(SubtitleTrackConfigOut::mov_text(Some("und".to_string())))
+                };
+                (samples, track)
+            } else {
+                (Vec::new(), None)
+            }
+        }
     };
 
     let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
 
-    let (audio_track, audio_encoded) = if container == Av1Container::Mp4 {
-        let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
-        let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-        let mixed = mix_project_audio(project, config)?;
-        let audio_encoded = if !mixed.samples.is_empty() {
-            let bitrate_bps =
-                normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
-                    .saturating_mul(1000);
-            Some(encode_opus(&mixed, bitrate_bps)?)
+    let (audio_track, audio_encoded) =
+        if container == Av1Container::Mp4 || container == Av1Container::Mkv {
+            let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
+            let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
+            let mixed = mix_project_audio(project, config)?;
+            let audio_encoded = if !mixed.samples.is_empty() {
+                let bitrate_bps =
+                    normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
+                        .saturating_mul(1000);
+                Some(encode_opus(&mixed, bitrate_bps)?)
+            } else {
+                None
+            };
+
+            let audio_track = audio_encoded
+                .as_ref()
+                .map(|oe| audio_track_config(oe, sample_rate));
+
+            (audio_track, audio_encoded)
         } else {
-            None
+            (None, None)
         };
-
-        let audio_track = audio_encoded
-            .as_ref()
-            .map(|oe| audio_track_config(oe, sample_rate));
-
-        (audio_track, audio_encoded)
-    } else {
-        (None, None)
-    };
 
     let matrix = sniff_source_matrix(project);
 
@@ -1182,6 +1580,7 @@ where
 
     let mut ivf_file: Option<File> = None;
     let mut mp4_muxer: Option<Mp4Muxer<BufWriter<File>>> = None;
+    let mut mkv_muxer: Option<MkvMuxer<BufWriter<File>>> = None;
 
     match container {
         Av1Container::Ivf => {
@@ -1212,13 +1611,18 @@ where
             )?);
         }
         Av1Container::Mkv | Av1Container::WebM => {
-            return Err(ExportError::MkvNotAvailable {
-                format: if container == Av1Container::WebM {
-                    "WebM".to_string()
-                } else {
-                    "MKV".to_string()
-                },
-            });
+            let file = File::create(output_path)?;
+            let writer = BufWriter::new(file);
+            mkv_muxer = Some(MkvMuxer::new(
+                writer,
+                width,
+                height,
+                fps,
+                container == Av1Container::Mkv,
+                audio_track,
+                subtitle_track.clone(),
+                VideoTrackCodecOut::Av1,
+            )?);
         }
     }
 
@@ -1278,7 +1682,10 @@ where
                 write_av1_packets_to_mux_gated(muxer, &packets, &mut seen_first_keyframe)?;
             }
             Av1Container::Mkv | Av1Container::WebM => {
-                unreachable!();
+                let muxer = mkv_muxer.as_mut().ok_or_else(|| {
+                    ExportError::Internal("MKV muxer missing for AV1 MKV/WebM export".into())
+                })?;
+                write_av1_packets_to_mux_mkv_gated(muxer, &packets, &mut seen_first_keyframe)?;
             }
         }
 
@@ -1323,7 +1730,22 @@ where
             muxer.finish()?;
         }
         Av1Container::Mkv | Av1Container::WebM => {
-            unreachable!();
+            let mut muxer = mkv_muxer.ok_or_else(|| {
+                ExportError::Internal("MKV muxer missing for AV1 MKV/WebM export".into())
+            })?;
+            write_av1_packets_to_mux_mkv_gated(
+                &mut muxer,
+                &finish_packets,
+                &mut seen_first_keyframe,
+            )?;
+
+            if let Some(oe) = audio_encoded {
+                write_audio_packets_mkv(&mut muxer, &oe)?;
+            }
+
+            write_soft_subtitle_samples_mkv(&mut muxer, &subtitle_samples)?;
+
+            muxer.finish()?;
         }
     }
 
@@ -1340,6 +1762,36 @@ fn write_av1_packets_to_mux<W: std::io::Write>(
 
 fn write_av1_packets_to_mux_gated<W: std::io::Write>(
     muxer: &mut Mp4Muxer<W>,
+    packets: &[Av1Packet],
+    seen_first_keyframe: &mut bool,
+) -> Result<usize, ExportError> {
+    let mut written = 0usize;
+    for packet in packets {
+        let sample_data = strip_leading_temporal_delimiters(&packet.data);
+        if sample_data.is_empty() {
+            continue;
+        }
+        if !*seen_first_keyframe {
+            if !packet.is_keyframe {
+                continue;
+            }
+            *seen_first_keyframe = true;
+        }
+        muxer.write_sample_with_dts_at(
+            packet.pts,
+            packet.dts_us,
+            sample_data,
+            packet.is_keyframe,
+        )?;
+        written += 1;
+    }
+    Ok(written)
+}
+
+/// Matroska twin of [`write_av1_packets_to_mux_gated`]: same first-keyframe
+/// gate and decode-order DTS feed, writing into an [`MkvMuxer`].
+fn write_av1_packets_to_mux_mkv_gated<W: std::io::Write>(
+    muxer: &mut MkvMuxer<W>,
     packets: &[Av1Packet],
     seen_first_keyframe: &mut bool,
 ) -> Result<usize, ExportError> {
@@ -1400,11 +1852,7 @@ where
     let file = File::create(output_path)?;
     let writer = BufWriter::new(file);
     let mut muxer = MuxerBuilder::new(writer)
-        .audio(
-            MuxAudioCodec::Opus,
-            48_000,
-            encoded.channels,
-        )
+        .audio(MuxAudioCodec::Opus, 48_000, encoded.channels)
         .with_opus_preskip(encoded.preskip_48k)
         .build_ogg()
         .map_err(MuxError::from)?;

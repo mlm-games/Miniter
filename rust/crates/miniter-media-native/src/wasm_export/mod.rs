@@ -36,8 +36,8 @@ use crate::filters;
 use crate::frame::{MatrixCoeffs, RgbaFrame};
 use crate::image_cache::ImageCache;
 use crate::mux::{
-    ContainerFormat, Mp4Muxer, SubtitleTrackCodecOut, SubtitleTrackConfigOut, VideoTrackCodecOut,
-    extract_sps_pps,
+    ContainerFormat, MkvMuxer, Mp4Muxer, SubtitleTrackCodecOut, SubtitleTrackConfigOut,
+    VideoTrackCodecOut, extract_sps_pps,
 };
 use crate::wasm_export::encoder::{EncodedPacket, EncoderBackend, create_encoder_backend};
 use miniter_audio::mix::mix_project_audio_with_source_map;
@@ -430,8 +430,14 @@ pub fn export_project_to_bytes(
         ExportFormat::Mp4 => {
             export_h264_mp4_bytes(project, registered_files, &is_cancelled, &on_progress)?
         }
+        ExportFormat::H264Mkv => {
+            export_h264_mkv_bytes(project, registered_files, &is_cancelled, &on_progress)?
+        }
         ExportFormat::Av1Mp4 => {
             export_av1_mp4_bytes(project, registered_files, &is_cancelled, &on_progress)?
+        }
+        ExportFormat::Av1Mkv | ExportFormat::Av1WebM => {
+            export_av1_mkv_bytes(project, registered_files, &is_cancelled, &on_progress)?
         }
         ExportFormat::Av1Ivf => {
             export_av1_ivf_bytes(project, registered_files, &is_cancelled, &on_progress)?
@@ -444,9 +450,6 @@ pub fn export_project_to_bytes(
         }
         ExportFormat::Mov => {
             return Err("MOV export is not supported on web yet".to_string());
-        }
-        ExportFormat::Av1Mkv | ExportFormat::Av1WebM => {
-            return Err("MKV/WebM AV1 export is not supported on web yet".to_string());
         }
         _ => return Err("Unsupported export format on web".to_string()),
     };
@@ -461,14 +464,14 @@ pub fn export_project_to_bytes(
 fn export_target_info(format: ExportFormat) -> Result<(&'static str, &'static str), String> {
     match format {
         ExportFormat::Mp4 => Ok(("mp4", "video/mp4")),
+        ExportFormat::H264Mkv => Ok(("mkv", "video/x-matroska")),
         ExportFormat::Av1Mp4 => Ok(("mp4", "video/mp4")),
+        ExportFormat::Av1Mkv => Ok(("mkv", "video/x-matroska")),
+        ExportFormat::Av1WebM => Ok(("webm", "video/webm")),
         ExportFormat::Av1Ivf => Ok(("ivf", "video/ivf")),
         ExportFormat::Opus => Ok(("ogg", "audio/ogg")),
         ExportFormat::Flac => Ok(("flac", "audio/flac")),
         ExportFormat::Mov => Err("MOV export is not supported on web yet".to_string()),
-        ExportFormat::Av1Mkv | ExportFormat::Av1WebM => {
-            Err("MKV/WebM AV1 export is not supported on web yet".to_string())
-        }
         _ => Err("Unsupported export format on web".to_string()),
     }
 }
@@ -529,6 +532,27 @@ fn export_h264_mp4_bytes(
     is_cancelled: &dyn Fn() -> bool,
     on_progress: &dyn Fn(u32),
 ) -> Result<Vec<u8>, String> {
+    export_h264_bytes(project, registered_files, is_cancelled, on_progress, false)
+}
+
+/// H.264 video + Opus audio muxed into Matroska (`.mkv`), WASM twin of the
+/// native `export_h264_mkv`. ASS/SSA soft subtitles keep styling.
+fn export_h264_mkv_bytes(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+    is_cancelled: &dyn Fn() -> bool,
+    on_progress: &dyn Fn(u32),
+) -> Result<Vec<u8>, String> {
+    export_h264_bytes(project, registered_files, is_cancelled, on_progress, true)
+}
+
+fn export_h264_bytes(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+    is_cancelled: &dyn Fn() -> bool,
+    on_progress: &dyn Fn(u32),
+    matroska: bool,
+) -> Result<Vec<u8>, String> {
     let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
     let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
@@ -536,19 +560,22 @@ fn export_h264_mp4_bytes(
     let audio_track = audio_encoded
         .as_ref()
         .map(|encoded| audio_track_config(encoded, sample_rate));
-    let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
-        collect_soft_subtitle_samples(project, registered_files)
-    } else {
-        Vec::new()
-    };
-    let subtitle_track = if subtitle_samples.is_empty() {
-        None
-    } else {
-        Some(SubtitleTrackConfigOut {
-            codec: SubtitleTrackCodecOut::MovText,
-            language: Some("und".to_string()),
-        })
-    };
+    let (subtitle_samples, subtitle_track) =
+        if project.export_profile.subtitle_mode == SubtitleMode::Soft {
+            if matroska {
+                collect_soft_subtitle_samples_mkv(project, registered_files)
+            } else {
+                let samples = collect_soft_subtitle_samples(project, registered_files);
+                let track = if samples.is_empty() {
+                    None
+                } else {
+                    Some(SubtitleTrackConfigOut::mov_text(Some("und".to_string())))
+                };
+                (samples, track)
+            }
+        } else {
+            (Vec::new(), None)
+        };
 
     let hw_requested = project.export_profile.hardware_acceleration;
     let mut decode_cache = ExportDecodeCache::new(registered_files, hw_requested);
@@ -641,10 +668,16 @@ fn export_h264_mp4_bytes(
 
     let mut out_bytes = Vec::new();
     let mut frame_index: u32 = 0;
+    // MP4 and Matroska muxers are distinct types; exactly one is live.
+    enum ActiveMuxer<'a> {
+        Mp4(Mp4Muxer<&'a mut Vec<u8>>),
+        Mkv(MkvMuxer<&'a mut Vec<u8>>),
+    }
     {
+        let mut muxer: Option<ActiveMuxer> = None;
         let emit = |encoded: EncodedVideoOutput,
                     frame_index: u32,
-                    muxer: &mut Mp4Muxer<&mut Vec<u8>>|
+                    muxer: &mut Option<ActiveMuxer>|
          -> Result<(), String> {
             let (bytes, is_keyframe, pts_us) = match encoded {
                 EncodedVideoOutput::Sample {
@@ -659,9 +692,16 @@ fn export_h264_mp4_bytes(
                     "H.264 encoder produced empty frame at index {frame_index}"
                 ));
             }
-            muxer
-                .write_sample_at(pts_us.max(0) as u64, &bytes, is_keyframe)
-                .map_err(|e| format!("MP4 write failed: {e}"))?;
+            let pts = pts_us.max(0) as u64;
+            match muxer {
+                Some(ActiveMuxer::Mp4(m)) => m
+                    .write_sample_at(pts, &bytes, is_keyframe)
+                    .map_err(|e| format!("MP4 write failed: {e}"))?,
+                Some(ActiveMuxer::Mkv(m)) => m
+                    .write_sample_at(pts, &bytes, is_keyframe)
+                    .map_err(|e| format!("MKV write failed: {e}"))?,
+                None => return Err("muxer not initialized".to_string()),
+            }
             Ok(())
         };
         // Validate one AU and stage it for muxer creation. Returns
@@ -732,22 +772,46 @@ fn export_h264_mp4_bytes(
         };
         extract_sps_pps(&first_bytes)
             .ok_or_else(|| "Could not extract SPS/PPS from H.264 stream".to_string())?;
-        let mut muxer = Mp4Muxer::new(
-            &mut out_bytes,
-            settings.width,
-            settings.height,
-            settings.fps,
-            &[],
-            &[],
-            ContainerFormat::Mp4,
-            audio_track,
-            subtitle_track,
-            VideoTrackCodecOut::H264,
-        )
-        .map_err(|e| format!("MP4 muxer init failed: {e}"))?;
-        muxer
-            .write_sample_at(first_pts, &first_bytes, first_key)
-            .map_err(|e| format!("MP4 write failed: {e}"))?;
+        let mut inner = if matroska {
+            ActiveMuxer::Mkv(
+                MkvMuxer::new(
+                    &mut out_bytes,
+                    settings.width,
+                    settings.height,
+                    settings.fps,
+                    true,
+                    audio_track,
+                    subtitle_track,
+                    VideoTrackCodecOut::H264,
+                )
+                .map_err(|e| format!("MKV muxer init failed: {e}"))?,
+            )
+        } else {
+            ActiveMuxer::Mp4(
+                Mp4Muxer::new(
+                    &mut out_bytes,
+                    settings.width,
+                    settings.height,
+                    settings.fps,
+                    &[],
+                    &[],
+                    ContainerFormat::Mp4,
+                    audio_track,
+                    subtitle_track,
+                    VideoTrackCodecOut::H264,
+                )
+                .map_err(|e| format!("MP4 muxer init failed: {e}"))?,
+            )
+        };
+        match &mut inner {
+            ActiveMuxer::Mp4(m) => m
+                .write_sample_at(first_pts, &first_bytes, first_key)
+                .map_err(|e| format!("MP4 write failed: {e}"))?,
+            ActiveMuxer::Mkv(m) => m
+                .write_sample_at(first_pts, &first_bytes, first_key)
+                .map_err(|e| format!("MKV write failed: {e}"))?,
+        }
+        muxer = Some(inner);
 
         let mut frame_count = frame_count;
 
@@ -823,16 +887,28 @@ fn export_h264_mp4_bytes(
         }
 
         if let Some(encoded_audio) = &audio_encoded {
-            write_audio_packets(&mut muxer, encoded_audio, 0)
-                .map_err(|e| format!("MP4 audio write failed: {e}"))?;
+            match muxer.as_mut().expect("muxer created above") {
+                ActiveMuxer::Mp4(m) => write_audio_packets(m, encoded_audio, 0)
+                    .map_err(|e| format!("MP4 audio write failed: {e}"))?,
+                ActiveMuxer::Mkv(m) => write_audio_packets_mkv(m, encoded_audio)
+                    .map_err(|e| format!("MKV audio write failed: {e}"))?,
+            }
         }
 
-        write_soft_subtitle_samples(&mut muxer, &subtitle_samples)
-            .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
-
-        muxer
-            .finish()
-            .map_err(|e| format!("MP4 finalize failed: {e}"))?;
+        match muxer.as_mut().expect("muxer created above") {
+            ActiveMuxer::Mp4(m) => {
+                write_soft_subtitle_samples(m, &subtitle_samples)
+                    .map_err(|e| format!("MP4 subtitle write failed: {e}"))?;
+                m.finish()
+                    .map_err(|e| format!("MP4 finalize failed: {e}"))?;
+            }
+            ActiveMuxer::Mkv(m) => {
+                write_soft_subtitle_samples_mkv(m, &subtitle_samples)
+                    .map_err(|e| format!("MKV subtitle write failed: {e}"))?;
+                m.finish()
+                    .map_err(|e| format!("MKV finalize failed: {e}"))?;
+            }
+        }
     }
 
     on_progress(100_000);
@@ -860,10 +936,7 @@ fn export_av1_mp4_bytes(
     let subtitle_track = if subtitle_samples.is_empty() {
         None
     } else {
-        Some(SubtitleTrackConfigOut {
-            codec: SubtitleTrackCodecOut::MovText,
-            language: Some("und".to_string()),
-        })
+        Some(SubtitleTrackConfigOut::mov_text(Some("und".to_string())))
     };
 
     let hw_requested = project.export_profile.hardware_acceleration;
@@ -971,6 +1044,129 @@ fn export_av1_mp4_bytes(
     muxer
         .finish()
         .map_err(|e| format!("MP4 finalize failed: {e}"))?;
+
+    on_progress(100_000);
+    drop(muxer);
+    Ok(output)
+}
+
+/// AV1 video muxed into Matroska (`.mkv`) or WebM (`.webm`), WASM twin of
+/// the native AV1 MKV/WebM arms. WebM carries no subtitles or audio-gating
+/// differences: Opus audio for both, subtitles for MKV only.
+fn export_av1_mkv_bytes(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+    is_cancelled: &dyn Fn() -> bool,
+    on_progress: &dyn Fn(u32),
+) -> Result<Vec<u8>, String> {
+    let matroska = project.export_profile.format != ExportFormat::Av1WebM;
+    let settings = resolve_render_settings(project);
+    let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
+    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
+    let audio_encoded = prepare_audio_track(project, registered_files)?;
+    let audio_track = audio_encoded
+        .as_ref()
+        .map(|encoded| audio_track_config(encoded, sample_rate));
+    let (subtitle_samples, subtitle_track) =
+        if matroska && project.export_profile.subtitle_mode == SubtitleMode::Soft {
+            collect_soft_subtitle_samples_mkv(project, registered_files)
+        } else {
+            (Vec::new(), None)
+        };
+
+    let hw_requested = project.export_profile.hardware_acceleration;
+    let mut decode_cache = ExportDecodeCache::new(registered_files, hw_requested);
+    decode_cache.default_width = settings.width;
+    decode_cache.default_height = settings.height;
+    on_progress(1);
+    on_progress(5);
+
+    let mut encoder = Av1EncodeSession::new(
+        settings.width,
+        settings.height,
+        settings.fps,
+        bitrate_kbps,
+        sniff_source_matrix(project, registered_files),
+        project.export_profile.encode_effort,
+    )
+    .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
+
+    let mut output = Vec::new();
+    let mut muxer = MkvMuxer::new(
+        &mut output,
+        settings.width,
+        settings.height,
+        settings.fps,
+        matroska,
+        audio_track,
+        subtitle_track,
+        VideoTrackCodecOut::Av1,
+    )
+    .map_err(|e| format!("MKV muxer init failed: {e}"))?;
+
+    let mut iter = FramePlanIterator::with_render_settings(
+        &project.timeline,
+        settings.width,
+        settings.height,
+        settings.fps,
+        project.export_profile.subtitle_mode,
+    );
+    let total_frames = iter.total_frames().max(1) as u32;
+    let first_plan = iter.next().unwrap_or_else(|| {
+        plan_frame(
+            &project.timeline,
+            Timestamp::ZERO,
+            settings.width,
+            settings.height,
+            project.export_profile.subtitle_mode,
+        )
+    });
+
+    let mut frame_count: u32 = 0;
+    let mut seen_first_keyframe = false;
+
+    for plan in std::iter::once(first_plan).chain(iter) {
+        if is_cancelled() {
+            return Err("Export cancelled".to_string());
+        }
+
+        let rgba = render_plan_to_rgba(&plan, &mut decode_cache)?;
+        store_wasm_preview_frame(&rgba, settings.width, settings.height);
+        let frame = RgbaFrame {
+            width: settings.width,
+            height: settings.height,
+            data: rgba,
+            pts_us: plan.timestamp.as_micros(),
+            color_info: Default::default(),
+        };
+
+        let packets = encoder
+            .encode_frame(&frame)
+            .map_err(|e| format!("AV1 encode failed: {e}"))?;
+
+        write_av1_packets_to_mux_mkv(&mut muxer, &packets, &mut seen_first_keyframe)?;
+
+        frame_count = frame_count.saturating_add(1);
+        let pct = ((frame_count as f64 / total_frames as f64) * 100_000.0) as u32;
+        on_progress(pct.min(100_000));
+    }
+
+    let finish_packets = encoder
+        .finish()
+        .map_err(|e| format!("AV1 finalize failed: {e}"))?;
+    write_av1_packets_to_mux_mkv(&mut muxer, &finish_packets, &mut seen_first_keyframe)?;
+
+    if let Some(encoded_audio) = &audio_encoded {
+        write_audio_packets_mkv(&mut muxer, encoded_audio)
+            .map_err(|e| format!("MKV audio write failed: {e}"))?;
+    }
+
+    write_soft_subtitle_samples_mkv(&mut muxer, &subtitle_samples)
+        .map_err(|e| format!("MKV subtitle write failed: {e}"))?;
+
+    muxer
+        .finish()
+        .map_err(|e| format!("MKV finalize failed: {e}"))?;
 
     on_progress(100_000);
     drop(muxer);
@@ -1239,6 +1435,39 @@ fn write_av1_packets_to_mux<W: Write>(
     Ok(())
 }
 
+/// Matroska twin of [`write_av1_packets_to_mux`]: same first-keyframe gate
+/// and decode-order DTS feed into an [`MkvMuxer`].
+fn write_av1_packets_to_mux_mkv<W: Write>(
+    muxer: &mut MkvMuxer<W>,
+    packets: &[Av1Packet],
+    seen_first_keyframe: &mut bool,
+) -> Result<(), String> {
+    for packet in packets {
+        let sample = strip_leading_temporal_delimiters(&packet.data);
+        if sample.is_empty() {
+            continue;
+        }
+        if !*seen_first_keyframe {
+            if !packet.is_keyframe {
+                log::warn!(
+                    "EXPORT_DROP_LEADING: pts_us={} dts_us={} len={}",
+                    packet.pts,
+                    packet.dts_us,
+                    sample.len(),
+                );
+                continue;
+            }
+            *seen_first_keyframe = true;
+        }
+
+        muxer
+            .write_sample_with_dts_at(packet.pts, packet.dts_us, sample, packet.is_keyframe)
+            .map_err(|e| format!("MKV write failed: {e}"))?;
+    }
+
+    Ok(())
+}
+
 fn prepare_audio_track(
     project: &Project,
     registered_files: &HashMap<String, Vec<u8>>,
@@ -1280,14 +1509,7 @@ fn prepare_flac_track(
 }
 
 fn load_subtitle_cues(path: &str, registered_files: &HashMap<String, Vec<u8>>) -> Vec<SubtitleCue> {
-    let content = if let Some(bytes) = registered_files.get(path) {
-        match std::str::from_utf8(bytes) {
-            Ok(text) => text.to_string(),
-            Err(_) => String::new(),
-        }
-    } else {
-        std::fs::read_to_string(path).unwrap_or_default()
-    };
+    let content = load_subtitle_content(path, registered_files);
 
     if content.trim().is_empty() {
         return Vec::new();
@@ -1304,6 +1526,154 @@ fn load_subtitle_cues(path: &str, registered_files: &HashMap<String, Vec<u8>>) -
         "ass" | "ssa" => parse_ass_cues(&content),
         _ => parse_srt_cues(&content),
     }
+}
+
+fn load_subtitle_content(path: &str, registered_files: &HashMap<String, Vec<u8>>) -> String {
+    if let Some(bytes) = registered_files.get(path) {
+        match std::str::from_utf8(bytes) {
+            Ok(text) => text.to_string(),
+            Err(_) => String::new(),
+        }
+    } else {
+        std::fs::read_to_string(path).unwrap_or_default()
+    }
+}
+
+/// Collected soft-subtitle payload for a Matroska export: timeline-mapped
+/// samples plus the track declaration (codec + ASS CodecPrivate when
+/// styled). WASM twin of the native `collect_soft_subtitle_samples_mkv`.
+fn collect_soft_subtitle_samples_mkv(
+    project: &Project,
+    registered_files: &HashMap<String, Vec<u8>>,
+) -> (Vec<SoftSubtitleSample>, Option<SubtitleTrackConfigOut>) {
+    use muxfin::codec::ass::{codec_private_from_script, parse_dialogue_events};
+
+    let mut samples = Vec::new();
+    let mut ass_private: Option<Vec<u8>> = None;
+    let mut ass_codec: Option<SubtitleTrackCodecOut> = None;
+
+    for track in &project.timeline.tracks {
+        if track.kind != TrackKind::Subtitle || track.muted {
+            continue;
+        }
+        for clip in &track.clips {
+            if clip.muted {
+                continue;
+            }
+            let ClipKind::Subtitle(sub) = &clip.kind else {
+                continue;
+            };
+            let content = load_subtitle_content(&sub.source_path, registered_files);
+            if content.trim().is_empty() {
+                continue;
+            }
+            let ext = Path::new(&sub.source_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            match ext.as_str() {
+                "srt" => {
+                    samples.extend(parse_srt_cues(&content).into_iter().filter_map(|cue| {
+                        map_subtitle_cue_to_timeline_sample(
+                            clip,
+                            cue.start_us,
+                            cue.end_us,
+                            &cue.text,
+                        )
+                    }));
+                }
+                "ass" | "ssa" => {
+                    if ass_private.is_none() {
+                        ass_private = codec_private_from_script(&content);
+                        if ass_private.is_some() {
+                            ass_codec = Some(if ext.as_str() == "ssa" {
+                                SubtitleTrackCodecOut::Ssa
+                            } else {
+                                SubtitleTrackCodecOut::Ass
+                            });
+                        } else {
+                            log::warn!(
+                                "ASS/SSA '{}' has no styles section; cues muxed as plain text",
+                                sub.source_path
+                            );
+                        }
+                    }
+                    let timed = crate::subtitles::parse_ass_content(&content, true);
+                    let fields = parse_dialogue_events(&content);
+                    if timed.len() == fields.len() {
+                        samples.extend(timed.into_iter().zip(fields).filter_map(
+                            |(cue, event)| {
+                                map_subtitle_event_to_timeline_sample(
+                                    clip,
+                                    cue.start_us,
+                                    cue.end_us,
+                                    &cue.text,
+                                    Some(event),
+                                )
+                            },
+                        ));
+                    } else {
+                        log::warn!(
+                            "ASS '{}' Dialogue count mismatch; muxing as plain text",
+                            sub.source_path
+                        );
+                        samples.extend(timed.into_iter().filter_map(|cue| {
+                            map_subtitle_cue_to_timeline_sample(
+                                clip,
+                                cue.start_us,
+                                cue.end_us,
+                                &cue.text,
+                            )
+                        }));
+                    }
+                }
+                _ => {
+                    samples.extend(parse_srt_cues(&content).into_iter().filter_map(|cue| {
+                        map_subtitle_cue_to_timeline_sample(
+                            clip,
+                            cue.start_us,
+                            cue.end_us,
+                            &cue.text,
+                        )
+                    }));
+                }
+            }
+        }
+    }
+
+    samples.sort_by_key(|s| s.start_us);
+
+    let track = if samples.is_empty() {
+        None
+    } else if let (Some(codec), Some(private)) = (ass_codec, ass_private) {
+        for sample in &mut samples {
+            if sample.ass_event.is_none() {
+                sample.ass_event = Some(muxfin::codec::ass::AssEvent {
+                    layer: "0".to_string(),
+                    style: "Default".to_string(),
+                    name: String::new(),
+                    margin_l: "0".to_string(),
+                    margin_r: "0".to_string(),
+                    margin_v: "0".to_string(),
+                    effect: String::new(),
+                    text: sample.text.replace('\n', "\\N"),
+                });
+            }
+        }
+        Some(SubtitleTrackConfigOut {
+            codec,
+            language: Some("und".to_string()),
+            ass_codec_private: Some(private),
+        })
+    } else {
+        for sample in &mut samples {
+            sample.ass_event = None;
+        }
+        Some(SubtitleTrackConfigOut::mov_text(Some("und".to_string())))
+    };
+
+    (samples, track)
 }
 
 fn collect_soft_subtitle_samples(
@@ -1451,6 +1821,7 @@ pub struct WasmExportChunker {
     audio_encoded: Option<EncodedOpus>,
     flac_encoded: Option<EncodedFlac>,
     subtitle_samples: Vec<SoftSubtitleSample>,
+    subtitle_track: Option<SubtitleTrackConfigOut>,
 }
 
 impl WasmExportChunker {
@@ -1485,11 +1856,33 @@ impl WasmExportChunker {
         } else {
             None
         };
-        let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
-            collect_soft_subtitle_samples(project, &files_box)
-        } else {
-            Vec::new()
-        };
+        let (subtitle_samples, subtitle_track) =
+            if project.export_profile.subtitle_mode == SubtitleMode::Soft {
+                if matches!(
+                    format,
+                    ExportFormat::Av1Mkv | ExportFormat::Av1WebM | ExportFormat::H264Mkv
+                ) {
+                    // WebM collects nothing (no subtitle track); MKV paths
+                    // collect styled samples + track declaration.
+                    let (samples, track) =
+                        collect_soft_subtitle_samples_mkv(project, &files_box);
+                    if format == ExportFormat::Av1WebM {
+                        (Vec::new(), None)
+                    } else {
+                        (samples, track)
+                    }
+                } else {
+                    let samples = collect_soft_subtitle_samples(project, &files_box);
+                    let track = if samples.is_empty() {
+                        None
+                    } else {
+                        Some(SubtitleTrackConfigOut::mov_text(Some("und".to_string())))
+                    };
+                    (samples, track)
+                }
+            } else {
+                (Vec::new(), None)
+            };
 
         let subtitle_mode = project.export_profile.subtitle_mode;
 
@@ -1562,6 +1955,7 @@ impl WasmExportChunker {
                 audio_encoded,
                 flac_encoded,
                 subtitle_samples,
+                subtitle_track,
             });
         }
 
@@ -1608,6 +2002,7 @@ impl WasmExportChunker {
             audio_encoded,
             flac_encoded,
             subtitle_samples,
+            subtitle_track,
         })
     }
 
@@ -1696,7 +2091,9 @@ impl WasmExportChunker {
             }
 
             // Extract SPS/PPS from the first H.264 frame
-            if self.format == ExportFormat::Mp4 && self.sps.is_empty() {
+            if matches!(self.format, ExportFormat::Mp4 | ExportFormat::H264Mkv)
+                && self.sps.is_empty()
+            {
                 let (sps, pps) = extract_sps_pps(&packet.data)
                     .ok_or_else(|| "Could not extract SPS/PPS from H.264 stream".to_string())?;
                 self.sps = sps;
@@ -1704,7 +2101,13 @@ impl WasmExportChunker {
             }
 
             // Strip AV1 temporal delimiters
-            let sample = if matches!(self.format, ExportFormat::Av1Mp4 | ExportFormat::Av1Ivf) {
+            let sample = if matches!(
+                self.format,
+                ExportFormat::Av1Mp4
+                    | ExportFormat::Av1Ivf
+                    | ExportFormat::Av1Mkv
+                    | ExportFormat::Av1WebM
+            ) {
                 strip_leading_temporal_delimiters(&packet.data).to_vec()
             } else {
                 packet.data
@@ -1814,7 +2217,13 @@ impl WasmExportChunker {
             if p.data.is_empty() {
                 continue;
             }
-            let sample = if matches!(self.format, ExportFormat::Av1Mp4 | ExportFormat::Av1Ivf) {
+            let sample = if matches!(
+                self.format,
+                ExportFormat::Av1Mp4
+                    | ExportFormat::Av1Ivf
+                    | ExportFormat::Av1Mkv
+                    | ExportFormat::Av1WebM
+            ) {
                 strip_leading_temporal_delimiters(&p.data).to_vec()
             } else {
                 p.data
@@ -1847,10 +2256,7 @@ impl WasmExportChunker {
                 let subtitle_track = if self.subtitle_samples.is_empty() {
                     None
                 } else {
-                    Some(SubtitleTrackConfigOut {
-                        codec: SubtitleTrackCodecOut::MovText,
-                        language: Some("und".to_string()),
-                    })
+                    Some(SubtitleTrackConfigOut::mov_text(Some("und".to_string())))
                 };
 
                 let mut output = Vec::new();
@@ -1897,6 +2303,76 @@ impl WasmExportChunker {
                 muxer
                     .finish()
                     .map_err(|e| format!("MP4 finalize failed: {e}"))?;
+                drop(muxer);
+
+                if output.is_empty() {
+                    return Err(
+                        "[LC-101] Export produced an empty file (encoder emitted no data)"
+                            .to_string(),
+                    );
+                }
+                Ok(WasmExportArtifact {
+                    bytes: output,
+                    file_name,
+                    mime_type: mime_type.to_string(),
+                })
+            }
+            ExportFormat::H264Mkv | ExportFormat::Av1Mkv | ExportFormat::Av1WebM => {
+                let matroska = self.format != ExportFormat::Av1WebM;
+                let video_codec = match self.format {
+                    ExportFormat::H264Mkv => VideoTrackCodecOut::H264,
+                    _ => VideoTrackCodecOut::Av1,
+                };
+                let audio_track = self
+                    .audio_encoded
+                    .as_ref()
+                    .map(|e| audio_track_config(e, e.sample_rate));
+                // Track was selected at construction (ASS CodecPrivate when
+                // styled); empty samples mean no track.
+                let subtitle_track = if self.subtitle_samples.is_empty() {
+                    None
+                } else {
+                    self.subtitle_track.clone()
+                };
+
+                let mut output = Vec::new();
+                let mut muxer = MkvMuxer::new(
+                    &mut output,
+                    self.settings.width,
+                    self.settings.height,
+                    self.settings.fps,
+                    matroska,
+                    audio_track,
+                    subtitle_track,
+                    video_codec,
+                )
+                .map_err(|e| format!("MKV muxer init failed: {e}"))?;
+
+                for f in &self.buffered_frames {
+                    match f.dts_us {
+                        Some(dts_us) => muxer
+                            .write_sample_with_dts_at(f.pts_us, dts_us, &f.data, f.is_keyframe)
+                            .map_err(|e| format!("MKV write failed: {e}"))?,
+                        None => muxer
+                            .write_sample_at(f.pts_us, &f.data, f.is_keyframe)
+                            .map_err(|e| format!("MKV write failed: {e}"))?,
+                    }
+                }
+
+                if let Some(audio) = &self.audio_encoded {
+                    for packet in &audio.packets {
+                        muxer
+                            .write_audio_sample_at(packet.pts_us, &packet.bytes)
+                            .map_err(|e| format!("MKV audio write failed: {e}"))?;
+                    }
+                }
+
+                write_soft_subtitle_samples_mkv(&mut muxer, &self.subtitle_samples)
+                    .map_err(|e| format!("MKV subtitle write failed: {e}"))?;
+
+                muxer
+                    .finish()
+                    .map_err(|e| format!("MKV finalize failed: {e}"))?;
                 drop(muxer);
 
                 if output.is_empty() {

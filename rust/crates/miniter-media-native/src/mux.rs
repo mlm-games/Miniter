@@ -1,9 +1,10 @@
-//! Mux H.264 video and Opus audio into MP4 using muxfin.
+//! Mux H.264/AV1 video and Opus audio into MP4 or Matroska using muxfin.
 
 use muxfin::api::{
     AudioCodec, Muxer as InnerMuxer, MuxerBuilder, MuxerError as InnerMuxError, SubtitleCodec,
     VideoCodec,
 };
+use muxfin::codec::ass::AssEvent;
 use muxfin::time::SubtitleCue;
 use std::io::Write;
 
@@ -13,6 +14,8 @@ pub enum MuxError {
     Muxide(#[from] InnerMuxError),
     #[error("MOV container is not supported by muxfin")]
     MovUnsupported,
+    #[error("ASS/SSA subtitles need CodecPrivate (missing styles section)")]
+    MissingAssCodecPrivate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,12 +43,29 @@ pub struct OpusTrackConfigOut {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubtitleTrackCodecOut {
     MovText,
+    /// Matroska `S_TEXT/SSA` (styling preserved via CodecPrivate).
+    Ssa,
+    /// Matroska `S_TEXT/ASS` (styling preserved via CodecPrivate).
+    Ass,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubtitleTrackConfigOut {
     pub codec: SubtitleTrackCodecOut,
     pub language: Option<String>,
+    /// ASS/SSA CodecPrivate (`[Script Info]` + `[V4(+?) Styles]`).
+    /// Required for `Ssa`/`Ass`, ignored otherwise.
+    pub ass_codec_private: Option<Vec<u8>>,
+}
+
+impl SubtitleTrackConfigOut {
+    pub fn mov_text(language: Option<String>) -> Self {
+        Self {
+            codec: SubtitleTrackCodecOut::MovText,
+            language,
+            ass_codec_private: None,
+        }
+    }
 }
 
 pub struct Mp4Muxer<W: Write> {
@@ -85,6 +105,9 @@ impl<W: Write> Mp4Muxer<W> {
         if let Some(subtitle) = subtitle {
             let codec = match subtitle.codec {
                 SubtitleTrackCodecOut::MovText => SubtitleCodec::MovText,
+                SubtitleTrackCodecOut::Ssa | SubtitleTrackCodecOut::Ass => {
+                    return Err(MuxError::MissingAssCodecPrivate);
+                }
             };
             builder = builder.subtitle(codec, subtitle.language);
         }
@@ -149,6 +172,146 @@ impl<W: Write> Mp4Muxer<W> {
         let start = i64::try_from(start_ms).unwrap_or(i64::MAX);
         let cue = SubtitleCue::new(start, duration_ms, text)?;
         self.writer.write_subtitle_cue(cue)?;
+        Ok(())
+    }
+
+    pub fn finish(&mut self) -> Result<(), MuxError> {
+        self.writer.finish_in_place()?;
+        Ok(())
+    }
+}
+
+/// Matroska/WebM muxer: the parallel counterpart to [`Mp4Muxer`].
+///
+/// Produced via [`MkvMuxer::new`]; timestamp/error semantics mirror the
+/// MP4 path. ASS/SSA subtitle tracks preserve styling through CodecPrivate
+/// + per-event Blocks (muxfin 0.5+).
+pub struct MkvMuxer<W: Write> {
+    writer: muxfin::api::MkvMuxer<W>,
+    subtitle_codec: Option<SubtitleTrackCodecOut>,
+}
+
+impl<W: Write> MkvMuxer<W> {
+    /// `matroska` selects `.mkv`, `webm` selects `.webm`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        output: W,
+        width: u32,
+        height: u32,
+        fps: f64,
+        matroska: bool,
+        audio: Option<OpusTrackConfigOut>,
+        subtitle: Option<SubtitleTrackConfigOut>,
+        video_codec: VideoTrackCodecOut,
+    ) -> Result<Self, MuxError> {
+        use muxfin::api::ContainerFormat as MuxContainer;
+
+        let video_codec = match video_codec {
+            VideoTrackCodecOut::H264 => VideoCodec::H264,
+            VideoTrackCodecOut::Av1 => VideoCodec::Av1,
+        };
+
+        let mut builder = MuxerBuilder::new(output)
+            .video(video_codec, width, height, fps)
+            .with_container(if matroska {
+                MuxContainer::Matroska
+            } else {
+                MuxContainer::WebM
+            });
+
+        if let Some(audio) = audio {
+            builder = builder
+                .audio(AudioCodec::Opus, audio.sample_rate, audio.channels)
+                .with_opus_preskip(audio.preskip_48k);
+        }
+
+        let subtitle_codec = subtitle.as_ref().map(|s| s.codec);
+        if let Some(subtitle) = subtitle {
+            let codec = match subtitle.codec {
+                SubtitleTrackCodecOut::MovText => SubtitleCodec::MovText,
+                SubtitleTrackCodecOut::Ssa => SubtitleCodec::Ssa,
+                SubtitleTrackCodecOut::Ass => SubtitleCodec::Ass,
+            };
+            if let Some(private) = subtitle.ass_codec_private {
+                builder = builder.with_ass_codec_private(private);
+            }
+            builder = builder.subtitle(codec, subtitle.language);
+        }
+
+        let writer = builder.build_mkv()?;
+        Ok(Self {
+            writer,
+            subtitle_codec,
+        })
+    }
+
+    pub fn write_sample_at(
+        &mut self,
+        pts_us: u64,
+        data: &[u8],
+        is_keyframe: bool,
+    ) -> Result<(), MuxError> {
+        let pts = pts_us as f64 / 1_000_000.0;
+        self.writer.write_video(pts, data, is_keyframe)?;
+        Ok(())
+    }
+
+    /// Decode-order feed with explicit DTS (same B-frame contract as
+    /// [`Mp4Muxer::write_sample_with_dts_at`]).
+    pub fn write_sample_with_dts_at(
+        &mut self,
+        pts_us: u64,
+        dts_us: u64,
+        data: &[u8],
+        is_keyframe: bool,
+    ) -> Result<(), MuxError> {
+        let pts = pts_us as f64 / 1_000_000.0;
+        let dts = dts_us as f64 / 1_000_000.0;
+        self.writer
+            .write_video_with_dts(pts, dts, data, is_keyframe)?;
+        Ok(())
+    }
+
+    pub fn write_audio_sample_at(
+        &mut self,
+        start_time_us: u64,
+        data: &[u8],
+    ) -> Result<(), MuxError> {
+        let pts = start_time_us as f64 / 1_000_000.0;
+        self.writer.write_audio(pts, data)?;
+        Ok(())
+    }
+
+    pub fn write_subtitle_sample_at(
+        &mut self,
+        start_time_us: u64,
+        duration_us: u64,
+        text: &str,
+    ) -> Result<(), MuxError> {
+        if matches!(
+            self.subtitle_codec,
+            Some(SubtitleTrackCodecOut::Ssa) | Some(SubtitleTrackCodecOut::Ass)
+        ) {
+            return Err(MuxError::MissingAssCodecPrivate);
+        }
+        let pts = start_time_us as f64 / 1_000_000.0;
+        let duration = duration_us.max(1) as f64 / 1_000_000.0;
+        self.writer.write_subtitle(pts, duration, text)?;
+        Ok(())
+    }
+
+    /// Write one ASS/SSA Dialogue event (styling preserved).
+    pub fn write_ass_event_at(
+        &mut self,
+        start_time_us: u64,
+        duration_us: u64,
+        read_order: u32,
+        event: &AssEvent,
+    ) -> Result<(), MuxError> {
+        let pts = start_time_us as f64 / 1_000_000.0;
+        let duration = duration_us.max(1) as f64 / 1_000_000.0;
+        self.writer
+            .write_ass_event(pts, duration, read_order, event)?;
         Ok(())
     }
 

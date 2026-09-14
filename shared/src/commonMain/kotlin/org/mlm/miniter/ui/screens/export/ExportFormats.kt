@@ -24,6 +24,24 @@ val RustExportFormat.capabilities: ExportCapabilities
             supportsBurnedInSubtitles = true,
             stylingWarning = true,
         )
+        RustExportFormat.H264Mkv -> ExportCapabilities(
+            supportsAudio = true,
+            supportsEmbeddedSubtitles = true,
+            supportsBurnedInSubtitles = true,
+            stylingWarning = false,
+        )
+        RustExportFormat.Av1Mkv -> ExportCapabilities(
+            supportsAudio = true,
+            supportsEmbeddedSubtitles = true,
+            supportsBurnedInSubtitles = true,
+            stylingWarning = false,
+        )
+        RustExportFormat.Av1WebM -> ExportCapabilities(
+            supportsAudio = true,
+            supportsEmbeddedSubtitles = false,
+            supportsBurnedInSubtitles = true,
+            stylingWarning = false,
+        )
         RustExportFormat.Av1Ivf -> ExportCapabilities(
             supportsAudio = false,
             supportsEmbeddedSubtitles = false,
@@ -54,6 +72,9 @@ val RustExportFormat.label: String
     get() = when (this) {
         RustExportFormat.Mp4 -> "H.264 / MP4"
         RustExportFormat.Av1Mp4 -> "AV1 / MP4"
+        RustExportFormat.H264Mkv -> "H.264 / MKV"
+        RustExportFormat.Av1Mkv -> "AV1 / MKV"
+        RustExportFormat.Av1WebM -> "AV1 / WebM"
         RustExportFormat.Av1Ivf -> "AV1 / IVF"
         RustExportFormat.Mov -> "H.264 / MOV"
         RustExportFormat.Opus -> "Opus / Ogg"
@@ -65,6 +86,9 @@ val RustExportFormat.fileExtension: String
         RustExportFormat.Mp4 -> "mp4"
         RustExportFormat.Av1Ivf -> "ivf"
         RustExportFormat.Av1Mp4 -> "mp4"
+        RustExportFormat.H264Mkv -> "mkv"
+        RustExportFormat.Av1Mkv -> "mkv"
+        RustExportFormat.Av1WebM -> "webm"
         RustExportFormat.Mov -> "mov"
         RustExportFormat.Opus -> "ogg"
         RustExportFormat.Flac -> "flac"
