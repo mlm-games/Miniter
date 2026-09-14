@@ -198,10 +198,10 @@ actual class PlatformVideoEngine actual constructor() {
     }
 
     actual fun cancelExport() {
+        exportCancelled = true
         val session = activeSession ?: return
         val current = _exportProgress.value
         if (current.isComplete || current.isCancelled || current.error != null) return
-        exportCancelled = true
         session.cancel()
         _exportProgress.value = ExportProgress(
             phase = "Cancelled",
@@ -211,6 +211,7 @@ actual class PlatformVideoEngine actual constructor() {
 
     actual fun reset() {
         exportCancelled = false
+        runCatching { activeSession?.cancel() }
         activeSession = null
         runCatching { RustCoreSession.clearExportPreview() }
         _exportProgress.value = ExportProgress()

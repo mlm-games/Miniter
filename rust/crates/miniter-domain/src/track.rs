@@ -1,4 +1,4 @@
-use crate::clip::{Clip, ClipId};
+use crate::clip::{Clip, ClipId, ClipKind};
 use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -25,6 +25,19 @@ pub enum TrackKind {
     Audio,
     Text,
     Subtitle,
+}
+
+impl TrackKind {
+    /// Clips that may live on a track of `self` kind.
+    pub fn accepts_clip_kind(&self, kind: &ClipKind) -> bool {
+        match (self, kind) {
+            (TrackKind::Video, ClipKind::Video(_)) => true,
+            (TrackKind::Audio, ClipKind::Audio(_)) => true,
+            (TrackKind::Text, ClipKind::Text(_)) => true,
+            (TrackKind::Subtitle, ClipKind::Subtitle(_)) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

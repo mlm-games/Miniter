@@ -39,8 +39,8 @@ import org.mlm.miniter.editor.model.RustTrackSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.project.ALL_PARAMS_BY_KEY
 import kotlin.math.abs
-import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.round
 
 private val TRACK_HEIGHT = 52.dp
 private val TRACK_HEADER_WIDTH = 48.dp
@@ -54,13 +54,30 @@ private const val TIMELINE_PADDING_MS = 5000L
 /**
  * Long-term fix for #14: cap the composable timeline width so deep zoom on
  * long media cannot ask Compose/Skia to lay out a multi-million-dp layer
- * (OOM / native canvas crash on desktop). Content stays pannable inside the
- * cap; interaction math keeps using the uncapped dpPerMs.
+ * (OOM / native canvas crash on desktop). All position math (clips,
+ * playhead, ruler taps, drag deltas, snap, auto-scroll) goes through
+ * [xToMs]/[msToX] so content past the cap is clamped to the same space it
+ * is drawn in instead of diverging.
  */
 private const val MAX_TIMELINE_WIDTH_DP = 200_000f
 
 private fun cappedTimelineWidthDp(timelineDurationMs: Long, dpPerMs: Float): Float =
     (timelineDurationMs.toDouble() * dpPerMs.toDouble()).coerceAtMost(MAX_TIMELINE_WIDTH_DP.toDouble()).toFloat()
+
+/** Visible duration actually laid out (capped), in ms. */
+private fun visibleDurationMs(timelineDurationMs: Long, dpPerMs: Float): Long =
+    (cappedTimelineWidthDp(timelineDurationMs, dpPerMs) / dpPerMs).toLong()
+        .coerceIn(0L, timelineDurationMs)
+
+/** ms -> x in the capped layout space. */
+private fun msToX(ms: Long, dpPerMs: Float, timelineDurationMs: Long): Float {
+    val visible = visibleDurationMs(timelineDurationMs, dpPerMs)
+    return (ms.coerceIn(0L, visible).toDouble() * dpPerMs.toDouble()).toFloat()
+}
+
+/** x (dp, in the capped layout space) -> ms. */
+private fun xToMs(xDp: Float, dpPerMs: Float, timelineDurationMs: Long): Long =
+    (xDp / dpPerMs).toLong().coerceIn(0L, visibleDurationMs(timelineDurationMs, dpPerMs))
 
 @Composable
 fun TimelinePanel(
@@ -119,7 +136,7 @@ fun TimelinePanel(
         if (!isPlaying) return@LaunchedEffect
         val viewportPx = horizontalScrollState.viewportSize.toFloat()
         if (viewportPx <= 0f) return@LaunchedEffect
-        val playheadPx = with(density) { (playheadMs * dpPerMs).dp.toPx() }
+        val playheadPx = with(density) { msToX(playheadMs, dpPerMs, timelineDurationMs).dp.toPx() }
         val scrollPx = horizontalScrollState.value.toFloat()
         val margin = viewportPx * 0.2f
         if (playheadPx > scrollPx + viewportPx - margin) {
@@ -139,8 +156,7 @@ fun TimelinePanel(
             playheadMs = playheadMs,
             scrollState = horizontalScrollState,
             onTap = { tapDp ->
-                val ms = (tapDp / dpPerMs).toLong().coerceAtLeast(0)
-                onPlayheadChange(ms)
+                onPlayheadChange(xToMs(tapDp, dpPerMs, timelineDurationMs))
             },
         )
 
@@ -155,6 +171,7 @@ fun TimelinePanel(
                     allTracks = tracks,
                     dpPerMs = dpPerMs,
                     totalContentWidthDp = totalContentWidthDp,
+                    timelineDurationMs = timelineDurationMs,
                     playheadMs = playheadMs,
                     selectedClipId = selectedClipId,
                     snapIndicatorMs = snapIndicatorMs,
@@ -234,11 +251,9 @@ private fun TimelineRuler(
                     else -> 30_000L
                 }
                 val minorMs = majorMs / 5
-                val cappedWidthDp = cappedTimelineWidthDp(timelineDurationMs, dpPerMs)
-                val visibleDurationMs = (cappedWidthDp / dpPerMs).toLong()
-                    .coerceIn(0L, timelineDurationMs)
+                val visibleMs = visibleDurationMs(timelineDurationMs, dpPerMs)
                 var ms = 0L
-                while (ms <= visibleDurationMs) {
+                while (ms <= visibleMs) {
                     val x = ms * dpPerMs * density.density
                     if (ms % majorMs == 0L) {
                         drawLine(rulerLineColor, Offset(x, h * 0.4f), Offset(x, h), 1.5f)
@@ -252,7 +267,7 @@ private fun TimelineRuler(
                     }
                     ms += minorMs
                 }
-                val phX = playheadMs * dpPerMs * density.density
+                val phX = msToX(playheadMs, dpPerMs, timelineDurationMs) * density.density
                 val hs = PLAYHEAD_HEAD_SIZE.toPx()
                 val path = androidx.compose.ui.graphics.Path().apply {
                     moveTo(phX - hs / 2, 0f); lineTo(phX + hs / 2, 0f); lineTo(phX, hs); close()
@@ -270,6 +285,7 @@ private fun TrackRow(
     allTracks: List<RustTrackSnapshot>,
     dpPerMs: Float,
     totalContentWidthDp: Dp,
+    timelineDurationMs: Long,
     playheadMs: Long,
     selectedClipId: String?,
     snapIndicatorMs: Long?,
@@ -322,8 +338,9 @@ private fun TrackRow(
                 val sameTypeIndex = sameTypeUnlocked.indexOf(track.id)
 
                 track.clips.forEach { clip ->
-                    val leftDp = (clipStartMs(clip) * dpPerMs).dp
-                    val widthDp = (clipDurationMs(clip) * dpPerMs).coerceAtLeast(1f).dp
+                    val leftDp = msToX(clipStartMs(clip), dpPerMs, timelineDurationMs)
+                    val rightDp = msToX(clipEndMs(clip), dpPerMs, timelineDurationMs)
+                    val widthDp = (rightDp - leftDp).coerceAtLeast(1f).dp
                     val isSelected = clip.id == selectedClipId
 
                     ClipBlock(
@@ -335,7 +352,7 @@ private fun TrackRow(
                         isMuted = track.muted,
                         dpPerMs = dpPerMs,
                         playheadMs = playheadMs,
-                        modifier = Modifier.offset(x = leftDp).fillMaxHeight().padding(vertical = 2.dp),
+                        modifier = Modifier.offset(x = leftDp.dp).fillMaxHeight().padding(vertical = 2.dp),
                         onTap = { onClipSelected(clip.id) },
                         onBeginEdit = onBeginEdit,
                         onDragAbsolute = { absoluteMs ->
@@ -375,12 +392,12 @@ private fun TrackRow(
                 }
 
                 Box(
-                    Modifier.offset(x = (playheadMs * dpPerMs).dp - 0.5.dp)
+                    Modifier.offset(x = msToX(playheadMs, dpPerMs, timelineDurationMs).dp - 0.5.dp)
                         .width(1.5.dp).fillMaxHeight().background(playheadColor)
                 )
 
                 if (snapIndicatorMs != null) {
-                    val snapDp = (snapIndicatorMs * dpPerMs).dp
+                    val snapDp = msToX(snapIndicatorMs, dpPerMs, timelineDurationMs).dp
                     Canvas(
                         Modifier.offset(x = snapDp - 0.5.dp).width(1.dp).fillMaxHeight()
                     ) {
@@ -523,7 +540,8 @@ private fun ClipBlock(
                                 onDragEnd()
                                 return@detectDragGestures
                             }
-                            val shift = floor(totalDragPxY / trackHeightPx).toInt()
+                            val shift = if (abs(totalDragPxY) < trackHeightPx * 0.5f) 0
+                                else round(totalDragPxY / trackHeightPx).toInt()
                             val targetIndex = (currentSameTypeIndex + shift).coerceIn(0, currentSameTypeTrackIds.lastIndex)
                             val targetTrackId = currentSameTypeTrackIds.getOrNull(targetIndex)
 

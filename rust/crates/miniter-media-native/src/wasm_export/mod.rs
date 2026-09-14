@@ -639,8 +639,8 @@ fn export_h264_mp4_bytes(
     let mut frame_index: u32 = 0;
     {
         let emit = |encoded: EncodedVideoOutput,
-                        frame_index: u32,
-                        muxer: &mut Mp4Muxer<&mut Vec<u8>>|
+                    frame_index: u32,
+                    muxer: &mut Mp4Muxer<&mut Vec<u8>>|
          -> Result<(), String> {
             let (bytes, is_keyframe, pts_us) = match encoded {
                 EncodedVideoOutput::Sample {
@@ -1757,9 +1757,10 @@ impl WasmExportChunker {
                     ExportFormat::Mp4 => VideoTrackCodecOut::H264,
                     _ => VideoTrackCodecOut::Av1,
                 };
-                let audio_track = self.audio_encoded.as_ref().map(|e| {
-                    audio_track_config(e, normalize_audio_sample_rate(self.ogg_sample_rate))
-                });
+                let audio_track = self
+                    .audio_encoded
+                    .as_ref()
+                    .map(|e| audio_track_config(e, e.sample_rate));
                 let subtitle_track = if self.subtitle_samples.is_empty() {
                     None
                 } else {

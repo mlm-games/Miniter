@@ -64,6 +64,8 @@ mod hw {
         #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
         matrix: MatrixCoeffs,
         frame_index: u32,
+        #[cfg(not(target_arch = "wasm32"))]
+        emitted_frames: u32,
         #[cfg(target_arch = "wasm32")]
         is_h264: bool,
         /// Force an AV1 keyframe every N frames so seek-based thumbnailers
@@ -140,6 +142,8 @@ mod hw {
                 height,
                 matrix,
                 frame_index: 0,
+                #[cfg(not(target_arch = "wasm32"))]
+                emitted_frames: 0,
                 #[cfg(target_arch = "wasm32")]
                 is_h264,
                 #[cfg(target_arch = "wasm32")]
@@ -317,10 +321,13 @@ mod hw {
                         if bytes.is_empty() {
                             return Err(EncodeError::EmptyFrame { frame_index: idx });
                         }
-                        Ok(EncodedVideoOutput::Sample {
-                            bytes,
-                            is_keyframe: is_first || pkt.keyframe,
-                            pts_us: pkt.timestamp.as_micros() as i64,
+                        Ok({
+                            self.emitted_frames = self.emitted_frames.saturating_add(1);
+                            EncodedVideoOutput::Sample {
+                                bytes,
+                                is_keyframe: is_first || pkt.keyframe,
+                                pts_us: pkt.timestamp.as_micros() as i64,
+                            }
                         })
                     }
                     None => Err(EncodeError::BufferedFrame { frame_index: idx }),
@@ -354,6 +361,36 @@ mod hw {
         pub fn height(&self) -> u32 {
             self.height
         }
+
+        /// Frames submitted but not yet surfaced as output. Native
+        /// encode_frame blocks on one packet() per submit, so this lags by
+        /// at most one; the drain loop uses it as an upper bound.
+        #[cfg(not(target_arch = "wasm32"))]
+        pub fn pending_frames(&self) -> u32 {
+            self.frame_index.saturating_sub(self.emitted_frames)
+        }
+
+        /// Pull one more output packet after the last submit (native tail
+        /// drain). Returns Ok(None) when the encoder has nothing buffered.
+        #[cfg(not(target_arch = "wasm32"))]
+        pub fn drain_one(&mut self) -> Result<Option<EncodedVideoOutput>, EncodeError> {
+            use baabaabaabaabababbababbaa::VideoEncoderOutput;
+            let pkt = self.rt.block_on(self.output.packet())
+                .map_err(|e| EncodeError::Backend(format!("HwEncoder drain: {e:?}")))?;
+            match pkt {
+                Some(pkt) => {
+                    let bytes = pkt.payload.to_vec();
+                    if bytes.is_empty() { return Ok(None); }
+                    self.emitted_frames = self.emitted_frames.saturating_add(1);
+                    Ok(Some(EncodedVideoOutput::Sample {
+                        bytes,
+                        is_keyframe: pkt.keyframe,
+                        pts_us: pkt.timestamp.as_micros() as i64,
+                    }))
+                }
+                None => Ok(None),
+            }
+        }
     }
 }
 
@@ -372,6 +409,8 @@ mod hw {
     pub struct HwEncodeSession;
 
     impl HwEncodeSession {
+        pub fn pending_frames(&self) -> u32 { 0 }
+        pub fn drain_one(&mut self) -> Result<Option<EncodedVideoOutput>, EncodeError> { Ok(None) }
         pub fn new(
             _width: u32,
             _height: u32,

@@ -38,6 +38,9 @@ object TimelineBasics {
 
     data class SplitTarget(val clipId: String, val trackId: String, val atUs: Long)
 
+    /** Minimum side duration for a split (100ms, matches MIN_TRIM_DURATION). */
+    const val MIN_SPLIT_SIDE_US = 100_000L
+
     fun splitTargetsAt(
         tracks: List<RustTrackSnapshot>,
         playheadUs: Long,
@@ -47,7 +50,7 @@ object TimelineBasics {
             track.clips.mapNotNull { clip ->
                 val start = clip.timelineStartUs
                 val end = start + clip.timelineDurationUs
-                if (playheadUs > start && playheadUs < end) {
+                if (playheadUs - start >= MIN_SPLIT_SIDE_US && end - playheadUs >= MIN_SPLIT_SIDE_US) {
                     SplitTarget(clip.id, track.id, playheadUs)
                 } else null
             }

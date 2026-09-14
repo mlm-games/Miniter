@@ -6,7 +6,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileNotFoundException
+import java.security.MessageDigest
 import java.util.UUID
+
+internal fun sha256Hex(input: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+    return digest.joinToString("") { "%02x".format(it) }.take(32)
+}
 
 actual object PlatformFileSystem {
 
@@ -148,15 +154,16 @@ internal suspend fun materializeReadablePath(path: String): String = withContext
     val context = AndroidContext.get()
     val uri = Uri.parse(path)
     val displayName = queryDisplayName(uri)
-        ?: "picked_${path.hashCode().toUInt().toString(16)}"
+        ?: "picked_$uriKey"
     val safeName = sanitizeFileName(displayName)
 
     val dir = File(context.filesDir, "native-inputs").apply { mkdirs() }
-    val outFile = File(dir, "${path.hashCode().toUInt().toString(16)}_$safeName")
+    val uriKey = sha256Hex(path)
+    val outFile = File(dir, "${uriKey}_$safeName")
 
     val sourceSize = querySize(uri)
     val stagedValid = outFile.exists() && outFile.length() > 0L &&
-        (sourceSize == null || sourceSize < 0L || outFile.length() == sourceSize)
+        sourceSize != null && sourceSize >= 0L && outFile.length() == sourceSize
 
     if (!stagedValid) {
         context.contentResolver.openInputStream(uri)?.use { input ->

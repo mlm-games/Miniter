@@ -376,14 +376,16 @@ fn parse_srt_cues(path: &Path) -> Result<Vec<SourceSubtitleCue>, String> {
 fn parse_ass_cues(path: &Path, preserve_styles: bool) -> Result<Vec<SourceSubtitleCue>, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read ASS/SSA '{}': {}", path.display(), e))?;
-    Ok(crate::subtitles::parse_ass_content(&content, preserve_styles)
-        .into_iter()
-        .map(|cue| SourceSubtitleCue {
-            start_us: cue.start_us,
-            end_us: cue.end_us,
-            text: cue.text,
-        })
-        .collect())
+    Ok(
+        crate::subtitles::parse_ass_content(&content, preserve_styles)
+            .into_iter()
+            .map(|cue| SourceSubtitleCue {
+                start_us: cue.start_us,
+                end_us: cue.end_us,
+                text: cue.text,
+            })
+            .collect(),
+    )
 }
 
 struct ExportDecodeSession {
@@ -548,6 +550,32 @@ impl AnyEncoder {
         match self {
             AnyEncoder::Sw(e) => e.encode_frame(frame),
             AnyEncoder::Hw(e) => e.encode_frame(frame),
+        }
+    }
+
+    /// Drain the HW tail. Native platform encoders are async under the hood
+    /// (W3C WebCodecs: outputs MAY arrive only after further inputs, MUST all
+    /// arrive on flush), so the last frames are still buffered when the frame
+    /// loop ends. Native counterpart of the WASM `drain_completed` loop.
+    /// Best-effort: a drain error must not fail an export that already
+    /// encoded every frame - log and return what we have.
+    fn finish_hw(&mut self) -> Vec<EncodedVideoOutput> {
+        match self {
+            AnyEncoder::Sw(_) => Vec::new(),
+            AnyEncoder::Hw(e) => {
+                let mut out = Vec::new();
+                for _ in 0..=e.pending_frames() {
+                    match e.drain_one() {
+                        Ok(Some(sample)) => out.push(sample),
+                        Ok(None) => break,
+                        Err(err) => {
+                            log::warn!("HW drain failed after last frame: {err}");
+                            break;
+                        }
+                    }
+                }
+                out
+            }
         }
     }
 
@@ -736,8 +764,12 @@ where
         }
         Ok(())
     };
-    let first_output = encoder.encode_frame(&first_frame)?;
-    emit(first_output, frame_index, &mut staged, &mut muxer)?;
+    match encoder.encode_frame(&first_frame) {
+        Err(EncodeError::BufferedFrame { .. }) => {}
+        other => {
+            emit(other?, frame_index, &mut staged, &mut muxer)?;
+        }
+    }
     frame_index += 1;
 
     let mut frame_count: u32 = 1;
@@ -765,8 +797,12 @@ where
             pts_us: plan.timestamp.as_micros(),
             color_info: Default::default(),
         };
-        let output = encoder.encode_frame(&frame)?;
-        emit(output, frame_index, &mut staged, &mut muxer)?;
+        match encoder.encode_frame(&frame) {
+            Err(EncodeError::BufferedFrame { .. }) => {}
+            other => {
+                emit(other?, frame_index, &mut staged, &mut muxer)?;
+            }
+        }
         frame_index += 1;
 
         frame_count += 1;
@@ -780,6 +816,9 @@ where
         for output in sw.finish() {
             emit(output, frame_index, &mut staged, &mut muxer)?;
         }
+    }
+    for output in encoder.finish_hw() {
+        emit(output, frame_index, &mut staged, &mut muxer)?;
     }
 
     let Some(mut muxer) = muxer else {
@@ -1202,6 +1241,7 @@ where
 
     let mut frame_count: u32 = 0;
     let mut ivf_packet_count: u32 = 0;
+    let mut seen_first_keyframe = false;
     for plan in std::iter::once(first_plan).chain(iter) {
         if is_cancelled() {
             return Err(ExportError::Cancelled);
@@ -1234,7 +1274,7 @@ where
                 let muxer = mp4_muxer.as_mut().ok_or_else(|| {
                     ExportError::Internal("MP4 muxer missing for AV1 MP4 export".into())
                 })?;
-                write_av1_packets_to_mux(muxer, &packets)?;
+                write_av1_packets_to_mux_gated(muxer, &packets, &mut seen_first_keyframe)?;
             }
             Av1Container::Mkv | Av1Container::WebM => {
                 unreachable!();
@@ -1271,7 +1311,7 @@ where
             let muxer = mp4_muxer.as_mut().ok_or_else(|| {
                 ExportError::Internal("MP4 muxer missing for AV1 MP4 export".into())
             })?;
-            write_av1_packets_to_mux(muxer, &finish_packets)?;
+            write_av1_packets_to_mux_gated(muxer, &finish_packets, &mut seen_first_keyframe)?;
 
             if let Some(oe) = audio_encoded {
                 write_audio_packets(muxer, &oe, 0)?;
@@ -1294,15 +1334,32 @@ fn write_av1_packets_to_mux<W: std::io::Write>(
     muxer: &mut Mp4Muxer<W>,
     packets: &[Av1Packet],
 ) -> Result<usize, ExportError> {
+    write_av1_packets_to_mux_gated(muxer, packets, &mut true)
+}
+
+fn write_av1_packets_to_mux_gated<W: std::io::Write>(
+    muxer: &mut Mp4Muxer<W>,
+    packets: &[Av1Packet],
+    seen_first_keyframe: &mut bool,
+) -> Result<usize, ExportError> {
     let mut written = 0usize;
     for packet in packets {
-        let pts_us = packet.pts;
-
         let sample_data = strip_leading_temporal_delimiters(&packet.data);
         if sample_data.is_empty() {
             continue;
         }
-        muxer.write_sample_at(pts_us, sample_data, packet.is_keyframe)?;
+        if !*seen_first_keyframe {
+            if !packet.is_keyframe {
+                continue;
+            }
+            *seen_first_keyframe = true;
+        }
+        muxer.write_sample_with_dts_at(
+            packet.pts,
+            packet.dts_us,
+            sample_data,
+            packet.is_keyframe,
+        )?;
         written += 1;
     }
     Ok(written)

@@ -13,6 +13,7 @@ pub(crate) fn audio_track_config(audio: &EncodedOpus, sample_rate: u32) -> OpusT
     OpusTrackConfigOut {
         sample_rate,
         channels: audio.channels,
+        preskip_48k: audio.preskip_48k,
     }
 }
 
@@ -1288,7 +1289,6 @@ pub(crate) fn encode_opus(
     let samples_per_packet = frame_size * channels as usize;
 
     let preskip_48k = ((312 * 48_000 + sample_rate / 2) / sample_rate.max(1)) as u64;
-    let preskip_us = preskip_48k * 1_000_000 / 48_000;
 
     let mut packets = Vec::new();
     let mut out_buf = vec![0u8; 1275];
@@ -1308,7 +1308,7 @@ pub(crate) fn encode_opus(
 
         let raw_us = (pts_samples * 1_000_000) / sample_rate as u64;
         packets.push(EncodedOpusPacket {
-            pts_us: raw_us.saturating_sub(preskip_us),
+            pts_us: raw_us,
             bytes: out_buf[..written].to_vec(),
         });
 

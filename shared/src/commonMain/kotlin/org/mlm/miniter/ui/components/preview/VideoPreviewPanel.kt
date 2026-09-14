@@ -98,6 +98,7 @@ sealed interface VisibleMedia {
         val sourceTotalDurationMs: Long,
         val speed: Float,
         val volume: Float,
+        val muted: Boolean,
         val filters: List<RustVideoEffectSnapshot>,
         val keyframes: RustKeyframeCurve = RustKeyframeCurve(),
     ) : VisibleMedia
@@ -163,6 +164,7 @@ private fun collectVisibleMedia(
                             sourceTotalDurationMs = clip.sourceTotalDurationUs / 1000L,
                             speed = clip.speed.toFloat(),
                             volume = clip.volume,
+                            muted = clip.muted,
                             filters = kind.filters,
                             keyframes = clip.keyframes,
                         )
@@ -283,7 +285,8 @@ fun EditorVideoPreview(
     var primaryVideoUri by remember(primaryVideoPath) { mutableStateOf<String?>(null) }
     val canPlayPrimary = !primaryVideoUri.isNullOrBlank()
     val primarySpeed = primaryVideo?.speed ?: 1f
-    val primaryVolume = primaryVideo?.volume ?: defaultOf(KeyframeParams.VOLUME)
+    val primaryVolume = if (primaryVideo?.muted == true) 0f
+        else primaryVideo?.volume ?: defaultOf(KeyframeParams.VOLUME)
     val primaryFilters = primaryVideo?.filters ?: emptyList()
     val primaryOpacity = primaryVideo?.opacity ?: defaultOf(KeyframeParams.OPACITY)
     val primaryEffectiveOpacity = primaryVideo?.keyframes?.evaluate(
@@ -475,6 +478,7 @@ fun EditorVideoPreview(
         delay(80)
 
         val nonTransformFilters = primaryFilters
+            .filter { it.enabled }
             .map { it.filter }
             .filter { it !is RustTransformFilterSnapshot }
 
@@ -880,7 +884,7 @@ fun EditorVideoPreview(
                             BackgroundVideoFrame(
                                 sourcePath = bgVideo.sourcePath,
                                 sourceTimeMs = bgSourceTime,
-                                opacity = bgEffectiveOpacity,
+                                opacity = 1f,
                                 onFrameLoaded = { frame ->
                                     backgroundFrames = backgroundFrames + (bgVideo.id to frame)
                                 }

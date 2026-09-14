@@ -93,6 +93,20 @@ impl KeyframeCurve {
     }
 
     pub fn insert_sorted(&mut self, kf: Keyframe) -> usize {
+        if let Some(pos) = self
+            .keyframes
+            .iter()
+            .position(|k| k.param == kf.param && k.offset == kf.offset)
+        {
+            let (param, offset) = (kf.param.clone(), kf.offset);
+            self.keyframes[pos] = kf;
+            self.sort_by_offset();
+            return self
+                .keyframes
+                .iter()
+                .position(|k| k.param == param && k.offset == offset)
+                .unwrap_or(0);
+        }
         let idx = self
             .keyframes
             .iter()
@@ -135,5 +149,44 @@ fn apply_easing(easing: Easing, t: f32) -> f32 {
         Easing::EaseIn => ease_in(t),
         Easing::EaseOut => ease_out(t),
         Easing::EaseInOut => ease_in_out(t),
+    }
+}
+
+#[cfg(test)]
+mod keyframe_curve_tests {
+    use super::*;
+
+    #[test]
+    fn insert_sorted_dedupes_same_param_offset() {
+        let mut curve = KeyframeCurve::default();
+        for v in [0.5, 0.8] {
+            curve.insert_sorted(Keyframe {
+                param: "volume".into(),
+                offset: MediaDuration::from_micros(1_000_000),
+                value: v,
+                easing: Easing::Linear,
+            });
+        }
+        assert_eq!(curve.keyframes.len(), 1);
+        assert_eq!(curve.keyframes[0].value, 0.8);
+    }
+
+    #[test]
+    fn out_of_order_inserts_stay_evaluable() {
+        let mut curve = KeyframeCurve::default();
+        for (off, val) in [(3_000_000, 3.0), (1_000_000, 1.0), (2_000_000, 2.0)] {
+            curve.insert_sorted(Keyframe {
+                param: "volume".into(),
+                offset: MediaDuration::from_micros(off),
+                value: val,
+                easing: Easing::Linear,
+            });
+        }
+        let offsets: Vec<i64> = curve.keyframes.iter().map(|k| k.offset.as_micros()).collect();
+        assert_eq!(offsets, vec![1_000_000, 2_000_000, 3_000_000]);
+        assert_eq!(
+            curve.evaluate("volume", MediaDuration::from_micros(1_500_000)),
+            Some(1.5)
+        );
     }
 }

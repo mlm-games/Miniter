@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import org.mlm.miniter.editor.RustDispatchException
 import org.mlm.miniter.editor.RustProjectStore
 import org.mlm.miniter.nav.MAX_EXTRA_IMPORT_PATHS
@@ -154,9 +155,18 @@ class ProjectViewModel(
     private var preDragSnapshot: RustProjectSnapshot? = null
     private var continuousEditCommandCount = 0
     private val saveMutex = Mutex()
+    private val waveformJson = Json { ignoreUnknownKeys = true }
     private var thumbnailJob: Job? = null
     private var thumbnailRequestId: Long = 0L
     private var thumbnailRequestPath: String? = null
+    private val projectLifecycleMutex = Mutex()
+
+    private fun cancelInFlightMediaWork() {
+        thumbnailJob?.cancel()
+        thumbnailRequestId += 1
+        thumbnailRequestPath = null
+        exportJob?.cancel()
+    }
 
     private val _waveforms = MutableStateFlow<Map<String, List<Float>>>(emptyMap())
     val waveforms: StateFlow<Map<String, List<Float>>> = _waveforms
@@ -190,17 +200,15 @@ class ProjectViewModel(
     }
 
     private fun parseWaveformPeaks(json: String): List<Float> {
-        val trimmed = json.trim()
-        if (trimmed.length < 4) return emptyList()
-        return trimmed.removePrefix("[").removeSuffix("]")
-            .split("],[")
-            .mapNotNull { pair ->
-                val nums = pair.replace("[", "").replace("]", "").split(",")
-                val lo = nums.getOrNull(0)?.trim()?.toFloatOrNull()
-                val hi = nums.getOrNull(1)?.trim()?.toFloatOrNull()
-                if (lo == null || hi == null) null
-                else maxOf(kotlin.math.abs(lo), kotlin.math.abs(hi)).coerceIn(0f, 1f)
+        return try {
+            waveformJson.decodeFromString<List<List<Double>>>(json).map { pair ->
+                val lo = pair.getOrNull(0)?.toFloat() ?: 0f
+                val hi = pair.getOrNull(1)?.toFloat() ?: 0f
+                maxOf(kotlin.math.abs(lo), kotlin.math.abs(hi)).coerceIn(0f, 1f)
             }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     fun requestBeats(sourcePath: String) {
@@ -241,6 +249,9 @@ class ProjectViewModel(
     ) {
         val cappedExtraImports = extraImportPaths.take(MAX_EXTRA_IMPORT_PATHS)
         viewModelScope.launch {
+            projectLifecycleMutex.lock()
+            cancelInFlightMediaWork()
+            try {
             _state.update { it.copy(isLoading = true) }
             try {
                 val stagedVideoPath = PlatformFileSystem.stageForNativeAccess(initialVideoPath)
@@ -357,11 +368,17 @@ class ProjectViewModel(
                 Napier.e("Failed to open media", e)
                 handleError("Failed to open media: ${e.message}")
             }
+            } finally {
+                projectLifecycleMutex.unlock()
+            }
         }
     }
 
     fun loadProject(path: String) {
         viewModelScope.launch {
+            projectLifecycleMutex.lock()
+            cancelInFlightMediaWork()
+            try {
             _state.update { it.copy(isLoading = true) }
             try {
                 val projectJson = PlatformFileSystem.readText(path)
@@ -419,6 +436,9 @@ class ProjectViewModel(
             } catch (e: Exception) {
                 handleError("Failed to load project: ${e.message}")
             }
+            } finally {
+                projectLifecycleMutex.unlock()
+            }
         }
     }
 
@@ -446,16 +466,16 @@ class ProjectViewModel(
     }
 
     fun renameProject(newName: String) {
-        val snapshot = rustStore.snapshot.value ?: return
         try {
             rustStore.dispatch(rustStore.commands.renameProject(newName))
             syncFromRust(isDirty = true)
         } catch (e: RustDispatchException) {
             Napier.w("RenameProject command rejected, falling back to replaceSnapshot (clears undo): ${e.message}")
             try {
+                val fresh = rustStore.snapshot.value ?: return
                 rustStore.replaceSnapshot(
-                    snapshot.copy(
-                        meta = snapshot.meta.copy(
+                    fresh.copy(
+                        meta = fresh.meta.copy(
                             name = newName,
                             modifiedAt = Clock.System.now().toEpochMilliseconds(),
                         )
@@ -534,13 +554,14 @@ class ProjectViewModel(
 
     fun cancelContinuousEdit() {
         try {
+            val wasOpen = rustStore.transactionOpen()
             val result = try {
                 rustStore.cancelEdit()
             } catch (e: Exception) {
                 handleError("Failed to cancel edit: ${e.message}")
                 null
             }
-            if (result == null) {
+            if (result == null && wasOpen) {
                 val backup = preDragSnapshot
                 if (backup != null) {
                     try {
@@ -688,13 +709,11 @@ class ProjectViewModel(
                 0L
             }
         } else {
-            Long.MAX_VALUE / 1000L
+            0L
         }
-        val target = when {
-            deltaMs > 0 && current > Long.MAX_VALUE - deltaMs -> Long.MAX_VALUE / 1000L
-            deltaMs < 0 && current < Long.MIN_VALUE - deltaMs -> Long.MIN_VALUE
-            else -> current + deltaMs
-        }.coerceIn(0L, maxMs.coerceAtLeast(0L))
+        val target = (current.toDouble() + deltaMs.toDouble())
+            .coerceIn(0.0, maxMs.coerceAtLeast(0L).toDouble())
+            .toLong()
         setPlayhead(target)
     }
 
@@ -724,7 +743,19 @@ class ProjectViewModel(
     fun addTextOverlay() {
         try {
             val textTrackId = ensureTrack(RustTrackKind.Text, "Text 1")
+            val trackSnapshot = rustStore.snapshot.value?.timeline?.tracks
+                ?.firstOrNull { it.id == textTrackId }
             val playheadUs = _state.value.playheadMs.msToUs
+            val timelineStartUs = if (trackSnapshot != null) {
+                findNearestNonOverlappingStartUs(
+                    track = trackSnapshot,
+                    clipId = null,
+                    requestedStartUs = playheadUs,
+                    durationUs = 3_000_000L,
+                )
+            } else {
+                playheadUs
+            }
             val clipId = randomUuid()
 
             dispatchAndSync(
@@ -732,7 +763,7 @@ class ProjectViewModel(
                     textTrackId,
                     RustClipSnapshot(
                         id = clipId,
-                        timelineStartUs = playheadUs,
+                        timelineStartUs = timelineStartUs,
                         timelineDurationUs = 3_000_000L,
                         sourceStartUs = 0L,
                         sourceEndUs = 3_000_000L,
@@ -792,7 +823,15 @@ class ProjectViewModel(
 
     fun importMediaPaths(paths: List<String>) {
         viewModelScope.launch {
-            importMediaPathsInternal(paths)
+            if (!projectLifecycleMutex.tryLock()) {
+                snackbarManager.showError("Please wait until the project finishes loading")
+                return@launch
+            }
+            try {
+                importMediaPathsInternal(paths)
+            } finally {
+                projectLifecycleMutex.unlock()
+            }
         }
     }
 
@@ -872,6 +911,7 @@ class ProjectViewModel(
                 data class ImportTarget(
                     val trackId: String,
                     val cursor: Long,
+                    val startUs: Long = cursor,
                 )
 
                 fun resolveTrack(
@@ -882,7 +922,8 @@ class ProjectViewModel(
                     labelPrefix: String,
                 ): ImportTarget {
                     val startUs = cursorUs
-                    val endUs = startUs + durationUs
+                    val endUs = if (durationUs > Long.MAX_VALUE - startUs) Long.MAX_VALUE
+                        else startUs + durationUs
 
                     var trackId = currentTrackId
                     if (trackId == null) {
@@ -895,11 +936,26 @@ class ProjectViewModel(
                     }
 
                     val snap = rustStore.snapshot.value ?: return ImportTarget(trackId, cursorUs)
+                    val currentTrackSnapshot = snap.timeline.tracks
+                        .firstOrNull { it.id == trackId && it.kind == kind }
+                    val gapStart = if (currentTrackSnapshot != null) {
+                        findNearestNonOverlappingStartUs(
+                            track = currentTrackSnapshot,
+                            clipId = null,
+                            requestedStartUs = startUs,
+                            durationUs = durationUs,
+                        )
+                    } else {
+                        startUs
+                    }
+                    val resolvedStartUs = gapStart ?: startUs
+                    val resolvedEndUs = if (durationUs > Long.MAX_VALUE - resolvedStartUs) Long.MAX_VALUE
+                        else resolvedStartUs + durationUs
                     val currentTrack = snap.timeline.tracks
                         .firstOrNull { it.id == trackId && it.kind == kind }
 
                     val hasConflict = currentTrack?.clips?.any { clip ->
-                        clip.overlapsRange(startUs, endUs)
+                        clip.overlapsRange(resolvedStartUs, resolvedEndUs)
                     } ?: false
 
                     val resolvedId = if (!hasConflict) {
@@ -908,7 +964,7 @@ class ProjectViewModel(
                         val alternate = snap.timeline.tracks
                             .filter { it.kind == kind && it.id != trackId }
                             .firstOrNull { track ->
-                                track.clips.none { clip -> clip.overlapsRange(startUs, endUs) }
+                                track.clips.none { clip -> clip.overlapsRange(resolvedStartUs, resolvedEndUs) }
                             }
 
                         if (alternate != null) {
@@ -928,7 +984,7 @@ class ProjectViewModel(
                         }
                     }
 
-                    return ImportTarget(resolvedId, cursorUs + durationUs)
+                    return ImportTarget(resolvedId, resolvedEndUs, resolvedStartUs)
                 }
 
                 var added = 0
@@ -960,13 +1016,14 @@ class ProjectViewModel(
                         if (target.trackId.isNotEmpty()) {
                             videoTrackId = target.trackId
                             val videoVolume = if (hasAudio) 0.0f else 1.0f
+                            val videoStartUs = target.startUs
                             try {
                                 dispatchSilent(
                                     rustStore.commands.addClip(
                                         target.trackId,
                                         RustClipSnapshot(
                                             id = randomUuid(),
-                                            timelineStartUs = baseUs,
+                                            timelineStartUs = videoStartUs,
                                             timelineDurationUs = durationUs,
                                             sourceStartUs = 0L,
                                             sourceEndUs = durationUs,
@@ -988,7 +1045,7 @@ class ProjectViewModel(
                                         ),
                                     )
                                 )
-                                cursorVideoUs = baseUs + durationUs
+                                cursorVideoUs = target.cursor
                                 fileAdded = true
                             } catch (e: Exception) {
                                 Napier.e("Skipping video clip for ${item.path}", e)
@@ -1001,13 +1058,14 @@ class ProjectViewModel(
                         val target = resolveTrack(RustTrackKind.Audio, baseUs, durationUs, audioTrackId, "Audio")
                         if (target.trackId.isNotEmpty()) {
                             audioTrackId = target.trackId
+                            val audioStartUs = target.startUs
                             try {
                                 dispatchSilent(
                                     rustStore.commands.addClip(
                                         target.trackId,
                                         RustClipSnapshot(
                                             id = randomUuid(),
-                                            timelineStartUs = baseUs,
+                                            timelineStartUs = audioStartUs,
                                             timelineDurationUs = durationUs,
                                             sourceStartUs = 0L,
                                             sourceEndUs = durationUs,
@@ -1027,7 +1085,7 @@ class ProjectViewModel(
                                         ),
                                     )
                                 )
-                                cursorAudioUs = baseUs + durationUs
+                                cursorAudioUs = target.cursor
                                 fileAdded = true
                             } catch (e: Exception) {
                                 Napier.e("Skipping audio clip for ${item.path}", e)
@@ -1057,7 +1115,7 @@ class ProjectViewModel(
                 snackbarManager.show("Imported $added file(s)")
             } catch (e: Exception) {
                 Napier.e("Failed to import media", e)
-                handleError("Failed to import: ${e.message}")
+                handleError("Failed to import: ${e.message}", clearImportState = true)
             }
     }
 
@@ -1164,7 +1222,7 @@ class ProjectViewModel(
                 _state.update { it.copy(isLoading = false, importProgress = null) }
                 snackbarManager.show("Imported ${files.size} subtitle file(s)")
             } catch (e: Exception) {
-                handleError("Failed to import subtitles: ${e.message}")
+                handleError("Failed to import subtitles: ${e.message}", clearImportState = true)
             }
         }
     }
@@ -1195,12 +1253,14 @@ class ProjectViewModel(
 
     fun exportProject(outputPath: String) {
         if (exportJob?.isActive == true) return
-        val frozen = rustStore.snapshot.value ?: return
+        val probePaths = rustStore.snapshot.value
+            ?.timeline?.tracks?.flatMap { it.clips }
+            ?.mapNotNull { clipSnapshot -> (clipSnapshot.kind as? RustVideoClipKind)?.sourcePath }
+            ?.distinct() ?: return
         engine.notePreparing(outputPath)
         exportJob = viewModelScope.launch {
             var exportError: String? = null
-            for (path in frozen.timeline.tracks.flatMap { it.clips }
-                .mapNotNull { clipSnapshot -> (clipSnapshot.kind as? RustVideoClipKind)?.sourcePath }.distinct()) {
+            for (path in probePaths) {
                 try {
                     val info = engine.probeVideo(path)
                     if (!info.hasVideo) {
@@ -1350,7 +1410,7 @@ class ProjectViewModel(
         val clip = track.clips.firstOrNull { it.id == clipId } ?: return
         val requestedStartUs = newStartMs.coerceAtLeast(0).msToUs
         val maxStartUs = clip.timelineStartUs + clip.timelineDurationUs - MIN_TRIM_DURATION_US
-        if (maxStartUs <= 0L) {
+        if (maxStartUs < clip.timelineStartUs) {
             snackbarManager.showError("Clip is already at minimum duration")
             return
         }
@@ -1364,7 +1424,14 @@ class ProjectViewModel(
         }
         val newStartUs = requestedStartUs.coerceIn(minStartUs, maxStartUs)
         val deltaTimelineUs = newStartUs - clip.timelineStartUs
-        val newSourceStartUs = (clip.sourceStartUs + (deltaTimelineUs * clip.speed).toLong()).coerceAtLeast(0L)
+        val isTextual = clip.kind is RustTextClipKind || clip.kind is RustSubtitleClipKind
+        val newSourceStartUs = if (isTextual) {
+            0L
+        } else {
+            val scaled = (deltaTimelineUs.toDouble() * clip.speed).toLong()
+            val raw = clip.sourceStartUs + scaled
+            raw.coerceIn(0L, clip.sourceTotalDurationUs.coerceAtLeast(0L))
+        }
 
         dispatchCoalescing(
             rustStore.commands.trimClipStart(
@@ -1408,12 +1475,24 @@ class ProjectViewModel(
     }
 
     fun addTextClip(trackId: String, text: String, startMs: Long, durationMs: Long = DEFAULT_TEXT_CLIP_DURATION_US / 1000L) {
+        val requestedUs = startMs.msToUs
+        val durationUs = durationMs.msToUs
+        val resolvedUs = rustStore.snapshot.value?.timeline?.tracks
+            ?.firstOrNull { it.id == trackId }
+            ?.let { track ->
+                findNearestNonOverlappingStartUs(
+                    track = track,
+                    clipId = null,
+                    requestedStartUs = requestedUs,
+                    durationUs = durationUs,
+                )
+            } ?: requestedUs
         dispatchAndSync(
             rustStore.commands.addClip(
                 trackId,
                 RustClipSnapshot(
                     id = randomUuid(),
-                    timelineStartUs = startMs.msToUs,
+                    timelineStartUs = resolvedUs,
                     timelineDurationUs = durationMs.msToUs,
                     sourceStartUs = 0L,
                     sourceEndUs = durationMs.msToUs,
@@ -1734,29 +1813,25 @@ class ProjectViewModel(
 
     fun updateClipTransform(clipId: String, scale: Float, translateX: Float, translateY: Float, rotate: Float) {
         val video = findRustClip(clipId)?.kind as? RustVideoClipKind ?: return
-        var index = video.filters.indexOfFirst { it.filter is RustTransformFilterSnapshot }
-        if (index == -1) {
-            dispatchCoalescing(
-                rustStore.commands.addVideoFilter(
-                    clipId = clipId,
-                    filter = RustVideoEffectSnapshot(
-                        filter = RustTransformFilterSnapshot(
-                            scale = defaultOf(KeyframeParams.TRANSFORM_SCALE),
-                            translateX = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X),
-                            translateY = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y),
-                            rotate = defaultOf(KeyframeParams.TRANSFORM_ROTATE),
-                        ),
-                        enabled = true,
-                    ),
-                ),
-                "Transform",
-            )
-            index = findRustClip(clipId)?.let { (it.kind as? RustVideoClipKind)?.filters?.indexOfFirst { f -> f.filter is RustTransformFilterSnapshot } } ?: -1
-            if (index == -1) return
+        val values = mapOf("scale" to scale, "translate_x" to translateX, "translate_y" to translateY, "rotate" to rotate)
+        val index = video.filters.indexOfFirst { it.filter is RustTransformFilterSnapshot }
+        if (index != -1) {
+            updateFilterParams(clipId, index, values)
+            return
         }
-        updateFilterParams(
-            clipId, index,
-            mapOf("scale" to scale, "translate_x" to translateX, "translate_y" to translateY, "rotate" to rotate),
+        dispatchAndSync(
+            rustStore.commands.addVideoFilter(
+                clipId = clipId,
+                filter = RustVideoEffectSnapshot(
+                    filter = RustTransformFilterSnapshot(
+                        scale = scale,
+                        translateX = translateX,
+                        translateY = translateY,
+                        rotate = rotate,
+                    ),
+                    enabled = true,
+                ),
+            ),
         )
     }
 
@@ -1919,7 +1994,7 @@ class ProjectViewModel(
     }
 
     private fun fitsWithoutOverlap(clips: List<RustClipSnapshot>, startUs: Long, durationUs: Long): Boolean {
-        val endUs = startUs + durationUs
+        val endUs = if (durationUs > Long.MAX_VALUE - startUs) Long.MAX_VALUE else startUs + durationUs
         return clips.none { existing -> existing.overlapsRange(startUs, endUs) }
     }
 
@@ -1999,8 +2074,13 @@ class ProjectViewModel(
         }
     }
 
-    private fun handleError(message: String) {
-        _state.update { it.copy(isLoading = false, importProgress = null) }
+    private fun handleError(message: String, clearImportState: Boolean = false) {
+        _state.update {
+            it.copy(
+                isLoading = false,
+                importProgress = if (clearImportState) null else it.importProgress,
+            )
+        }
         snackbarManager.showError(message)
     }
 }

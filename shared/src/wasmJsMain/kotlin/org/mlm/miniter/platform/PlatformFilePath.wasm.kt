@@ -41,6 +41,7 @@ internal object WasmPlatformFileRegistry {
         pathsByFile.remove(removed)
         lastAccess.remove(path)
         WasmPlaybackUriCache.forget(path)
+        PlatformFileSystem.onNativeRegistrationLost(path)
         runCatching { RustCoreSession.unregisterFile(path) }
         return true
     }

@@ -36,8 +36,9 @@ data class ExportDraft(
             val rawHeight = heightText.trim()
             val width = rawWidth.toIntOrNull()
             val height = rawHeight.toIntOrNull()
-            if (rawWidth.isEmpty() || rawHeight.isEmpty()) {
-                errors["resolution"] = "Enter a width and height, or clear both for source."
+            if (rawWidth.isEmpty() && rawHeight.isEmpty()) {
+            } else if (rawWidth.isEmpty() || rawHeight.isEmpty()) {
+                errors["resolution"] = "Enter both width and height, or clear both for source."
             } else if (width == null || height == null || width <= 0 || height <= 0) {
                 errors["resolution"] = "Resolution must be positive whole numbers."
             } else if (width > 7680 || height > 7680) {

@@ -166,7 +166,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val hasSourceDimensions = sourceWidth > 0 && sourceHeight > 0
     val sourceResolutionText = if (hasSourceDimensions) "${sourceWidth}×${sourceHeight}" else "Unknown"
 
-    val draftKey = remember(snapshot?.id, profile) { Any() }
+    val draftKey = remember(snapshot?.id) { Any() }
     var format by remember(draftKey) { mutableStateOf(profileFormat) }
     var draft by remember(draftKey) {
         val (w, h) = if (profile != null) {
@@ -190,6 +190,20 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     }
     var encodeEffort by remember(draftKey) {
         mutableStateOf((profile?.encodeEffort ?: 6).toFloat())
+    }
+    var lastSyncedResolution by remember(draftKey) { mutableStateOf(profile?.resolution) }
+    var lastSyncedFps by remember(draftKey) { mutableStateOf(profile?.fps) }
+
+    LaunchedEffect(profile?.resolution, profile?.fps) {
+        val res = profile?.resolution ?: return@LaunchedEffect
+        val fps = profile?.fps ?: return@LaunchedEffect
+        if (res == lastSyncedResolution && fps == lastSyncedFps) return@LaunchedEffect
+        if (lastSyncedResolution != null && lastSyncedFps != null) {
+            val (w, h) = resolutionToTexts(res, sourceWidth, sourceHeight)
+            draft = draft.copy(widthText = w, heightText = h, fpsText = fps.toString())
+        }
+        lastSyncedResolution = res
+        lastSyncedFps = fps
     }
 
     var outputFile by remember { mutableStateOf<PlatformFile?>(null) }
@@ -248,7 +262,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     }
 
     LaunchedEffect(draft.widthText, draft.heightText, draft.fpsText, isExporting) {
-        if (isExporting) return@LaunchedEffect
+        if (isExporting || isAudioOnly) return@LaunchedEffect
         val pendingWidth = draft.widthText
         val pendingHeight = draft.heightText
         val pendingFps = draft.fpsText
@@ -264,6 +278,8 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         val applied = draft.applyTo(currentProfile, sourceWidth, sourceHeight) ?: return@LaunchedEffect
         val withFps = applied.copy(fps = f)
         if (withFps.resolution != currentProfile.resolution || withFps.fps != currentProfile.fps) {
+            lastSyncedResolution = withFps.resolution
+            lastSyncedFps = withFps.fps
             vm.updateExportProfile(withFps)
         }
     }

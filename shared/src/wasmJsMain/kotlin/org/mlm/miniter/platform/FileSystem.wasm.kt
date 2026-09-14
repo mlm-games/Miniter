@@ -44,6 +44,12 @@ actual object PlatformFileSystem {
         files.containsKey(path) || byteFiles.containsKey(path) ||
             WasmPlatformFileRegistry.contains(path)
 
+    /** Called when the registry evicts/removes a path: the native handle is
+     * freed, so a later re-stage must re-register instead of skipping. */
+    fun onNativeRegistrationLost(path: String) {
+        nativeRegistered.remove(path)
+    }
+
     actual fun delete(path: String): Boolean {
         WasmPlaybackUriCache.forget(path)
         val deleted =

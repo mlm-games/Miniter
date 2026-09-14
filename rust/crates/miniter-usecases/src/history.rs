@@ -137,8 +137,10 @@ impl History {
 
     /// Close the open transaction and make it undoable. Consecutive
     /// transactions with the same non-empty label whose boundary commands
-    /// coalesce fold into a single undo step. Unlabeled transactions never
-    /// fold: only explicit gesture labels opt into cross-commit merging.
+    /// coalesce fold into a single undo step, carrying forward the oldest
+    /// inverse (pre-gesture state) so one undo restores the pre-gesture
+    /// document. Unlabeled transactions never fold: only explicit gesture
+    /// labels opt into cross-commit merging.
     pub fn commit(&mut self) {
         let Some(t) = self.open.take() else {
             return;

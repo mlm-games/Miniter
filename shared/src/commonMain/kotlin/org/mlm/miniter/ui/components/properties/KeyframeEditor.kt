@@ -57,10 +57,14 @@ fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
                 val parts = paramKey.split(".")
                 if (parts.size >= 3) {
                     val idx = parts[1].toIntOrNull() ?: return 0f
-                    val propKey = parts[2]
+                    val suffix = parts.drop(2).joinToString(".")
+                    val paramKeyMapped = FILTERS
+                        .flatMap { it.properties }
+                        .firstOrNull { it.keyframeSuffix == suffix }
+                        ?.paramKey ?: return 0f
                     val kind = clip.kind as? RustVideoClipKind ?: return 0f
                     val filter = kind.filters.getOrNull(idx)?.filter ?: return 0f
-                    readFilterProperty(filter, propKey)
+                    readFilterProperty(filter, paramKeyMapped)
                 } else 0f
             } else 0f
         }
@@ -77,7 +81,7 @@ fun KeyframeEditor(
 ) {
     val clipStartUs = clip.timelineStartUs
     val clipDurationUs = clip.timelineDurationUs
-    val clipOffsetMs = (playheadMs * 1000L - clipStartUs).coerceIn(0L, clipDurationUs) / 1000L
+    val clipOffsetUs = (playheadMs * 1000L - clipStartUs).coerceIn(0L, clipDurationUs)
 
     Column {
         HorizontalDivider()
@@ -116,11 +120,12 @@ fun KeyframeEditor(
         }
 
         grouped.forEach { (param, kfs) ->
+            val sorted = kfs.sortedBy { it.offset }
             KeyframeTrackRow(
                 param = param,
                 keyframes = kfs,
                 clipDurationUs = clipDurationUs,
-                clipOffsetUs = clipOffsetMs * 1000L,
+                clipOffsetUs = clipOffsetUs,
                 onAddKeyframe = { offsetUs ->
                     onAddKeyframe(RustKeyframe(
                         param = param,
@@ -130,11 +135,11 @@ fun KeyframeEditor(
                     ))
                 },
                 onRemoveKeyframe = { indexInParam ->
-                    val allIndex = curve.keyframes.indexOf(kfs[indexInParam])
+                    val allIndex = curve.keyframes.indexOf(sorted[indexInParam])
                     onRemoveKeyframe(allIndex)
                 },
                 onUpdateKeyframe = { indexInParam, updated ->
-                    val allIndex = curve.keyframes.indexOf(kfs[indexInParam])
+                    val allIndex = curve.keyframes.indexOf(sorted[indexInParam])
                     onUpdateKeyframe(allIndex, updated)
                 },
             )
@@ -224,10 +229,12 @@ private fun KeyframeTrackRow(
 
             if (expanded) {
                 Column(modifier = Modifier.padding(start = 8.dp, end = 4.dp, bottom = 4.dp)) {
-                    keyframes.sortedBy { it.offset }.forEachIndexed { index, kf ->
+                    val sorted = keyframes.sortedBy { it.offset }
+                    sorted.forEachIndexed { index, kf ->
                         KeyframeRow(
                             keyframe = kf,
                             param = param,
+                            clipDurationUs = clipDurationUs,
                             onRemove = { onRemoveKeyframe(index) },
                             onUpdate = { updated -> onUpdateKeyframe(index, updated) },
                         )
@@ -242,6 +249,7 @@ private fun KeyframeTrackRow(
 private fun KeyframeRow(
     keyframe: RustKeyframe,
     param: String,
+    clipDurationUs: Long,
     onRemove: () -> Unit,
     onUpdate: (RustKeyframe) -> Unit,
 ) {
@@ -289,6 +297,7 @@ private fun KeyframeRow(
             KeyframeEditorForm(
                 keyframe = keyframe,
                 param = param,
+                clipDurationUs = clipDurationUs,
                 onUpdate = onUpdate,
             )
         }
@@ -299,18 +308,20 @@ private fun KeyframeRow(
 private fun KeyframeEditorForm(
     keyframe: RustKeyframe,
     param: String,
+    clipDurationUs: Long,
     onUpdate: (RustKeyframe) -> Unit,
 ) {
     val def = paramDefFor(param)
     var editingKf by remember(keyframe) { mutableStateOf(keyframe) }
+    val maxSecs = (clipDurationUs / 1_000_000f).coerceAtLeast(0.1f)
 
     Column(modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 6.dp)) {
         Text("Time: ${formatFixed(editingKf.offset / 1_000_000f, 1)}s", style = MaterialTheme.typography.labelSmall)
         Slider(
-            value = (editingKf.offset / 1_000_000f).coerceIn(0f, 30f),
+            value = (editingKf.offset / 1_000_000f).coerceIn(0f, maxSecs),
             onValueChange = { editingKf = editingKf.copy(offset = (it * 1_000_000L).toLong()) },
             onValueChangeFinished = { onUpdate(editingKf) },
-            valueRange = 0f..30f,
+            valueRange = 0f..maxSecs,
             modifier = Modifier.height(24.dp),
         )
 

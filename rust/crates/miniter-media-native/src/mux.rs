@@ -33,6 +33,11 @@ pub enum VideoTrackCodecOut {
 pub struct OpusTrackConfigOut {
     pub sample_rate: u32,
     pub channels: u16,
+    /// Encoder delay in 48kHz samples, signalled via dOps so players skip
+    /// it. Must match the PTS basis in `EncodedOpusPacket` (raw, WITHOUT
+    /// preskip subtracted) — muxfin writes the delay into the sample table
+    /// itself, so subtracting it from PTS as well double-counts ~6.5ms.
+    pub preskip_48k: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +80,9 @@ impl<W: Write> Mp4Muxer<W> {
         let mut builder = MuxerBuilder::new(output).video(video_codec, width, height, fps);
 
         if let Some(audio) = audio {
-            builder = builder.audio(AudioCodec::Opus, audio.sample_rate, audio.channels);
+            builder = builder
+                .audio(AudioCodec::Opus, audio.sample_rate, audio.channels)
+                .with_opus_preskip(audio.preskip_48k);
         }
 
         if let Some(subtitle) = subtitle {
