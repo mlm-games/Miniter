@@ -153,12 +153,12 @@ internal suspend fun materializeReadablePath(path: String): String = withContext
 
     val context = AndroidContext.get()
     val uri = Uri.parse(path)
+    val uriKey = sha256Hex(path)
     val displayName = queryDisplayName(uri)
         ?: "picked_$uriKey"
     val safeName = sanitizeFileName(displayName)
 
     val dir = File(context.filesDir, "native-inputs").apply { mkdirs() }
-    val uriKey = sha256Hex(path)
     val outFile = File(dir, "${uriKey}_$safeName")
 
     val sourceSize = querySize(uri)
