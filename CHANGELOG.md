@@ -1,3 +1,29 @@
+## v0.9.4
+
+- ci(android): keep artifacts when Play upload fails
+- Update release notes for v0.9.3
+- Update release notes for v0.9.2
+- Update release notes for v0.9.1
+- Update release notes for v0.9.0
+- mkv export format support
+- flac export support
+- fix(subtitles): wire picked font through Repose-only export
+- Wire quality settings (#4) and swap less-avc with rusty_h264
+- Update release notes for v0.8.5
+- choore: reass again
+- Update release notes for v0.8.4
+- diag(decode): per-band staleness tracking (SWSTALE) vs previous frame
+- diag(decode): SW plane/row-hash trace + surface WebCodecs runtime fallback error
+- fix the av1 encoder bug
+- Update release notes for v0.8.3
+- add oled theme, and yml auto-bump types
+- remove ACCESS_NETWORK_STATE perm (#29)
+- missing output mode calls
+- feat: Import progress
+- Intent handling (#28)
+- rm probe fallback and log it instead
+
+
 ## v0.9.3
 
 - Update release notes for v0.9.2
