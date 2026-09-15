@@ -23,6 +23,31 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.9.2" date="2026-09-15" type="stable">
+      <description>
+        <ul>
+          <li>Update release notes for v0.9.1</li>
+          <li>Update release notes for v0.9.0</li>
+          <li>mkv export format support</li>
+          <li>flac export support</li>
+          <li>fix(subtitles): wire picked font through Repose-only export</li>
+          <li>Wire quality settings (#4) and swap less-avc with rusty_h264</li>
+          <li>Update release notes for v0.8.5</li>
+          <li>choore: reass again</li>
+          <li>Update release notes for v0.8.4</li>
+          <li>diag(decode): per-band staleness tracking (SWSTALE) vs previous frame</li>
+          <li>diag(decode): SW plane/row-hash trace + surface WebCodecs runtime fallback error</li>
+          <li>fix the av1 encoder bug</li>
+          <li>Update release notes for v0.8.3</li>
+          <li>add oled theme, and yml auto-bump types</li>
+          <li>remove ACCESS_NETWORK_STATE perm (#29)</li>
+          <li>missing output mode calls</li>
+          <li>feat: Import progress</li>
+          <li>Intent handling (#28)</li>
+          <li>rm probe fallback and log it instead</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.1" date="2026-09-15" type="stable">
       <description>
         <ul>
