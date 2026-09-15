@@ -165,7 +165,7 @@ jobs:
           cache: gradle
 
       - name: Set up Android SDK/NDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
 
       - name: Install Android platforms + NDK
         run: |
