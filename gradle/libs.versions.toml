@@ -4,6 +4,8 @@ composeMaterial = "1.11.0-alpha07"
 
 agp = "9.2.1"
 android-compileSdk = "37"
+android-compileSdkMinor = "2"
+android-ndkVersion = "29.0.14206865"
 android-minSdk = "24"
 android-targetSdk = "37"
 
