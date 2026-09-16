@@ -1,3 +1,8 @@
+## v0.9.5
+
+- Fix fdroid build
+
+
 ## v0.9.4
 
 - ci(android): keep artifacts when Play upload fails
