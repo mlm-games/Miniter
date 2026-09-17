@@ -12,6 +12,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -108,6 +109,7 @@ import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustSubtitleMode
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.engine.ExportProgress
+import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.isActive
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.getHardwareDecoderStatus
@@ -1388,16 +1390,7 @@ private fun ExportProgressFooter(progress: ExportProgress, onCancelExport: () ->
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 progress.previewFrame?.let { frame ->
-                    val bitmap = remember(frame) { frame.toImageBitmap() }
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = "Export preview",
-                        modifier = Modifier
-                            .size(width = 84.dp, height = 48.dp)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(Color.Black),
-                        contentScale = ContentScale.Fit,
-                    )
+                    ExportPreviewThumb(frame)
                 }
                 Column(
                     modifier = Modifier.weight(1f),
@@ -1440,6 +1433,23 @@ private fun ExportProgressFooter(progress: ExportProgress, onCancelExport: () ->
             }
         }
     }
+}
+
+@Composable
+private fun ExportPreviewThumb(frame: ImageData) {
+    val bitmap = remember(frame) { frame.toImageBitmap() }
+    val ratio = frame.width.toFloat() / frame.height.toFloat()
+    val aspect = if (ratio.isFinite() && ratio > 0f) ratio else 16f / 9f
+    Image(
+        bitmap = bitmap,
+        contentDescription = "Export preview",
+        modifier = Modifier
+            .height(48.dp)
+            .aspectRatio(aspect, matchHeightConstraintsFirst = true)
+            .clip(MaterialTheme.shapes.small)
+            .background(Color.Black),
+        contentScale = ContentScale.Fit,
+    )
 }
 
 @Composable
