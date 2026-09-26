@@ -20,7 +20,7 @@ on:
         type: boolean
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: miniter-crate-publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
