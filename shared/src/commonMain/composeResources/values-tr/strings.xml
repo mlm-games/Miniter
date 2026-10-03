@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">Görünüm</string>
+    <string name="miniter_settings_category_editor">Düzenleyici</string>
+    <string name="miniter_settings_category_export">Dışa aktarma</string>
+    <string name="miniter_settings_category_performance">Performans</string>
+    <string name="miniter_settings_theme">Tema</string>
+    <string name="miniter_settings_theme_description">Sistem / Açık / Koyu</string>
+    <string name="miniter_settings_dynamic_colors">Dinamik renkler</string>
+    <string name="miniter_settings_dynamic_colors_description">Material You dinamik renklerini kullan (Android 12+)</string>
+    <string name="miniter_settings_oled_black">Saf siyah (OLED)</string>
+    <string name="miniter_settings_auto_save_project">Projeyi otomatik kaydet</string>
+    <string name="miniter_settings_auto_save_project_description">Proje değişikliklerini otomatik olarak kaydet</string>
+    <string name="miniter_settings_auto_save_interval">Otomatik kaydetme aralığı (saniye)</string>
+    <string name="miniter_settings_auto_save_interval_description">Otomatik kaydetme sıklığı</string>
+    <string name="miniter_settings_hardware_acceleration">Donanım hızlandırma</string>
+    <string name="miniter_settings_hardware_acceleration_description">Video çözme ve kodlama için GPU kullan (daha hızlı, ancak daha fazla güç tüketir)</string>
+</resources>

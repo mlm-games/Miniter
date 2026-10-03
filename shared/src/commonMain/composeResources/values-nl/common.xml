@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Instellingen</string>
+    <string name="common_back">Terug</string>
+    <string name="common_save">Opslaan</string>
+    <string name="common_cancel">Annuleren</string>
+    <string name="common_remove">Verwijderen</string>
+    <string name="common_export">Exporteren</string>
+    <string name="common_delete">Verwijderen</string>
+    <string name="common_undo">Ongedaan maken</string>
+    <string name="common_redo">Opnieuw</string>
+    <string name="common_more">Meer</string>
+</resources>

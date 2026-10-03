@@ -42,7 +42,7 @@ fn baaba_h265_pts_monotonic() {
     );
 
     let mut decoder =
-        BaabaBackend::new(width, height, mime, &codec_desc).expect("create BaabaBackend");
+        BaabaBackend::new(width, height, mime, &codec_desc, true).expect("create BaabaBackend");
 
     let mut output_frames: Vec<Duration> = Vec::new();
     let mut packet_count: usize = 0;

@@ -11,6 +11,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import miniter.shared.generated.resources.Res
+import miniter.shared.generated.resources.common_back
+import miniter.shared.generated.resources.common_export
+import miniter.shared.generated.resources.common_more
+import miniter.shared.generated.resources.common_redo
+import miniter.shared.generated.resources.common_save
+import miniter.shared.generated.resources.common_undo
+import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,32 +50,32 @@ fun CompactTopBar(
         },
         navigationIcon = {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(Res.string.common_back))
             }
         },
         actions = {
             IconButton(onClick = onUndo, enabled = canUndo) {
-                Icon(Icons.AutoMirrored.Filled.Undo, "Undo", Modifier.size(20.dp))
+                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = stringResource(Res.string.common_undo), modifier = Modifier.size(20.dp))
             }
             IconButton(onClick = onRedo, enabled = canRedo) {
-                Icon(Icons.AutoMirrored.Filled.Redo, "Redo", Modifier.size(20.dp))
+                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = stringResource(Res.string.common_redo), modifier = Modifier.size(20.dp))
             }
 
             Box {
                 IconButton(onClick = { showMenu = true }) {
-                    Icon(Icons.Default.MoreVert, "More")
+                    Icon(Icons.Default.MoreVert, contentDescription = stringResource(Res.string.common_more))
                 }
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Save") },
+                        text = { Text(stringResource(Res.string.common_save)) },
                         leadingIcon = { Icon(Icons.Default.Save, null, Modifier.size(20.dp)) },
                         onClick = { onSave(); showMenu = false },
                     )
                     DropdownMenuItem(
-                        text = { Text("Export") },
+                        text = { Text(stringResource(Res.string.common_export)) },
                         leadingIcon = { Icon(Icons.Default.FileDownload, null, Modifier.size(20.dp)) },
                         onClick = { onExport(); showMenu = false },
                     )

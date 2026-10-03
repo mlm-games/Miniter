@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">Вигляд</string>
+    <string name="miniter_settings_category_editor">Редактор</string>
+    <string name="miniter_settings_category_export">Експорт</string>
+    <string name="miniter_settings_category_performance">Продуктивність</string>
+    <string name="miniter_settings_theme">Тема</string>
+    <string name="miniter_settings_theme_description">Системна / Світла / Темна</string>
+    <string name="miniter_settings_dynamic_colors">Динамічні кольори</string>
+    <string name="miniter_settings_dynamic_colors_description">Використовувати динамічні кольори Material You (Android 12+)</string>
+    <string name="miniter_settings_oled_black">Чистий чорний (OLED)</string>
+    <string name="miniter_settings_auto_save_project">Автозбереження проєкту</string>
+    <string name="miniter_settings_auto_save_project_description">Автоматично зберігати зміни проєкту</string>
+    <string name="miniter_settings_auto_save_interval">Інтервал автозбереження (секунди)</string>
+    <string name="miniter_settings_auto_save_interval_description">Як часто виконувати автозбереження</string>
+    <string name="miniter_settings_hardware_acceleration">Апаратне прискорення</string>
+    <string name="miniter_settings_hardware_acceleration_description">Використовувати GPU для декодування та кодування відео (швидше, але споживає більше енергії)</string>
+</resources>

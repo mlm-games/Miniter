@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">Megjelenés</string>
+    <string name="miniter_settings_category_editor">Szerkesztő</string>
+    <string name="miniter_settings_category_export">Exportálás</string>
+    <string name="miniter_settings_category_performance">Teljesítmény</string>
+    <string name="miniter_settings_theme">Téma</string>
+    <string name="miniter_settings_theme_description">Rendszer / Világos / Sötét</string>
+    <string name="miniter_settings_dynamic_colors">Dinamikus színek</string>
+    <string name="miniter_settings_dynamic_colors_description">Dinamikus Material You-színek használata (Android 12+)</string>
+    <string name="miniter_settings_oled_black">Teljesen fekete (OLED)</string>
+    <string name="miniter_settings_auto_save_project">Projekt automatikus mentése</string>
+    <string name="miniter_settings_auto_save_project_description">A projekt módosításainak automatikus mentése</string>
+    <string name="miniter_settings_auto_save_interval">Automatikus mentési időköz (másodperc)</string>
+    <string name="miniter_settings_auto_save_interval_description">Milyen gyakran történjen automatikus mentés</string>
+    <string name="miniter_settings_hardware_acceleration">Hardveres gyorsítás</string>
+    <string name="miniter_settings_hardware_acceleration_description">GPU használata a videók dekódolására és kódolására (gyorsabb, de több energiát fogyaszt)</string>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">設定</string>
+    <string name="common_back">返回</string>
+    <string name="common_save">儲存</string>
+    <string name="common_cancel">取消</string>
+    <string name="common_remove">移除</string>
+    <string name="common_export">匯出</string>
+    <string name="common_delete">刪除</string>
+    <string name="common_undo">復原</string>
+    <string name="common_redo">重做</string>
+    <string name="common_more">更多</string>
+</resources>

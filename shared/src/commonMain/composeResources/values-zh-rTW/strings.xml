@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">外觀</string>
+    <string name="miniter_settings_category_editor">編輯器</string>
+    <string name="miniter_settings_category_export">匯出</string>
+    <string name="miniter_settings_category_performance">效能</string>
+    <string name="miniter_settings_theme">主題</string>
+    <string name="miniter_settings_theme_description">系統 / 淺色 / 深色</string>
+    <string name="miniter_settings_dynamic_colors">動態顏色</string>
+    <string name="miniter_settings_dynamic_colors_description">使用 Material You 動態顏色（Android 12+）</string>
+    <string name="miniter_settings_oled_black">純黑（OLED）</string>
+    <string name="miniter_settings_auto_save_project">自動儲存專案</string>
+    <string name="miniter_settings_auto_save_project_description">自動儲存專案變更</string>
+    <string name="miniter_settings_auto_save_interval">自動儲存間隔（秒）</string>
+    <string name="miniter_settings_auto_save_interval_description">自動儲存頻率</string>
+    <string name="miniter_settings_hardware_acceleration">硬體加速</string>
+    <string name="miniter_settings_hardware_acceleration_description">使用 GPU 進行影片解碼和編碼（速度更快，但耗電量更高）</string>
+</resources>

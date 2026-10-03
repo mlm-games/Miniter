@@ -20,6 +20,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import miniter.shared.generated.resources.Res
+import miniter.shared.generated.resources.common_remove
+import org.jetbrains.compose.resources.stringResource
 import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.FileKitType
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
@@ -543,7 +546,7 @@ private fun AudioClipProperties(
                     horizontalArrangement = Arrangement.End,
                 ) {
                     IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
-                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.common_remove), modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -566,7 +569,7 @@ private fun AudioClipProperties(
                     horizontalArrangement = Arrangement.End,
                 ) {
                     IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
-                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.common_remove), modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -578,7 +581,7 @@ private fun AudioClipProperties(
                 ) {
                     Text("Normalize", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                     IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
-                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.common_remove), modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -590,7 +593,7 @@ private fun AudioClipProperties(
                 ) {
                     Text("Reverse", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                     IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
-                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.common_remove), modifier = Modifier.size(16.dp))
                     }
                 }
             }

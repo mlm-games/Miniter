@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Paramètres</string>
+    <string name="common_back">Retour</string>
+    <string name="common_save">Enregistrer</string>
+    <string name="common_cancel">Annuler</string>
+    <string name="common_remove">Supprimer</string>
+    <string name="common_export">Exporter</string>
+    <string name="common_delete">Supprimer</string>
+    <string name="common_undo">Annuler</string>
+    <string name="common_redo">Rétablir</string>
+    <string name="common_more">Plus</string>
+</resources>

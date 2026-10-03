@@ -10,7 +10,7 @@ use baabaabaabaabababbababbaa::VideoDecoderInput as _;
 use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
 use baabaabaabaabababbababbaa::{
     Dimensions, EncodedVideoPacket, PixelFormat, VideoColorInfo, VideoDecoderConfig,
-    VideoFrame as BaabaFrame, VideoOutputMode, VideoPlanes,
+    VideoDescriptionFormat, VideoFrame as BaabaFrame, VideoOutputMode, VideoPlanes,
 };
 use bytes::Bytes;
 
@@ -75,12 +75,18 @@ impl BaabaBackend {
         //   - description absent  → expects Annex-B (start codes, SPS/PPS in-band on keyframes)
         // The demux always converts to Annex-B and prepends SPS/PPS to the first keyframe,
         // so on WASM we must set description=None to match the Annex-B data being sent.
-        let description = if cfg!(target_arch = "wasm32") {
-            None
+        // `description` from the demuxer is always Annex-B config NALs (see
+        // symphonia_demux parse_avcc/parse_hvcc), never the raw avcC/hvcC
+        // record: declare it as such so backends convert instead of guessing.
+        let (description, description_format) = if cfg!(target_arch = "wasm32") {
+            (None, None)
         } else if description.is_empty() {
-            None
+            (None, None)
         } else {
-            Some(Bytes::copy_from_slice(description))
+            (
+                Some(Bytes::copy_from_slice(description)),
+                Some(VideoDescriptionFormat::AnnexB),
+            )
         };
 
         // Hardware decoders report no colour of their own, so read the CICP
@@ -103,7 +109,7 @@ impl BaabaBackend {
             codec: mime.into(),
             resolution: Some(Dimensions::new(width, height)),
             description,
-            description_format: None,
+            description_format,
             hardware_acceleration: Some(hardware_acceleration),
             output_mode: VideoOutputMode::Cpu,
             color,

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">設定</string>
+    <string name="common_back">戻る</string>
+    <string name="common_save">保存</string>
+    <string name="common_cancel">キャンセル</string>
+    <string name="common_remove">削除</string>
+    <string name="common_export">エクスポート</string>
+    <string name="common_delete">削除</string>
+    <string name="common_undo">元に戻す</string>
+    <string name="common_redo">やり直す</string>
+    <string name="common_more">その他</string>
+</resources>

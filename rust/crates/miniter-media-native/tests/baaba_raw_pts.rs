@@ -17,7 +17,9 @@ use baabaabaabaabababbababbaa::platform::linux::{
     CrosCodecsHost, CrosVideoDecoderInput, CrosVideoDecoderOutput,
 };
 #[cfg(target_os = "linux")]
-use baabaabaabaabababbababbaa::{Dimensions, EncodedVideoPacket, VideoDecoderConfig};
+use baabaabaabaabababbababbaa::{
+    Dimensions, EncodedVideoPacket, VideoDecoderConfig, VideoOutputMode,
+};
 use miniter_media_native::decoders::{H265_FOURCC, VP8_FOURCC, VP9_FOURCC, fourcc_to_mime};
 use miniter_media_native::demux::open_demuxer;
 
@@ -68,7 +70,9 @@ fn test_raw_pts(path: &str, expected_fourcc: u32, label: &str) {
         } else {
             Some(codec_desc.into())
         },
+        description_format: None,
         hardware_acceleration: None,
+        output_mode: VideoOutputMode::Cpu,
     };
     let (mut input, mut output): (CrosVideoDecoderInput, CrosVideoDecoderOutput) = host
         .create_video_decoder(config)

@@ -419,9 +419,7 @@ mod native_ffi {
             target_us,
             hardware_acceleration,
         )
-        .map_err(|e| MiniterError::Media {
-            detail: e.to_string(),
-        })?;
+        .map_err(MiniterError::from_decode_error)?;
 
         Ok(FrameData {
             width: frame.width,
@@ -444,9 +442,7 @@ mod native_ffi {
             duration_us,
             hardware_acceleration,
         )
-        .map_err(|e| MiniterError::Media {
-            detail: e.to_string(),
-        })?;
+        .map_err(MiniterError::from_decode_error)?;
 
         Ok(frames
             .into_iter()
@@ -1659,6 +1655,47 @@ impl MiniterError {
             code: code.code().to_string(),
             detail: detail.into(),
         }
+    }
+
+    /// Map a decoder failure to the closest stable code without parsing
+    /// display strings: typed variants map directly, and only the untyped
+    /// `Other` fallback uses the old substring ladder.
+    pub fn from_decode_error(e: miniter_media_native::decoder::DecodeError) -> Self {
+        use miniter_audio::loudness::ErrorCode as Code;
+        use miniter_media_native::decoder::DecodeError as D;
+        let msg = e.to_string();
+        let code = match &e {
+            D::NoVideoStream => Code::NoDecodableStream,
+            D::UnsupportedCodec => Code::UnsupportedCodec,
+            D::DecoderNotAvailable(_) => Code::UnsupportedCodec,
+            D::Other(_) | D::Videoson(_) | D::Demux(_) | D::Io(_) => {
+                let lower = msg.to_lowercase();
+                if lower.contains("no video stream")
+                    || lower.contains("no audio track")
+                    || lower.contains("no decodable")
+                {
+                    Code::NoDecodableStream
+                } else if lower.contains("unsupported")
+                    || lower.contains("no decoder")
+                    || lower.contains("not yet available")
+                {
+                    Code::UnsupportedCodec
+                } else if lower.contains("truncat")
+                    || lower.contains("corrupt")
+                    || lower.contains("invalid data")
+                {
+                    Code::CorruptMedia
+                } else if lower.contains("io:")
+                    || lower.contains("permission")
+                    || lower.contains("no such file")
+                {
+                    Code::SourceUnreadable
+                } else {
+                    Code::EncodeFailed
+                }
+            }
+        };
+        Self::with_code(code, msg)
     }
 
     /// Map a native export failure to the closest stable code.

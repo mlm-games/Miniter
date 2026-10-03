@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">הגדרות</string>
+    <string name="common_back">חזרה</string>
+    <string name="common_save">שמירה</string>
+    <string name="common_cancel">ביטול</string>
+    <string name="common_remove">הסרה</string>
+    <string name="common_export">ייצוא</string>
+    <string name="common_delete">מחיקה</string>
+    <string name="common_undo">ביטול</string>
+    <string name="common_redo">ביצוע שוב</string>
+    <string name="common_more">עוד</string>
+</resources>

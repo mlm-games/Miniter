@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">الإعدادات</string>
+    <string name="common_back">رجوع</string>
+    <string name="common_save">حفظ</string>
+    <string name="common_cancel">إلغاء</string>
+    <string name="common_remove">إزالة</string>
+    <string name="common_export">تصدير</string>
+    <string name="common_delete">حذف</string>
+    <string name="common_undo">تراجع</string>
+    <string name="common_redo">إعادة</string>
+    <string name="common_more">المزيد</string>
+</resources>

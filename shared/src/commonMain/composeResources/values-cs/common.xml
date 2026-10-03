@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Nastavení</string>
+    <string name="common_back">Zpět</string>
+    <string name="common_save">Uložit</string>
+    <string name="common_cancel">Zrušit</string>
+    <string name="common_remove">Odebrat</string>
+    <string name="common_export">Exportovat</string>
+    <string name="common_delete">Smazat</string>
+    <string name="common_undo">Vrátit zpět</string>
+    <string name="common_redo">Zopakovat</string>
+    <string name="common_more">Více</string>
+</resources>

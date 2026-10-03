@@ -5,10 +5,10 @@ import io.github.mlmgames.settings.core.types.*
 import kotlinx.serialization.Serializable
 import org.mlm.miniter.editor.model.RustExportFormat
 
-@CategoryDefinition(order = 0) object Appearance
-@CategoryDefinition(order = 1) object Editor
-@CategoryDefinition(order = 2) object Export
-@CategoryDefinition(order = 3) object Performance
+@CategoryDefinition(order = 0, titleKey = MiniterSettingsKeys.CATEGORY_APPEARANCE) object Appearance
+@CategoryDefinition(order = 1, titleKey = MiniterSettingsKeys.CATEGORY_EDITOR) object Editor
+@CategoryDefinition(order = 2, titleKey = MiniterSettingsKeys.CATEGORY_EXPORT) object Export
+@CategoryDefinition(order = 3, titleKey = MiniterSettingsKeys.CATEGORY_PERFORMANCE) object Performance
 
 @Serializable
 enum class ThemeMode { System, Light, Dark }
@@ -17,16 +17,21 @@ enum class ThemeMode { System, Light, Dark }
 data class AppSettings(
     @Setting(
         title = "Theme",
+        titleKey = MiniterSettingsKeys.THEME,
         description = "System / Light / Dark",
+        descriptionKey = MiniterSettingsKeys.THEME_DESCRIPTION,
         category = Appearance::class,
         type = Dropdown::class,
-        options = ["System", "Light", "Dark"]
+        options = ["System", "Light", "Dark"],
+        optionsKey = MiniterSettingsKeys.THEME_OPTIONS
     )
     val themeMode: Int = ThemeMode.Dark.ordinal,
 
     @Setting(
         title = "Dynamic colors",
+        titleKey = MiniterSettingsKeys.DYNAMIC_COLORS,
         description = "Use Material You dynamic colors (Android 12+)",
+        descriptionKey = MiniterSettingsKeys.DYNAMIC_COLORS_DESCRIPTION,
         category = Appearance::class,
         type = Toggle::class,
         platforms = [SettingPlatform.ANDROID]
@@ -35,6 +40,7 @@ data class AppSettings(
 
     @Setting(
         title = "Pure black (OLED)",
+        titleKey = MiniterSettingsKeys.OLED_BLACK,
         category = Appearance::class,
         type = Toggle::class,
         key = "oled_black"
@@ -74,7 +80,9 @@ data class AppSettings(
 
     @Setting(
         title = "Auto-save project",
+        titleKey = MiniterSettingsKeys.AUTO_SAVE_PROJECT,
         description = "Automatically save project changes",
+        descriptionKey = MiniterSettingsKeys.AUTO_SAVE_PROJECT_DESCRIPTION,
         category = Editor::class,
         type = Toggle::class
     )
@@ -82,7 +90,9 @@ data class AppSettings(
 
     @Setting(
         title = "Auto-save interval (seconds)",
+        titleKey = MiniterSettingsKeys.AUTO_SAVE_INTERVAL,
         description = "How often to auto-save",
+        descriptionKey = MiniterSettingsKeys.AUTO_SAVE_INTERVAL_DESCRIPTION,
         category = Editor::class,
         type = Slider::class,
         min = 10f,
@@ -94,7 +104,9 @@ data class AppSettings(
 
     @Setting(
         title = "Hardware acceleration",
+        titleKey = MiniterSettingsKeys.HARDWARE_ACCELERATION,
         description = "Use GPU for video decode/encode (faster, uses more power)",
+        descriptionKey = MiniterSettingsKeys.HARDWARE_ACCELERATION_DESCRIPTION,
         category = Performance::class,
         type = Toggle::class
     )

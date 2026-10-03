@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Pengaturan</string>
+    <string name="common_back">Kembali</string>
+    <string name="common_save">Simpan</string>
+    <string name="common_cancel">Batal</string>
+    <string name="common_remove">Hapus</string>
+    <string name="common_export">Ekspor</string>
+    <string name="common_delete">Hapus</string>
+    <string name="common_undo">Urungkan</string>
+    <string name="common_redo">Ulangi</string>
+    <string name="common_more">Lainnya</string>
+</resources>

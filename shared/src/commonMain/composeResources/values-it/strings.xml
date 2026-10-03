@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">Aspetto</string>
+    <string name="miniter_settings_category_editor">Editor</string>
+    <string name="miniter_settings_category_export">Esportazione</string>
+    <string name="miniter_settings_category_performance">Prestazioni</string>
+    <string name="miniter_settings_theme">Tema</string>
+    <string name="miniter_settings_theme_description">Sistema / Chiaro / Scuro</string>
+    <string name="miniter_settings_dynamic_colors">Colori dinamici</string>
+    <string name="miniter_settings_dynamic_colors_description">Usa i colori dinamici di Material You (Android 12+)</string>
+    <string name="miniter_settings_oled_black">Nero puro (OLED)</string>
+    <string name="miniter_settings_auto_save_project">Salvataggio automatico del progetto</string>
+    <string name="miniter_settings_auto_save_project_description">Salva automaticamente le modifiche al progetto</string>
+    <string name="miniter_settings_auto_save_interval">Intervallo di salvataggio automatico (secondi)</string>
+    <string name="miniter_settings_auto_save_interval_description">Frequenza del salvataggio automatico</string>
+    <string name="miniter_settings_hardware_acceleration">Accelerazione hardware</string>
+    <string name="miniter_settings_hardware_acceleration_description">Usa la GPU per codificare e decodificare video (più veloce, consuma più energia)</string>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Cài đặt</string>
+    <string name="common_back">Quay lại</string>
+    <string name="common_save">Lưu</string>
+    <string name="common_cancel">Hủy</string>
+    <string name="common_remove">Xóa</string>
+    <string name="common_export">Xuất</string>
+    <string name="common_delete">Xóa</string>
+    <string name="common_undo">Hoàn tác</string>
+    <string name="common_redo">Làm lại</string>
+    <string name="common_more">Thêm</string>
+</resources>

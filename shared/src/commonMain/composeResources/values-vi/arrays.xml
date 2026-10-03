@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="miniter_settings_theme_options">
+        <item>Hệ thống</item>
+        <item>Sáng</item>
+        <item>Tối</item>
+    </string-array>
+</resources>

@@ -20,6 +20,10 @@ import io.github.vinceglb.filekit.PlatformFile
 import kotlinx.coroutines.launch
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.PlatformFileSystem
+import miniter.shared.generated.resources.Res
+import miniter.shared.generated.resources.common_cancel
+import miniter.shared.generated.resources.common_save
+import org.jetbrains.compose.resources.stringResource
 
 private fun defaultProjectSavePath(projectName: String): String {
     val appDir = PlatformFileSystem.getAppDataDirectory("miniter")
@@ -205,7 +209,7 @@ fun NewProjectDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_cancel)) }
         },
     )
 }
@@ -284,11 +288,11 @@ fun SaveProjectDialog(
                 onClick = { onSave(projectName, savePath) },
                 enabled = projectName.isNotBlank(),
             ) {
-                Text("Save")
+                Text(stringResource(Res.string.common_save))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_cancel)) }
         },
     )
 }

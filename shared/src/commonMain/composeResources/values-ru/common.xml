@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Настройки</string>
+    <string name="common_back">Назад</string>
+    <string name="common_save">Сохранить</string>
+    <string name="common_cancel">Отмена</string>
+    <string name="common_remove">Удалить</string>
+    <string name="common_export">Экспорт</string>
+    <string name="common_delete">Удалить</string>
+    <string name="common_undo">Отменить</string>
+    <string name="common_redo">Повторить</string>
+    <string name="common_more">Ещё</string>
+</resources>

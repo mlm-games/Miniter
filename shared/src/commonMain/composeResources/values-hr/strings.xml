@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">Izgled</string>
+    <string name="miniter_settings_category_editor">Uređivač</string>
+    <string name="miniter_settings_category_export">Izvoz</string>
+    <string name="miniter_settings_category_performance">Performanse</string>
+    <string name="miniter_settings_theme">Tema</string>
+    <string name="miniter_settings_theme_description">Sustav / Svijetlo / Tamno</string>
+    <string name="miniter_settings_dynamic_colors">Dinamičke boje</string>
+    <string name="miniter_settings_dynamic_colors_description">Koristi dinamičke boje Material You (Android 12+)</string>
+    <string name="miniter_settings_oled_black">Čisto crna (OLED)</string>
+    <string name="miniter_settings_auto_save_project">Automatsko spremanje projekta</string>
+    <string name="miniter_settings_auto_save_project_description">Automatski spremaj promjene projekta</string>
+    <string name="miniter_settings_auto_save_interval">Interval automatskog spremanja (sekunde)</string>
+    <string name="miniter_settings_auto_save_interval_description">Koliko često automatski spremati</string>
+    <string name="miniter_settings_hardware_acceleration">Hardversko ubrzavanje</string>
+    <string name="miniter_settings_hardware_acceleration_description">Koristi GPU za dekodiranje i kodiranje videa (brže, ali troši više energije)</string>
+</resources>

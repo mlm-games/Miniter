@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Asetukset</string>
+    <string name="common_back">Takaisin</string>
+    <string name="common_save">Tallenna</string>
+    <string name="common_cancel">Peruuta</string>
+    <string name="common_remove">Poista</string>
+    <string name="common_export">Vie</string>
+    <string name="common_delete">Poista</string>
+    <string name="common_undo">Kumoa</string>
+    <string name="common_redo">Tee uudelleen</string>
+    <string name="common_more">Lisää</string>
+</resources>

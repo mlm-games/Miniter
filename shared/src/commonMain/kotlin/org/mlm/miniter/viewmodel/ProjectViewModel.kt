@@ -58,7 +58,6 @@ import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.overlapsRange
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
-import org.mlm.miniter.engine.ThumbnailResult
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.PlatformFileSystem
@@ -266,16 +265,6 @@ class ProjectViewModel(
 
                 if (info.durationMs <= 0L) {
                     snackbarManager.show("Warning: Could not determine video duration - file may not play correctly")
-                }
-
-                if (hasVideo) {
-                    when (val result = engine.extractSingleThumbnail(stagedVideoPath, 0L, 160, 90, hardwareAccelerationEnabled)) {
-                        is ThumbnailResult.Error -> {
-                            handleError(result.message)
-                            return@launch
-                        }
-                        is ThumbnailResult.Success -> { /* decodable */ }
-                    }
                 }
 
                 sourceDurationMs = info.durationMs
@@ -1241,10 +1230,12 @@ class ProjectViewModel(
                 _state.update { it.copy(thumbnails = thumbs, isLoadingThumbnails = false) }
             } catch (e: Exception) {
                 if (requestId != thumbnailRequestId) return@launch
-                _state.update { it.copy(isLoadingThumbnails = false) }
-                val msg = e.message?.removePrefix("detail=")?.removePrefix("Non-Kotlin exception ")
-                    ?: "Failed to load thumbnails"
-                snackbarManager.showError(msg)
+                _state.update { it.copy(thumbnails = emptyList(), isLoadingThumbnails = false) }
+                val raw = e.message?.removePrefix("detail=")?.removePrefix("Non-Kotlin exception ")
+                Napier.w("Preview unavailable for $videoPath: $raw")
+                snackbarManager.show(
+                    "Preview unavailable for '${videoPath.substringAfterLast("/")}': ${raw ?: "decoder error"}. Timeline remains editable; audio may still be usable."
+                )
             }
         }
     }
@@ -1274,13 +1265,6 @@ class ProjectViewModel(
                     if (info.hardwareAccelerationRequired && !hardwareAccelerationEnabled) {
                         exportError = "'${path.substringAfterLast("/")}': ${info.videoCodecName ?: "unknown codec"} requires hardware acceleration (currently disabled)"
                         break
-                    }
-                    when (val result = engine.extractSingleThumbnail(path, 0L, 160, 90, hardwareAccelerationEnabled)) {
-                        is ThumbnailResult.Error -> {
-                            exportError = "'${path.substringAfterLast("/")}': ${result.message}"
-                            break
-                        }
-                        is ThumbnailResult.Success -> { /* decodable */ }
                     }
                 } catch (e: Exception) {
                     exportError = "'${path.substringAfterLast("/")}': ${e.message}"

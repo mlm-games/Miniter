@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">מראה</string>
+    <string name="miniter_settings_category_editor">עורך</string>
+    <string name="miniter_settings_category_export">ייצוא</string>
+    <string name="miniter_settings_category_performance">ביצועים</string>
+    <string name="miniter_settings_theme">ערכת נושא</string>
+    <string name="miniter_settings_theme_description">מערכת / בהיר / כהה</string>
+    <string name="miniter_settings_dynamic_colors">צבעים דינמיים</string>
+    <string name="miniter_settings_dynamic_colors_description">שימוש בצבעים דינמיים של Material You (Android 12+)</string>
+    <string name="miniter_settings_oled_black">שחור מלא (OLED)</string>
+    <string name="miniter_settings_auto_save_project">שמירה אוטומטית של הפרויקט</string>
+    <string name="miniter_settings_auto_save_project_description">שמירה אוטומטית של שינויים בפרויקט</string>
+    <string name="miniter_settings_auto_save_interval">מרווח שמירה אוטומטית (שניות)</string>
+    <string name="miniter_settings_auto_save_interval_description">תדירות השמירה האוטומטית</string>
+    <string name="miniter_settings_hardware_acceleration">האצת חומרה</string>
+    <string name="miniter_settings_hardware_acceleration_description">שימוש ב-GPU לקידוד ולפענוח וידאו (מהיר יותר, צורך יותר חשמל)</string>
+</resources>

@@ -7,6 +7,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import miniter.shared.generated.resources.Res
+import miniter.shared.generated.resources.common_delete
+import org.jetbrains.compose.resources.stringResource
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
@@ -76,7 +79,7 @@ fun ClipContextMenu(
         HorizontalDivider()
 
         DropdownMenuItem(
-            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+            text = { Text(stringResource(Res.string.common_delete), color = MaterialTheme.colorScheme.error) },
             leadingIcon = {
                 Icon(
                     Icons.Default.Delete, null,

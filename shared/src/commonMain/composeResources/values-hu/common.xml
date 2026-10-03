@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Beállítások</string>
+    <string name="common_back">Vissza</string>
+    <string name="common_save">Mentés</string>
+    <string name="common_cancel">Mégse</string>
+    <string name="common_remove">Eltávolítás</string>
+    <string name="common_export">Exportálás</string>
+    <string name="common_delete">Törlés</string>
+    <string name="common_undo">Visszavonás</string>
+    <string name="common_redo">Újra</string>
+    <string name="common_more">Több</string>
+</resources>

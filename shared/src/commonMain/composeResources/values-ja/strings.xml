@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">外観</string>
+    <string name="miniter_settings_category_editor">エディター</string>
+    <string name="miniter_settings_category_export">エクスポート</string>
+    <string name="miniter_settings_category_performance">パフォーマンス</string>
+    <string name="miniter_settings_theme">テーマ</string>
+    <string name="miniter_settings_theme_description">システム / ライト / ダーク</string>
+    <string name="miniter_settings_dynamic_colors">ダイナミックカラー</string>
+    <string name="miniter_settings_dynamic_colors_description">Material You のダイナミックカラーを使用（Android 12+）</string>
+    <string name="miniter_settings_oled_black">純黒（OLED）</string>
+    <string name="miniter_settings_auto_save_project">プロジェクトを自動保存</string>
+    <string name="miniter_settings_auto_save_project_description">プロジェクトの変更を自動的に保存</string>
+    <string name="miniter_settings_auto_save_interval">自動保存の間隔（秒）</string>
+    <string name="miniter_settings_auto_save_interval_description">自動保存の頻度</string>
+    <string name="miniter_settings_hardware_acceleration">ハードウェアアクセラレーション</string>
+    <string name="miniter_settings_hardware_acceleration_description">GPU を使用して動画のデコードとエンコードを行う（高速ですが消費電力が増加します）</string>
+</resources>

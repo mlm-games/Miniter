@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Ρυθμίσεις</string>
+    <string name="common_back">Πίσω</string>
+    <string name="common_save">Αποθήκευση</string>
+    <string name="common_cancel">Ακύρωση</string>
+    <string name="common_remove">Αφαίρεση</string>
+    <string name="common_export">Εξαγωγή</string>
+    <string name="common_delete">Διαγραφή</string>
+    <string name="common_undo">Αναίρεση</string>
+    <string name="common_redo">Επανάληψη</string>
+    <string name="common_more">Περισσότερα</string>
+</resources>

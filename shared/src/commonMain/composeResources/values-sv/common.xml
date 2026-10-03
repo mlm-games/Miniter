@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">Inställningar</string>
+    <string name="common_back">Tillbaka</string>
+    <string name="common_save">Spara</string>
+    <string name="common_cancel">Avbryt</string>
+    <string name="common_remove">Ta bort</string>
+    <string name="common_export">Exportera</string>
+    <string name="common_delete">Ta bort</string>
+    <string name="common_undo">Ångra</string>
+    <string name="common_redo">Gör om</string>
+    <string name="common_more">Mer</string>
+</resources>

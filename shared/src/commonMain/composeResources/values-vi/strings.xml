@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">Hiển thị</string>
+    <string name="miniter_settings_category_editor">Trình chỉnh sửa</string>
+    <string name="miniter_settings_category_export">Xuất</string>
+    <string name="miniter_settings_category_performance">Hiệu năng</string>
+    <string name="miniter_settings_theme">Giao diện</string>
+    <string name="miniter_settings_theme_description">Hệ thống / Sáng / Tối</string>
+    <string name="miniter_settings_dynamic_colors">Màu động</string>
+    <string name="miniter_settings_dynamic_colors_description">Sử dụng màu động Material You (Android 12+)</string>
+    <string name="miniter_settings_oled_black">Đen tuyệt đối (OLED)</string>
+    <string name="miniter_settings_auto_save_project">Tự động lưu dự án</string>
+    <string name="miniter_settings_auto_save_project_description">Tự động lưu các thay đổi của dự án</string>
+    <string name="miniter_settings_auto_save_interval">Khoảng thời gian tự động lưu (giây)</string>
+    <string name="miniter_settings_auto_save_interval_description">Tần suất tự động lưu</string>
+    <string name="miniter_settings_hardware_acceleration">Tăng tốc phần cứng</string>
+    <string name="miniter_settings_hardware_acceleration_description">Sử dụng GPU để giải mã và mã hóa video (nhanh hơn, tốn điện hơn)</string>
+</resources>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">Utseende</string>
+    <string name="miniter_settings_category_editor">Redigerare</string>
+    <string name="miniter_settings_category_export">Export</string>
+    <string name="miniter_settings_category_performance">Prestanda</string>
+    <string name="miniter_settings_theme">Tema</string>
+    <string name="miniter_settings_theme_description">System / Ljust / Mörkt</string>
+    <string name="miniter_settings_dynamic_colors">Dynamiska färger</string>
+    <string name="miniter_settings_dynamic_colors_description">Använd dynamiska Material You-färger (Android 12+)</string>
+    <string name="miniter_settings_oled_black">Helsvart (OLED)</string>
+    <string name="miniter_settings_auto_save_project">Autospara projekt</string>
+    <string name="miniter_settings_auto_save_project_description">Autospara ändringar i projektet automatiskt</string>
+    <string name="miniter_settings_auto_save_interval">Intervall för autosparning (sekunder)</string>
+    <string name="miniter_settings_auto_save_interval_description">Hur ofta ska autosparning ske</string>
+    <string name="miniter_settings_hardware_acceleration">Hårdvaruacceleration</string>
+    <string name="miniter_settings_hardware_acceleration_description">Använd GPU för att avkoda och koda video (snabbare, men använder mer ström)</string>
+</resources>

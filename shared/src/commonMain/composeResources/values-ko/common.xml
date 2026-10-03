@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_settings">설정</string>
+    <string name="common_back">뒤로</string>
+    <string name="common_save">저장</string>
+    <string name="common_cancel">취소</string>
+    <string name="common_remove">제거</string>
+    <string name="common_export">내보내기</string>
+    <string name="common_delete">삭제</string>
+    <string name="common_undo">실행 취소</string>
+    <string name="common_redo">다시 실행</string>
+    <string name="common_more">더 보기</string>
+</resources>

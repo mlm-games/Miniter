@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miniter_settings_category_appearance">Wygląd</string>
+    <string name="miniter_settings_category_editor">Edytor</string>
+    <string name="miniter_settings_category_export">Eksport</string>
+    <string name="miniter_settings_category_performance">Wydajność</string>
+    <string name="miniter_settings_theme">Motyw</string>
+    <string name="miniter_settings_theme_description">System / Jasny / Ciemny</string>
+    <string name="miniter_settings_dynamic_colors">Kolory dynamiczne</string>
+    <string name="miniter_settings_dynamic_colors_description">Używaj dynamicznych kolorów Material You (Android 12+)</string>
+    <string name="miniter_settings_oled_black">Cała czerń (OLED)</string>
+    <string name="miniter_settings_auto_save_project">Automatyczne zapisywanie projektu</string>
+    <string name="miniter_settings_auto_save_project_description">Automatycznie zapisuj zmiany projektu</string>
+    <string name="miniter_settings_auto_save_interval">Interwał automatycznego zapisywania (sekundy)</string>
+    <string name="miniter_settings_auto_save_interval_description">Jak często zapisywać automatycznie</string>
+    <string name="miniter_settings_hardware_acceleration">Akceleracja sprzętowa</string>
+    <string name="miniter_settings_hardware_acceleration_description">Używaj procesora graficznego do dekodowania i kodowania filmów (szybciej, zużywa więcej energii)</string>
+</resources>
