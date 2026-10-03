@@ -18,7 +18,7 @@ rustUniffi {
 val cargoBuildWasm = tasks.named("cargoBuildWasm")
 val rustDirDefault = rootProject.layout.projectDirectory.dir("rust")
 
-@org.gradle.work.DisableCachingByDefault(because = "Invokes external Rust tooling")
+@org.gradle.api.tasks.UntrackedTask(because = "cargo owns rust/target/ inside rustProjectDir")
 abstract class GenerateRustWasmBindingsTask @javax.inject.Inject constructor(
     private val execOps: org.gradle.process.ExecOperations,
 ) : org.gradle.api.DefaultTask() {
@@ -56,7 +56,6 @@ val generateRustWasmBindings = tasks.register<GenerateRustWasmBindingsTask>("gen
     outputDir.set(layout.buildDirectory.dir("generated/rustWasmBindings"))
 }
 
-@org.gradle.work.DisableCachingByDefault(because = "Parses generated TypeScript declarations")
 abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
     @get:org.gradle.api.tasks.InputFile
     abstract val dtsFile: org.gradle.api.file.RegularFileProperty
