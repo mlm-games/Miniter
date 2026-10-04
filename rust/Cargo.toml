@@ -46,7 +46,7 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 fontdue = "0.9"
 
-baabaabaabaabababbababbaa = { version = "0.1" }
+baabaabaabaabababbababbaa = { version = "0.2" }
 reassarus-renderer = { version = "0.1", default-features = false }
 reassarus-core = { version = "0.1" }
 

@@ -40,7 +40,10 @@ fn get_matrix_coeffs(matrix: MatrixCoeffs, _height: usize) -> (f32, f32, f32, f3
     let (kr, kb) = match matrix {
         MatrixCoeffs::Bt601 => (0.299_f32, 0.114_f32),
         MatrixCoeffs::Bt709 => (0.2126_f32, 0.0722_f32),
-        MatrixCoeffs::Bt2020Ncl => (0.2627_f32, 0.0593_f32),
+        // BT.2020 CL shares BT.2020's Kr/Kb. Only the *derivation* differs
+        // (Y depends on R,G,B for CL vs. a luma-weighted sum for NCL), which
+        // this inverse matrix does not use.
+        MatrixCoeffs::Bt2020Ncl | MatrixCoeffs::Bt2020Cl => (0.2627_f32, 0.0593_f32),
         MatrixCoeffs::Identity => return (1.0, 1.0, 0.0, 0.0, 0.0),
     };
     let kg = 1.0 - kr - kb;
@@ -259,7 +262,7 @@ pub fn rgba_to_yuv420(
     let (kr, kb) = match matrix {
         MatrixCoeffs::Bt601 => (0.299_f32, 0.114_f32),
         MatrixCoeffs::Bt709 => (0.2126_f32, 0.0722_f32),
-        MatrixCoeffs::Bt2020Ncl => (0.2627_f32, 0.0593_f32),
+        MatrixCoeffs::Bt2020Ncl | MatrixCoeffs::Bt2020Cl => (0.2627_f32, 0.0593_f32),
         MatrixCoeffs::Identity => (1.0 / 3.0, 1.0 / 3.0),
     };
     let kg = 1.0 - kr - kb;

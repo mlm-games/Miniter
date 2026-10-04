@@ -1,6 +1,6 @@
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
-use crate::frame::{ChromaSiting, ColorInfo, ColorRange, MatrixCoeffs, RgbaFrame};
+use crate::frame::{ColorInfo, ColorRange, MatrixCoeffs, RgbaFrame};
 use std::collections::VecDeque;
 use videoson::{
     CodecType, NalFormat, Packet as VideoPacket, PixelFormat, VideoCodecParams, VideoDecoder,
@@ -327,21 +327,27 @@ fn diag_trace(name: &str, fmt: &str, w: usize, h: usize, extra: &str, pts: i64) 
 }
 
 fn map_videoson_color(reported: &videoson::ColorInfo, height: u32) -> ColorInfo {
-    let matrix = match reported.matrix {
-        1 => MatrixCoeffs::Bt709,
-        4..=7 => MatrixCoeffs::Bt601,
-        9 | 10 => MatrixCoeffs::Bt2020Ncl,
-        _ => return ColorInfo::infer(height),
-    };
-    ColorInfo {
-        matrix,
-        range: if reported.full_range {
-            ColorRange::Full
-        } else {
-            ColorRange::Limited
-        },
-        chroma_siting: ChromaSiting::Center,
+    if !reported.signalled {
+        return ColorInfo::infer(height);
     }
+    let mut info = ColorInfo::infer(height);
+    info.range = if reported.full_range {
+        ColorRange::Full
+    } else {
+        ColorRange::Limited
+    };
+    info.matrix = match reported.matrix {
+        1 => MatrixCoeffs::Bt709,
+        // 4=FCC, 5=BT.470BG, 6=SMPTE 170M, 7=SMPTE 240M. H.273 notes 5 and
+        // 6 are functionally identical.
+        4..=7 => MatrixCoeffs::Bt601,
+        9 => MatrixCoeffs::Bt2020Ncl,
+        10 => MatrixCoeffs::Bt2020Cl,
+        // 2=unspecified plus codes with no equivalent here (0=identity,
+        // 8=YCgCo, 14=ICtCp): keep the height heuristic's matrix.
+        _ => info.matrix,
+    };
+    info
 }
 
 impl VideoDecoderBackend for VideosonBackend {

@@ -36,7 +36,13 @@ impl Default for ColorInfo {
 pub enum MatrixCoeffs {
     Bt601,
     Bt709,
+    /// ITU-T H.273 matrix_coeffs 9. Kr/Kb only; the luma/chroma derivation is
+    /// shared with [`MatrixCoeffs::Bt2020Cl`].
     Bt2020Ncl,
+    /// ITU-T H.273 matrix_coeffs 10. Same primaries and coefficients as
+    /// [`MatrixCoeffs::Bt2020Ncl`] but constant-luminance, so the G-Y and
+    /// B-Y terms depend on Y rather than being constants.
+    Bt2020Cl,
     Identity,
 }
 

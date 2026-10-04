@@ -106,7 +106,7 @@ mod hw {
                 color_space: Some(match matrix {
                     MatrixCoeffs::Bt601 => VideoColorSpace::Bt601,
                     MatrixCoeffs::Bt709 | MatrixCoeffs::Identity => VideoColorSpace::Bt709,
-                    MatrixCoeffs::Bt2020Ncl => VideoColorSpace::Bt2020,
+                    MatrixCoeffs::Bt2020Ncl | MatrixCoeffs::Bt2020Cl => VideoColorSpace::Bt2020,
                 }),
             };
 
@@ -163,6 +163,7 @@ mod hw {
                 dimensions: Dimensions::new(self.width, self.height),
                 format: baabaabaabaabababbababbaa::PixelFormat::Rgba8,
                 timestamp: Duration::from_micros(frame.pts_us as u64),
+                color: None,
                 planes: VideoPlanes::Cpu(frame.data.clone()),
             }
         }
@@ -187,6 +188,7 @@ mod hw {
                 dimensions: Dimensions::new(self.width, self.height),
                 format: baabaabaabaabababbababbaa::PixelFormat::Nv12,
                 timestamp: Duration::from_micros(frame.pts_us as u64),
+                color: None,
                 planes: VideoPlanes::Cpu(nv12),
             }
         }

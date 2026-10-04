@@ -36,6 +36,11 @@ fn rav1e_color_description(matrix: MatrixCoeffs) -> ColorDescription {
             TransferCharacteristics::BT2020_10Bit,
             MatrixCoefficients::BT2020NCL,
         ),
+        MatrixCoeffs::Bt2020Cl => (
+            ColorPrimaries::BT2020,
+            TransferCharacteristics::BT2020_10Bit,
+            MatrixCoefficients::BT2020CL,
+        ),
         MatrixCoeffs::Identity => (
             ColorPrimaries::BT709,
             TransferCharacteristics::SRGB,

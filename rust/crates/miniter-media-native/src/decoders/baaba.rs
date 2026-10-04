@@ -3,14 +3,14 @@ use web_time::Duration;
 
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
-use crate::frame::{ColorInfo, RgbaFrame};
+use crate::frame::{ColorInfo, ColorRange, MatrixCoeffs, RgbaFrame};
 
 use baabaabaabaabababbababbaa::VideoDecoderInput as _;
 #[cfg(not(target_arch = "wasm32"))]
 use baabaabaabaabababbababbaa::VideoDecoderOutput as _;
 use baabaabaabaabababbababbaa::{
-    Dimensions, EncodedVideoPacket, PixelFormat, VideoDecoderConfig, VideoFrame as BaabaFrame,
-    VideoOutputMode, VideoPlanes,
+    Dimensions, EncodedVideoPacket, PixelFormat, VideoColorInfo, VideoDecoderConfig,
+    VideoFrame as BaabaFrame, VideoOutputMode, VideoPlanes,
 };
 use bytes::Bytes;
 
@@ -83,12 +83,30 @@ impl BaabaBackend {
             Some(Bytes::copy_from_slice(description))
         };
 
+        // Hardware decoders report no colour of their own, so read the CICP
+        // codes out of the parameter sets here and hand them down. WASM gets
+        // `description = None` above, so there is nothing to parse and the
+        // height heuristic applies as before.
+        let color = description
+            .as_deref()
+            .and_then(|d| codec_from_mime(mime).map(|codec| (codec, d)))
+            .and_then(|(codec, d)| videoson::color::extradata_color(codec, d))
+            .map(|c| VideoColorInfo {
+                primaries: c.primaries,
+                transfer: c.transfer,
+                matrix: c.matrix,
+                full_range: c.full_range,
+                signalled: c.signalled,
+            });
+
         let config = VideoDecoderConfig {
             codec: mime.into(),
             resolution: Some(Dimensions::new(width, height)),
             description,
+            description_format: None,
             hardware_acceleration: Some(hardware_acceleration),
             output_mode: VideoOutputMode::Cpu,
+            color,
         };
         let host = PlatformHost::new();
         let (input, output) = host
@@ -163,11 +181,51 @@ impl BaabaBackend {
     }
 }
 
+fn codec_from_mime(mime: &str) -> Option<videoson::CodecType> {
+    match mime {
+        "video/avc" => Some(videoson::CodecType::H264),
+        "video/hevc" | "video/h265" => Some(videoson::CodecType::H265),
+        _ => None,
+    }
+}
+
+/// ITU-T H.273 matrix_coeffs code to the enum used by the YUV→RGB path.
+///
+/// §E.3.1 leaves an absent or unrecognised code unspecified; the height
+/// heuristic in [`ColorInfo::infer`] covers that case, so unknown codes land
+/// there too rather than being silently treated as BT.601.
+fn map_matrix(matrix: u8, height: u32) -> MatrixCoeffs {
+    match matrix {
+        1 => MatrixCoeffs::Bt709,
+        // 4=FCC, 5=BT.470BG, 6=SMPTE 170M, 7=SMPTE 240M — all SD-range
+        // matrices; H.273 notes 5 and 6 are functionally identical.
+        4..=7 => MatrixCoeffs::Bt601,
+        9 => MatrixCoeffs::Bt2020Ncl,
+        10 => MatrixCoeffs::Bt2020Cl,
+        // 0=identity, 2=unspecified, 8=YCgCo, 14=ICtCp and everything reserved
+        // have no equivalent in the YUV→RGB path here. §E.3.1 leaves them
+        // unspecified, so use the height heuristic rather than inventing one.
+        _ => ColorInfo::infer(height).matrix,
+    }
+}
+
 fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendError> {
     let pts_us = frame.timestamp.as_micros().min(i64::MAX as u128) as i64;
     let w = frame.dimensions.width as usize;
     let h = frame.dimensions.height as usize;
-    let color_info = ColorInfo::infer(frame.dimensions.height);
+    let color_info = match frame.color {
+        Some(reported) => {
+            let mut info = ColorInfo::infer(frame.dimensions.height);
+            info.matrix = map_matrix(reported.matrix, frame.dimensions.height);
+            info.range = if reported.full_range {
+                ColorRange::Full
+            } else {
+                ColorRange::Limited
+            };
+            info
+        }
+        None => ColorInfo::infer(frame.dimensions.height),
+    };
 
     match frame.planes {
         VideoPlanes::Cpu(data) => match frame.format {
@@ -357,6 +415,7 @@ fn drain_raw_frames(
             dimensions: Dimensions::new(pending.width, pending.height),
             format: pending.format,
             timestamp: Duration::from_micros(pending.pts_us as u64),
+            color: None,
             planes: VideoPlanes::Cpu(data),
         };
         frame_buffer.push_back(convert_baaba_frame(baaba_frame)?);
