@@ -195,18 +195,7 @@ fn codec_from_mime(mime: &str) -> Option<videoson::CodecType> {
 /// heuristic in [`ColorInfo::infer`] covers that case, so unknown codes land
 /// there too rather than being silently treated as BT.601.
 fn map_matrix(matrix: u8, height: u32) -> MatrixCoeffs {
-    match matrix {
-        1 => MatrixCoeffs::Bt709,
-        // 4=FCC, 5=BT.470BG, 6=SMPTE 170M, 7=SMPTE 240M — all SD-range
-        // matrices; H.273 notes 5 and 6 are functionally identical.
-        4..=7 => MatrixCoeffs::Bt601,
-        9 => MatrixCoeffs::Bt2020Ncl,
-        10 => MatrixCoeffs::Bt2020Cl,
-        // 0=identity, 2=unspecified, 8=YCgCo, 14=ICtCp and everything reserved
-        // have no equivalent in the YUV→RGB path here. §E.3.1 leaves them
-        // unspecified, so use the height heuristic rather than inventing one.
-        _ => ColorInfo::infer(height).matrix,
-    }
+    ColorInfo::matrix_from_cicp(matrix).unwrap_or_else(|| ColorInfo::infer(height).matrix)
 }
 
 fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendError> {

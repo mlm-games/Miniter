@@ -1,6 +1,6 @@
 use crate::decoders::DecodeError;
 use crate::demux::{DecodeBackendError, VideoDecoderBackend};
-use crate::frame::{ColorInfo, ColorRange, MatrixCoeffs, RgbaFrame};
+use crate::frame::{ColorInfo, ColorRange, RgbaFrame};
 use std::collections::VecDeque;
 use videoson::{
     CodecType, NalFormat, Packet as VideoPacket, PixelFormat, VideoCodecParams, VideoDecoder,
@@ -336,17 +336,7 @@ fn map_videoson_color(reported: &videoson::ColorInfo, height: u32) -> ColorInfo 
     } else {
         ColorRange::Limited
     };
-    info.matrix = match reported.matrix {
-        1 => MatrixCoeffs::Bt709,
-        // 4=FCC, 5=BT.470BG, 6=SMPTE 170M, 7=SMPTE 240M. H.273 notes 5 and
-        // 6 are functionally identical.
-        4..=7 => MatrixCoeffs::Bt601,
-        9 => MatrixCoeffs::Bt2020Ncl,
-        10 => MatrixCoeffs::Bt2020Cl,
-        // 2=unspecified plus codes with no equivalent here (0=identity,
-        // 8=YCgCo, 14=ICtCp): keep the height heuristic's matrix.
-        _ => info.matrix,
-    };
+    info.matrix = ColorInfo::matrix_from_cicp(reported.matrix).unwrap_or(info.matrix);
     info
 }
 

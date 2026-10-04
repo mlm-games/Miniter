@@ -186,7 +186,16 @@ impl SymphoniaDemuxer {
                 nalu_len = (nalu_len << 8) | data[offset] as usize;
                 offset += 1;
             }
-            if nalu_len == 0 || offset + nalu_len > data.len() {
+            // A zero length is legal padding. Skip it and resync on the next
+            // entry.
+            if nalu_len == 0 {
+                continue;
+            }
+            // A length reaching past the end means the packet is truncated, so
+            // every remaining byte belongs to that one incomplete NAL. Resyncing
+            // here would reinterpret its payload as length fields and emit
+            // garbage.
+            if offset + nalu_len > data.len() {
                 break;
             }
             output.extend_from_slice(start_code);
@@ -415,15 +424,19 @@ pub fn avcc_to_annexb(data: &[u8]) -> Vec<u8> {
         let nalu_len =
             u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
         i += 4;
-        if nalu_len == 0 || i + nalu_len > data.len() {
+        // A zero length is legal padding. Skip it and resync on the next entry.
+        if nalu_len == 0 {
+            continue;
+        }
+        // A length reaching past the end means the packet is truncated, so
+        // every remaining byte belongs to that one incomplete NAL. Appending it
+        // would splice length fields into the stream as if they were payload.
+        if i + nalu_len > data.len() {
             break;
         }
         out.extend_from_slice(&[0, 0, 0, 1]);
         out.extend_from_slice(&data[i..i + nalu_len]);
         i += nalu_len;
-    }
-    if i < data.len() {
-        out.extend_from_slice(&data[i..]);
     }
     out
 }
