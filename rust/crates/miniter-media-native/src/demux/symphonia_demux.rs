@@ -2,6 +2,13 @@
 
 use std::io::Seek;
 
+use rediakit_bitstream::sync::{
+    av1_is_keyframe, h264_annexb_has_idr, hevc_annexb_has_keyframe, vp8_is_keyframe,
+    vp9_is_keyframe,
+};
+use rediakit_bitstream::{
+    avcc_to_annexb, nal_length_size_avcc, nal_length_size_hvcc, parse_avcc, parse_hvcc,
+};
 use symphonia::core::codecs::video::VideoCodecId;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::formats::probe::Hint;
@@ -31,27 +38,6 @@ pub struct SymphoniaDemuxer {
     codec_config: Vec<u8>,
     /// Retained copy to restore `codec_config` after seek/reset.
     initial_codec_config: Vec<u8>,
-}
-
-// H264 AVCDecoderConfigurationRecord: byte 4 has lengthSizeMinusOne in bottom 2 bits.
-const AVCC_LENGTH_SIZE_BYTE: usize = 4;
-// HEVC HEVCDecoderConfigurationRecord: byte 21 has lengthSizeMinusOne in bottom 2 bits.
-const HVCC_LENGTH_SIZE_BYTE: usize = 21;
-
-fn extract_nalu_length_size_h264(extra_data: &[u8]) -> u8 {
-    if extra_data.len() > AVCC_LENGTH_SIZE_BYTE {
-        (extra_data[AVCC_LENGTH_SIZE_BYTE] & 0x03) + 1
-    } else {
-        4
-    }
-}
-
-fn extract_nalu_length_size_hevc(extra_data: &[u8]) -> u8 {
-    if extra_data.len() > HVCC_LENGTH_SIZE_BYTE {
-        (extra_data[HVCC_LENGTH_SIZE_BYTE] & 0x03) + 1
-    } else {
-        4
-    }
 }
 
 impl SymphoniaDemuxer {
@@ -100,7 +86,7 @@ impl SymphoniaDemuxer {
                             .iter()
                             .find(|d| d.id == VIDEO_EXTRA_DATA_ID_AVC_DECODER_CONFIG)
                             .map(|d| &*d.data);
-                        let nls = avcc.map(extract_nalu_length_size_h264).unwrap_or(4);
+                        let nls = avcc.map(nal_length_size_avcc).unwrap_or(4);
                         let annexb = avcc.map(parse_avcc).unwrap_or_default();
                         (nls, annexb)
                     }
@@ -110,7 +96,7 @@ impl SymphoniaDemuxer {
                             .iter()
                             .find(|d| d.id == VIDEO_EXTRA_DATA_ID_HEVC_DECODER_CONFIG)
                             .map(|d| &*d.data);
-                        let nls = hvcc.map(extract_nalu_length_size_hevc).unwrap_or(4);
+                        let nls = hvcc.map(nal_length_size_hvcc).unwrap_or(4);
                         let annexb = hvcc.map(parse_hvcc).unwrap_or_default();
                         (nls, annexb)
                     }
@@ -175,39 +161,7 @@ impl SymphoniaDemuxer {
 
     /// Convert length-prefixed NAL units to AnnexB (start-code prefixed).
     fn to_annex_b(&self, data: &[u8]) -> Vec<u8> {
-        let start_code: &[u8] = &[0x00, 0x00, 0x00, 0x01];
-        let mut output = Vec::with_capacity(data.len() + 128);
-        let len_size = self.nalu_length_size as usize;
-        let mut offset = 0;
-
-        while offset + len_size <= data.len() {
-            let mut nalu_len = 0usize;
-            for _ in 0..len_size {
-                nalu_len = (nalu_len << 8) | data[offset] as usize;
-                offset += 1;
-            }
-            // A zero length is legal padding. Skip it and resync on the next
-            // entry.
-            if nalu_len == 0 {
-                continue;
-            }
-            // A length reaching past the end means the packet is truncated, so
-            // every remaining byte belongs to that one incomplete NAL. Resyncing
-            // here would reinterpret its payload as length fields and emit
-            // garbage.
-            if offset + nalu_len > data.len() {
-                break;
-            }
-            output.extend_from_slice(start_code);
-            output.extend_from_slice(&data[offset..offset + nalu_len]);
-            offset += nalu_len;
-        }
-
-        if output.is_empty() {
-            data.to_vec()
-        } else {
-            output
-        }
+        avcc_to_annexb(data, self.nalu_length_size as usize)
     }
 }
 
@@ -379,109 +333,6 @@ fn codec_to_fourcc(codec: VideoCodecId) -> u32 {
     }
 }
 
-/// Parse an HEVC hvcC (HEVCDecoderConfigurationRecord) and return the
-/// VPS/SPS/PPS NAL units as a single AnnexB byte buffer.
-pub fn parse_hvcc(data: &[u8]) -> Vec<u8> {
-    if data.len() < 23 || data[0] != 1 {
-        return Vec::new();
-    }
-    let num_arrays = data[22] as usize;
-    let mut out = Vec::new();
-    let mut pos = 23usize;
-    for _ in 0..num_arrays {
-        if pos >= data.len() {
-            break;
-        }
-        let _nal_type = data[pos] & 0x3F;
-        pos += 1;
-        if pos + 2 > data.len() {
-            break;
-        }
-        let num_nalus = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-        pos += 2;
-        for _ in 0..num_nalus {
-            if pos + 2 > data.len() {
-                break;
-            }
-            let len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-            pos += 2;
-            if pos + len > data.len() {
-                break;
-            }
-            out.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
-            out.extend_from_slice(&data[pos..pos + len]);
-            pos += len;
-        }
-    }
-    out
-}
-
-/// Convert AVCC format (4-byte length-prefixed NALUs) to Annex-B format (start codes).
-pub fn avcc_to_annexb(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len() + 32);
-    let mut i = 0;
-    while i + 4 <= data.len() {
-        let nalu_len =
-            u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
-        i += 4;
-        // A zero length is legal padding. Skip it and resync on the next entry.
-        if nalu_len == 0 {
-            continue;
-        }
-        // A length reaching past the end means the packet is truncated, so
-        // every remaining byte belongs to that one incomplete NAL. Appending it
-        // would splice length fields into the stream as if they were payload.
-        if i + nalu_len > data.len() {
-            break;
-        }
-        out.extend_from_slice(&[0, 0, 0, 1]);
-        out.extend_from_slice(&data[i..i + nalu_len]);
-        i += nalu_len;
-    }
-    out
-}
-
-pub fn parse_avcc(data: &[u8]) -> Vec<u8> {
-    if data.len() < 6 || data[0] != 1 {
-        return Vec::new();
-    }
-    let mut out = Vec::new();
-    let mut pos = 6usize;
-    let num_sps = (data[5] & 0x1F) as usize;
-    for _ in 0..num_sps {
-        if pos + 2 > data.len() {
-            break;
-        }
-        let len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-        pos += 2;
-        if pos + len > data.len() {
-            break;
-        }
-        out.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
-        out.extend_from_slice(&data[pos..pos + len]);
-        pos += len;
-    }
-    if pos >= data.len() {
-        return out;
-    }
-    let num_pps = data[pos] as usize;
-    pos += 1;
-    for _ in 0..num_pps {
-        if pos + 2 > data.len() {
-            break;
-        }
-        let len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-        pos += 2;
-        if pos + len > data.len() {
-            break;
-        }
-        out.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
-        out.extend_from_slice(&data[pos..pos + len]);
-        pos += len;
-    }
-    out
-}
-
 pub fn format_codec_name(codec: VideoCodecId) -> String {
     use symphonia::core::codecs::video::well_known::*;
     if codec == CODEC_ID_VP8 {
@@ -513,114 +364,12 @@ pub fn format_codec_name(codec: VideoCodecId) -> String {
 }
 
 fn detect_is_sync(data: &[u8], fourcc: u32) -> bool {
-    let Some(&first) = data.first() else {
-        return false;
-    };
     match fourcc {
-        0x30385056 => (first & 0x01) == 0, // VP8: bit 0 = keyframe flag
-        0x30395056 => (first & 0xC0) == 0x80 && (first & 0x04) == 0, // VP9
-        0x31305641 | 0x31495641 => {
-            // AV1: scan all OBUs for SEQUENCE_HEADER
-            let mut offset = 0;
-            while offset < data.len() {
-                let obu_type = (data[offset] >> 3) & 0x0F;
-                if obu_type == 1 {
-                    return true; // SEQUENCE_HEADER
-                }
-                let has_extension = ((data[offset] >> 2) & 0x01) == 1;
-                let has_size = ((data[offset] >> 1) & 0x01) == 1;
-                let prev_offset = offset;
-                let mut header_size = 1 + if has_extension { 1 } else { 0 };
-                if has_size {
-                    let mut pos = header_size;
-                    let mut obu_size: usize = 0;
-                    for _ in 0..8 {
-                        if pos >= data.len() {
-                            break;
-                        }
-                        obu_size = (obu_size << 7) | (data[pos] & 0x7F) as usize;
-                        if data[pos] & 0x80 == 0 {
-                            pos += 1;
-                            break;
-                        }
-                        pos += 1;
-                    }
-                    header_size = pos;
-                    offset += header_size + obu_size;
-                } else {
-                    offset += header_size;
-                }
-                if offset <= prev_offset {
-                    break;
-                }
-            }
-            false
-        }
-        0x31637661 => {
-            // H264: scan all NALs for IDR (type 5) or CRA (type 21 in avc3/ext)
-            let mut remaining = data;
-            while !remaining.is_empty() {
-                let nal = skip_annexb_start_code(remaining);
-                let skipped = remaining.len() - nal.len();
-                if skipped == 0 {
-                    break;
-                }
-                remaining = nal;
-                if let Some(&b) = remaining.first() {
-                    let nal_type = b & 0x1F;
-                    if nal_type == 5 || nal_type == 21 {
-                        return true;
-                    }
-                }
-                // Advance past this NAL body to the next start code
-                let search_start = &remaining[1..];
-                let advance = search_start
-                    .windows(4)
-                    .position(|w| w == [0, 0, 0, 1])
-                    .or_else(|| search_start.windows(3).position(|w| w == [0, 0, 1]))
-                    .map(|pos| pos + 1)
-                    .unwrap_or(remaining.len());
-                remaining = &remaining[advance.min(remaining.len())..];
-            }
-            false
-        }
-        0x31766568 => {
-            // HEVC: scan all NALs for IRAP types (16..=21, 32)
-            let mut remaining = data;
-            while !remaining.is_empty() {
-                let nal = skip_annexb_start_code(remaining);
-                let skipped = remaining.len() - nal.len();
-                if skipped == 0 {
-                    break;
-                }
-                remaining = nal;
-                if let Some(&b) = remaining.first() {
-                    let nal_type = (b >> 1) & 0x3F;
-                    if matches!(nal_type, 16..=21 | 32) {
-                        return true;
-                    }
-                }
-                let search_start = &remaining[1..];
-                let advance = search_start
-                    .windows(4)
-                    .position(|w| w == [0, 0, 0, 1])
-                    .or_else(|| search_start.windows(3).position(|w| w == [0, 0, 1]))
-                    .map(|pos| pos + 1)
-                    .unwrap_or(remaining.len());
-                remaining = &remaining[advance.min(remaining.len())..];
-            }
-            false
-        }
+        0x30385056 => vp8_is_keyframe(data),
+        0x30395056 => vp9_is_keyframe(data),
+        0x31305641 | 0x31495641 => av1_is_keyframe(data),
+        0x31637661 => h264_annexb_has_idr(data),
+        0x31766568 => hevc_annexb_has_keyframe(data),
         _ => false,
-    }
-}
-
-fn skip_annexb_start_code(data: &[u8]) -> &[u8] {
-    if data.len() >= 4 && data[..4] == [0x00, 0x00, 0x00, 0x01] {
-        &data[4..]
-    } else if data.len() >= 3 && data[..3] == [0x00, 0x00, 0x01] {
-        &data[3..]
-    } else {
-        data
     }
 }

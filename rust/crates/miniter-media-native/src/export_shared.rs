@@ -956,12 +956,7 @@ pub(crate) fn apply_video_filters(
     }
 }
 
-/// Annex-B data always opens with a start code, so only the head can carry
-/// one. Scanning the whole buffer also matches a start code inside a NAL
-/// payload, which is not a signal that the buffer is Annex-B.
-pub(crate) fn has_annexb_start_code(data: &[u8]) -> bool {
-    data.starts_with(&[0, 0, 0, 1]) || data.starts_with(&[0, 0, 1])
-}
+pub(crate) use rediakit_bitstream::has_annexb_start_code;
 
 pub(crate) fn strip_leading_temporal_delimiters(data: &[u8]) -> &[u8] {
     let mut pos = 0usize;

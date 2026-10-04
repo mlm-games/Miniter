@@ -10,6 +10,7 @@ description = "Native media engine (mux/demux, decode, compositor)."
 miniter-domain.workspace = true
 miniter-render-plan.workspace = true
 miniter-audio.workspace = true
+rediakit-bitstream.workspace = true
 thiserror.workspace = true
 log.workspace = true
 web-time.workspace = true

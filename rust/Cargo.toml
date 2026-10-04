@@ -36,6 +36,7 @@ dissonia-codec-flac = "0.1.5"
 dissonia-core = "0.1.5"
 oporus = "0.2.4"
 ivf = "0.1"
+rediakit-bitstream = "0.1"
 image = { version = "0.25", default-features = false, features = [
     "png",
     "jpeg",
@@ -58,6 +59,7 @@ miniter-media-native = { path = "crates/miniter-media-native", version = "0.1.8"
 miniter-ffi = { path = "crates/miniter-ffi", version = "0.1.8" }
 
 [patch.crates-io]
+# rediakit-bitstream = { path = "../../rediakit/rediakit-bitstream" }
 # videoson = { git = "https://github.com/mlm-games/videoson" }
 
 # NOTE: remove when close #30. rav1d-safe itx_wasm 4x4 transpose fix (wasm top-band corruption), merged upstream.

@@ -761,6 +761,28 @@ impl AnyEncoder {
     }
 }
 
+/// Mix the project's audio, encode it to Opus, and build the muxer track
+/// config. Both halves are `None` when the project carries no audio samples.
+fn mix_and_encode_opus(
+    project: &Project,
+) -> Result<(Option<crate::mux::OpusTrackConfigOut>, Option<EncodedOpus>), ExportError> {
+    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
+    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
+    let mixed = mix_project_audio(project, config)?;
+    let audio_encoded = if !mixed.samples.is_empty() {
+        let bitrate_bps = normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
+            .saturating_mul(1000);
+        Some(encode_opus(&mixed, bitrate_bps)?)
+    } else {
+        None
+    };
+    let audio_track = audio_encoded
+        .as_ref()
+        .map(|oe| audio_track_config(oe, sample_rate));
+
+    Ok((audio_track, audio_encoded))
+}
+
 fn export_h264<F>(
     project: &Project,
     output_path: &Path,
@@ -789,21 +811,8 @@ where
     let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
-    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
-    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_project_audio(project, config)?;
-    let audio_encoded = if !mixed.samples.is_empty() {
-        let bitrate_bps = normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
-            .saturating_mul(1000);
-        Some(encode_opus(&mixed, bitrate_bps)?)
-    } else {
-        None
-    };
+    let (audio_track, audio_encoded) = mix_and_encode_opus(project)?;
     on_progress(5);
-
-    let audio_track = audio_encoded
-        .as_ref()
-        .map(|oe| audio_track_config(oe, sample_rate));
 
     let effort = project.export_profile.encode_effort;
     let mut encoder = if project.export_profile.hardware_acceleration {
@@ -1033,21 +1042,8 @@ where
     let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
-    let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
-    let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_project_audio(project, config)?;
-    let audio_encoded = if !mixed.samples.is_empty() {
-        let bitrate_bps = normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
-            .saturating_mul(1000);
-        Some(encode_opus(&mixed, bitrate_bps)?)
-    } else {
-        None
-    };
+    let (audio_track, audio_encoded) = mix_and_encode_opus(project)?;
     on_progress(5);
-
-    let audio_track = audio_encoded
-        .as_ref()
-        .map(|oe| audio_track_config(oe, sample_rate));
 
     let effort = project.export_profile.encode_effort;
     let mut encoder = if project.export_profile.hardware_acceleration {
@@ -1532,21 +1528,7 @@ where
 
     let (audio_track, audio_encoded) =
         if container == Av1Container::Mp4 || container == Av1Container::Mkv {
-            let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
-            let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-            let mixed = mix_project_audio(project, config)?;
-            let audio_encoded = if !mixed.samples.is_empty() {
-                let bitrate_bps =
-                    normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
-                        .saturating_mul(1000);
-                Some(encode_opus(&mixed, bitrate_bps)?)
-            } else {
-                None
-            };
-
-            let audio_track = audio_encoded
-                .as_ref()
-                .map(|oe| audio_track_config(oe, sample_rate));
+            let (audio_track, audio_encoded) = mix_and_encode_opus(project)?;
 
             (audio_track, audio_encoded)
         } else {

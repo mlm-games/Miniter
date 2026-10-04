@@ -1,11 +1,11 @@
-#[cfg(target_arch = "wasm32")]
-use crate::demux::symphonia_demux::{avcc_to_annexb, parse_avcc};
 use crate::encoder::{EncodeError, EncodedVideoOutput};
 #[cfg(target_arch = "wasm32")]
 use crate::export_shared::has_annexb_start_code;
 use crate::frame::{MatrixCoeffs, RgbaFrame};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::yuv::rgba_to_yuv420;
+#[cfg(target_arch = "wasm32")]
+use rediakit_bitstream::{avcc_to_annexb, parse_avcc};
 use web_time::Duration;
 
 #[cfg(all(
@@ -241,7 +241,7 @@ mod hw {
                 .map_err(|e| EncodeError::Backend(format!("HwEncoder try_packet: {e:?}")))?
             {
                 let mut bytes = if self.is_h264 && !has_annexb_start_code(&pkt.payload) {
-                    avcc_to_annexb(&pkt.payload)
+                    avcc_to_annexb(&pkt.payload, 4)
                 } else {
                     pkt.payload.to_vec()
                 };
