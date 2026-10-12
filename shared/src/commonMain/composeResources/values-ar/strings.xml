@@ -4,7 +4,7 @@
     <string name="miniter_settings_category_editor">المحرر</string>
     <string name="miniter_settings_category_export">التصدير</string>
     <string name="miniter_settings_category_performance">الأداء</string>
-    <string name="miniter_settings_theme">المظهر</string>
+    <string name="miniter_settings_theme">السمة</string>
     <string name="miniter_settings_theme_description">النظام / فاتح / داكن</string>
     <string name="miniter_settings_dynamic_colors">الألوان الديناميكية</string>
     <string name="miniter_settings_dynamic_colors_description">استخدام ألوان Material You الديناميكية (Android 12+)</string>

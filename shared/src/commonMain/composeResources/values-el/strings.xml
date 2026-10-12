@@ -13,6 +13,6 @@
     <string name="miniter_settings_auto_save_project_description">Αυτόματη αποθήκευση αλλαγών στο έργο</string>
     <string name="miniter_settings_auto_save_interval">Διάστημα αυτόματης αποθήκευσης (δευτερόλεπτα)</string>
     <string name="miniter_settings_auto_save_interval_description">Πόσο συχνά γίνεται αυτόματη αποθήκευση</string>
-    <string name="miniter_settings_hardware_acceleration">Επιτάχυνση υλικού</string>
+    <string name="miniter_settings_hardware_acceleration">Επιτάχυνση εξοπλισμού</string>
     <string name="miniter_settings_hardware_acceleration_description">Χρήση GPU για αποκωδικοποίηση και κωδικοποίηση βίντεο (ταχύτερα, αλλά καταναλώνει περισσότερη ενέργεια)</string>
 </resources>

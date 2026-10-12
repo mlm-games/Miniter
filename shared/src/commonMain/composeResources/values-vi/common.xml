@@ -9,5 +9,5 @@
     <string name="common_delete">Xóa</string>
     <string name="common_undo">Hoàn tác</string>
     <string name="common_redo">Làm lại</string>
-    <string name="common_more">Thêm</string>
+    <string name="common_more">Khác</string>
 </resources>

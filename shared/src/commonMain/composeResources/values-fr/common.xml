@@ -4,7 +4,7 @@
     <string name="common_back">Retour</string>
     <string name="common_save">Enregistrer</string>
     <string name="common_cancel">Annuler</string>
-    <string name="common_remove">Supprimer</string>
+    <string name="common_remove">Retirer</string>
     <string name="common_export">Exporter</string>
     <string name="common_delete">Supprimer</string>
     <string name="common_undo">Annuler</string>

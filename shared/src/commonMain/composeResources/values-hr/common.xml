@@ -7,7 +7,7 @@
     <string name="common_remove">Ukloni</string>
     <string name="common_export">Izvezi</string>
     <string name="common_delete">Izbriši</string>
-    <string name="common_undo">Povrat</string>
+    <string name="common_undo">Poništi</string>
     <string name="common_redo">Ponovi</string>
     <string name="common_more">Više</string>
 </resources>
