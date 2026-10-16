@@ -49,6 +49,8 @@ struct ScheduledAudioClip {
     source_end_frame: Option<usize>,
     speed: f64,
     gain: f32,
+    /// Source channel to play, from a `Channel` filter; None plays all.
+    source_channel: Option<usize>,
     audio_filters: Vec<AudioFilter>,
 }
 
@@ -144,13 +146,19 @@ fn mix_project_audio_internal(
 
         for dst_offset in 0..clip.timeline_len_frames {
             let dst_frame = clip.timeline_start_frame + dst_offset;
-            let src_pos = if is_reversed {
+            // Speed 0 holds the source start frame for the whole clip (freeze).
+            let is_hold = clip.speed == 0.0;
+            let src_pos = if is_hold {
+                (clip.source_start_frame as f64).clamp(0.0, asset_frames.saturating_sub(1) as f64)
+            } else if is_reversed {
                 source_end_frame as f64 - 1.0 - (dst_offset as f64 * clip.speed)
             } else {
                 clip.source_start_frame as f64 + (dst_offset as f64 * clip.speed)
             };
 
-            if src_pos >= source_end_frame as f64 || src_pos < clip.source_start_frame as f64 {
+            if !is_hold
+                && (src_pos >= source_end_frame as f64 || src_pos < clip.source_start_frame as f64)
+            {
                 break;
             }
 
@@ -161,6 +169,7 @@ fn mix_project_audio_internal(
                 &clip.audio_filters,
             );
             let effective_gain = clip.gain * fade_gain;
+            let (pan_left, pan_right) = pan_gains(&clip.audio_filters, out_channels);
 
             if effective_gain > 0.0 {
                 mixed_any = true;
@@ -172,6 +181,9 @@ fn mix_project_audio_internal(
                     out_channels,
                     src_pos,
                     effective_gain,
+                    pan_left,
+                    pan_right,
+                    clip.source_channel,
                 );
             }
         }
@@ -234,7 +246,7 @@ fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<Schedule
                 continue;
             }
 
-            if clip.speed <= 0.0 {
+            if clip.speed < 0.0 || !clip.speed.is_finite() {
                 continue;
             }
 
@@ -271,6 +283,13 @@ fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<Schedule
                 source_end_frame,
                 speed: clip.speed,
                 gain: clip.volume,
+                source_channel: audio_filters
+                    .iter()
+                    .filter_map(|f| match f {
+                        AudioFilter::Channel { index } => Some(*index as usize),
+                        _ => None,
+                    })
+                    .last(),
                 audio_filters,
             });
         }
@@ -405,6 +424,9 @@ fn mix_interpolated_frame(
     channels: usize,
     src_pos: f64,
     gain: f32,
+    pan_left: f32,
+    pan_right: f32,
+    source_channel: Option<usize>,
 ) {
     if src_frames == 0 {
         return;
@@ -419,8 +441,212 @@ fn mix_interpolated_frame(
     let src_base_1 = src_frame_1 * channels;
 
     for ch in 0..channels {
-        let a = src[src_base_0 + ch];
-        let b = src[src_base_1 + ch];
-        dst[dst_base + ch] += (a + (b - a) * frac) * gain;
+        // A selected source channel plays as mono on every output; an
+        // out-of-range selection is silence.
+        let sch = source_channel.unwrap_or(ch);
+        let (a, b) = if sch < channels {
+            (src[src_base_0 + sch], src[src_base_1 + sch])
+        } else {
+            (0.0, 0.0)
+        };
+        let pan = match ch {
+            0 => pan_left,
+            1 => pan_right,
+            _ => 1.0,
+        };
+        dst[dst_base + ch] += (a + (b - a) * frac) * gain * pan;
+    }
+}
+
+/// Constant-power stereo gains for the last `Pan` filter, or unity when the
+/// clip carries none. Extra channels pass through unchanged.
+fn pan_gains(filters: &[AudioFilter], out_channels: usize) -> (f32, f32) {
+    if out_channels < 2 {
+        return (1.0, 1.0);
+    }
+    let Some(value) = filters
+        .iter()
+        .filter_map(|f| match f {
+            AudioFilter::Pan { value } => Some(*value),
+            _ => None,
+        })
+        .last()
+    else {
+        return (1.0, 1.0);
+    };
+    let pan = value.clamp(-1.0, 1.0);
+    let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
+    (angle.cos(), angle.sin())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use miniter_domain::clip::{AudioClip, Clip, ClipId};
+    use miniter_domain::time::{MediaDuration, Timestamp};
+    use miniter_domain::track::{Track, TrackKind};
+
+    fn write_tone(path: &std::path::Path, freq: f32, seconds: u32) {
+        let sample_rate = 48_000u32;
+        let frames = (sample_rate * seconds) as usize;
+        let mut bytes = Vec::with_capacity(frames * 2);
+        for i in 0..frames {
+            let value = (6000.0
+                * (2.0 * std::f64::consts::PI as f32 * freq * i as f32 / sample_rate as f32).sin())
+                as i16;
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&((36 + bytes.len()) as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        wav.extend_from_slice(&bytes);
+        std::fs::write(path, wav).unwrap();
+    }
+
+    fn audio_clip(path: &str, start_us: i64, duration_us: i64) -> Clip {
+        Clip {
+            id: ClipId::new(),
+            timeline_start: Timestamp::from_micros(start_us),
+            timeline_duration: MediaDuration::from_micros(duration_us),
+            source_start: MediaDuration::ZERO,
+            source_end: MediaDuration::from_micros(duration_us),
+            source_total_duration: MediaDuration::from_micros(duration_us),
+            speed: 1.0,
+            volume: 1.0,
+            opacity: 1.0,
+            muted: false,
+            transition_in: None,
+            transition_out: None,
+            kind: ClipKind::Audio(AudioClip {
+                source_path: path.to_string(),
+                sample_rate: 48_000,
+                channels: 1,
+                filters: Vec::new(),
+            }),
+            keyframes: Default::default(),
+            blend_mode: Default::default(),
+        }
+    }
+
+    fn project_with(clips: Vec<Clip>) -> Project {
+        let mut project = Project::new("test");
+        let mut track = Track::new(TrackKind::Audio, "A1");
+        for clip in clips {
+            track.insert_clip(clip).unwrap();
+        }
+        project.timeline.tracks.push(track);
+        project
+    }
+
+    fn channel_energy(samples: &[f32], channels: usize, channel: usize) -> f64 {
+        samples
+            .iter()
+            .skip(channel)
+            .step_by(channels)
+            .map(|s| (*s as f64) * (*s as f64))
+            .sum()
+    }
+
+    #[test]
+    fn pan_full_left_silences_the_right_channel() {
+        let dir = std::env::temp_dir().join("miniter-pan-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tone-left.wav");
+        write_tone(&path, 440.0, 2);
+        let mut clip = audio_clip(&path.display().to_string(), 0, 2_000_000);
+        if let ClipKind::Audio(audio) = &mut clip.kind {
+            audio.filters.push(AudioFilter::Pan { value: -1.0 });
+        }
+        let mixed = mix_project_audio(&project_with(vec![clip]), MixConfig::default()).unwrap();
+        assert_eq!(mixed.channels, 2);
+        let left = channel_energy(&mixed.samples, 2, 0);
+        let right = channel_energy(&mixed.samples, 2, 1);
+        assert!(left > 0.0, "the left channel carries the tone");
+        assert!(
+            right / left.max(1.0) < 1e-9,
+            "full left pan silences the right channel"
+        );
+    }
+
+    #[test]
+    fn pan_full_right_silences_the_left_channel() {
+        let dir = std::env::temp_dir().join("miniter-pan-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tone-right.wav");
+        write_tone(&path, 440.0, 2);
+        let mut clip = audio_clip(&path.display().to_string(), 0, 2_000_000);
+        if let ClipKind::Audio(audio) = &mut clip.kind {
+            audio.filters.push(AudioFilter::Pan { value: 1.0 });
+        }
+        let mixed = mix_project_audio(&project_with(vec![clip]), MixConfig::default()).unwrap();
+        let left = channel_energy(&mixed.samples, 2, 0);
+        let right = channel_energy(&mixed.samples, 2, 1);
+        assert!(
+            left / right.max(1.0) < 1e-9,
+            "full right pan silences the left channel"
+        );
+        assert!(right > 0.0, "the right channel carries the tone");
+    }
+
+    #[test]
+    fn pan_centre_keeps_both_channels_equal() {
+        let dir = std::env::temp_dir().join("miniter-pan-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tone-centre.wav");
+        write_tone(&path, 440.0, 2);
+        let clip = audio_clip(&path.display().to_string(), 0, 2_000_000);
+        let mixed = mix_project_audio(&project_with(vec![clip]), MixConfig::default()).unwrap();
+        let left = channel_energy(&mixed.samples, 2, 0);
+        let right = channel_energy(&mixed.samples, 2, 1);
+        assert!(left > 0.0 && right > 0.0);
+        assert!(
+            (left - right).abs() / left.max(1.0) < 0.01,
+            "a centred mono source splits equally: {left} vs {right}"
+        );
+    }
+
+    #[test]
+    fn freeze_holds_one_frame_for_the_whole_clip() {
+        let dir = std::env::temp_dir().join("miniter-pan-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tone-freeze.wav");
+        write_tone(&path, 440.0, 4);
+        let mut clip = audio_clip(&path.display().to_string(), 0, 2_000_000);
+        clip.speed = 0.0;
+        clip.source_start = MediaDuration::from_micros(1_000_000);
+        clip.source_end = MediaDuration::from_micros(1_000_000);
+        let mixed = mix_project_audio(&project_with(vec![clip]), MixConfig::default()).unwrap();
+        assert_eq!(mixed.samples.len(), 2_000_000 / 1_000_000 * 48_000 * 2);
+        let first = mixed.samples[0];
+        assert!(
+            mixed
+                .samples
+                .iter()
+                .step_by(4800)
+                .all(|s| (s - first).abs() < 1e-4),
+            "every frame repeats the hold point"
+        );
+    }
+
+    #[test]
+    fn negative_speed_stays_silent() {
+        let dir = std::env::temp_dir().join("miniter-pan-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tone-negative.wav");
+        write_tone(&path, 440.0, 2);
+        let mut clip = audio_clip(&path.display().to_string(), 0, 2_000_000);
+        clip.speed = -1.0;
+        let mixed = mix_project_audio(&project_with(vec![clip]), MixConfig::default()).unwrap();
+        assert!(mixed.samples.is_empty(), "a negative speed mixes nothing");
     }
 }

@@ -267,6 +267,7 @@ fun ProjectScreen(
                 onSnapPosition = vm::snapPosition,
                 onClearSnap = vm::clearSnapIndicator,
                 onSplitClip = vm::splitClipAtPlayhead,
+                onJoinClip = vm::joinClipWithNext,
                 onDuplicateClip = vm::duplicateClip,
                 onDeleteClip = vm::removeClip,
                 onRippleDeleteClip = vm::rippleDeleteClip,

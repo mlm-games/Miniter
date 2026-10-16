@@ -19,9 +19,11 @@ fun ClipContextMenu(
     expanded: Boolean,
     clip: RustClipSnapshot,
     canSplit: Boolean,
+    canJoin: Boolean,
     isLocked: Boolean,
     onDismiss: () -> Unit,
     onSplit: () -> Unit,
+    onJoin: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     onSetAsPlayhead: () -> Unit,
@@ -45,6 +47,13 @@ fun ClipContextMenu(
             leadingIcon = { Icon(Icons.Default.ContentCut, null, Modifier.size(18.dp)) },
             onClick = { onSplit(); onDismiss() },
             enabled = canSplit && !isLocked,
+        )
+
+        DropdownMenuItem(
+            text = { Text("Join with next") },
+            leadingIcon = { Icon(Icons.Default.MergeType, null, Modifier.size(18.dp)) },
+            onClick = { onJoin(); onDismiss() },
+            enabled = canJoin && !isLocked,
         )
 
         DropdownMenuItem(

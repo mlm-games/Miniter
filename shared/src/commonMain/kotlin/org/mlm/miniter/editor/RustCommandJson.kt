@@ -116,6 +116,14 @@ class RustCommandJson(
         put("new_clip_id", uuid(newClipId))
     }
 
+    fun joinClips(
+        leftId: String,
+        rightId: String,
+    ): String = wrap("JoinClips") {
+        put("left_id", uuid(leftId))
+        put("right_id", uuid(rightId))
+    }
+
     fun setClipSpeed(clipId: String, speed: Double): String =
         wrap("SetClipSpeed") {
             put("clip_id", uuid(clipId))

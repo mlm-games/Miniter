@@ -1648,6 +1648,26 @@ class ProjectViewModel(
         }
     }
 
+    fun joinClipWithNext(clipId: String) {
+        val snapshot = rustStore.snapshot.value
+        val track = snapshot?.timeline?.tracks?.firstOrNull { t -> t.clips.any { it.id == clipId } }
+        val clip = track?.clips?.find { it.id == clipId }
+        val next = clip?.let {
+            val index = track.clips.indexOfFirst { c -> c.id == clipId }
+            track.clips.getOrNull(index + 1)
+        }
+        if (clip == null || next == null) {
+            snackbarManager.showError("No clip after this one to join")
+            return
+        }
+        try {
+            rustStore.dispatch(rustStore.commands.joinClips(clip.id, next.id))
+            syncFromRust()
+        } catch (e: Exception) {
+            handleError(e.message ?: "Clips are not pieces of one cut")
+        }
+    }
+
     fun setClipSpeed(clipId: String, speed: Float) {
         if (!speed.isFinite() || speed < 0.1f || speed > 8.0f) {
             snackbarManager.showError("Speed must be between 0.1x and 8.0x")

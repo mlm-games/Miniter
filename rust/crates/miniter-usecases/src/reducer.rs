@@ -200,6 +200,10 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             new_clip_id,
         } => apply_split_clip(state, clip_id, at, new_clip_id),
 
+        EditCommand::JoinClips { left_id, right_id } => {
+            apply_join_clips(state, left_id, right_id)
+        }
+
         EditCommand::SetClipSpeed { clip_id, speed } => {
             if speed <= 0.0 {
                 return Err(ApplyError::InvalidSpeed(speed));
@@ -1005,6 +1009,68 @@ fn apply_split_clip(
     })
 }
 
+fn apply_join_clips(
+    state: &mut EditorState,
+    left_id: ClipId,
+    right_id: ClipId,
+) -> Result<EditCommand, ApplyError> {
+    let (track_idx, left_idx) = find_clip_location(state, left_id)?;
+    let track_id = state.project.timeline.tracks[track_idx].id;
+    let right_idx = state.project.timeline.tracks[track_idx]
+        .clip_index(right_id)
+        .ok_or(ApplyError::ClipNotFound(right_id))?;
+
+    let left = state.project.timeline.tracks[track_idx].clips[left_idx].clone();
+    let right = state.project.timeline.tracks[track_idx].clips[right_idx].clone();
+
+    let adjacent = right.timeline_start == left.timeline_end();
+    let same_speed = right.speed == left.speed && left.speed.is_finite();
+    let continuous = if left.speed < 0.0 {
+        right.source_end == left.source_start
+    } else {
+        right.source_start == left.source_end
+    };
+    if !(adjacent && same_speed && continuous) {
+        return Err(ApplyError::NotJoinable { left_id, right_id });
+    }
+
+    let mut joined = left.clone();
+    joined.timeline_duration = MediaDuration::from_micros(
+        left.timeline_duration.as_micros() + right.timeline_duration.as_micros(),
+    );
+    joined.source_end = right.source_end;
+    // The cut is gone, so a fade over it goes with it; the inverse restores it.
+    let cut_transition = joined.transition_out.take();
+    ensure_clip_source_bounds(&joined)?;
+
+    let track = &mut state.project.timeline.tracks[track_idx];
+    track.clips.remove(right_idx);
+    let left_at = if right_idx < left_idx {
+        left_idx - 1
+    } else {
+        left_idx
+    };
+    track.clips[left_at] = joined;
+
+    Ok(EditCommand::Batch {
+        label: "Join clips".into(),
+        commands: vec![
+            EditCommand::TrimClipEnd {
+                clip_id: left_id,
+                new_duration: left.timeline_duration,
+            },
+            EditCommand::SetTransitionOut {
+                clip_id: left_id,
+                transition: cut_transition,
+            },
+            EditCommand::AddClip {
+                track_id,
+                clip: right,
+            },
+        ],
+    })
+}
+
 fn find_track_index(state: &EditorState, track_id: TrackId) -> Result<usize, ApplyError> {
     state
         .project
@@ -1246,6 +1312,9 @@ pub enum ApplyError {
     #[error("Split point outside clip range: clip={clip_id:?} at={at:?}")]
     SplitOutOfRange { clip_id: ClipId, at: Timestamp },
 
+    #[error("Clips are not adjacent pieces of one cut: {left_id:?} and {right_id:?}")]
+    NotJoinable { left_id: ClipId, right_id: ClipId },
+
     #[error("Index out of bounds")]
     IndexOutOfBounds,
 
@@ -1436,6 +1505,130 @@ mod tests {
 
         assert_eq!(track.clips.len(), 2);
         assert_eq!(track.clips[0].timeline_end(), track.clips[1].timeline_start);
+    }
+
+    #[test]
+    fn join_heals_a_split_into_one_clip() {
+        let mut track = Track::new(TrackKind::Video, "Video 1");
+        let clip = video_clip(0, 10_000_000);
+        let clip_id = clip.id;
+        let tail_id = ClipId(Uuid::new_v4());
+        track.insert_clip(clip).unwrap();
+        let mut state = state_with_tracks(vec![track]);
+        dispatch(
+            &mut state,
+            EditCommand::SplitClip {
+                clip_id,
+                at: Timestamp::from_micros(4_000_000),
+                new_clip_id: tail_id,
+            },
+        )
+        .unwrap();
+        dispatch(
+            &mut state,
+            EditCommand::JoinClips {
+                left_id: clip_id,
+                right_id: tail_id,
+            },
+        )
+        .unwrap();
+        let clips = &state.project.timeline.tracks[0].clips;
+        assert_eq!(clips.len(), 1);
+        assert_eq!(clips[0].id, clip_id);
+        assert_eq!(clips[0].timeline_start, Timestamp::from_micros(0));
+        assert_eq!(
+            clips[0].timeline_duration,
+            MediaDuration::from_micros(10_000_000)
+        );
+        assert_eq!(clips[0].source_start, MediaDuration::ZERO);
+        assert_eq!(clips[0].source_end, MediaDuration::from_micros(10_000_000));
+    }
+
+    #[test]
+    fn join_undo_restores_both_pieces() {
+        let mut track = Track::new(TrackKind::Video, "Video 1");
+        let clip = video_clip(0, 10_000_000);
+        let clip_id = clip.id;
+        let tail_id = ClipId(Uuid::new_v4());
+        track.insert_clip(clip).unwrap();
+        let mut state = state_with_tracks(vec![track]);
+        dispatch(
+            &mut state,
+            EditCommand::SplitClip {
+                clip_id,
+                at: Timestamp::from_micros(4_000_000),
+                new_clip_id: tail_id,
+            },
+        )
+        .unwrap();
+        dispatch(
+            &mut state,
+            EditCommand::JoinClips {
+                left_id: clip_id,
+                right_id: tail_id,
+            },
+        )
+        .unwrap();
+        assert_eq!(state.project.timeline.tracks[0].clips.len(), 1);
+
+        undo(&mut state).unwrap();
+
+        let clips = &state.project.timeline.tracks[0].clips;
+        assert_eq!(clips.len(), 2, "undo must bring the second piece back");
+        assert_eq!(clips[0].id, clip_id);
+        assert_eq!(clips[1].id, tail_id);
+        assert_eq!(clips[0].timeline_duration, MediaDuration::from_micros(4_000_000));
+        assert_eq!(
+            clips[1].timeline_start,
+            Timestamp::from_micros(4_000_000)
+        );
+        assert_eq!(clips[1].source_start, MediaDuration::from_micros(4_000_000));
+        assert_eq!(clips[1].source_end, MediaDuration::from_micros(10_000_000));
+    }
+
+    #[test]
+    fn join_refuses_pieces_that_skip_media() {
+        let mut track = Track::new(TrackKind::Video, "Video 1");
+        let first = video_clip(0, 2_000_000);
+        let mut second = video_clip(2_000_000, 2_000_000);
+        second.source_start = MediaDuration::from_micros(5_000_000);
+        second.source_end = MediaDuration::from_micros(7_000_000);
+        let (left, right) = (first.id, second.id);
+        track.insert_clip(first).unwrap();
+        track.insert_clip(second).unwrap();
+        let mut state = state_with_tracks(vec![track]);
+        let error = dispatch(
+            &mut state,
+            EditCommand::JoinClips {
+                left_id: left,
+                right_id: right,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, ApplyError::NotJoinable { .. }), "{error:?}");
+        assert_eq!(state.project.timeline.tracks[0].clips.len(), 2);
+    }
+
+    #[test]
+    fn join_refuses_a_gap_between_pieces() {
+        let mut track = Track::new(TrackKind::Video, "Video 1");
+        let first = video_clip(0, 2_000_000);
+        let mut second = video_clip(4_000_000, 2_000_000);
+        second.source_start = MediaDuration::from_micros(2_000_000);
+        second.source_end = MediaDuration::from_micros(4_000_000);
+        let (left, right) = (first.id, second.id);
+        track.insert_clip(first).unwrap();
+        track.insert_clip(second).unwrap();
+        let mut state = state_with_tracks(vec![track]);
+        let error = dispatch(
+            &mut state,
+            EditCommand::JoinClips {
+                left_id: left,
+                right_id: right,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, ApplyError::NotJoinable { .. }), "{error:?}");
     }
 
     #[test]

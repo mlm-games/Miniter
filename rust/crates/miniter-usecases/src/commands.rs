@@ -71,6 +71,13 @@ pub enum EditCommand {
         at: Timestamp,
         new_clip_id: ClipId,
     },
+    /// Join two adjacent pieces of one cut: the left clip absorbs the right,
+    /// extending its duration and source range to cover both. The pieces must
+    /// touch on the timeline and continue each other in media time.
+    JoinClips {
+        left_id: ClipId,
+        right_id: ClipId,
+    },
     SetClipSpeed {
         clip_id: ClipId,
         speed: f64,

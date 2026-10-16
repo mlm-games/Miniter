@@ -81,7 +81,9 @@ impl Clip {
     }
 
     pub fn normalize_source_bounds_in_place(&mut self) {
-        if self.speed <= 0.0 {
+        // Speed 0 is a freeze frame and survives; negative and non-finite
+        // speeds reset to normal playback.
+        if !self.speed.is_finite() || self.speed < 0.0 {
             self.speed = 1.0;
         }
 

@@ -177,4 +177,14 @@ pub enum AudioFilter {
     Normalize,
     /// Reverse playback of the clip's audio samples.
     Reverse,
+    /// Constant-power stereo pan: -1.0 is full left, 0.0 is centred, 1.0 is
+    /// full right. Mono sources pan from centre; values outside [-1, 1] clamp.
+    Pan {
+        value: f32,
+    },
+    /// Play one source channel (0-based): mono clipitems split off a
+    /// multichannel file carry exactly one. Out-of-range indices silence.
+    Channel {
+        index: u16,
+    },
 }

@@ -864,7 +864,7 @@ fn export_h264_bytes(
             }
         }
         if let AnyH264Encoder::Hw(hw) = &mut encoder {
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(all(target_arch = "wasm32", feature = "hw-decoder"))]
             {
                 for f in hw
                     .drain_completed()
@@ -882,6 +882,18 @@ fn export_h264_bytes(
                         frame_index,
                         &mut muxer,
                     )?;
+                }
+            }
+            // Without the hardware decoder feature the session is a stub whose
+            // drain yields nothing; loop it the same way so the code compiles
+            // on every feature set.
+            #[cfg(all(target_arch = "wasm32", not(feature = "hw-decoder")))]
+            {
+                while let Some(output) = hw
+                    .drain_one()
+                    .map_err(|e| format!("H.264 HW final drain failed: {e}"))?
+                {
+                    emit(output, frame_index, &mut muxer)?;
                 }
             }
         }

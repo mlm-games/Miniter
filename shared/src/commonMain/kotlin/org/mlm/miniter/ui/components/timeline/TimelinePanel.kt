@@ -103,6 +103,7 @@ fun TimelinePanel(
     onSnapPosition: (Long, String?) -> Long,
     onClearSnap: () -> Unit = {},
     onSplitClip: (String) -> Unit = {},
+    onJoinClip: (String) -> Unit = {},
     onDuplicateClip: (String) -> Unit = {},
     onDeleteClip: (String) -> Unit = {},
     onRippleDeleteClip: (String) -> Unit = {},
@@ -195,6 +196,7 @@ fun TimelinePanel(
                     onClearSnap = onClearSnap,
                     onPlayheadChange = onPlayheadChange,
                     onSplitClip = onSplitClip,
+                    onJoinClip = onJoinClip,
                     onDuplicateClip = onDuplicateClip,
                     onDeleteClip = onDeleteClip,
                     onRippleDeleteClip = onRippleDeleteClip,
@@ -308,6 +310,7 @@ private fun TrackRow(
     onClearSnap: () -> Unit,
     onPlayheadChange: (Long) -> Unit,
     onSplitClip: (String) -> Unit,
+    onJoinClip: (String) -> Unit,
     onDuplicateClip: (String) -> Unit,
     onDeleteClip: (String) -> Unit,
     onRippleDeleteClip: (String) -> Unit = {},
@@ -337,7 +340,7 @@ private fun TrackRow(
                     .map { it.id }
                 val sameTypeIndex = sameTypeUnlocked.indexOf(track.id)
 
-                track.clips.forEach { clip ->
+                track.clips.forEachIndexed { clipIndex, clip ->
                     val leftDp = msToX(clipStartMs(clip), dpPerMs, timelineDurationMs)
                     val rightDp = msToX(clipEndMs(clip), dpPerMs, timelineDurationMs)
                     val widthDp = (rightDp - leftDp).coerceAtLeast(1f).dp
@@ -371,6 +374,8 @@ private fun TrackRow(
                         onTrimCancel = { onCancelEdit() },
                         onSetPlayhead = { onPlayheadChange(clipStartMs(clip)) },
                         onSplit = { onSplitClip(clip.id) },
+                        onJoin = { onJoinClip(clip.id) },
+                        canJoin = canJoinWithNext(clip, track.clips.getOrNull(clipIndex + 1)),
                         onDuplicate = { onDuplicateClip(clip.id) },
                         onDelete = { onDeleteClip(clip.id) },
                         onRippleDelete = { onRippleDeleteClip(clip.id) },
@@ -435,6 +440,8 @@ private fun ClipBlock(
     onTrimCancel: () -> Unit,
     onSetPlayhead: () -> Unit,
     onSplit: () -> Unit,
+    onJoin: () -> Unit = {},
+    canJoin: Boolean = false,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     onRippleDelete: () -> Unit = {},
@@ -677,9 +684,11 @@ private fun ClipBlock(
             expanded = showContextMenu,
             clip = clip,
             canSplit = canSplit,
+            canJoin = canJoin,
             isLocked = isLocked,
             onDismiss = { showContextMenu = false },
             onSplit = onSplit,
+            onJoin = onJoin,
             onDuplicate = onDuplicate,
             onDelete = onDelete,
             onSetAsPlayhead = onSetPlayhead,
@@ -758,6 +767,19 @@ private fun sliceWaveformForClip(
 private fun clipDurationMs(clip: RustClipSnapshot): Long = clip.timelineDurationUs / 1000L
 
 private fun clipEndMs(clip: RustClipSnapshot): Long = (clip.timelineStartUs + clip.timelineDurationUs) / 1000L
+
+/// Mirrors the engine's join preconditions so the menu item is only enabled
+/// for two pieces of one cut, not for any two neighbours.
+private fun canJoinWithNext(clip: RustClipSnapshot, next: RustClipSnapshot?): Boolean {
+    if (next == null) return false
+    if (clip.speed != next.speed || !clip.speed.isFinite()) return false
+    if (next.timelineStartUs != clip.timelineStartUs + clip.timelineDurationUs) return false
+    return if (clip.speed < 0.0) {
+        next.sourceEndUs == clip.sourceStartUs
+    } else {
+        next.sourceStartUs == clip.sourceEndUs
+    }
+}
 
 private fun snapshotTimelineDurationMs(snapshot: RustProjectSnapshot): Long {
     return snapshot.timeline.tracks
