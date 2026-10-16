@@ -174,6 +174,19 @@ fun ProjectScreen(
             onTextPositionChanged = { clipId, x, y ->
                 vm.updateTextClipStyle(clipId, positionX = x, positionY = y)
             },
+            onTextFontSizeChanged = { clipId, size ->
+                vm.updateTextClipStyle(clipId, fontSizeSp = size)
+            },
+            onCropChanged = { clipId, left, top, right, bottom ->
+                vm.updateCropFilter(clipId, left, top, right, bottom)
+            },
+            onCropDragStart = { vm.beginEdit("Crop") },
+            onCropDragEnd = { vm.commitEdit() },
+            onMaskChanged = { clipId, index, mask ->
+                vm.updateMask(clipId, index, mask)
+            },
+            onMaskDragStart = { vm.beginEdit("Mask") },
+            onMaskDragEnd = { vm.commitEdit() },
             onTextDragStart = { vm.beginEdit("Move text") },
             onTextDragEnd = { vm.commitEdit() },
             onSetKeyframe = { clipId, playheadMs, scale, tx, ty, rot ->

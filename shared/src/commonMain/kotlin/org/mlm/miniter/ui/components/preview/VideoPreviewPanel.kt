@@ -8,7 +8,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -23,9 +22,12 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
@@ -262,8 +264,15 @@ fun EditorVideoPreview(
     autoKeyframeEnabled: Boolean = false,
     onSetKeyframe: ((clipId: String, playheadMs: Long, scale: Float, tx: Float, ty: Float, rot: Float) -> Unit)? = null,
     onTextPositionChanged: ((clipId: String, positionX: Float, positionY: Float) -> Unit)? = null,
+    onTextFontSizeChanged: ((clipId: String, fontSize: Float) -> Unit)? = null,
     onTextDragStart: (() -> Unit)? = null,
     onTextDragEnd: (() -> Unit)? = null,
+    onCropChanged: ((clipId: String, left: Float, top: Float, right: Float, bottom: Float) -> Unit)? = null,
+    onCropDragStart: (() -> Unit)? = null,
+    onCropDragEnd: (() -> Unit)? = null,
+    onMaskChanged: ((clipId: String, index: Int, mask: RustMaskEffect) -> Unit)? = null,
+    onMaskDragStart: (() -> Unit)? = null,
+    onMaskDragEnd: (() -> Unit)? = null,
 ) {
     val settingsRepository: SettingsRepository<AppSettings> = koinInject()
     val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
@@ -284,6 +293,31 @@ fun EditorVideoPreview(
     val backgroundVideos = videosByZ.filter { it.id != primaryVideo?.id }
     val textOverlays = visibleMedia.filterIsInstance<VisibleMedia.Text>()
     val subtitles = visibleMedia.filterIsInstance<VisibleMedia.Subtitle>()
+
+    val selectedClip = remember(snapshot, selectedClipId) {
+        snapshot?.timeline?.tracks?.flatMap { it.clips }?.find { it.id == selectedClipId }
+    }
+    val selectedCropFilter = remember(selectedClip) {
+        val video = selectedClip?.kind as? RustVideoClipKind
+        video?.filters
+            ?.firstOrNull { it.enabled && it.filter is RustCropFilterSnapshot }
+            ?.filter as? RustCropFilterSnapshot
+    }
+    val selectedMasks = remember(selectedClip) {
+        (selectedClip?.kind as? RustVideoClipKind)?.masks.orEmpty()
+    }
+    val shapeMasks = remember(selectedMasks) {
+        selectedMasks.withIndex().filter { (_, mask) ->
+            mask.enabled && mask.source is RustShapeMaskSource
+        }
+    }
+    val canEditMasks = shapeMasks.isNotEmpty() && selectedClipId != null && selectedClipId == primaryVideo?.id
+    var maskEditing by remember(selectedClipId) { mutableStateOf(false) }
+    val canEditCrop = selectedCropFilter != null && selectedClipId != null && selectedClipId == primaryVideo?.id
+    // Explicit mode: while it is on, the scrub frame is grabbed without the
+    // crop filter so the box sits over the whole image and the user can see
+    // what is being cut away.
+    var cropEditing by remember(selectedClipId) { mutableStateOf(false) }
 
     val primaryVideoPath = primaryVideo?.sourcePath
     var primaryVideoUri by remember(primaryVideoPath) { mutableStateOf<String?>(null) }
@@ -474,7 +508,7 @@ fun EditorVideoPreview(
         playerState.volume = primaryVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, primaryEffectiveOpacity) {
+    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, primaryEffectiveOpacity, cropEditing) {
         if (isPlaying) return@LaunchedEffect
         if (primaryVideo == null || primaryVideoPath == null) return@LaunchedEffect
 
@@ -488,6 +522,7 @@ fun EditorVideoPreview(
             .filter { it.enabled }
             .map { it.filter }
             .filter { it !is RustTransformFilterSnapshot }
+            .filter { !(cropEditing && it is RustCropFilterSnapshot) }
 
         if (grabberReady && (primaryFilters.any { it.enabled } || primaryEffectiveOpacity < 1f)) {
             try {
@@ -959,6 +994,13 @@ fun EditorVideoPreview(
 
                     textOverlays.forEach { textOverlay ->
                         val style = textOverlay.style
+                        // Read at gesture start, not at modifier creation: the
+                        // pointerInput key does not change when the panel or a
+                        // drag edits the style.
+                        val latestTextPos by rememberUpdatedState(
+                            textOverlay.style.positionX to textOverlay.style.positionY
+                        )
+                        val latestTextSize by rememberUpdatedState(textOverlay.style.fontSize)
                         val textColor = parseArgbHex(style.color, Color.White)
                         var layout by remember(textOverlay.id, textOverlay.text, style) { mutableStateOf<TextLayoutResult?>(null) }
 
@@ -987,38 +1029,44 @@ fun EditorVideoPreview(
                                     }
                                     IntOffset(anchorX + ox, anchorY - th / 2)
                                 }
-                                .pointerInput(textOverlay.id, isPlaying) {
-                                    detectDragGestures(
-                                        onDragStart = {
-                                            if (isPlaying) return@detectDragGestures
-                                            overlayDragActive = true
-                                            onTextDragStart?.invoke()
-                                        },
-                                        onDragEnd = {
-                                            if (overlayDragActive) {
-                                                overlayDragActive = false
-                                                onTextDragEnd?.invoke()
-                                            }
-                                        },
-                                        onDragCancel = {
-                                            if (overlayDragActive) {
-                                                overlayDragActive = false
-                                                onTextDragEnd?.invoke()
-                                            }
-                                        },
-                                        onDrag = { change, amount ->
-                                            change.consume()
-                                            if (isPlaying) return@detectDragGestures
+                                .pointerInput(textOverlay.id, isPlaying, contentArea) {
+                                    if (isPlaying) return@pointerInput
+                                    awaitEachGesture {
+                                        awaitFirstDown(requireUnconsumed = false)
+                                        val startPos = latestTextPos
+                                        val startSize = latestTextSize
+                                        overlayDragActive = true
+                                        onTextDragStart?.invoke()
+                                        // Accumulate from the gesture start: the style
+                                        // snapshot updates live under the finger, so
+                                        // reading it back mid-gesture would compound.
+                                        var px = startPos.first
+                                        var py = startPos.second
+                                        var fs = startSize
+                                        do {
+                                            val event = awaitPointerEvent()
+                                            val zoom = event.calculateZoom()
+                                            val pan = event.calculatePan()
+                                            if (zoom == 1f && pan == Offset.Zero) continue
+                                            event.changes.forEach { it.consume() }
                                             // Both the offset above and this delta live in the
                                             // same (possibly view-zoomed) space, so the ratio
                                             // keeps the text glued under the finger.
                                             val cw = contentArea.width.coerceAtLeast(1f)
                                             val ch = contentArea.height.coerceAtLeast(1f)
-                                            val nx = (textOverlay.style.positionX + amount.x / cw).coerceIn(0f, 1f)
-                                            val ny = (textOverlay.style.positionY + amount.y / ch).coerceIn(0f, 1f)
-                                            onTextPositionChanged?.invoke(textOverlay.id, nx, ny)
-                                        },
-                                    )
+                                            if (pan != Offset.Zero) {
+                                                px = (px + pan.x / cw).coerceIn(0f, 1f)
+                                                py = (py + pan.y / ch).coerceIn(0f, 1f)
+                                                onTextPositionChanged?.invoke(textOverlay.id, px, py)
+                                            }
+                                            if (zoom != 1f) {
+                                                fs = (fs * zoom).coerceIn(12f, 120f)
+                                                onTextFontSizeChanged?.invoke(textOverlay.id, fs)
+                                            }
+                                        } while (event.changes.any { it.pressed })
+                                        overlayDragActive = false
+                                        onTextDragEnd?.invoke()
+                                    }
                                 },
                         )
                     }
@@ -1049,6 +1097,30 @@ fun EditorVideoPreview(
                     }
                     }
 
+                    if (canEditCrop && cropEditing && selectedCropFilter != null && selectedClipId != null) {
+                        CropOverlay(
+                            contentArea = contentArea,
+                            crop = selectedCropFilter,
+                            clipId = selectedClipId,
+                            isPlaying = isPlaying,
+                            onChanged = onCropChanged,
+                            onDragStart = onCropDragStart,
+                            onDragEnd = onCropDragEnd,
+                        )
+                    }
+
+                    if (canEditMasks && maskEditing && selectedClipId != null) {
+                        MaskOverlay(
+                            contentArea = contentArea,
+                            masks = shapeMasks,
+                            clipId = selectedClipId,
+                            isPlaying = isPlaying,
+                            onChanged = onMaskChanged,
+                            onDragStart = onMaskDragStart,
+                            onDragEnd = onMaskDragEnd,
+                        )
+                    }
+
                     if (exportWidth > 0 && exportHeight > 0) {
                         val exportFrameRect = contentArea
 
@@ -1071,6 +1143,28 @@ fun EditorVideoPreview(
                                 style = Stroke(width = 2.dp.toPx()),
                             )
                         }
+                    }
+                    if (canEditMasks) {
+                        FilterChip(
+                            selected = maskEditing,
+                            onClick = {
+                                maskEditing = !maskEditing
+                                if (maskEditing) cropEditing = false
+                            },
+                            label = { Text("Masks", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.align(Alignment.TopStart).padding(start = if (canEditCrop) 92.dp else 8.dp, top = 8.dp),
+                        )
+                    }
+                    if (canEditCrop) {
+                        FilterChip(
+                            selected = cropEditing,
+                            onClick = {
+                                cropEditing = !cropEditing
+                                if (cropEditing) maskEditing = false
+                            },
+                            label = { Text("Crop", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                        )
                     }
                     if (zoomed) {
                         TextButton(
@@ -1106,6 +1200,388 @@ private data class AudioClipInfo(
     val sourceStartMs: Long,
     val speed: Float,
 )
+
+private enum class CropGrab {
+    None,
+    Move,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+private data class CropInsets(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
+/// Crop box with four corner dots, four edge bars and a dimmed surround.
+/// Dragging a dot or bar reshapes the box, dragging inside it moves the whole
+/// box, and a double tap resets it to the full frame.
+@Composable
+private fun CropOverlay(
+    contentArea: Rect,
+    crop: RustCropFilterSnapshot,
+    clipId: String,
+    isPlaying: Boolean,
+    onChanged: ((clipId: String, left: Float, top: Float, right: Float, bottom: Float) -> Unit)?,
+    onDragStart: (() -> Unit)?,
+    onDragEnd: (() -> Unit)?,
+) {
+    val density = LocalDensity.current
+    val dotRadius = with(density) { 7.dp.toPx() }
+    val grabRadius = with(density) { 28.dp.toPx() }
+    val lineWidth = with(density) { 2.dp.toPx() }
+    val currentInsets by rememberUpdatedState(
+        CropInsets(crop.left, crop.top, crop.right, crop.bottom)
+    )
+    val scrim = Color.Black.copy(alpha = 0.55f)
+    val outline = Color.White.copy(alpha = 0.9f)
+
+    fun boxOf(insets: CropInsets): Rect {
+        val l = contentArea.left + insets.left.coerceIn(0f, 1f) * contentArea.width
+        val t = contentArea.top + insets.top.coerceIn(0f, 1f) * contentArea.height
+        val r = contentArea.left + (1f - insets.right.coerceIn(0f, 1f)) * contentArea.width
+        val b = contentArea.top + (1f - insets.bottom.coerceIn(0f, 1f)) * contentArea.height
+        return Rect(l, t, maxOf(r, l + 1f), maxOf(b, t + 1f))
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(clipId, contentArea, isPlaying) {
+                if (isPlaying) return@pointerInput
+                val width = contentArea.width.coerceAtLeast(1f)
+                val height = contentArea.height.coerceAtLeast(1f)
+
+                fun grabAt(pos: Offset, box: Rect): CropGrab {
+                    fun near(p: Offset, x: Float, y: Float) =
+                        kotlin.math.abs(p.x - x) <= grabRadius &&
+                            kotlin.math.abs(p.y - y) <= grabRadius
+                    if (near(pos, box.left, box.top)) return CropGrab.TopLeft
+                    if (near(pos, box.right, box.top)) return CropGrab.TopRight
+                    if (near(pos, box.left, box.bottom)) return CropGrab.BottomLeft
+                    if (near(pos, box.right, box.bottom)) return CropGrab.BottomRight
+                    val withinY = pos.y > box.top - grabRadius && pos.y < box.bottom + grabRadius
+                    val withinX = pos.x > box.left - grabRadius && pos.x < box.right + grabRadius
+                    if (withinY && kotlin.math.abs(pos.x - box.left) <= grabRadius) return CropGrab.Left
+                    if (withinY && kotlin.math.abs(pos.x - box.right) <= grabRadius) return CropGrab.Right
+                    if (withinX && kotlin.math.abs(pos.y - box.top) <= grabRadius) return CropGrab.Top
+                    if (withinX && kotlin.math.abs(pos.y - box.bottom) <= grabRadius) return CropGrab.Bottom
+                    if (pos.x > box.left && pos.x < box.right && pos.y > box.top && pos.y < box.bottom) {
+                        return CropGrab.Move
+                    }
+                    return CropGrab.None
+                }
+
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val grab = grabAt(down.position, boxOf(currentInsets))
+                    if (grab == CropGrab.None) return@awaitEachGesture
+
+                    val start = currentInsets
+                    var insets = start
+                    var moveDx = 0f
+                    var moveDy = 0f
+                    var began = false
+                    val minSpan = 0.05f
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                            ?: event.changes.firstOrNull()
+                            ?: break
+                        if (!change.pressed) break
+
+                        // Read the delta before consuming: `positionChange()`
+                        // reports zero once the change is consumed.
+                        val delta = change.positionChange()
+                        if (!began) {
+                            began = true
+                            onDragStart?.invoke()
+                        }
+                        change.consume()
+
+                        // Edge drags follow the finger; a move keeps the size.
+                        val nx = ((change.position.x - contentArea.left) / width).coerceIn(0f, 1f)
+                        val ny = ((change.position.y - contentArea.top) / height).coerceIn(0f, 1f)
+                        insets = when (grab) {
+                            CropGrab.Move -> {
+                                moveDx += delta.x / width
+                                moveDy += delta.y / height
+                                val dx = moveDx.coerceIn(-start.left, start.right)
+                                val dy = moveDy.coerceIn(-start.top, start.bottom)
+                                CropInsets(
+                                    left = start.left + dx,
+                                    top = start.top + dy,
+                                    right = start.right - dx,
+                                    bottom = start.bottom - dy,
+                                )
+                            }
+                            CropGrab.Left -> start.copy(left = nx.coerceAtMost(1f - start.right - minSpan))
+                            CropGrab.Right -> start.copy(right = (1f - nx).coerceAtMost(1f - start.left - minSpan))
+                            CropGrab.Top -> start.copy(top = ny.coerceAtMost(1f - start.bottom - minSpan))
+                            CropGrab.Bottom -> start.copy(bottom = (1f - ny).coerceAtMost(1f - start.top - minSpan))
+                            CropGrab.TopLeft -> start.copy(
+                                left = nx.coerceAtMost(1f - start.right - minSpan),
+                                top = ny.coerceAtMost(1f - start.bottom - minSpan),
+                            )
+                            CropGrab.TopRight -> start.copy(
+                                right = (1f - nx).coerceAtMost(1f - start.left - minSpan),
+                                top = ny.coerceAtMost(1f - start.bottom - minSpan),
+                            )
+                            CropGrab.BottomLeft -> start.copy(
+                                left = nx.coerceAtMost(1f - start.right - minSpan),
+                                bottom = (1f - ny).coerceAtMost(1f - start.top - minSpan),
+                            )
+                            CropGrab.BottomRight -> start.copy(
+                                right = (1f - nx).coerceAtMost(1f - start.left - minSpan),
+                                bottom = (1f - ny).coerceAtMost(1f - start.top - minSpan),
+                            )
+                            CropGrab.None -> start
+                        }
+                        onChanged?.invoke(
+                            clipId,
+                            insets.left.coerceIn(0f, 1f),
+                            insets.top.coerceIn(0f, 1f),
+                            insets.right.coerceIn(0f, 1f),
+                            insets.bottom.coerceIn(0f, 1f),
+                        )
+                    } while (true)
+
+                    if (began) onDragEnd?.invoke()
+                }
+            }
+            .pointerInput(clipId, contentArea, isPlaying) {
+                if (isPlaying) return@pointerInput
+                detectTapGestures(
+                    onDoubleTap = {
+                        onDragStart?.invoke()
+                        onChanged?.invoke(clipId, 0f, 0f, 0f, 0f)
+                        onDragEnd?.invoke()
+                    }
+                )
+            }
+    ) {
+        val box = boxOf(crop.let { CropInsets(it.left, it.top, it.right, it.bottom) })
+        Canvas(Modifier.fillMaxSize()) {
+            // Dim everything outside the kept region.
+            drawRect(scrim, topLeft = Offset(0f, 0f), size = Size(size.width, box.top))
+            drawRect(scrim, topLeft = Offset(0f, box.bottom), size = Size(size.width, size.height - box.bottom))
+            drawRect(scrim, topLeft = Offset(0f, box.top), size = Size(box.left, box.height))
+            drawRect(
+                scrim,
+                topLeft = Offset(box.right, box.top),
+                size = Size(size.width - box.right, box.height),
+            )
+
+            drawRect(
+                outline,
+                topLeft = Offset(box.left, box.top),
+                size = Size(box.width, box.height),
+                style = Stroke(width = lineWidth),
+            )
+
+            // Rule-of-thirds guides.
+            val thirds = Color.White.copy(alpha = 0.35f)
+            for (i in 1..2) {
+                val fx = box.left + box.width * i / 3f
+                val fy = box.top + box.height * i / 3f
+                drawLine(thirds, Offset(fx, box.top), Offset(fx, box.bottom), lineWidth / 2f)
+                drawLine(thirds, Offset(box.left, fy), Offset(box.right, fy), lineWidth / 2f)
+            }
+
+            // Edge bars.
+            val bar = lineWidth * 10
+            val barThick = lineWidth * 2
+            val cx = box.center.x
+            val cy = box.center.y
+            drawLine(outline, Offset(cx - bar / 2, box.top), Offset(cx + bar / 2, box.top), barThick)
+            drawLine(outline, Offset(cx - bar / 2, box.bottom), Offset(cx + bar / 2, box.bottom), barThick)
+            drawLine(outline, Offset(box.left, cy - bar / 2), Offset(box.left, cy + bar / 2), barThick)
+            drawLine(outline, Offset(box.right, cy - bar / 2), Offset(box.right, cy + bar / 2), barThick)
+
+            // Corner dots.
+            for (corner in listOf(
+                Offset(box.left, box.top),
+                Offset(box.right, box.top),
+                Offset(box.left, box.bottom),
+                Offset(box.right, box.bottom),
+            )) {
+                drawCircle(outline, radius = dotRadius, center = corner)
+                drawCircle(
+                    Color.Black.copy(alpha = 0.6f),
+                    radius = dotRadius,
+                    center = corner,
+                    style = Stroke(width = lineWidth),
+                )
+            }
+        }
+    }
+}
+
+/// Mask outlines with direct manipulation: dragging inside a mask moves it,
+/// a pinch scales it. The drawing mirrors the renderer (rotation happens
+/// about the canvas centre), so what is dragged is what will be exported.
+@Composable
+private fun MaskOverlay(
+    contentArea: Rect,
+    masks: List<IndexedValue<RustMaskEffect>>,
+    clipId: String,
+    isPlaying: Boolean,
+    onChanged: ((clipId: String, index: Int, mask: RustMaskEffect) -> Unit)?,
+    onDragStart: (() -> Unit)?,
+    onDragEnd: (() -> Unit)?,
+) {
+    val density = LocalDensity.current
+    val dotRadius = with(density) { 6.dp.toPx() }
+    val lineWidth = with(density) { 1.5.dp.toPx() }
+    val currentMasks by rememberUpdatedState(masks)
+    val outline = Color(0xFF80D8FF)
+
+    fun shapeBounds(mask: RustMaskEffect): Rect? {
+        val shape = (mask.source as? RustShapeMaskSource)?.shape ?: return null
+        val halfW: Float
+        val halfH: Float
+        val cx: Float
+        val cy: Float
+        when (shape) {
+            is RustRectangleMaskShape -> {
+                cx = (shape.left + shape.right) / 2f
+                cy = (shape.top + shape.bottom) / 2f
+                halfW = (shape.right - shape.left) / 2f
+                halfH = (shape.bottom - shape.top) / 2f
+            }
+            is RustEllipseMaskShape -> {
+                cx = shape.centerX
+                cy = shape.centerY
+                halfW = shape.radiusX
+                halfH = shape.radiusY
+            }
+        }
+        val t = mask.transform
+        val scale = t.scale.coerceAtLeast(0.001f)
+        val ncx = cx + t.translateX
+        val ncy = cy + t.translateY
+        val nhw = halfW * scale
+        val nhh = halfH * scale
+        return Rect(ncx - nhw, ncy - nhh, ncx + nhw, ncy + nhh)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(clipId, contentArea, isPlaying) {
+                if (isPlaying) return@pointerInput
+                val width = contentArea.width.coerceAtLeast(1f)
+                val height = contentArea.height.coerceAtLeast(1f)
+
+                fun hitTest(pos: Offset): IndexedValue<RustMaskEffect>? {
+                    // Topmost first, so the last drawn mask wins a tie.
+                    return currentMasks.reversed().firstOrNull { (_, mask) ->
+                        val bounds = shapeBounds(mask) ?: return@firstOrNull false
+                        val l = contentArea.left + bounds.left * width
+                        val t = contentArea.top + bounds.top * height
+                        val r = contentArea.left + bounds.right * width
+                        val b = contentArea.top + bounds.bottom * height
+                        pos.x in l..r && pos.y in t..b
+                    }
+                }
+
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val hit = hitTest(down.position) ?: return@awaitEachGesture
+                    val startMask = hit.value
+                    val startTx = startMask.transform.translateX
+                    val startTy = startMask.transform.translateY
+                    val startScale = startMask.transform.scale
+                    var tx = startTx
+                    var ty = startTy
+                    var scale = startScale
+                    var began = false
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                            ?: event.changes.firstOrNull()
+                            ?: break
+                        if (!change.pressed) break
+
+                        val zoom = event.calculateZoom()
+                        val pan = event.calculatePan()
+                        if (zoom == 1f && pan == Offset.Zero) continue
+
+                        // Deltas are read before consumption.
+                        if (!began) {
+                            began = true
+                            onDragStart?.invoke()
+                        }
+                        event.changes.forEach { it.consume() }
+
+                        if (pan != Offset.Zero) {
+                            // Pan is the per-event delta, so it accumulates.
+                            tx = (tx + pan.x / width).coerceIn(-1f, 1f)
+                            ty = (ty + pan.y / height).coerceIn(-1f, 1f)
+                        }
+                        if (zoom != 1f) {
+                            scale = (scale * zoom).coerceIn(0.05f, 10f)
+                        }
+                        onChanged?.invoke(
+                            clipId,
+                            hit.index,
+                            startMask.copy(
+                                transform = startMask.transform.copy(
+                                    scale = scale,
+                                    translateX = tx,
+                                    translateY = ty,
+                                )
+                            ),
+                        )
+                    } while (true)
+
+                    if (began) onDragEnd?.invoke()
+                }
+            }
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            for ((_, mask) in currentMasks) {
+                val bounds = shapeBounds(mask) ?: continue
+                val shape = (mask.source as? RustShapeMaskSource)?.shape
+                val cx = contentArea.left + ((bounds.left + bounds.right) / 2f) * size.width
+                val cy = contentArea.top + ((bounds.top + bounds.bottom) / 2f) * size.height
+                val hw = bounds.width / 2f * size.width
+                val hh = bounds.height / 2f * size.height
+                val pivot = Offset(
+                    contentArea.left + contentArea.width / 2f,
+                    contentArea.top + contentArea.height / 2f,
+                )
+                rotate(mask.transform.rotate, pivot = pivot) {
+                    when (shape) {
+                        is RustEllipseMaskShape -> drawOval(
+                            color = outline,
+                            topLeft = Offset(cx - hw, cy - hh),
+                            size = Size(hw * 2f, hh * 2f),
+                            style = Stroke(width = lineWidth),
+                        )
+                        else -> drawRect(
+                            color = outline,
+                            topLeft = Offset(cx - hw, cy - hh),
+                            size = Size(hw * 2f, hh * 2f),
+                            style = Stroke(width = lineWidth),
+                        )
+                    }
+                }
+                drawCircle(outline, radius = dotRadius, center = Offset(cx, cy))
+            }
+        }
+    }
+}
 
 @Composable
 private fun BackgroundVideoFrame(

@@ -1,8 +1,11 @@
 package org.mlm.miniter.ui.components.timeline
 
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -241,11 +244,24 @@ private fun TimelineRuler(
         Box(
             Modifier.weight(1f).fillMaxHeight().clipToBounds()
                 .horizontalScroll(scrollState)
-                .pointerInput(dpPerMs) {
-                    detectTapGestures { offset -> onTap(offset.x / density.density) }
-                }
         ) {
-            Canvas(Modifier.width(cappedTimelineWidthDp(timelineDurationMs, dpPerMs).dp).fillMaxHeight()) {
+            // The gesture lives on the content, not the scroll container, so a
+            // drag on the ruler scrubs instead of panning: the ruler is the
+            // scrubber, the track area still pans.
+            Canvas(
+                Modifier.width(cappedTimelineWidthDp(timelineDurationMs, dpPerMs).dp)
+                    .fillMaxHeight()
+                    .pointerInput(dpPerMs) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            onTap(down.position.x / density.density)
+                            drag(down.id) { change ->
+                                onTap(change.position.x / density.density)
+                                change.consume()
+                            }
+                        }
+                    }
+            ) {
                 val h = size.height
                 val majorMs = when {
                     dpPerMs >= 0.5f -> 1_000L; dpPerMs >= 0.2f -> 2_000L

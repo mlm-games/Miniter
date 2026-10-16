@@ -1804,6 +1804,17 @@ class ProjectViewModel(
         dispatchAndSync(rustStore.commands.setTransitionOut(clipId, transition))
     }
 
+    fun updateCropFilter(clipId: String, left: Float, top: Float, right: Float, bottom: Float) {
+        val video = findRustClip(clipId)?.kind as? RustVideoClipKind ?: return
+        val index = video.filters.indexOfFirst { it.enabled && it.filter is RustCropFilterSnapshot }
+        if (index == -1) return
+        updateFilterParams(
+            clipId,
+            index,
+            mapOf("left" to left, "top" to top, "right" to right, "bottom" to bottom),
+        )
+    }
+
     fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {
         val video = findRustClip(clipId)?.kind as? RustVideoClipKind ?: return
         val current = video.filters.getOrNull(filterIndex) ?: return
