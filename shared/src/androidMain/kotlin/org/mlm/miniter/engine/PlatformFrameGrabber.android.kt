@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.mlm.miniter.editor.model.RustMaskEffect
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.synchronized as platformSynchronized
@@ -32,6 +33,7 @@ actual class PlatformFrameGrabber {
     actual suspend fun grabFrame(
         timestampMs: Long,
         filters: List<RustVideoFilterSnapshot>,
+        masks: List<RustMaskEffect>,
         opacity: Float,
         width: Int,
         height: Int,
@@ -45,9 +47,21 @@ actual class PlatformFrameGrabber {
             var fw = frame.width
             var fh = frame.height
 
-            if (filters.isNotEmpty() || opacity < 1f) {
-                rgba = FrameFilterProcessors.applyFilters(rgba, fw, fh, filters, opacity)
+            // The export renderer composites filters, then masks, then the
+            // clip's opacity; the same order here keeps the preview and the
+            // render identical.
+            if (filters.isNotEmpty()) {
+                rgba = FrameFilterProcessors.applyFilters(rgba, fw, fh, filters, 1f)
             }
+
+            if (masks.isNotEmpty()) {
+                rgba = RustCoreSession.applyMasks(rgba, fw, fh, masksToWireJson(masks))
+            }
+
+            if (opacity < 1f) {
+                rgba = FrameFilterProcessors.applyFilters(rgba, fw, fh, emptyList(), opacity)
+            }
+
 
             val finalW = if (width > 0) width else fw
             val finalH = if (height > 0) height else fh

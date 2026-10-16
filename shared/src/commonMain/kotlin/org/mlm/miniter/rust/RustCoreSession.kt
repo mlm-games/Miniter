@@ -56,6 +56,7 @@ expect class RustCoreSession {
         fun extractWaveform(path: String, buckets: Int): String
         fun detectBeats(path: String): BeatTrack
         fun probeVideo(path: String): VideoInfo
+        fun applyMasks(rgba: ByteArray, width: Int, height: Int, masksJson: String): ByteArray
         suspend fun extractThumbnail(path: String, timestampUs: Long, hardwareAcceleration: Boolean): ImageData
         suspend fun extractThumbnails(path: String, count: Int, durationUs: Long, hardwareAcceleration: Boolean): List<ImageData>
         fun exportProjectJson(projectJson: String, outputPath: String): Boolean

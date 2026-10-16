@@ -1,5 +1,7 @@
 package org.mlm.miniter.engine
 
+import kotlinx.serialization.json.Json
+import org.mlm.miniter.editor.model.RustMaskEffect
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 
 expect class PlatformFrameGrabber() {
@@ -9,6 +11,7 @@ expect class PlatformFrameGrabber() {
     suspend fun grabFrame(
         timestampMs: Long,
         filters: List<RustVideoFilterSnapshot> = emptyList(),
+        masks: List<RustMaskEffect> = emptyList(),
         opacity: Float = 1f,
         width: Int = 0,
         height: Int = 0,
@@ -17,3 +20,12 @@ expect class PlatformFrameGrabber() {
 
     fun release()
 }
+
+private val maskWireJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+    classDiscriminator = "type"
+}
+
+internal fun masksToWireJson(masks: List<RustMaskEffect>): String =
+    maskWireJson.encodeToString(masks)

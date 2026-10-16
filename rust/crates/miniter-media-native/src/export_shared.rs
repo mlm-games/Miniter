@@ -5,7 +5,9 @@ use fast_image_resize::{PixelType, Resizer};
 use fontdue::{Font, FontSettings};
 use miniter_audio::util;
 use miniter_domain::filter::VideoFilter;
-use miniter_domain::mask::{BlendMode, MaskComposition, MaskOperation, MaskShape, MaskTransform};
+use miniter_domain::mask::{
+    BlendMode, MaskComposition, MaskEffect, MaskOperation, MaskShape, MaskSource, MaskTransform,
+};
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use std::io::Write;
 
@@ -478,6 +480,90 @@ pub(crate) fn render_mask_shape(
 
 /// Apply a mask buffer to modulate the alpha channel of an RGBA image.
 /// mask is a grayscale RGBA buffer where luminance determines opacity.
+/// Composite every enabled shape mask onto a frame, in list order.
+///
+/// This is the renderer's per-node mask pass lifted out for callers that hold a
+/// finished frame (the preview grab), so what the canvas shows matches what the
+/// export writes.
+pub fn apply_masks_to_frame(pixels: &mut [u8], width: u32, height: u32, masks: &[MaskEffect]) {
+    let w = width as usize;
+    let h = height as usize;
+    if pixels.len() != w.saturating_mul(h).saturating_mul(4) {
+        return;
+    }
+    for mask in masks.iter().filter(|m| m.enabled) {
+        let MaskSource::Shape {
+            shape,
+            feather,
+            invert,
+        } = &mask.source
+        else {
+            continue;
+        };
+        let mut mask_rgba = render_mask_shape(shape, &mask.transform, w, h);
+        if *feather > 0.0 {
+            feather_mask(&mut mask_rgba, w, h, *feather);
+        }
+        if *invert {
+            for px in mask_rgba.as_chunks_mut::<4>().0 {
+                px[0] = 255 - px[0];
+                px[1] = 255 - px[1];
+                px[2] = 255 - px[2];
+                px[3] = 255 - px[3];
+            }
+        }
+        apply_mask_to_alpha(pixels, &mask_rgba, mask.operation, mask.composition);
+    }
+}
+
+#[cfg(test)]
+mod mask_frame_tests {
+    use super::*;
+
+    fn mask(left: f32, right: f32) -> MaskEffect {
+        MaskEffect::shape(MaskShape::Rectangle {
+            left,
+            top: 0.0,
+            right,
+            bottom: 1.0,
+        })
+    }
+
+    fn opaque(w: usize, h: usize) -> Vec<u8> {
+        vec![255u8; w * h * 4]
+    }
+
+    #[test]
+    fn shape_mask_clears_alpha_outside_the_shape() {
+        let (w, h) = (4u32, 4u32);
+        let mut pixels = opaque(w as usize, h as usize);
+        apply_masks_to_frame(&mut pixels, w, h, &[mask(0.0, 0.5)]);
+
+        let alpha = |x: usize, y: usize| pixels[(y * w as usize + x) * 4 + 3];
+        assert_eq!(alpha(0, 2), 255, "inside the mask stays opaque");
+        assert_eq!(alpha(3, 2), 0, "outside the mask is cleared");
+    }
+
+    #[test]
+    fn disabled_masks_do_not_touch_the_frame() {
+        let (w, h) = (4u32, 4u32);
+        let mut pixels = opaque(w as usize, h as usize);
+        let mut disabled = mask(0.0, 0.5);
+        disabled.enabled = false;
+        apply_masks_to_frame(&mut pixels, w, h, &[disabled]);
+
+        assert!(pixels.iter().all(|b| *b == 255), "frame must be untouched");
+    }
+
+    #[test]
+    fn mismatched_buffer_is_left_alone() {
+        let mut pixels = opaque(4, 4);
+        let before = pixels.clone();
+        apply_masks_to_frame(&mut pixels, 100, 100, &[mask(0.0, 0.5)]);
+        assert_eq!(pixels, before, "a wrong-sized buffer must not be indexed");
+    }
+}
+
 pub(crate) fn apply_mask_to_alpha(
     pixels: &mut [u8],
     mask: &[u8],

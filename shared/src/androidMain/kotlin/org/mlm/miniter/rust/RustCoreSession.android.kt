@@ -4,6 +4,7 @@ import io.github.aakira.napier.Napier
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.ffi.EditorHandle as NativeEditorHandle
+import org.mlm.miniter.ffi.applyMasks as nativeApplyMasks
 import org.mlm.miniter.ffi.cancelExport as nativeCancelExport
 import org.mlm.miniter.ffi.clearExportPreview as nativeClearExportPreview
 import org.mlm.miniter.ffi.detectBeats as nativeDetectBeats
@@ -118,6 +119,9 @@ actual class RustCoreSession private constructor(
                 hardwareAccelerationRequired = result.hardwareAccelerationRequired,
             )
         }
+
+        actual fun applyMasks(rgba: ByteArray, width: Int, height: Int, masksJson: String): ByteArray =
+            nativeApplyMasks(rgba, width.toUInt(), height.toUInt(), masksJson)
 
         actual suspend fun extractThumbnail(path: String, timestampUs: Long, hardwareAcceleration: Boolean): ImageData {
             val frame = nativeExtractThumbnail(path, timestampUs, hardwareAcceleration)

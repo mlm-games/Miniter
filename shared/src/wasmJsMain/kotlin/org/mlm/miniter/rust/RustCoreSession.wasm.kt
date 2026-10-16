@@ -212,6 +212,17 @@ actual class RustCoreSession private constructor(
             )
         }
 
+        @OptIn(ExperimentalEncodingApi::class)
+        actual fun applyMasks(rgba: ByteArray, width: Int, height: Int, masksJson: String): ByteArray {
+            val masked = wasmApplyMasks(
+                Base64.encode(rgba),
+                width.toDouble(),
+                height.toDouble(),
+                masksJson,
+            )
+            return decodeBase64ToBytes(masked)
+        }
+
         actual suspend fun extractThumbnail(path: String, timestampUs: Long, hardwareAcceleration: Boolean): ImageData {
             val payload = try {
                 wasmBridgeJson.decodeFromString<WasmFramePayload>(

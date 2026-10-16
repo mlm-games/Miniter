@@ -503,6 +503,31 @@ mod native_ffi {
         })
     }
 
+    /// Apply the enabled masks of a clip to a finished RGBA frame, the same
+    /// pass the export renderer runs. Used by the preview so masks are visible
+    /// while they are edited.
+    #[uniffi::export]
+    pub fn apply_masks(
+        rgba: Vec<u8>,
+        width: u32,
+        height: u32,
+        masks_json: String,
+    ) -> Result<Vec<u8>, MiniterError> {
+        let masks: Vec<miniter_domain::mask::MaskEffect> =
+            serde_json::from_str(&masks_json)
+                .map_err(|e| MiniterError::Parse {
+                    detail: format!("Invalid masks JSON: {e}"),
+                })?;
+        let mut pixels = rgba;
+        miniter_media_native::export_shared::apply_masks_to_frame(
+            &mut pixels,
+            width,
+            height,
+            &masks,
+        );
+        Ok(pixels)
+    }
+
     #[uniffi::export]
     pub fn extract_thumbnail(
         path: String,
@@ -1006,6 +1031,28 @@ mod web_ffi {
             let msg = format!("yield_to_js failed: {e:?}");
             log::warn!("{msg}");
         }
+    }
+
+    #[wasm_bindgen(js_name = applyMasks)]
+    pub fn apply_masks(
+        rgba_base64: String,
+        width: u32,
+        height: u32,
+        masks_json: String,
+    ) -> Result<String, JsValue> {
+        use base64::Engine as _;
+        let mut pixels = base64::engine::general_purpose::STANDARD
+            .decode(rgba_base64)
+            .map_err(|e| JsValue::from_str(&format!("Invalid base64: {e}")))?;
+        let masks: Vec<miniter_domain::mask::MaskEffect> = serde_json::from_str(&masks_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid masks JSON: {e}")))?;
+        miniter_media_native::export_shared::apply_masks_to_frame(
+            &mut pixels,
+            width,
+            height,
+            &masks,
+        );
+        Ok(base64::engine::general_purpose::STANDARD.encode(&pixels))
     }
 
     #[wasm_bindgen(js_name = extractThumbnail)]

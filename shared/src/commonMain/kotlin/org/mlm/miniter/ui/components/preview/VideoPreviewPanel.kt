@@ -103,6 +103,7 @@ sealed interface VisibleMedia {
         val volume: Float,
         val muted: Boolean,
         val filters: List<RustVideoEffectSnapshot>,
+        val masks: List<RustMaskEffect> = emptyList(),
         val keyframes: RustKeyframeCurve = RustKeyframeCurve(),
     ) : VisibleMedia
 
@@ -169,6 +170,7 @@ private fun collectVisibleMedia(
                             volume = clip.volume,
                             muted = clip.muted,
                             filters = kind.filters,
+                            masks = kind.masks,
                             keyframes = clip.keyframes,
                         )
                     )
@@ -326,6 +328,10 @@ fun EditorVideoPreview(
     val primaryVolume = if (primaryVideo?.muted == true) 0f
         else primaryVideo?.volume ?: defaultOf(KeyframeParams.VOLUME)
     val primaryFilters = primaryVideo?.filters ?: emptyList()
+    // Disabled masks stay out of the wire payload entirely.
+    val primaryMasks = remember(primaryVideo?.masks) {
+        primaryVideo?.masks?.filter { it.enabled }.orEmpty()
+    }
     val primaryOpacity = primaryVideo?.opacity ?: defaultOf(KeyframeParams.OPACITY)
     val primaryEffectiveOpacity = primaryVideo?.keyframes?.evaluate(
         KeyframeParams.OPACITY, (playheadMs - primaryVideo.startMs) * 1000L,
@@ -508,7 +514,7 @@ fun EditorVideoPreview(
         playerState.volume = primaryVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, primaryEffectiveOpacity, cropEditing) {
+    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, primaryMasks, primaryEffectiveOpacity, cropEditing) {
         if (isPlaying) return@LaunchedEffect
         if (primaryVideo == null || primaryVideoPath == null) return@LaunchedEffect
 
@@ -529,6 +535,7 @@ fun EditorVideoPreview(
                 scrubbedFrame = frameGrabber.grabFrame(
                     timestampMs = sourceTimeMs,
                     filters = nonTransformFilters,
+                    masks = primaryMasks,
                     opacity = primaryEffectiveOpacity,
                     hardwareAcceleration = settings.hardwareAccelerationEnabled,
                 )
@@ -538,13 +545,21 @@ fun EditorVideoPreview(
                 scrubbedFrame = frameGrabber.grabFrame(
                     timestampMs = sourceTimeMs,
                     filters = emptyList(),
+                    masks = primaryMasks,
                     opacity = 1f,
                     hardwareAcceleration = settings.hardwareAccelerationEnabled,
                 )
             } catch (_: Exception) {}
         }
 
-        if (playerReady && fullFileDurationMs > 0L && sourceTimeMs in 0..fullFileDurationMs) {
+        // The surface is hidden behind the still while paused, so seeking it
+        // here only buys a full-resolution decode per scrub tick. Playback
+        // seeks for itself before it starts; seek only when no still covers it.
+        if (scrubbedFrame == null &&
+            playerReady &&
+            fullFileDurationMs > 0L &&
+            sourceTimeMs in 0..fullFileDurationMs
+        ) {
             seekToPosition(playerState, sourceTimeMs, fullFileDurationMs)
         }
     }
@@ -927,6 +942,7 @@ fun EditorVideoPreview(
                             BackgroundVideoFrame(
                                 sourcePath = bgVideo.sourcePath,
                                 sourceTimeMs = bgSourceTime,
+                                masks = bgVideo.masks.filter { it.enabled },
                                 opacity = 1f,
                                 onFrameLoaded = { frame ->
                                     backgroundFrames = backgroundFrames + (bgVideo.id to frame)
@@ -1097,7 +1113,7 @@ fun EditorVideoPreview(
                     }
                     }
 
-                    if (canEditCrop && cropEditing && selectedCropFilter != null && selectedClipId != null) {
+                    if (canEditCrop && cropEditing) {
                         CropOverlay(
                             contentArea = contentArea,
                             crop = selectedCropFilter,
@@ -1109,7 +1125,7 @@ fun EditorVideoPreview(
                         )
                     }
 
-                    if (canEditMasks && maskEditing && selectedClipId != null) {
+                    if (canEditMasks && maskEditing) {
                         MaskOverlay(
                             contentArea = contentArea,
                             masks = shapeMasks,
@@ -1587,6 +1603,7 @@ private fun MaskOverlay(
 private fun BackgroundVideoFrame(
     sourcePath: String,
     sourceTimeMs: Long,
+    masks: List<RustMaskEffect>,
     opacity: Float,
     onFrameLoaded: (ImageData) -> Unit,
 ) {
@@ -1600,7 +1617,7 @@ private fun BackgroundVideoFrame(
         } catch (_: Throwable) {}
     }
     var lastDecodedMs by remember(sourcePath) { mutableLongStateOf(Long.MIN_VALUE) }
-    LaunchedEffect(sourcePath, sourceTimeMs) {
+    LaunchedEffect(sourcePath, sourceTimeMs, masks) {
         if (lastDecodedMs != Long.MIN_VALUE &&
             kotlin.math.abs(sourceTimeMs - lastDecodedMs) <= 100L
         ) return@LaunchedEffect
@@ -1608,6 +1625,7 @@ private fun BackgroundVideoFrame(
             val frame = ownGrabber.grabFrame(
                 timestampMs = sourceTimeMs.coerceAtLeast(0L),
                 filters = emptyList(),
+                masks = masks,
                 opacity = opacity,
                 width = 0,
                 height = 0,

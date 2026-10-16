@@ -2,6 +2,7 @@ package org.mlm.miniter.ui.components.timeline
 
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MergeType
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -51,7 +52,7 @@ fun ClipContextMenu(
 
         DropdownMenuItem(
             text = { Text("Join with next") },
-            leadingIcon = { Icon(Icons.Default.MergeType, null, Modifier.size(18.dp)) },
+            leadingIcon = { Icon(Icons.AutoMirrored.Filled.MergeType, null, Modifier.size(18.dp)) },
             onClick = { onJoin(); onDismiss() },
             enabled = canJoin && !isLocked,
         )

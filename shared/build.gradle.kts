@@ -144,6 +144,8 @@ abstract class GenerateWasmExternsTask : org.gradle.api.DefaultTask() {
         sb.appendLine("external fun wasmExtractThumbnail(path: String, targetUs: Double, hardwareAcceleration: Boolean): Promise<JsAny?>")
         sb.appendLine("@JsName(\"extractThumbnails\")")
         sb.appendLine("external fun wasmExtractThumbnails(path: String, count: Double, durationUs: Double, hardwareAcceleration: Boolean): Promise<JsAny?>")
+        sb.appendLine("@JsName(\"applyMasks\")")
+        sb.appendLine("external fun wasmApplyMasks(rgbaBase64: String, width: Double, height: Double, masksJson: String): String")
         sb.appendLine("@JsName(\"registerFile\")")
         sb.appendLine("external fun wasmRegisterFile(path: String, bytesBase64: String, extension: String?): Boolean")
         sb.appendLine("@JsName(\"mediaBlobUrl\")")
