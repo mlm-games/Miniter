@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -260,6 +261,9 @@ fun EditorVideoPreview(
     onDragStart: (() -> Unit)? = null,
     autoKeyframeEnabled: Boolean = false,
     onSetKeyframe: ((clipId: String, playheadMs: Long, scale: Float, tx: Float, ty: Float, rot: Float) -> Unit)? = null,
+    onTextPositionChanged: ((clipId: String, positionX: Float, positionY: Float) -> Unit)? = null,
+    onTextDragStart: (() -> Unit)? = null,
+    onTextDragEnd: (() -> Unit)? = null,
 ) {
     val settingsRepository: SettingsRepository<AppSettings> = koinInject()
     val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
@@ -333,7 +337,10 @@ fun EditorVideoPreview(
     var visualTranslateX by remember { mutableFloatStateOf(initialVisualTranslateX) }
     var visualTranslateY by remember { mutableFloatStateOf(initialVisualTranslateY) }
     var isInteracting by remember { mutableStateOf(false) }
-    var showZoomIndicator by remember { mutableStateOf(false) }
+    var overlayDragActive by remember { mutableStateOf(false) }
+    val zoomed = visualScale != defaultOf(KeyframeParams.TRANSFORM_SCALE) ||
+        visualTranslateX != defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X) ||
+        visualTranslateY != defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y)
 
     LaunchedEffect(initialVisualScale, initialVisualTranslateX, initialVisualTranslateY) {
         visualScale = initialVisualScale
@@ -703,7 +710,10 @@ fun EditorVideoPreview(
                     val rotation = event.calculateRotation()
 
                     if (zoom != 1f || pan != Offset.Zero || rotation != 0f) {
-                        if (transformFilter != null) {
+                        if (overlayDragActive) {
+                            // A text overlay owns this gesture; otherwise the
+                            // view zoom would pan underneath the dragged text.
+                        } else if (transformFilter != null) {
                             renderScale = (renderScale * zoom).coerceIn(0.1f, 10f)
                             renderRotate += rotation
                             val normPanX = pan.x / maxOf(viewportSize.width, 1)
@@ -715,7 +725,6 @@ fun EditorVideoPreview(
                             visualScale = (visualScale * zoom).coerceIn(0.5f, 5f)
                             visualTranslateX += pan.x
                             visualTranslateY += pan.y
-                            showZoomIndicator = true
                         }
                     }
                 } while (event.changes.any { it.pressed })
@@ -947,7 +956,6 @@ fun EditorVideoPreview(
                                 )
                             }
                         }
-                    }
 
                     textOverlays.forEach { textOverlay ->
                         val style = textOverlay.style
@@ -978,6 +986,39 @@ fun EditorVideoPreview(
                                         RustTextAlignment.Right -> -tw
                                     }
                                     IntOffset(anchorX + ox, anchorY - th / 2)
+                                }
+                                .pointerInput(textOverlay.id, isPlaying) {
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            if (isPlaying) return@detectDragGestures
+                                            overlayDragActive = true
+                                            onTextDragStart?.invoke()
+                                        },
+                                        onDragEnd = {
+                                            if (overlayDragActive) {
+                                                overlayDragActive = false
+                                                onTextDragEnd?.invoke()
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            if (overlayDragActive) {
+                                                overlayDragActive = false
+                                                onTextDragEnd?.invoke()
+                                            }
+                                        },
+                                        onDrag = { change, amount ->
+                                            change.consume()
+                                            if (isPlaying) return@detectDragGestures
+                                            // Both the offset above and this delta live in the
+                                            // same (possibly view-zoomed) space, so the ratio
+                                            // keeps the text glued under the finger.
+                                            val cw = contentArea.width.coerceAtLeast(1f)
+                                            val ch = contentArea.height.coerceAtLeast(1f)
+                                            val nx = (textOverlay.style.positionX + amount.x / cw).coerceIn(0f, 1f)
+                                            val ny = (textOverlay.style.positionY + amount.y / ch).coerceIn(0f, 1f)
+                                            onTextPositionChanged?.invoke(textOverlay.id, nx, ny)
+                                        },
+                                    )
                                 },
                         )
                     }
@@ -1006,6 +1047,7 @@ fun EditorVideoPreview(
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
+                    }
 
                     if (exportWidth > 0 && exportHeight > 0) {
                         val exportFrameRect = contentArea
@@ -1028,6 +1070,19 @@ fun EditorVideoPreview(
                                 size = Size(exportFrameRect.width, exportFrameRect.height),
                                 style = Stroke(width = 2.dp.toPx()),
                             )
+                        }
+                    }
+                    if (zoomed) {
+                        TextButton(
+                            onClick = {
+                                visualScale = defaultOf(KeyframeParams.TRANSFORM_SCALE)
+                                visualTranslateX = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_X)
+                                visualTranslateY = defaultOf(KeyframeParams.TRANSFORM_TRANSLATE_Y)
+                            },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        ) {
+                            Text("Reset zoom", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }

@@ -171,6 +171,11 @@ fun ProjectScreen(
                 if (selectedClipId != null) vm.commitEdit()
             },
             autoKeyframeEnabled = autoKeyframeEnabled,
+            onTextPositionChanged = { clipId, x, y ->
+                vm.updateTextClipStyle(clipId, positionX = x, positionY = y)
+            },
+            onTextDragStart = { vm.beginEdit("Move text") },
+            onTextDragEnd = { vm.commitEdit() },
             onSetKeyframe = { clipId, playheadMs, scale, tx, ty, rot ->
                 val clip = snapshot?.timeline?.tracks?.flatMap { it.clips }?.find { it.id == clipId }
                 if (clip != null) {
