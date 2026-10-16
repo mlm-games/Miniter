@@ -178,6 +178,23 @@ internal suspend fun materializeReadablePath(path: String): String = withContext
     outFile.absolutePath
 }
 
+internal const val PENDING_EXPORT_MAX_AGE_MS = 12L * 60L * 60L * 1000L
+
+/// A cancelled or killed export leaves its staged file behind; nothing
+/// legitimate lives here for half a day, so older files are swept on the next
+/// export.
+internal fun pruneStaleExports(dir: File, now: Long = System.currentTimeMillis()) {
+    try {
+        val files = dir.listFiles()?.filter { it.isFile } ?: return
+        for (file in files) {
+            if (now - file.lastModified() > PENDING_EXPORT_MAX_AGE_MS) {
+                file.delete()
+            }
+        }
+    } catch (_: Exception) {
+    }
+}
+
 internal suspend fun prepareWritablePath(path: String): PreparedOutputPath =
     withContext(Dispatchers.IO) {
         if (!path.startsWith("content://")) {
@@ -189,6 +206,7 @@ internal suspend fun prepareWritablePath(path: String): PreparedOutputPath =
         val displayName = sanitizeFileName(queryDisplayName(uri) ?: "export.mp4")
 
         val dir = File(context.cacheDir, "pending-exports").apply { mkdirs() }
+        pruneStaleExports(dir)
         val tempFile = File(dir, "${UUID.randomUUID()}_$displayName")
 
         PreparedOutputPath(
