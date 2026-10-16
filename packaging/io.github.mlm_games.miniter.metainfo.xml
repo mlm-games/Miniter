@@ -23,6 +23,19 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.9.6" date="2026-10-16" type="stable">
+      <description>
+        <ul>
+          <li>fix proxy export undo render bugs</li>
+          <li>verbump and strings</li>
+          <li>lock videoson to 0.6.2 for VP9 colour</li>
+          <li>agree with the software decoder on the H.273 matrix codes</li>
+          <li>fill in the decoder config fields the hw decoder now requires</li>
+          <li>use the reported colour instead of guessing from frame height</li>
+          <li>fix(ci): exclude scoped conventional commits, namespace publish group</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.5" date="2026-09-16" type="stable">
       <description>
         <ul>

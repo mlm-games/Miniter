@@ -1,3 +1,14 @@
+## v0.9.6
+
+- fix proxy export undo render bugs
+- verbump and strings
+- lock videoson to 0.6.2 for VP9 colour
+- agree with the software decoder on the H.273 matrix codes
+- fill in the decoder config fields the hw decoder now requires
+- use the reported colour instead of guessing from frame height
+- fix(ci): exclude scoped conventional commits, namespace publish group
+
+
 ## v0.9.5
 
 - Fix fdroid build
