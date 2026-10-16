@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.aakira.napier.Napier
 import io.github.mlmgames.settings.core.SettingsRepository
 import io.github.vinceglb.filekit.PlatformFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +59,7 @@ import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.overlapsRange
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformVideoEngine
+import org.mlm.miniter.engine.ScrubProxy
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.PlatformFileSystem
@@ -164,7 +166,11 @@ class ProjectViewModel(
         thumbnailJob?.cancel()
         thumbnailRequestId += 1
         thumbnailRequestPath = null
-        exportJob?.cancel()
+        // Nothing will clear the flag now that the job is cancelled, and the
+        // next project may have no video clip to trigger a fresh load.
+        _state.update { it.copy(isLoadingThumbnails = false) }
+        ScrubProxy.cancel()
+        cancelExport()
     }
 
     private val _waveforms = MutableStateFlow<Map<String, List<Float>>>(emptyMap())
@@ -1222,12 +1228,35 @@ class ProjectViewModel(
         val requestId = thumbnailRequestId
         thumbnailRequestPath = videoPath
         thumbnailJob = viewModelScope.launch {
-            _state.update { it.copy(isLoadingThumbnails = true) }
+            // Clear the previous project's strip straight away: a proxy build
+            // can take seconds, and stale frames would otherwise render as if
+            // they belonged to this project.
+            _state.update { it.copy(isLoadingThumbnails = true, thumbnails = emptyList()) }
             try {
+                // A proxy that fails to build is not fatal: the original still decodes.
+                // Cancellation must propagate, so it is not folded into the
+                // same catch.
+                val proxy = try {
+                    ScrubProxy.ensure(videoPath, hardwareAccelerationEnabled)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+                if (requestId != thumbnailRequestId) return@launch
+                if (proxy?.ready == true) {
+                    Napier.i(
+                        "Scrub proxy ready for ${videoPath.substringAfterLast("/")}: " +
+                            "${proxy.bytes} bytes" +
+                            (if (proxy.width > 0) " at ${proxy.width}x${proxy.height}" else " (cached)")
+                    )
+                }
                 val thumbs = engine.extractThumbnails(videoPath, 12, 160, 90, hardwareAccelerationEnabled)
                 if (requestId != thumbnailRequestId) return@launch
                 if (thumbnailRequestPath != videoPath) return@launch
                 _state.update { it.copy(thumbnails = thumbs, isLoadingThumbnails = false) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (requestId != thumbnailRequestId) return@launch
                 _state.update { it.copy(thumbnails = emptyList(), isLoadingThumbnails = false) }
@@ -1244,12 +1273,19 @@ class ProjectViewModel(
 
     fun exportProject(outputPath: String) {
         if (exportJob?.isActive == true) return
+        val previousExport = exportJob
         val probePaths = rustStore.snapshot.value
             ?.timeline?.tracks?.flatMap { it.clips }
             ?.mapNotNull { clipSnapshot -> (clipSnapshot.kind as? RustVideoClipKind)?.sourcePath }
             ?.distinct() ?: return
-        engine.notePreparing(outputPath)
         exportJob = viewModelScope.launch {
+            // A cancelled export stays inside a blocking native call until the
+            // renderer notices the cancel flag. Wait for it to unwind before
+            // touching the engine again, so the two cannot interleave: notePreparing
+            // clears the cancel flag, and a late commit or progress write from
+            // the old export would otherwise clobber this one.
+            previousExport?.join()
+            engine.notePreparing(outputPath)
             var exportError: String? = null
             for (path in probePaths) {
                 try {
@@ -1273,6 +1309,11 @@ class ProjectViewModel(
             }
 
             if (exportError != null) {
+                // notePreparing already marked the engine active; without this
+                // the sheet would sit on "Preparing…" and refuse further starts.
+                try {
+                    engine.reset()
+                } catch (_: Exception) { /* best effort progress reset */ }
                 snackbarManager.showError("Cannot export: $exportError")
                 return@launch
             }
@@ -1280,6 +1321,8 @@ class ProjectViewModel(
             try {
                 val projectJson = rustStore.exportProjectJson()
                 engine.exportProjectJson(projectJson, outputPath)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 try {
                     engine.reset()
@@ -1290,13 +1333,12 @@ class ProjectViewModel(
     }
 
     fun cancelExport() {
-        exportJob?.cancel()
         engine.cancelExport()
+        exportJob?.cancel()
     }
 
     fun resetExport() {
-        exportJob?.cancel()
-        exportJob = null
+        cancelExport()
         engine.reset()
     }
 
@@ -1311,9 +1353,9 @@ class ProjectViewModel(
 
     fun reset() {
         stopAutoSave()
-        exportJob?.cancel()
-        exportJob = null
+        cancelExport()
         thumbnailJob?.cancel()
+        ScrubProxy.cancel()
         thumbnailRequestId += 1
         thumbnailRequestPath = null
         rustStore.clear()

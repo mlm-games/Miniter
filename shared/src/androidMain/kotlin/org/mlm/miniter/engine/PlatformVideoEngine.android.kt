@@ -87,7 +87,10 @@ actual class PlatformVideoEngine actual constructor() {
                         )
                     }
                 } catch (e: CancellationException) {
-                    progressJob.cancelAndJoin()
+                    // cancelAndJoin throws again while this coroutine is already
+                    // cancelled, which would skip the discard and leak the
+                    // staged output. Cancel without joining and discard first.
+                    progressJob.cancel()
                     runCatching { preparedOutput.discard() }
                     RustCoreSession.cancelExport()
                     exportCancelled = true
@@ -196,7 +199,11 @@ actual class PlatformVideoEngine actual constructor() {
     }
 
     actual fun reset() {
-        exportCancelled = false
+        // `exportCancelled` is deliberately left alone: a cancelled export may
+        // still be unwinding inside the blocking renderer call, and clearing
+        // the flag here would let it commit its output and report success.
+        // `exportProjectJson` clears the flag when a new export genuinely
+        // starts.
         runCatching { RustCoreSession.clearExportPreview() }
         _exportProgress.value = ExportProgress()
     }

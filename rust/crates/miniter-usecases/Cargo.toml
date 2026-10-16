@@ -14,3 +14,6 @@ serde.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 web-time.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

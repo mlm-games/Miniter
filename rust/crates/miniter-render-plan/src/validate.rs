@@ -73,10 +73,20 @@ fn validate_node(node: &RenderNode, t: Timestamp, out: &mut Vec<PlanViolation>) 
         }
         RenderNode::Text { opacity, .. } | RenderNode::Subtitle { opacity, .. } => {
             check_opacity(t, *opacity, out);
-            if let RenderNode::Subtitle { source_pts, .. } = node
-                && source_pts.as_micros() < 0
+            if let RenderNode::Subtitle {
+                source_pts,
+                source_path,
+                ..
+            } = node
             {
-                out.push(PlanViolation::NegativeSourcePts { timestamp: t });
+                if source_pts.as_micros() < 0 {
+                    out.push(PlanViolation::NegativeSourcePts { timestamp: t });
+                }
+                // A burned-in subtitle reads from this file, so an empty path
+                // fails the same way an empty video source does.
+                if source_path.is_empty() {
+                    out.push(PlanViolation::EmptySourcePath { timestamp: t });
+                }
             }
         }
         RenderNode::Stack(nodes) => {
@@ -185,6 +195,34 @@ mod tests {
     fn empty_stack_is_a_legal_black_frame() {
         let plan = plan_with(RenderNode::Stack(vec![]));
         assert!(validate_frame_plan(&plan).is_empty());
+    }
+
+    fn subtitle_node(path: &str, pts_us: i64) -> RenderNode {
+        RenderNode::Subtitle {
+            source_path: path.into(),
+            source_pts: Timestamp::from_micros(pts_us),
+            opacity: 1.0,
+            font_path: None,
+        }
+    }
+
+    /// A burned-in subtitle is read from disk, so an empty path is just as
+    /// broken as an empty video source. The check used to exist only for
+    /// `VideoFrame`, so a subtitle node with no file validated clean.
+    #[test]
+    fn subtitle_with_empty_source_path_is_flagged() {
+        let plan = plan_with(subtitle_node("", 1_000));
+        assert!(
+            validate_frame_plan(&plan).contains(&PlanViolation::EmptySourcePath {
+                timestamp: Timestamp::ZERO
+            }),
+            "an empty subtitle source path must be reported"
+        );
+    }
+
+    #[test]
+    fn subtitle_with_real_path_passes() {
+        assert!(validate_frame_plan(&plan_with(subtitle_node("/tmp/s.srt", 1_000))).is_empty());
     }
 
     #[test]

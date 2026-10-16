@@ -210,7 +210,9 @@ actual class PlatformVideoEngine actual constructor() {
     }
 
     actual fun reset() {
-        exportCancelled = false
+        // `exportCancelled` is deliberately left alone: a cancelled export may
+        // still be unwinding, and clearing the flag here would let it report
+        // success. `exportProjectJson` clears it when a new export starts.
         runCatching { activeSession?.cancel() }
         activeSession = null
         runCatching { RustCoreSession.clearExportPreview() }
@@ -220,7 +222,6 @@ actual class PlatformVideoEngine actual constructor() {
     actual fun notePreparing(outputPath: String) {
         val current = _exportProgress.value
         if (current.isActive()) return
-        exportCancelled = false
         runCatching { RustCoreSession.clearExportPreview() }
         _exportProgress.value = ExportProgress(
             phase = ExportProgress.PHASE_PREPARING,

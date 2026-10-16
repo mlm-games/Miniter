@@ -14,6 +14,12 @@ pub enum EditCommand {
     AddTrack {
         kind: TrackKind,
         name: String,
+        /// Identity to create the track under. `None` mints a fresh id, which
+        /// is right for a new edit but wrong for a replay: undo/redo must
+        /// address the same track, or the second undo removes an id that no
+        /// longer exists and the transaction is lost.
+        #[serde(default)]
+        track_id: Option<TrackId>,
     },
     RemoveTrack {
         track_id: TrackId,
@@ -84,6 +90,11 @@ pub enum EditCommand {
     AddVideoFilter {
         clip_id: ClipId,
         filter: VideoEffect,
+        /// Insert position for undo/redo of a removal. `None` appends, which is
+        /// what a fresh edit wants; replaying a removal must restore the
+        /// original slot or the filter stack order changes.
+        #[serde(default)]
+        index: Option<usize>,
     },
     UpdateVideoFilter {
         clip_id: ClipId,
@@ -107,6 +118,9 @@ pub enum EditCommand {
     AddAudioFilter {
         clip_id: ClipId,
         filter: AudioFilter,
+        /// See [`EditCommand::AddVideoFilter::index`].
+        #[serde(default)]
+        index: Option<usize>,
     },
     RemoveAudioFilter {
         clip_id: ClipId,
@@ -171,6 +185,9 @@ pub enum EditCommand {
     AddMask {
         clip_id: ClipId,
         mask: MaskEffect,
+        /// See [`EditCommand::AddVideoFilter::index`].
+        #[serde(default)]
+        index: Option<usize>,
     },
     UpdateMask {
         clip_id: ClipId,

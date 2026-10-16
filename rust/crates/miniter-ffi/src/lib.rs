@@ -327,6 +327,16 @@ mod native_ffi {
         pub pts_us: i64,
     }
 
+    #[derive(uniffi::Record)]
+    pub struct ProxyStatus {
+        pub ready: bool,
+        pub path: String,
+        pub width: u32,
+        pub height: u32,
+        pub bytes: u64,
+        pub frames: u32,
+    }
+
     #[uniffi::export]
     pub fn probe_audio(path: String) -> Result<String, MiniterError> {
         let meta = miniter_audio::probe::probe_audio(std::path::Path::new(&path)).map_err(|e| {
@@ -409,13 +419,98 @@ mod native_ffi {
     }
 
     #[uniffi::export]
+    pub fn cancel_proxy_generation() {
+        miniter_media_native::proxy::cancel_generation();
+    }
+
+    #[uniffi::export]
+    pub fn set_proxy_cache_root(path: String) -> Result<(), MiniterError> {
+        miniter_media_native::proxy::set_cache_root(std::path::PathBuf::from(path)).map_err(|e| {
+            MiniterError::Media {
+                detail: e.to_string(),
+            }
+        })
+    }
+
+    #[uniffi::export]
+    pub fn ensure_proxy(
+        path: String,
+        hardware_acceleration: bool,
+    ) -> Result<ProxyStatus, MiniterError> {
+        use miniter_media_native::proxy::{self, ProxyOptions};
+
+        let source = std::path::Path::new(&path);
+
+        let not_ready = || ProxyStatus {
+            ready: false,
+            path: String::new(),
+            width: 0,
+            height: 0,
+            bytes: 0,
+            frames: 0,
+        };
+
+        // A usable proxy already on disk short-circuits before the probe, which
+        // would otherwise re-read the container on every preview load.
+        let Some(cached) = proxy::cache_path_for(source) else {
+            return Ok(not_ready());
+        };
+
+        if proxy::is_proxy_fresh(source, &cached) {
+            return Ok(ProxyStatus {
+                ready: true,
+                path: cached.to_string_lossy().into_owned(),
+                width: 0,
+                height: 0,
+                bytes: std::fs::metadata(&cached).map(|m| m.len()).unwrap_or(0),
+                frames: 0,
+            });
+        }
+
+        // Sources already at or below the proxy limit gain nothing, and
+        // attempting one would fail on the even-dimension check. Report
+        // "no proxy" rather than raising, so callers can treat this as a
+        // normal outcome and carry on with the original.
+        let warrants_proxy = miniter_media_native::probe::probe_media(source)
+            .ok()
+            .and_then(|info| info.video_streams.first().cloned())
+            .and_then(|v| {
+                proxy::proxy_target_size(v.width, v.height, ProxyOptions::default().max_dimension)
+            })
+            .is_some();
+
+        if !warrants_proxy {
+            return Ok(not_ready());
+        }
+
+        let stats = proxy::generate_proxy(
+            source,
+            &cached,
+            &ProxyOptions::default(),
+            hardware_acceleration,
+        )
+        .map_err(|e| MiniterError::Media {
+            detail: e.to_string(),
+        })?;
+
+        Ok(ProxyStatus {
+            ready: true,
+            path: cached.to_string_lossy().into_owned(),
+            width: stats.width,
+            height: stats.height,
+            bytes: stats.bytes,
+            frames: stats.frames,
+        })
+    }
+
+    #[uniffi::export]
     pub fn extract_thumbnail(
         path: String,
         target_us: i64,
         hardware_acceleration: bool,
     ) -> Result<FrameData, MiniterError> {
         let frame = miniter_media_native::thumbnailer::extract_thumbnail(
-            std::path::Path::new(&path),
+            &miniter_media_native::proxy::playback_source_for(std::path::Path::new(&path)),
             target_us,
             hardware_acceleration,
         )
@@ -436,7 +531,7 @@ mod native_ffi {
         duration_us: i64,
         hardware_acceleration: bool,
     ) -> Result<Vec<FrameData>, MiniterError> {
-        let frames = miniter_media_native::thumbnailer::extract_thumbnails(
+        let frames = miniter_media_native::proxy::decode_thumbnails_for_playback(
             std::path::Path::new(&path),
             count as usize,
             duration_us,
@@ -486,6 +581,10 @@ mod native_ffi {
                 )),
             },
             Err(miniter_media_native::export::ExportError::Cancelled) => {
+                // The muxer was dropped without a finalise call, so whatever is
+                // at the output path is a truncated file with no index. Leaving
+                // it there looks to the user like a successful export.
+                let _ = std::fs::remove_file(&output_path);
                 Err(MiniterError::Cancelled)
             }
             Err(e) => Err(MiniterError::from_export_error(&e)),

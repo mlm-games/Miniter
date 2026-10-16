@@ -237,7 +237,10 @@ fn node_for_clip(
     subtitle_mode: SubtitleMode,
     _timeline: &Timeline,
 ) -> Option<RenderNode> {
-    if clip.muted {
+    // `muted` silences a clip's audio. Returning early here dropped a muted
+    // *video* clip from the picture too, leaving a hole in the render. Only
+    // clips with no visual content are skipped.
+    if clip.muted && !matches!(clip.kind, ClipKind::Video(_)) {
         return None;
     }
 
@@ -336,38 +339,48 @@ fn node_for_clip(
                     && let Some(next) = find_next_clip(track, clip)
                     && let ClipKind::Video(nv) = &next.kind
                 {
+                    // Without this the fade samples the following clip at
+                    // timestamps that fall in a gap between the two, or past
+                    // its own end, reading frames the source does not have.
+                    const ADJACENCY_EPSILON_US: i64 = 2_000;
+                    let adjacent =
+                        (clip.timeline_end().as_micros() - next.timeline_start.as_micros()).abs()
+                            <= ADJACENCY_EPSILON_US;
                     let fade_start = Timestamp::from_micros(fade_start_us);
                     let offset = (t - fade_start).as_micros();
                     let next_t = Timestamp::from_micros(next.timeline_start.as_micros() + offset);
-
-                    let next_pts = Timestamp::from_micros(
-                        next.source_start.as_micros()
-                            + scale_us_round(
-                                (next_t - next.timeline_start).as_micros(),
-                                next.speed,
-                            ),
-                    );
-                    let next_opacity = clip_opacity_at(next, next_t - next.timeline_start);
-                    let next_filters = active_filters(&nv.filters);
-                    let next_pts = if is_reversed(&next_filters) {
-                        mirror_source_pts(next, next_pts)
-                    } else {
-                        next_pts
-                    };
-                    let next_node = RenderNode::VideoFrame {
-                        clip_id: next.id,
-                        source_path: nv.source_path.clone(),
-                        source_pts: next_pts,
-                        filters: next_filters,
-                        opacity: next_opacity,
-                        blend_mode: next.blend_mode,
-                    };
-                    return Some(RenderNode::TransitionBlend {
-                        bottom: Box::new(base_node),
-                        top: Box::new(next_node),
-                        kind: trans.kind,
-                        progress: out_progress,
-                    });
+                    // `continue` is unavailable here, so the guard folds into
+                    // the branch condition instead.
+                    if adjacent && next_t < next.timeline_end() {
+                        let next_pts = Timestamp::from_micros(
+                            next.source_start.as_micros()
+                                + scale_us_round(
+                                    (next_t - next.timeline_start).as_micros(),
+                                    next.speed,
+                                ),
+                        );
+                        let next_opacity = clip_opacity_at(next, next_t - next.timeline_start);
+                        let next_filters = active_filters(&nv.filters);
+                        let next_pts = if is_reversed(&next_filters) {
+                            mirror_source_pts(next, next_pts)
+                        } else {
+                            next_pts
+                        };
+                        let next_node = RenderNode::VideoFrame {
+                            clip_id: next.id,
+                            source_path: nv.source_path.clone(),
+                            source_pts: next_pts,
+                            filters: next_filters,
+                            opacity: next_opacity,
+                            blend_mode: next.blend_mode,
+                        };
+                        return Some(RenderNode::TransitionBlend {
+                            bottom: Box::new(base_node),
+                            top: Box::new(next_node),
+                            kind: trans.kind,
+                            progress: out_progress,
+                        });
+                    }
                 }
             }
             Some(base_node)
@@ -602,5 +615,139 @@ mod reverse_plan_tests {
         let clip = &timeline.tracks[0].clips[0];
         let pts = mirror_source_pts(clip, Timestamp::from_micros(99_000_000));
         assert!(pts.as_micros() >= 1_000_000);
+    }
+}
+
+#[cfg(test)]
+mod transition_and_mute_tests {
+    use super::*;
+    use miniter_domain::clip::{Clip, ClipId, ClipKind, VideoClip};
+    use miniter_domain::export::SubtitleMode;
+    use miniter_domain::time::MediaDuration;
+    use miniter_domain::track::{Track, TrackKind};
+    use miniter_domain::transition::{Transition, TransitionKind};
+    use uuid::Uuid;
+
+    fn video_clip(start_us: i64, dur_us: i64, out: Option<Transition>, muted: bool) -> Clip {
+        Clip {
+            id: ClipId(Uuid::new_v4()),
+            timeline_start: Timestamp::from_micros(start_us),
+            timeline_duration: MediaDuration::from_micros(dur_us),
+            source_start: MediaDuration::ZERO,
+            source_end: MediaDuration::from_micros(dur_us),
+            source_total_duration: MediaDuration::from_micros(dur_us),
+            speed: 1.0,
+            volume: 1.0,
+            opacity: 1.0,
+            muted,
+            transition_in: None,
+            transition_out: out,
+            kind: ClipKind::Video(VideoClip {
+                source_path: "/tmp/a.mp4".into(),
+                width: 1920,
+                height: 1080,
+                fps: 30.0,
+                filters: vec![],
+                audio_filters: vec![],
+                masks: vec![],
+            }),
+            keyframes: Default::default(),
+            blend_mode: Default::default(),
+        }
+    }
+
+    fn timeline_of(clips: Vec<Clip>) -> Timeline {
+        let mut track = Track::new(TrackKind::Video, "V1");
+        for c in clips {
+            track.insert_clip(c).unwrap();
+        }
+        Timeline {
+            tracks: vec![track],
+        }
+    }
+
+    fn fade() -> Transition {
+        Transition {
+            kind: TransitionKind::Dissolve,
+            duration: MediaDuration::from_micros(500_000),
+        }
+    }
+
+    /// A transition-out must not sample the following clip across a gap: doing
+    /// so produced a timeline position outside that clip and a source position
+    /// past its end, reading frames the media file does not contain.
+    #[test]
+    fn transition_out_across_a_gap_does_not_sample_the_next_clip() {
+        let mut first = video_clip(0, 2_000_000, Some(fade()), false);
+        let second_start = 5_000_000;
+        let timeline = timeline_of(vec![
+            first.clone(),
+            video_clip(second_start, 2_000_000, None, false),
+        ]);
+        first.id = ClipId(Uuid::new_v4());
+
+        // Inside the fade window of the first clip.
+        let plan = plan_frame(
+            &timeline,
+            Timestamp::from_micros(1_900_000),
+            1920,
+            1080,
+            SubtitleMode::Soft,
+        );
+
+        match plan.root {
+            RenderNode::TransitionBlend { top, .. } => {
+                if let RenderNode::VideoFrame { source_pts, .. } = *top {
+                    let clip_end = MediaDuration::from_micros(2_000_000);
+                    assert!(
+                        source_pts.as_micros() <= clip_end.as_micros(),
+                        "transition must not read past the source end, got {}",
+                        source_pts.as_micros()
+                    );
+                }
+                panic!("a gap must not produce a blend");
+            }
+            _ => {}
+        }
+    }
+
+    /// With the clips adjacent the transition must still work, otherwise the
+    /// guard above would silently disable every transition.
+    #[test]
+    fn transition_out_between_adjacent_clips_still_blends() {
+        let timeline = timeline_of(vec![
+            video_clip(0, 2_000_000, Some(fade()), false),
+            video_clip(2_000_000, 2_000_000, None, false),
+        ]);
+
+        let plan = plan_frame(
+            &timeline,
+            Timestamp::from_micros(1_900_000),
+            1920,
+            1080,
+            SubtitleMode::Soft,
+        );
+        assert!(
+            matches!(plan.root, RenderNode::TransitionBlend { .. }),
+            "adjacent clips must still blend"
+        );
+    }
+
+    /// `muted` means silence, not invisibility. Skipping muted clips wholesale
+    /// left a hole in the render for any muted video clip.
+    #[test]
+    fn muted_video_clip_still_renders_its_picture() {
+        let timeline = timeline_of(vec![video_clip(0, 2_000_000, None, true)]);
+        let plan = plan_frame(
+            &timeline,
+            Timestamp::from_micros(500_000),
+            1920,
+            1080,
+            SubtitleMode::Soft,
+        );
+        assert!(
+            matches!(plan.root, RenderNode::VideoFrame { .. }),
+            "a muted video clip must still contribute its image"
+        );
     }
 }

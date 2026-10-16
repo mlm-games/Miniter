@@ -158,6 +158,10 @@ impl History {
                         })
             });
         if merge {
+            // Folding a new edit into the last undo step invalidates anything
+            // that was undone: the merged step is no longer the state those
+            // transactions were branched from.
+            self.redo.clear();
             let prev = self.undo.last_mut().expect("merge requires a prior entry");
             prev.forward.extend(t.forward);
         } else {
@@ -188,6 +192,17 @@ impl History {
 
     pub fn pop_undo(&mut self) -> Option<Transaction> {
         self.undo.pop()
+    }
+
+    /// Put an undo transaction back after its inverse failed part way, so the
+    /// step stays reachable instead of vanishing from both stacks.
+    pub fn restore_undo(&mut self, txn: Transaction) {
+        self.undo.push(txn);
+    }
+
+    /// Put a redo transaction back after its forward failed part way.
+    pub fn restore_redo(&mut self, txn: Transaction) {
+        self.redo.push(txn);
     }
 
     pub fn push_redo(&mut self, txn: Transaction) {

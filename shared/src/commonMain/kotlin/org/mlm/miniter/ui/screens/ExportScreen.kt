@@ -111,6 +111,7 @@ import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.engine.ExportProgress
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.isActive
+import org.mlm.miniter.engine.isTerminal
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.getHardwareDecoderStatus
 import org.mlm.miniter.platform.getSupportedHwCodecs
@@ -261,6 +262,12 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val isExportingUpdated by rememberUpdatedState(isExporting)
     DisposableEffect(Unit) {
         onDispose { if (!isExportingUpdated) vm.resetExport() }
+    }
+
+    // An export can finish or be cancelled elsewhere while the confirm sheet is
+    // up, leaving "Cancel Export" offered for a job that is already over.
+    LaunchedEffect(progress.isComplete, progress.isCancelled, progress.error) {
+        if (progress.isTerminal()) showCancelConfirm = false
     }
 
     LaunchedEffect(draft.widthText, draft.heightText, draft.fpsText, isExporting) {

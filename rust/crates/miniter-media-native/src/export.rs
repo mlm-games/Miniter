@@ -1526,14 +1526,16 @@ where
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
 
-    let (audio_track, audio_encoded) =
-        if container == Av1Container::Mp4 || container == Av1Container::Mkv {
+    // WebM was excluded from the audio path, so an AV1/WebM export came out
+    // silent even when the project had audio. Opus in WebM is standard, so it
+    // goes through the same mixer as MP4 and MKV.
+    let (audio_track, audio_encoded) = match container {
+        Av1Container::Ivf => (None, None),
+        Av1Container::Mp4 | Av1Container::Mkv | Av1Container::WebM => {
             let (audio_track, audio_encoded) = mix_and_encode_opus(project)?;
-
             (audio_track, audio_encoded)
-        } else {
-            (None, None)
-        };
+        }
+    };
 
     let matrix = sniff_source_matrix(project);
 

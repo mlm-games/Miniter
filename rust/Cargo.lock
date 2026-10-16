@@ -81,9 +81,9 @@ dependencies = [
 
 [[package]]
 name = "anodecs"
-version = "0.1.6"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8f23a55e6008925b22de06578df8d9ed568a1f9036ed322b2e8bb1dbae62a0a"
+checksum = "c8b4a94a197682343e504a160d4a94a43966461498e3576ebfb8128a6cb729ae"
 dependencies = [
  "android_logger",
  "jni",
@@ -2111,6 +2111,7 @@ dependencies = [
  "log",
  "miniter-domain",
  "serde",
+ "serde_json",
  "thiserror",
  "uuid",
  "web-time",

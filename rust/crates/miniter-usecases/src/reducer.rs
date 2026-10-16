@@ -28,8 +28,15 @@ impl EditorState {
 
 pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, ApplyError> {
     match cmd {
-        EditCommand::AddTrack { kind, name } => {
-            let track = Track::new(kind, &name);
+        EditCommand::AddTrack {
+            kind,
+            name,
+            track_id,
+        } => {
+            let mut track = Track::new(kind, &name);
+            if let Some(id) = track_id {
+                track.id = id;
+            }
             let id = track.id;
             state.project.timeline.add_track(track);
             Ok(EditCommand::RemoveTrack { track_id: id })
@@ -109,6 +116,9 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                     clip_id: cid,
                 });
             }
+            if track.locked {
+                return Err(ApplyError::TrackLocked(track_id));
+            }
             track.insert_clip(clip).map_err(ApplyError::Overlap)?;
             Ok(EditCommand::RemoveClip { clip_id: cid })
         }
@@ -120,6 +130,9 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                 .track_of_clip_mut(clip_id)
                 .ok_or(ApplyError::ClipNotFound(clip_id))?;
             let tid = track.id;
+            if track.locked {
+                return Err(ApplyError::TrackLocked(tid));
+            }
             let clip = track
                 .remove_clip(clip_id)
                 .ok_or(ApplyError::ClipNotFound(clip_id))?;
@@ -218,7 +231,10 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
         EditCommand::SetClipVolume { clip_id, volume } => {
             let clip = find_clip_mut(state, clip_id)?;
             let old = clip.volume;
-            clip.volume = volume;
+            // Gain cannot be negative. The mixer treats a non-positive gain as
+            // "do not mix", so a negative value loaded from a hand-edited
+            // project silently dropped the clip and could empty the whole mix.
+            clip.volume = volume.max(0.0);
             Ok(EditCommand::SetClipVolume {
                 clip_id,
                 volume: old,
@@ -258,10 +274,15 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
 
-        EditCommand::AddVideoFilter { clip_id, filter } => {
+        EditCommand::AddVideoFilter {
+            clip_id,
+            filter,
+            index,
+        } => {
             let clip = find_clip_mut(state, clip_id)?;
             match &mut clip.kind {
                 ClipKind::Video(v) => {
+                    let filter_pos = index.unwrap_or(v.filters.len()).min(v.filters.len());
                     if let Some(key) = VideoEffect::singleton_key(&filter.filter)
                         && let Some(idx) = v
                             .filters
@@ -275,8 +296,8 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                             filter: old,
                         });
                     }
-                    v.filters.push(filter);
-                    let idx = v.filters.len() - 1;
+                    v.filters.insert(filter_pos, filter);
+                    let idx = filter_pos;
                     Ok(EditCommand::RemoveVideoFilter {
                         clip_id,
                         index: idx,
@@ -319,21 +340,26 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                     Ok(EditCommand::AddVideoFilter {
                         clip_id,
                         filter: removed,
+                        index: Some(index),
                     })
                 }
                 _ => Err(ApplyError::WrongClipKind(clip_id)),
             }
         }
 
-        EditCommand::AddMask { clip_id, mask } => {
+        EditCommand::AddMask {
+            clip_id,
+            mask,
+            index,
+        } => {
             let clip = find_clip_mut(state, clip_id)?;
             match &mut clip.kind {
                 ClipKind::Video(v) => {
-                    v.masks.push(mask);
-                    let idx = v.masks.len() - 1;
+                    let mask_pos = index.unwrap_or(v.masks.len()).min(v.masks.len());
+                    v.masks.insert(mask_pos, mask);
                     Ok(EditCommand::RemoveMask {
                         clip_id,
-                        index: idx,
+                        index: mask_pos,
                     })
                 }
                 _ => Err(ApplyError::WrongClipKind(clip_id)),
@@ -373,6 +399,7 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                     Ok(EditCommand::AddMask {
                         clip_id,
                         mask: removed,
+                        index: Some(index),
                     })
                 }
                 _ => Err(ApplyError::WrongClipKind(clip_id)),
@@ -447,23 +474,29 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             }
         }
 
-        EditCommand::AddAudioFilter { clip_id, filter } => {
+        EditCommand::AddAudioFilter {
+            clip_id,
+            filter,
+            index,
+        } => {
             let clip = find_clip_mut(state, clip_id)?;
             match &mut clip.kind {
                 ClipKind::Video(v) => {
-                    v.audio_filters.push(filter);
-                    let idx = v.audio_filters.len() - 1;
+                    let pos = index
+                        .unwrap_or(v.audio_filters.len())
+                        .min(v.audio_filters.len());
+                    v.audio_filters.insert(pos, filter);
                     Ok(EditCommand::RemoveAudioFilter {
                         clip_id,
-                        index: idx,
+                        index: pos,
                     })
                 }
                 ClipKind::Audio(a) => {
-                    a.filters.push(filter);
-                    let idx = a.filters.len() - 1;
+                    let pos = index.unwrap_or(a.filters.len()).min(a.filters.len());
+                    a.filters.insert(pos, filter);
                     Ok(EditCommand::RemoveAudioFilter {
                         clip_id,
-                        index: idx,
+                        index: pos,
                     })
                 }
                 _ => Err(ApplyError::WrongClipKind(clip_id)),
@@ -481,6 +514,7 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                     Ok(EditCommand::AddAudioFilter {
                         clip_id,
                         filter: removed,
+                        index: Some(index),
                     })
                 }
                 ClipKind::Audio(a) => {
@@ -491,6 +525,7 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                     Ok(EditCommand::AddAudioFilter {
                         clip_id,
                         filter: removed,
+                        index: Some(index),
                     })
                 }
                 _ => Err(ApplyError::WrongClipKind(clip_id)),
@@ -594,10 +629,27 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
 
         EditCommand::AddKeyframe { clip_id, keyframe } => {
             let clip = find_clip_mut(state, clip_id)?;
+            // `insert_sorted` overwrites an existing keyframe at the same
+            // (param, offset) instead of duplicating it. If one was replaced,
+            // undo has to write the old value back rather than delete the slot,
+            // so the inverse is an Update rather than a Remove.
+            let replaced = clip
+                .keyframes
+                .keyframes
+                .iter()
+                .position(|k| k.param == keyframe.param && k.offset == keyframe.offset)
+                .map(|i| clip.keyframes.keyframes[i].clone());
             let idx = clip.keyframes.insert_sorted(keyframe);
-            Ok(EditCommand::RemoveKeyframe {
-                clip_id,
-                index: idx,
+            Ok(match replaced {
+                Some(previous) => EditCommand::UpdateKeyframe {
+                    clip_id,
+                    index: idx,
+                    keyframe: previous,
+                },
+                None => EditCommand::RemoveKeyframe {
+                    clip_id,
+                    index: idx,
+                },
             })
         }
 
@@ -622,11 +674,21 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             if index >= clip.keyframes.keyframes.len() {
                 return Err(ApplyError::IndexOutOfBounds);
             }
-            let old = std::mem::replace(&mut clip.keyframes.keyframes[index], keyframe);
+            let old = std::mem::replace(&mut clip.keyframes.keyframes[index], keyframe.clone());
             clip.keyframes.sort_by_offset();
+            // The curve is kept in offset order, so changing a keyframe's
+            // offset can move it. Re-locate the edited entry *after* the sort:
+            // returning the pre-sort index would make the inverse overwrite
+            // whichever keyframe slid into that slot.
+            let restored = clip
+                .keyframes
+                .keyframes
+                .iter()
+                .position(|k| k.param == keyframe.param && k.offset == keyframe.offset)
+                .unwrap_or(index);
             Ok(EditCommand::UpdateKeyframe {
                 clip_id,
-                index,
+                index: restored,
                 keyframe: old,
             })
         }
@@ -1217,10 +1279,42 @@ pub fn dispatch_labeled(
     cmd: EditCommand,
 ) -> Result<(), ApplyError> {
     state.history.begin(label);
-    let inverse = apply(state, cmd.clone())?;
-    state.history.record(cmd, inverse);
+    // A failed apply must still close the transaction it opened. Leaving it
+    // open makes `transaction_open()` report true forever, which makes the UI
+    // route later edits into `dispatch_open` and silently drop them from the
+    // undo history.
+    let inverse = match apply(state, cmd.clone()) {
+        Ok(inverse) => inverse,
+        Err(e) => {
+            state.history.commit();
+            return Err(e);
+        }
+    };
+    state
+        .history
+        .record(stabilise(state, cmd, &inverse), inverse);
     state.history.commit();
     Ok(())
+}
+
+/// Rewrite a command into its replay-stable form before it is recorded.
+///
+/// `AddTrack` mints a track id when applied. Recording the caller's original
+/// command would leave redo creating a *different* track than the inverse
+/// refers to, so the next undo would target a missing id and drop the
+/// transaction out of both stacks. Recording the concrete id fixes that.
+fn stabilise(state: &EditorState, cmd: EditCommand, inverse: &EditCommand) -> EditCommand {
+    match (&cmd, inverse) {
+        (EditCommand::AddTrack { kind, name, .. }, EditCommand::RemoveTrack { track_id }) => {
+            let _ = state;
+            EditCommand::AddTrack {
+                kind: *kind,
+                name: name.clone(),
+                track_id: Some(*track_id),
+            }
+        }
+        _ => cmd,
+    }
 }
 
 /// Open an explicit gesture transaction; groups subsequent [`dispatch_open`]
@@ -1253,8 +1347,18 @@ pub fn cancel_edit(state: &mut EditorState) -> Result<(), ApplyError> {
 
 pub fn undo(state: &mut EditorState) -> Result<(), ApplyError> {
     if let Some(txn) = state.history.pop_undo() {
-        for inv in txn.inverse().iter().rev() {
-            apply(state, inv.clone())?;
+        // On failure the transaction must go back on the undo stack. Dropping
+        // it (the `?` used to bail after `pop_undo`) strands it in neither
+        // stack while its earlier inverses are already applied, which loses the
+        // user's edit permanently.
+        if let Err(e) = txn
+            .inverse()
+            .iter()
+            .rev()
+            .try_for_each(|inv| apply(state, inv.clone()).map(|_| ()))
+        {
+            state.history.restore_undo(txn);
+            return Err(e);
         }
         state.history.push_redo(txn);
     }
@@ -1263,8 +1367,13 @@ pub fn undo(state: &mut EditorState) -> Result<(), ApplyError> {
 
 pub fn redo(state: &mut EditorState) -> Result<(), ApplyError> {
     if let Some(txn) = state.history.pop_redo() {
-        for fwd in txn.forward().iter() {
-            apply(state, fwd.clone())?;
+        if let Err(e) = txn
+            .forward()
+            .iter()
+            .try_for_each(|fwd| apply(state, fwd.clone()).map(|_| ()))
+        {
+            state.history.restore_redo(txn);
+            return Err(e);
         }
         state.history.push_undo(txn);
     }
@@ -1276,6 +1385,7 @@ mod tests {
     use super::*;
     use miniter_domain::clip::{ClipKind, VideoClip};
     use miniter_domain::filter::VideoEffect;
+    use miniter_domain::mask::{MaskEffect, MaskShape};
     use miniter_domain::project::Project;
     use miniter_domain::track::{Track, TrackKind};
     use miniter_domain::{AudioFilter, VideoFilter};
@@ -1841,6 +1951,7 @@ mod tests {
                         right: 0.9,
                         bottom: 0.9,
                     }),
+                    index: None,
                 },
             )
             .unwrap();
@@ -1860,6 +1971,7 @@ mod tests {
             EditCommand::AddVideoFilter {
                 clip_id,
                 filter: VideoEffect::new(VideoFilter::Speed { factor: 2.0 }),
+                index: None,
             },
         )
         .unwrap();
@@ -1868,6 +1980,7 @@ mod tests {
             EditCommand::AddVideoFilter {
                 clip_id,
                 filter: VideoEffect::new(VideoFilter::Reverse),
+                index: None,
             },
         )
         .unwrap();
@@ -1876,6 +1989,7 @@ mod tests {
             EditCommand::AddVideoFilter {
                 clip_id,
                 filter: VideoEffect::new(VideoFilter::Speed { factor: 0.5 }),
+                index: None,
             },
         )
         .unwrap();
@@ -1948,5 +2062,505 @@ mod tests {
                 .volume,
             0.5
         );
+    }
+    // Undo/redo correctness regressions. Each test reproduced a real defect where a
+    // single undo silently destroyed unrelated user data.
+
+    fn empty_state() -> EditorState {
+        EditorState::new(Project::new("t"))
+    }
+
+    fn rect(right: f32) -> MaskEffect {
+        MaskEffect::shape(MaskShape::Rectangle {
+            left: 0.0,
+            top: 0.0,
+            right,
+            bottom: 1.0,
+        })
+    }
+
+    fn state_with_masks(masks: Vec<MaskEffect>) -> (EditorState, ClipId) {
+        let mut state = empty_state();
+        let mut track = Track::new(TrackKind::Video, "V1");
+        let mut clip = video_clip(0, 10_000_000);
+        if let ClipKind::Video(v) = &mut clip.kind {
+            v.masks = masks;
+        }
+        let clip_id = clip.id;
+        track.insert_clip(clip).unwrap();
+        state.project.timeline.tracks = vec![track];
+        (state, clip_id)
+    }
+
+    fn mask_widths(state: &EditorState, clip_id: ClipId) -> Vec<f32> {
+        let clip = state.project.timeline.tracks[0]
+            .clip_by_id(clip_id)
+            .expect("clip present");
+        let ClipKind::Video(v) = &clip.kind else {
+            panic!("expected a video clip")
+        };
+        v.masks
+            .iter()
+            .map(|m| match &m.source {
+                miniter_domain::mask::MaskSource::Shape {
+                    shape: MaskShape::Rectangle { right, .. },
+                    ..
+                } => *right,
+                _ => 0.0,
+            })
+            .collect()
+    }
+
+    /// Undo then redo must restore the *same* track. Before the fix, redo
+    /// minted a fresh id while the recorded inverse still pointed at the old
+    /// one, so the second undo failed with TrackNotFound and dropped the
+    /// transaction out of both stacks.
+    #[test]
+    fn add_track_survives_undo_redo_undo() {
+        let mut state = empty_state();
+        // A new project already seeds default tracks, so compare against a
+        // baseline rather than assuming an empty timeline.
+        let baseline = state.project.timeline.tracks.len();
+        dispatch(
+            &mut state,
+            EditCommand::AddTrack {
+                kind: TrackKind::Video,
+                name: "V1".into(),
+                track_id: None,
+            },
+        )
+        .unwrap();
+        let added = state
+            .project
+            .timeline
+            .tracks
+            .iter()
+            .find(|t| t.name == "V1")
+            .expect("added track")
+            .id;
+        assert_eq!(state.project.timeline.tracks.len(), baseline + 1);
+
+        undo(&mut state).expect("first undo");
+        assert_eq!(state.project.timeline.tracks.len(), baseline);
+
+        redo(&mut state).expect("redo");
+        assert_eq!(state.project.timeline.tracks.len(), baseline + 1);
+        assert!(
+            state.project.timeline.tracks.iter().any(|t| t.id == added),
+            "redo must restore the original track id"
+        );
+
+        undo(&mut state).expect("second undo");
+        assert_eq!(state.project.timeline.tracks.len(), baseline);
+        assert!(
+            !state.project.timeline.tracks.iter().any(|t| t.id == added),
+            "no leftover track"
+        );
+    }
+
+    /// Undo of a mid-stack removal must re-insert at the original index.
+    /// Appending reordered the composite stack, and the following redo then
+    /// deleted whichever mask had slid into that slot.
+    #[test]
+    fn removing_a_middle_mask_undo_redo_preserves_order() {
+        let (mut state, clip_id) = state_with_masks(vec![rect(0.3), rect(0.6), rect(0.9)]);
+
+        dispatch(&mut state, EditCommand::RemoveMask { clip_id, index: 1 }).unwrap();
+        assert_eq!(mask_widths(&state, clip_id), vec![0.3, 0.9]);
+
+        undo(&mut state).expect("undo");
+        assert_eq!(
+            mask_widths(&state, clip_id),
+            vec![0.3, 0.6, 0.9],
+            "undo must restore the mask at its original index, not append it"
+        );
+
+        redo(&mut state).expect("redo");
+        assert_eq!(
+            mask_widths(&state, clip_id),
+            vec![0.3, 0.9],
+            "redo must remove the same mask the user removed"
+        );
+    }
+
+    /// Deleting a video filter from the middle of the stack had the same
+    /// reordering defect as masks.
+    #[test]
+    fn removing_a_middle_video_filter_undo_redo_preserves_order() {
+        let (mut state, clip_id) = state_with_masks(vec![]);
+        let brightness = VideoEffect::new(VideoFilter::Brightness { value: 0.1 });
+        let contrast = VideoEffect::new(VideoFilter::Contrast { value: 0.2 });
+        for f in [brightness, contrast] {
+            dispatch(
+                &mut state,
+                EditCommand::AddVideoFilter {
+                    clip_id,
+                    filter: f,
+                    index: None,
+                },
+            )
+            .unwrap();
+        }
+        let count = |state: &EditorState| {
+            let clip = state.project.timeline.tracks[0]
+                .clip_by_id(clip_id)
+                .unwrap();
+            let ClipKind::Video(v) = &clip.kind else {
+                panic!()
+            };
+            v.filters.len()
+        };
+        assert_eq!(count(&state), 2);
+
+        dispatch(
+            &mut state,
+            EditCommand::RemoveVideoFilter { clip_id, index: 0 },
+        )
+        .unwrap();
+        assert_eq!(count(&state), 1);
+
+        undo(&mut state).expect("undo");
+        assert_eq!(count(&state), 2, "undo must bring the filter back");
+
+        redo(&mut state).expect("redo");
+        assert_eq!(count(&state), 1);
+
+        // And the surviving filter must be the one that was never deleted.
+        let clip = state.project.timeline.tracks[0]
+            .clip_by_id(clip_id)
+            .unwrap();
+        let ClipKind::Video(v) = &clip.kind else {
+            panic!()
+        };
+        assert!(
+            matches!(v.filters[0].filter, VideoFilter::Contrast { .. }),
+            "redo must not delete the untouched filter"
+        );
+    }
+
+    /// Moving a keyframe's offset re-sorts the curve, so recording the
+    /// pre-sort index made the undo overwrite a different keyframe.
+    #[test]
+    fn updating_keyframe_offset_undo_targets_the_right_entry() {
+        let kf = |us: i64| miniter_domain::Keyframe {
+            param: "volume".into(),
+            offset: MediaDuration::from_micros(us),
+            value: 1.0,
+            easing: miniter_domain::keyframe::Easing::Linear,
+        };
+        let (mut state, clip_id) = state_with_masks(vec![]);
+        {
+            let track = &mut state.project.timeline.tracks[0];
+            let clip = track.clip_by_id(clip_id).unwrap().clone();
+            let mut clip = clip;
+            clip.keyframes.keyframes = vec![kf(1_000_000), kf(5_000_000)];
+            let idx = track.clips.iter().position(|c| c.id == clip_id).unwrap();
+            track.clips[idx] = clip;
+        }
+
+        dispatch(
+            &mut state,
+            EditCommand::UpdateKeyframe {
+                clip_id,
+                index: 1,
+                keyframe: kf(500_000),
+            },
+        )
+        .unwrap();
+
+        undo(&mut state).expect("undo");
+
+        let clip = state.project.timeline.tracks[0]
+            .clip_by_id(clip_id)
+            .unwrap();
+        let offsets: Vec<i64> = clip
+            .keyframes
+            .keyframes
+            .iter()
+            .map(|k| k.offset.as_micros())
+            .collect();
+        assert_eq!(
+            offsets,
+            vec![1_000_000, 5_000_000],
+            "undo must restore both keyframes, not overwrite the neighbour"
+        );
+    }
+
+    /// Adding a keyframe over an existing (param, offset) overwrites it, so the
+    /// inverse must write the old value back instead of deleting the slot.
+    #[test]
+    fn adding_over_an_existing_keyframe_undo_restores_the_value() {
+        let kf = |us: i64, v: f32| miniter_domain::Keyframe {
+            param: "volume".into(),
+            offset: MediaDuration::from_micros(us),
+            value: v,
+            easing: miniter_domain::keyframe::Easing::Linear,
+        };
+        let (mut state, clip_id) = state_with_masks(vec![]);
+        {
+            let track = &mut state.project.timeline.tracks[0];
+            let mut clip = track.clip_by_id(clip_id).unwrap().clone();
+            clip.keyframes.keyframes = vec![kf(1_000_000, 0.2)];
+            let idx = track.clips.iter().position(|c| c.id == clip_id).unwrap();
+            track.clips[idx] = clip;
+        }
+        let values = |state: &EditorState| {
+            let clip = state.project.timeline.tracks[0]
+                .clip_by_id(clip_id)
+                .unwrap();
+            clip.keyframes
+                .keyframes
+                .iter()
+                .map(|k| k.value)
+                .collect::<Vec<_>>()
+        };
+
+        dispatch(
+            &mut state,
+            EditCommand::AddKeyframe {
+                clip_id,
+                keyframe: kf(1_000_000, 0.9),
+            },
+        )
+        .unwrap();
+        assert_eq!(values(&state), vec![0.9]);
+
+        undo(&mut state).expect("undo");
+        assert_eq!(
+            values(&state),
+            vec![0.2],
+            "undo must restore the overwritten value, not delete the keyframe"
+        );
+    }
+
+    /// Gain cannot be negative, and a non-positive gain makes the mixer skip
+    /// the clip entirely rather than silence it. A project carrying a negative
+    /// volume (hand-edited JSON) therefore lost whole clips from the mix and
+    /// could produce a completely silent export with no error.
+    #[test]
+    fn negative_clip_volume_is_clamped_to_silence_not_dropped() {
+        let (mut state, clip_id) = state_with_masks(vec![]);
+        dispatch(
+            &mut state,
+            EditCommand::SetClipVolume {
+                clip_id,
+                volume: -1.0,
+            },
+        )
+        .unwrap();
+
+        let clip = state.project.timeline.tracks[0]
+            .clip_by_id(clip_id)
+            .unwrap();
+        assert!(
+            clip.volume >= 0.0,
+            "volume must never be negative, got {}",
+            clip.volume
+        );
+        assert!(
+            state.project.timeline.tracks[0]
+                .clip_by_id(clip_id)
+                .is_some(),
+            "the clip must still exist"
+        );
+    }
+
+    /// A locked track must refuse clip insertion and deletion. `AddClip` and
+    /// `RemoveClip` bypassed the lock check that trim/move/split go through, so
+    /// deleting a clip on a locked track succeeded while every other edit on
+    /// that track was correctly rejected.
+    #[test]
+    fn locked_track_refuses_clip_add_and_remove() {
+        let (mut state, clip_id) = state_with_masks(vec![]);
+        let track_id = state.project.timeline.tracks[0].id;
+        dispatch(
+            &mut state,
+            EditCommand::SetTrackLocked {
+                track_id,
+                locked: true,
+            },
+        )
+        .unwrap();
+
+        let err = dispatch(&mut state, EditCommand::RemoveClip { clip_id });
+        assert!(
+            matches!(err, Err(ApplyError::TrackLocked(_))),
+            "removing a clip from a locked track must be rejected, got {err:?}"
+        );
+
+        let spare = video_clip(20_000_000, 1_000_000);
+        let spare_id = spare.id;
+        let err = dispatch(
+            &mut state,
+            EditCommand::AddClip {
+                track_id,
+                clip: spare,
+            },
+        );
+        assert!(
+            matches!(err, Err(ApplyError::TrackLocked(_))),
+            "adding a clip to a locked track must be rejected, got {err:?}"
+        );
+
+        assert!(
+            state.project.timeline.tracks[0]
+                .clip_by_id(spare_id)
+                .is_none(),
+            "the rejected clip must not have been inserted"
+        );
+    }
+
+    /// A failed edit used to leave its history transaction open forever, which
+    /// made the UI route every later coalesced edit into an open transaction
+    /// that nothing ever committed, so those edits could not be undone.
+    #[test]
+    fn failed_dispatch_does_not_leave_a_transaction_open() {
+        let (mut state, clip_id) = state_with_masks(vec![]);
+        let missing = ClipId(Uuid::new_v4());
+        assert!(
+            dispatch(
+                &mut state,
+                EditCommand::RemoveKeyframe {
+                    clip_id: missing,
+                    index: 0,
+                },
+            )
+            .is_err()
+        );
+        assert!(
+            !state.history.transaction_open(),
+            "a failed dispatch must close the transaction it opened"
+        );
+
+        dispatch(
+            &mut state,
+            EditCommand::AddAudioFilter {
+                clip_id,
+                filter: AudioFilter::Volume { value: 0.5 },
+                index: None,
+            },
+        )
+        .unwrap();
+
+        undo(&mut state).expect("the later edit must be undoable");
+        assert!(
+            !state.history.can_undo(),
+            "exactly the one step should have been consumed"
+        );
+    }
+
+    /// Merging a new same-label edit into the previous undo step must discard
+    /// the redo stack; otherwise a stale redo re-applies a transaction that was
+    /// branched from a state the merge has since invalidated.
+    #[test]
+    fn merged_edit_clears_the_redo_stack() {
+        let mut state = empty_state();
+        for name in ["V1", "V2"] {
+            dispatch_labeled(
+                &mut state,
+                "Trim",
+                EditCommand::AddTrack {
+                    kind: TrackKind::Video,
+                    name: name.into(),
+                    track_id: None,
+                },
+            )
+            .unwrap();
+        }
+
+        undo(&mut state).expect("undo");
+        assert!(state.history.can_redo());
+
+        // A further same-label edit whose boundary coalesces folds into the
+        // previous step and must invalidate the redo stack.
+        dispatch_labeled(
+            &mut state,
+            "Trim",
+            EditCommand::AddTrack {
+                kind: TrackKind::Audio,
+                name: "A1".into(),
+                track_id: None,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            !state.history.can_redo(),
+            "a new edit must invalidate redo, including via the merge path"
+        );
+    }
+}
+
+#[cfg(test)]
+mod serde_compat_tests {
+    use super::*;
+    use miniter_domain::clip::ClipId;
+    use uuid::Uuid;
+
+    /// The Kotlin command builders never emit `index`; it only appears on
+    /// inverses the reducer generates itself. Every add coming from the UI must
+    /// therefore still deserialize.
+    fn without_index(json: &str) -> String {
+        json.replace(r#","index":null"#, "")
+    }
+
+    #[test]
+    fn add_commands_omit_index_and_still_parse() {
+        let clip_id = ClipId(Uuid::new_v4());
+        for cmd in [
+            EditCommand::AddVideoFilter {
+                clip_id,
+                filter: VideoEffect::new(miniter_domain::filter::VideoFilter::Brightness {
+                    value: 0.1,
+                }),
+                index: None,
+            },
+            EditCommand::AddMask {
+                clip_id,
+                mask: miniter_domain::mask::MaskEffect::shape(
+                    miniter_domain::mask::MaskShape::Ellipse {
+                        center_x: 0.5,
+                        center_y: 0.5,
+                        radius_x: 0.5,
+                        radius_y: 0.5,
+                    },
+                ),
+                index: None,
+            },
+            EditCommand::AddAudioFilter {
+                clip_id,
+                filter: miniter_domain::filter::AudioFilter::Volume { value: 1.0 },
+                index: None,
+            },
+        ] {
+            let json = serde_json::to_string(&cmd).expect("serialize");
+            let stripped = without_index(&json);
+            assert!(
+                !stripped.contains(r#""index""#),
+                "index should be absent in {stripped}"
+            );
+            serde_json::from_str::<EditCommand>(&stripped)
+                .unwrap_or_else(|e| panic!("{stripped} failed to parse: {e}"));
+        }
+    }
+
+    #[test]
+    fn positional_inverse_round_trips() {
+        let clip_id = ClipId(Uuid::new_v4());
+        let json = serde_json::to_string(&EditCommand::AddMask {
+            clip_id,
+            mask: miniter_domain::mask::MaskEffect::shape(
+                miniter_domain::mask::MaskShape::Ellipse {
+                    center_x: 0.5,
+                    center_y: 0.5,
+                    radius_x: 0.5,
+                    radius_y: 0.5,
+                },
+            ),
+            index: Some(3),
+        })
+        .expect("serialize");
+        assert!(json.contains(r#""index":3"#), "{json}");
+        serde_json::from_str::<EditCommand>(&json).expect("parse");
     }
 }
