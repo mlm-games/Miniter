@@ -144,6 +144,9 @@ private data class HwCapabilityInfo(
 @Composable
 fun ExportScreen(backStack: NavBackStack<NavKey>) {
     val vm: ProjectViewModel = koinInject()
+    LaunchedEffect(Unit) {
+        vm.reconcileExportProgress()
+    }
     val uiState by vm.state.collectAsState()
     val snapshot = uiState.snapshot
     val progress by vm.exportProgress.collectAsState()

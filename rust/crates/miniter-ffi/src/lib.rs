@@ -72,14 +72,12 @@ impl EditorStateHandle {
 
     fn undo(&self) -> Result<bool, String> {
         let mut state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
-        reducer::undo(&mut state).map_err(|e| e.to_string())?;
-        Ok(state.history.can_undo())
+        reducer::undo(&mut state).map_err(|e| e.to_string())
     }
 
     fn redo(&self) -> Result<bool, String> {
         let mut state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
-        reducer::redo(&mut state).map_err(|e| e.to_string())?;
-        Ok(state.history.can_redo())
+        reducer::redo(&mut state).map_err(|e| e.to_string())
     }
 
     fn can_undo(&self) -> bool {

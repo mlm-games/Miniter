@@ -1414,7 +1414,10 @@ pub fn cancel_edit(state: &mut EditorState) -> Result<(), ApplyError> {
     Ok(())
 }
 
-pub fn undo(state: &mut EditorState) -> Result<(), ApplyError> {
+/// Returns whether a step was applied. Callers use this to know if the
+/// snapshot changed at all; depth alone cannot say (applying the last step
+/// leaves both stacks' depths unchanged in the flag the FFI used to report).
+pub fn undo(state: &mut EditorState) -> Result<bool, ApplyError> {
     if let Some(txn) = state.history.pop_undo() {
         // On failure the transaction must go back on the undo stack. Dropping
         // it (the `?` used to bail after `pop_undo`) strands it in neither
@@ -1430,11 +1433,12 @@ pub fn undo(state: &mut EditorState) -> Result<(), ApplyError> {
             return Err(e);
         }
         state.history.push_redo(txn);
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
-pub fn redo(state: &mut EditorState) -> Result<(), ApplyError> {
+pub fn redo(state: &mut EditorState) -> Result<bool, ApplyError> {
     if let Some(txn) = state.history.pop_redo() {
         if let Err(e) = txn
             .forward()
@@ -1445,8 +1449,9 @@ pub fn redo(state: &mut EditorState) -> Result<(), ApplyError> {
             return Err(e);
         }
         state.history.push_undo(txn);
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -1584,6 +1589,81 @@ mod tests {
         );
         assert_eq!(clips[1].source_start, MediaDuration::from_micros(4_000_000));
         assert_eq!(clips[1].source_end, MediaDuration::from_micros(10_000_000));
+    }
+
+    /// `undo`/`redo` must report that they moved whenever they applied a step.
+    /// The FFI used to answer `can_undo()`/`can_redo()` instead, which is false
+    /// after the last step, so the UI was never told to refresh and kept a
+    /// stale snapshot whose clip ids later failed with "Clip not found".
+    #[test]
+    fn undo_and_redo_report_whether_they_moved() {
+        let mut track = Track::new(TrackKind::Video, "Video 1");
+        let clip = video_clip(0, 2_000_000);
+        let id = clip.id;
+        track.insert_clip(clip).unwrap();
+        let mut state = state_with_tracks(vec![track]);
+
+        assert!(!undo(&mut state).unwrap(), "nothing to undo yet");
+        assert!(!redo(&mut state).unwrap(), "nothing to redo yet");
+
+        dispatch(
+            &mut state,
+            EditCommand::SetClipVolume {
+                clip_id: id,
+                volume: 0.5,
+            },
+        )
+        .unwrap();
+
+        assert!(undo(&mut state).unwrap(), "the only undo must report moved");
+        assert!(!undo(&mut state).unwrap(), "stack is empty now");
+        assert!(redo(&mut state).unwrap(), "the only redo must report moved");
+        assert!(!redo(&mut state).unwrap(), "stack is empty now");
+    }
+
+    #[test]
+    fn join_undo_then_join_again() {
+        let mut track = Track::new(TrackKind::Video, "Video 1");
+        let clip = video_clip(0, 10_000_000);
+        let clip_id = clip.id;
+        let tail_id = ClipId(Uuid::new_v4());
+        track.insert_clip(clip).unwrap();
+        let mut state = state_with_tracks(vec![track]);
+        dispatch(
+            &mut state,
+            EditCommand::SplitClip {
+                clip_id,
+                at: Timestamp::from_micros(4_000_000),
+                new_clip_id: tail_id,
+            },
+        )
+        .unwrap();
+        dispatch(
+            &mut state,
+            EditCommand::JoinClips {
+                left_id: clip_id,
+                right_id: tail_id,
+            },
+        )
+        .unwrap();
+        undo(&mut state).unwrap();
+        assert_eq!(state.project.timeline.tracks[0].clips.len(), 2);
+        let ids: Vec<_> = state.project.timeline.tracks[0]
+            .clips
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, vec![clip_id, tail_id], "undo must restore the same ids");
+
+        dispatch(
+            &mut state,
+            EditCommand::JoinClips {
+                left_id: clip_id,
+                right_id: tail_id,
+            },
+        )
+        .unwrap();
+        assert_eq!(state.project.timeline.tracks[0].clips.len(), 1);
     }
 
     #[test]

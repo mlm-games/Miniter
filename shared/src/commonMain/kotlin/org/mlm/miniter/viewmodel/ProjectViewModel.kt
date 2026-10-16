@@ -58,6 +58,7 @@ import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.overlapsRange
 import org.mlm.miniter.engine.ImageData
+import org.mlm.miniter.engine.isActive
 import org.mlm.miniter.engine.PlatformVideoEngine
 import org.mlm.miniter.engine.ScrubProxy
 import org.mlm.miniter.engine.VideoInfo
@@ -1322,6 +1323,12 @@ class ProjectViewModel(
                 val projectJson = rustStore.exportProjectJson()
                 engine.exportProjectJson(projectJson, outputPath)
             } catch (e: CancellationException) {
+                // The cancel can land before the renderer ever runs (during the
+                // probe or the notePreparing bookkeeping). The engine's own
+                // completion path never executes then, so land the state here.
+                try {
+                    engine.markCancelled()
+                } catch (_: Exception) { /* best effort progress reset */ }
                 throw e
             } catch (e: Exception) {
                 try {
@@ -1335,6 +1342,20 @@ class ProjectViewModel(
     fun cancelExport() {
         engine.cancelExport()
         exportJob?.cancel()
+    }
+
+    /**
+     * Self-heal a progress state that no job will ever advance: a cancel that
+     * raced the export job can park the engine on "Cancelling…" with the
+     * renderer never having started.
+     */
+    fun reconcileExportProgress() {
+        if (exportJob?.isActive == true) return
+        val current = engine.exportProgress.value
+        if (!current.isActive()) return
+        try {
+            engine.reset()
+        } catch (_: Exception) { /* best effort progress reset */ }
     }
 
     fun resetExport() {

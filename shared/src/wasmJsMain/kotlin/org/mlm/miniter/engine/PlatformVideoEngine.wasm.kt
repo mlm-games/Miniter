@@ -209,6 +209,14 @@ actual class PlatformVideoEngine actual constructor() {
         )
     }
 
+    actual fun markCancelled() {
+        exportCancelled = true
+        _exportProgress.value = ExportProgress(
+            phase = "Export cancelled",
+            isCancelled = true,
+        )
+    }
+
     actual fun reset() {
         // `exportCancelled` is deliberately left alone: a cancelled export may
         // still be unwinding, and clearing the flag here would let it report

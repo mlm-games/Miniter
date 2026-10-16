@@ -31,6 +31,14 @@ expect class PlatformVideoEngine() {
 
     fun cancelExport()
 
+    /**
+     * Land the progress in the terminal cancelled state. Called when the job
+     * driving the export is cancelled before the renderer takes over, which is
+     * the one path where nothing else would ever write that state and the UI
+     * would sit on "Cancelling…" forever.
+     */
+    fun markCancelled()
+
     fun reset()
 
     /** Enter an owned Preparing state before any suspension; ignored while a job is active. */
