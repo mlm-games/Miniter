@@ -1,3 +1,13 @@
+## v0.9.7
+
+- fix undo redo sync and export cancel state
+- prune stale staged exports
+- masks in preview, proxy-fed scrub seek fix
+- crop mask text touch edit, ruler scrub
+- join clips, mixer pan channel freeze, wasm drain
+- preview zoom reset and text drag
+
+
 ## v0.9.6
 
 - fix proxy export undo render bugs

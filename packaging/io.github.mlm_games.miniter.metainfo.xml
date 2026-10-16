@@ -23,6 +23,18 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.9.7" date="2026-10-16" type="stable">
+      <description>
+        <ul>
+          <li>fix undo redo sync and export cancel state</li>
+          <li>prune stale staged exports</li>
+          <li>masks in preview, proxy-fed scrub seek fix</li>
+          <li>crop mask text touch edit, ruler scrub</li>
+          <li>join clips, mixer pan channel freeze, wasm drain</li>
+          <li>preview zoom reset and text drag</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.6" date="2026-10-16" type="stable">
       <description>
         <ul>
