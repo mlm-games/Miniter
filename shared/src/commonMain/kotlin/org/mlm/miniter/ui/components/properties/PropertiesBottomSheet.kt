@@ -11,6 +11,7 @@ import org.mlm.miniter.project.KenBurnsPreset
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
+import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustMaskEffect
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
@@ -25,6 +26,7 @@ fun PropertiesBottomSheet(
     onDismiss: () -> Unit,
     onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
+    onApplyFilterToAll: (String, Int) -> Unit = { _, _ -> },
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
     onMoveFilter: (String, Int, Int) -> Unit,
@@ -32,6 +34,7 @@ fun PropertiesBottomSheet(
     onSetVolume: (String, Float) -> Unit,
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
+    onApplyTransitionToAll: (RustTransitionKind, Long) -> Unit = { _, _ -> },
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
     onSetOpacity: (String, Float) -> Unit,
@@ -70,6 +73,7 @@ fun PropertiesBottomSheet(
                 playheadMs = playheadMs,
                 onAddFilter = onAddFilter,
                 onRemoveFilter = onRemoveFilter,
+                onApplyFilterToAll = onApplyFilterToAll,
                 onUpdateFilterParams = onUpdateFilterParams,
                 onToggleFilterEnabled = onToggleFilterEnabled,
                 onMoveFilter = onMoveFilter,
@@ -77,6 +81,7 @@ fun PropertiesBottomSheet(
                 onSetVolume = onSetVolume,
                 onSetTransitionIn = onSetTransitionIn,
                 onSetTransitionOut = onSetTransitionOut,
+                onApplyTransitionToAll = onApplyTransitionToAll,
                 onUpdateText = onUpdateText,
                 onUpdateTextStyle = onUpdateTextStyle,
                 onSetOpacity = onSetOpacity,

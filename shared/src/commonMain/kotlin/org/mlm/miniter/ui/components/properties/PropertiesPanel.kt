@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
@@ -54,6 +55,7 @@ import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
+import org.mlm.miniter.editor.model.RustDuckingAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeInAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrayscaleFilterSnapshot
@@ -80,8 +82,14 @@ import org.mlm.miniter.editor.model.RustRectangleMaskShape
 import org.mlm.miniter.editor.model.RustShapeMaskSource
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.editor.model.RustVignetteFilterSnapshot
+import org.mlm.miniter.editor.model.RustPosterizeFilterSnapshot
+import org.mlm.miniter.editor.model.RustDuotoneFilterSnapshot
+import org.mlm.miniter.editor.model.RustGrainFilterSnapshot
 import org.mlm.miniter.project.KenBurnsPreset
 import org.mlm.miniter.project.kenBurnsPresets
+import org.mlm.miniter.project.randomKenBurnsPreset
+import org.mlm.miniter.project.speedPresets
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.MASK_PARAM_DEFS
 import org.mlm.miniter.project.defaultOf
@@ -94,6 +102,7 @@ fun PropertiesPanel(
     playheadMs: Long = 0L,
     onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
+    onApplyFilterToAll: (String, Int) -> Unit = { _, _ -> },
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onReplaceFilter: (String, Int, RustVideoFilterSnapshot) -> Unit = { _, _, _ -> },
     onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
@@ -102,6 +111,7 @@ fun PropertiesPanel(
     onSetVolume: (String, Float) -> Unit,
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
+    onApplyTransitionToAll: (RustTransitionKind, Long) -> Unit = { _, _ -> },
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
@@ -161,6 +171,7 @@ fun PropertiesPanel(
                 playheadMs = playheadMs,
                 onAddFilter = onAddFilter,
                 onRemoveFilter = onRemoveFilter,
+                onApplyFilterToAll = onApplyFilterToAll,
                 onUpdateFilterParams = onUpdateFilterParams,
                 onReplaceFilter = onReplaceFilter,
                 onToggleFilterEnabled = onToggleFilterEnabled,
@@ -169,6 +180,7 @@ fun PropertiesPanel(
                 onSetVolume = onSetVolume,
                 onSetTransitionIn = onSetTransitionIn,
                 onSetTransitionOut = onSetTransitionOut,
+                onApplyTransitionToAll = onApplyTransitionToAll,
                 onSetOpacity = onSetOpacity,
                 onSetBlendMode = onSetBlendMode,
                 onApplyKenBurns = onApplyKenBurns,
@@ -228,6 +240,7 @@ private fun VideoClipProperties(
     playheadMs: Long = 0L,
     onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
+    onApplyFilterToAll: (String, Int) -> Unit = { _, _ -> },
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
     onReplaceFilter: (String, Int, RustVideoFilterSnapshot) -> Unit = { _, _, _ -> },
     onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
@@ -236,6 +249,7 @@ private fun VideoClipProperties(
     onSetVolume: (String, Float) -> Unit,
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
+    onApplyTransitionToAll: (RustTransitionKind, Long) -> Unit = { _, _ -> },
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
@@ -308,6 +322,17 @@ private fun VideoClipProperties(
         steps = 14,
     )
     Text("${formatFixed(speedValue, 2)}x", style = MaterialTheme.typography.labelSmall)
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        speedPresets.forEach { (factor, label) ->
+            AssistChip(
+                onClick = { onSetSpeed(clip.id, factor) },
+                label = { Text(label) },
+            )
+        }
+    }
 
     Spacer(Modifier.height(16.dp))
 
@@ -376,6 +401,10 @@ private fun VideoClipProperties(
                 label = { Text(preset.label) },
             )
         }
+        AssistChip(
+            onClick = { onApplyKenBurns(clip.id, randomKenBurnsPreset()) },
+            label = { Text("Random") },
+        )
     }
 
     Spacer(Modifier.height(16.dp))
@@ -396,6 +425,13 @@ private fun VideoClipProperties(
                     label = { Text(effect.displayName()) },
                 )
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = { onApplyFilterToAll(clip.id, index) }) {
+                    Icon(
+                        Icons.Default.DoneAll,
+                        contentDescription = "Apply to all clips",
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
                 IconButton(
                     onClick = { onMoveFilter(clip.id, index, index - 1) },
                     enabled = index > 0,
@@ -540,6 +576,29 @@ private fun VideoClipProperties(
     }
 
     clipFilters.forEachIndexed { index, effect ->
+        val duotone = effect.filter as? RustDuotoneFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            duotonePresets.forEach { preset ->
+                FilterChip(
+                    selected = duotone.dark.equals(preset.dark, ignoreCase = true) &&
+                        duotone.light.equals(preset.light, ignoreCase = true),
+                    onClick = {
+                        onReplaceFilter(
+                            clip.id, index,
+                            duotone.copy(dark = preset.dark, light = preset.light),
+                        )
+                    },
+                    label = { Text(preset.label) },
+                )
+            }
+        }
+    }
+
+    clipFilters.forEachIndexed { index, effect ->
         val blur = effect.filter as? RustBlurFilterSnapshot ?: return@forEachIndexed
         Spacer(Modifier.height(8.dp))
         Row(
@@ -678,6 +737,11 @@ private fun VideoClipProperties(
         inDescription = "Controls how this clip enters. Adds a fade effect to the start of this clip and the end of the previous clip.",
         outDescription = "Controls how this clip exits. Adds a fade effect to the end of this clip and the start of the next clip.",
     )
+    clip.transitionIn?.let { transition ->
+        TextButton(onClick = { onApplyTransitionToAll(transition.kind, transition.duration) }) {
+            Text("Apply to all cuts")
+        }
+    }
 }
 
 @Composable
@@ -765,6 +829,13 @@ private fun AudioClipProperties(
                 text = { Text("Reverb") },
                 onClick = {
                     onAddAudioFilter(clip.id, RustReverbAudioFilterSnapshot())
+                    audioFilterExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Ducking") },
+                onClick = {
+                    onAddAudioFilter(clip.id, RustDuckingAudioFilterSnapshot())
                     audioFilterExpanded = false
                 },
             )
@@ -900,6 +971,42 @@ private fun AudioClipProperties(
                         }
                     }
                 }
+            }
+            is RustDuckingAudioFilterSnapshot -> {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Ducking", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.common_remove), modifier = Modifier.size(16.dp))
+                    }
+                }
+                Text("Lowers by ${(filter.amount * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                var duckAmount by remember(filter) { mutableFloatStateOf(filter.amount) }
+                Slider(
+                    value = duckAmount,
+                    onValueChange = { duckAmount = it },
+                    onValueChangeFinished = {
+                        onReplaceAudioFilter(clip.id, index, filter.copy(amount = duckAmount))
+                    },
+                    valueRange = 0f..1f,
+                )
+                Text("Release ${filter.releaseMs}ms", style = MaterialTheme.typography.labelSmall)
+                var duckRelease by remember(filter) { mutableFloatStateOf(filter.releaseMs / 1000f) }
+                Slider(
+                    value = duckRelease,
+                    onValueChange = { duckRelease = it },
+                    onValueChangeFinished = {
+                        onReplaceAudioFilter(
+                            clip.id, index,
+                            filter.copy(releaseMs = (duckRelease * 1000f).toLong()),
+                        )
+                    },
+                    valueRange = 0.05f..2f,
+                    steps = 38,
+                )
             }
             else -> { }
         }
@@ -1150,6 +1257,10 @@ private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
     RustColorGradeFilterSnapshot(),
     RustChromaKeyFilterSnapshot(),
     RustMosaicFilterSnapshot(),
+    RustVignetteFilterSnapshot(),
+    RustPosterizeFilterSnapshot(),
+    RustGrainFilterSnapshot(),
+    RustDuotoneFilterSnapshot("FF1A1A3E", "FFF2C14E"),
     RustGrayscaleFilterSnapshot,
     RustBlurFilterSnapshot(5f),
     RustSharpenFilterSnapshot(1f),

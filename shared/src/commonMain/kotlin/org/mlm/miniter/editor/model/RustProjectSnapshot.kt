@@ -367,6 +367,34 @@ enum class RustMosaicKind {
 }
 
 @Serializable
+@SerialName("Vignette")
+data class RustVignetteFilterSnapshot(
+    val amount: Float = 0.5f,
+    val radius: Float = 0.6f,
+    val softness: Float = 0.4f,
+) : RustVideoFilterSnapshot
+
+@Serializable
+@SerialName("Posterize")
+data class RustPosterizeFilterSnapshot(
+    val levels: Float = 8f,
+) : RustVideoFilterSnapshot
+
+@Serializable
+@SerialName("Duotone")
+data class RustDuotoneFilterSnapshot(
+    val dark: String = "FF1A1A3E",
+    val light: String = "FFF2C14E",
+) : RustVideoFilterSnapshot
+
+@Serializable
+@SerialName("Grain")
+data class RustGrainFilterSnapshot(
+    val amount: Float = 0.15f,
+    val size: Float = 2f,
+) : RustVideoFilterSnapshot
+
+@Serializable
 @SerialName("Blur")
 data class RustBlurFilterSnapshot(
     val radius: Float,
@@ -598,6 +626,15 @@ data class RustEqualizerAudioFilterSnapshot(
 @SerialName("Reverb")
 data class RustReverbAudioFilterSnapshot(
     val preset: RustReverbPreset = RustReverbPreset.Studio,
+) : RustAudioFilterSnapshot
+
+@Serializable
+@SerialName("Ducking")
+data class RustDuckingAudioFilterSnapshot(
+    @SerialName("amount")
+    val amount: Float = 0.6f,
+    @SerialName("release_ms")
+    val releaseMs: Long = 400L,
 ) : RustAudioFilterSnapshot
 
 @Serializable

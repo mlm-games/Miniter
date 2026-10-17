@@ -51,6 +51,9 @@ import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
 import org.mlm.miniter.editor.model.RustLutFilterSnapshot
 import org.mlm.miniter.editor.model.RustMosaicFilterSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
+import org.mlm.miniter.editor.model.RustVignetteFilterSnapshot
+import org.mlm.miniter.editor.model.RustPosterizeFilterSnapshot
+import org.mlm.miniter.editor.model.RustGrainFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustSubtitleClipKind
@@ -755,7 +758,7 @@ class ProjectViewModel(
         setPlaying(!_state.value.isPlaying)
     }
 
-    fun seekTo(ms: Long) = setPlayhead(ms)
+    fun seekTo(ms: Long) = setPlayhead(computeSnapPosition(ms, includePlayhead = false))
 
     fun seekRelative(deltaMs: Long) {
         val current = _state.value.playheadMs
@@ -1937,6 +1940,18 @@ class ProjectViewModel(
             is RustLutFilterSnapshot -> filter.copy(
                 strength = newParams["strength"] ?: filter.strength,
             )
+            is RustVignetteFilterSnapshot -> filter.copy(
+                amount = newParams["amount"] ?: filter.amount,
+                radius = newParams["radius"] ?: filter.radius,
+                softness = newParams["softness"] ?: filter.softness,
+            )
+            is RustPosterizeFilterSnapshot -> filter.copy(
+                levels = newParams["levels"] ?: filter.levels,
+            )
+            is RustGrainFilterSnapshot -> filter.copy(
+                amount = newParams["amount"] ?: filter.amount,
+                size = newParams["size"] ?: filter.size,
+            )
             is RustBlurFilterSnapshot -> filter.copy(
                 radius = newParams["radius"] ?: filter.radius,
                 angle = newParams["angle"] ?: filter.angle,
@@ -2022,6 +2037,60 @@ class ProjectViewModel(
         )
     }
 
+    fun applyFilterToAllClips(sourceClipId: String, filterIndex: Int) {
+        val snapshot = rustStore.snapshot.value ?: return
+        val clips = snapshot.timeline.tracks.flatMap { it.clips }
+        val source = clips.firstOrNull { it.id == sourceClipId } ?: return
+        val kind = source.kind as? RustVideoClipKind ?: return
+        val effect = kind.filters.getOrNull(filterIndex) ?: return
+        val targets = clips.filter { it.id != sourceClipId && it.kind is RustVideoClipKind }
+        if (targets.isEmpty()) return
+
+        beginContinuousEdit("Apply filter to all")
+        try {
+            for (clip in targets) {
+                dispatchCoalescing(
+                    rustStore.commands.addVideoFilter(clip.id, effect),
+                    "Apply filter to all",
+                )
+            }
+        } finally {
+            commitContinuousEdit()
+        }
+    }
+
+    fun applyTransitionToAllCuts(kind: RustTransitionKind, durationUs: Long) {
+        val snapshot = rustStore.snapshot.value ?: return
+        val targets = mutableListOf<String>()
+        for (track in snapshot.timeline.tracks) {
+            val clips = track.clips
+            for (i in 0 until clips.size - 1) {
+                val current = clips[i]
+                val next = clips[i + 1]
+                if (next.kind !is RustVideoClipKind) continue
+                val gap = next.timelineStartUs - (current.timelineStartUs + current.timelineDurationUs)
+                if (gap > 2_000L) continue
+                targets += next.id
+            }
+        }
+        if (targets.isEmpty()) return
+
+        beginContinuousEdit("Apply transition to all")
+        try {
+            for (clipId in targets) {
+                dispatchCoalescing(
+                    rustStore.commands.setTransitionIn(
+                        clipId,
+                        RustTransitionSnapshot(kind, durationUs),
+                    ),
+                    "Apply transition to all",
+                )
+            }
+        } finally {
+            commitContinuousEdit()
+        }
+    }
+
     fun removeFilter(clipId: String, filterIndex: Int) {
         dispatchAndSync(rustStore.commands.removeVideoFilter(clipId, filterIndex))
     }
@@ -2095,7 +2164,11 @@ class ProjectViewModel(
         return nearest
     }
 
-    private fun computeSnapPosition(ms: Long, excludeClipId: String? = null): Long {
+    private fun computeSnapPosition(
+        ms: Long,
+        excludeClipId: String? = null,
+        includePlayhead: Boolean = true,
+    ): Long {
         val snapThresholdMs = (SNAP_THRESHOLD_BASE / _state.value.zoomLevel).toLong().coerceAtLeast(50)
         val snapshot = rustStore.snapshot.value ?: return ms
         val playhead = _state.value.playheadMs
@@ -2103,10 +2176,14 @@ class ProjectViewModel(
         var nearest = ms
         var minDist = snapThresholdMs
 
-        val dph = kotlin.math.abs(ms - playhead)
-        if (dph < minDist) {
-            nearest = playhead
-            minDist = dph
+        // Scrubbing must not snap to where the playhead already is, or it
+        // sticks to its own previous position.
+        if (includePlayhead) {
+            val dph = kotlin.math.abs(ms - playhead)
+            if (dph < minDist) {
+                nearest = playhead
+                minDist = dph
+            }
         }
 
         for (beatMs in beatMarkersMs.value) {

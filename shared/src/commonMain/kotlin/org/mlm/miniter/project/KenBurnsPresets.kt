@@ -18,6 +18,8 @@ val kenBurnsPresets: List<KenBurnsPreset> = listOf(
     KenBurnsPreset("Pan Left", 1.2f, 1.2f, 0.08f, -0.08f),
 )
 
+fun randomKenBurnsPreset(): KenBurnsPreset = kenBurnsPresets.random()
+
 fun KenBurnsPreset.keyframesFor(durationUs: Long): List<RustKeyframe> {
     val frames = mutableListOf<RustKeyframe>()
 

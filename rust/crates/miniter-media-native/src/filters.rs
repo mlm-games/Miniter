@@ -522,6 +522,119 @@ pub fn mosaic_triangle(buf: &mut [u8], width: usize, height: usize, size: f32) {
     });
 }
 
+fn linear_multiply(value: u8, factor: f32) -> u8 {
+    let srgb = Srgba::new(value as f32 / 255.0, 0.0, 0.0, 1.0);
+    let linear: LinSrgba = srgb.into();
+    let scaled = LinSrgba::new(linear.color.red * factor, 0.0, 0.0, 1.0);
+    let out: Srgba = scaled.into();
+    (out.color.red * 255.0).round().clamp(0.0, 255.0) as u8
+}
+
+pub fn apply_vignette(
+    buf: &mut [u8],
+    width: usize,
+    height: usize,
+    amount: f32,
+    radius: f32,
+    softness: f32,
+) {
+    if width == 0 || height == 0 || buf.len() < width * height * 4 {
+        return;
+    }
+    let amount = amount.clamp(0.0, 1.0);
+    if amount <= 0.0 {
+        return;
+    }
+
+    let cx = (width as f32 / 2.0).max(1.0);
+    let cy = (height as f32 / 2.0).max(1.0);
+    let radius = radius.clamp(0.0, 1.5);
+    let softness = softness.clamp(0.001, 2.0);
+    let inv_diagonal = 1.0 / std::f32::consts::SQRT_2;
+
+    for y in 0..height {
+        for x in 0..width {
+            let dx = (x as f32 + 0.5 - cx) / cx;
+            let dy = (y as f32 + 0.5 - cy) / cy;
+            let distance = (dx * dx + dy * dy).sqrt() * inv_diagonal;
+            let falloff = ((distance - radius) / softness).clamp(0.0, 1.0);
+            if falloff <= 0.0 {
+                continue;
+            }
+            let factor = 1.0 - amount * falloff;
+            let p = (y * width + x) * 4;
+            for c in 0..3 {
+                buf[p + c] = linear_multiply(buf[p + c], factor);
+            }
+        }
+    }
+}
+
+pub fn apply_posterize(buf: &mut [u8], levels: f32) {
+    let steps = levels.round().clamp(2.0, 64.0) - 1.0;
+    if steps <= 0.0 {
+        return;
+    }
+    for px in buf.as_chunks_mut::<4>().0 {
+        for c in 0..3 {
+            let value = px[c] as f32 / 255.0;
+            px[c] = ((value * steps).round() / steps * 255.0)
+                .round()
+                .clamp(0.0, 255.0) as u8;
+        }
+    }
+}
+
+/// Maps the frame's luminance onto a two-colour ramp. Operates on encoded
+/// values, like grayscale and sepia, so the ramp the user picks is the ramp the
+/// frame shows.
+pub fn apply_duotone(buf: &mut [u8], dark: [u8; 3], light: [u8; 3]) {
+    for px in buf.as_chunks_mut::<4>().0 {
+        let luma = (0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32) / 255.0;
+        for c in 0..3 {
+            let from = dark[c] as f32;
+            let to = light[c] as f32;
+            px[c] = (from + (to - from) * luma).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+}
+
+/// Deterministic per-cell luminance noise. A hash rather than an RNG so the
+/// preview, the export and any re-render produce identical grain.
+fn grain_noise(cell_x: i32, cell_y: i32) -> f32 {
+    let mut hash =
+        (cell_x as u32).wrapping_mul(0x9E37_79B1) ^ (cell_y as u32).wrapping_mul(0x85EB_CA77);
+    hash ^= hash >> 15;
+    hash = hash.wrapping_mul(0x2545_F491);
+    hash ^= hash >> 13;
+    (hash & 0x00FF_FFFF) as f32 / 0x00FF_FFFF as f32
+}
+
+pub fn apply_grain(buf: &mut [u8], width: usize, height: usize, amount: f32, size: f32) {
+    let amount = amount.clamp(0.0, 1.0);
+    if amount <= 0.0 || width == 0 || height == 0 || buf.len() < width * height * 4 {
+        return;
+    }
+    let cell = size.clamp(1.0, 64.0);
+    for y in 0..height {
+        for x in 0..width {
+            let noise = grain_noise(
+                (x as f32 / cell).floor() as i32,
+                (y as f32 / cell).floor() as i32,
+            );
+            let offset = (noise - 0.5) * 2.0 * amount * 255.0;
+            let p = (y * width + x) * 4;
+            for c in 0..3 {
+                px_add(&mut buf[p + c], offset);
+            }
+        }
+    }
+}
+
+fn px_add(value: &mut u8, offset: f32) {
+    *value = (*value as f32 + offset).round().clamp(0.0, 255.0) as u8;
+}
+
 pub fn apply_grayscale(buf: &mut [u8]) {
     for px in buf.as_chunks_mut::<4>().0 {
         let gray = (0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32)

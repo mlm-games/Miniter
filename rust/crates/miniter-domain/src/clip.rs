@@ -7,7 +7,6 @@ use crate::transition::Transition;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-const SPEED_RAMP_STEPS: usize = 64;
 const SPEED_RAMP_BOUND_GROWTH_LIMIT: u32 = 40;
 
 fn default_opacity() -> f32 {
@@ -196,27 +195,41 @@ pub fn speed_ramp_source_offset(
     } else {
         1.0
     };
-    let speed_at = |local_us: i64| -> f64 {
+    let sanitise = |value: f32| -> f64 {
+        if value.is_finite() && value >= 0.0 {
+            f64::from(value)
+        } else {
+            fallback
+        }
+    };
+    let rate_at = |time_us: i64| -> f64 {
         keyframes
-            .evaluate(param::SPEED, MediaDuration::from_micros(local_us))
-            .map(|v| {
-                if v.is_finite() && v >= 0.0 {
-                    v as f64
-                } else {
-                    fallback
-                }
-            })
+            .evaluate(param::SPEED, MediaDuration::from_micros(time_us))
+            .map(sanitise)
             .unwrap_or(fallback)
     };
 
-    let dt = total_us as f64 / SPEED_RAMP_STEPS as f64;
+    // The rate is linear between consecutive `speed` keys and constant outside
+    // them, so the trapezoid rule is exact on each segment. Sampling uniformly
+    // instead would straddle the keys and misreport the consumed source.
+    let mut bounds: Vec<i64> = vec![0];
+    for keyframe in &keyframes.keyframes {
+        if keyframe.param != param::SPEED {
+            continue;
+        }
+        let offset = keyframe.offset.as_micros();
+        if offset > 0 && offset < total_us {
+            bounds.push(offset);
+        }
+    }
+    bounds.push(total_us);
+    bounds.sort_unstable();
+    bounds.dedup();
+
     let mut accumulated = 0.0f64;
-    let mut previous = speed_at(0);
-    for step in 1..=SPEED_RAMP_STEPS {
-        let t = (dt * step as f64).round() as i64;
-        let current = speed_at(t);
-        accumulated += (previous + current) * 0.5 * dt;
-        previous = current;
+    for pair in bounds.windows(2) {
+        let span = (pair[1] - pair[0]) as f64;
+        accumulated += (rate_at(pair[0]) + rate_at(pair[1])) * 0.5 * span;
     }
     accumulated.round() as i64
 }

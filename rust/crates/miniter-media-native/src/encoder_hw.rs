@@ -13,7 +13,8 @@ use web_time::Duration;
     any(
         all(target_os = "android", target_arch = "aarch64"),
         target_arch = "wasm32",
-        target_os = "linux"
+        target_os = "linux",
+        target_os = "macos"
     )
 ))]
 mod hw {
@@ -39,6 +40,10 @@ mod hw {
         WasmVideoEncoderInput, WasmVideoEncoderOutput, WebCodecsHost,
     };
 
+    #[cfg(target_os = "macos")]
+    use baabaabaabaabababbababbaa::platform::apple::{
+        AppleVideoEncoderInput, AppleVideoEncoderOutput, VideoToolboxHost,
+    };
     #[cfg(target_os = "linux")]
     use baabaabaabaabababbababbaa::platform::linux::{
         CrosCodecsHost, CrosVideoEncoderInput, CrosVideoEncoderOutput,
@@ -59,6 +64,10 @@ mod hw {
     type PlatformInput = WasmVideoEncoderInput;
     #[cfg(target_arch = "wasm32")]
     type PlatformOutput = WasmVideoEncoderOutput;
+    #[cfg(target_os = "macos")]
+    type PlatformInput = AppleVideoEncoderInput;
+    #[cfg(target_os = "macos")]
+    type PlatformOutput = AppleVideoEncoderOutput;
 
     pub struct HwEncodeSession {
         input: PlatformInput,
@@ -122,6 +131,8 @@ mod hw {
             let host = WebCodecsHost::new();
             #[cfg(target_os = "linux")]
             let host = CrosCodecsHost::new();
+            #[cfg(target_os = "macos")]
+            let host = VideoToolboxHost::new();
 
             let (input, output) = host
                 .create_video_encoder(config)
@@ -426,7 +437,8 @@ mod hw {
     any(
         all(target_os = "android", target_arch = "aarch64"),
         target_arch = "wasm32",
-        target_os = "linux"
+        target_os = "linux",
+        target_os = "macos"
     )
 )))]
 mod hw {

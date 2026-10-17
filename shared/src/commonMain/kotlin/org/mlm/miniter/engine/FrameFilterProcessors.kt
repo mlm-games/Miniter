@@ -47,6 +47,27 @@ object FrameFilterProcessors {
         }
     }
 
+    private inline fun eachPixelInLinearXY(
+        pixels: ByteArray,
+        width: Int,
+        height: Int,
+        body: (Int, Int, FloatArray) -> Unit,
+    ) {
+        val rgb = FloatArray(3)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val b = (y * width + x) * 4
+                for (c in 0 until 3) {
+                    rgb[c] = srgbToLinear(pixels[b + c].toInt().and(0xFF) / 255f)
+                }
+                body(x, y, rgb)
+                for (c in 0 until 3) {
+                    pixels[b + c] = (linearToSrgb(rgb[c]) * 255f).roundToInt().coerceIn(0, 255).toByte()
+                }
+            }
+        }
+    }
+
     suspend fun applyFilters(
         src: ByteArray,
         width: Int,
@@ -107,7 +128,7 @@ object FrameFilterProcessors {
                     }
                 }
                 is RustBlurFilterSnapshot -> {
-                    val radius = filter.radius.coerceIn(1f, 25f)
+                    val radius = filter.radius.coerceAtLeast(1f)
                     pixels = when (filter.kind) {
                         RustBlurKind.Stack, RustBlurKind.Box ->
                             applyBoxBlur(pixels, width, height, radius.toInt())
@@ -243,6 +264,74 @@ object FrameFilterProcessors {
                 }
                 is RustMosaicFilterSnapshot -> {
                     pixels = applyMosaic(pixels, width, height, filter.kind, filter.size)
+                }
+                is RustVignetteFilterSnapshot -> {
+                    val amount = filter.amount.coerceIn(0f, 1f)
+                    if (amount > 0f) {
+                        val cx = (width / 2f).coerceAtLeast(1f)
+                        val cy = (height / 2f).coerceAtLeast(1f)
+                        val radius = filter.radius.coerceIn(0f, 1.5f)
+                        val softness = filter.softness.coerceIn(0.001f, 2f)
+                        val invDiagonal = 1f / sqrt(2f)
+                        eachPixelInLinearXY(pixels, width, height) { x, y, rgb ->
+                            val dx = (x + 0.5f - cx) / cx
+                            val dy = (y + 0.5f - cy) / cy
+                            val distance = sqrt(dx * dx + dy * dy) * invDiagonal
+                            val falloff = ((distance - radius) / softness).coerceIn(0f, 1f)
+                            if (falloff > 0f) {
+                                val factor = 1f - amount * falloff
+                                rgb[0] *= factor
+                                rgb[1] *= factor
+                                rgb[2] *= factor
+                            }
+                        }
+                    }
+                }
+                is RustPosterizeFilterSnapshot -> {
+                    val steps = filter.levels.roundToInt().coerceIn(2, 64) - 1
+                    if (steps > 0) {
+                        for (i in 0 until total) {
+                            val b = i * 4
+                            for (c in 0 until 3) {
+                                val value = pixels[b + c].toInt().and(0xFF) / 255f
+                                pixels[b + c] = ((value * steps).roundToInt().toFloat() / steps * 255f)
+                                    .roundToInt().coerceIn(0, 255).toByte()
+                            }
+                        }
+                    }
+                }
+                is RustDuotoneFilterSnapshot -> {
+                    val dark = parseArgbRgb(filter.dark) ?: intArrayOf(0, 0, 0)
+                    val light = parseArgbRgb(filter.light) ?: intArrayOf(255, 255, 255)
+                    for (i in 0 until total) {
+                        val b = i * 4
+                        val luma = (GRAY_R * pixels[b].toInt().and(0xFF) +
+                            GRAY_G * pixels[b + 1].toInt().and(0xFF) +
+                            GRAY_B * pixels[b + 2].toInt().and(0xFF)) / 255f
+                        for (c in 0 until 3) {
+                            val from = dark[c].toFloat()
+                            pixels[b + c] = (from + (light[c] - from) * luma)
+                                .roundToInt().coerceIn(0, 255).toByte()
+                        }
+                    }
+                }
+                is RustGrainFilterSnapshot -> {
+                    val amount = filter.amount.coerceIn(0f, 1f)
+                    if (amount > 0f) {
+                        val cell = filter.size.coerceIn(1f, 64f)
+                        for (y in 0 until height) {
+                            val cy = (y / cell).toInt()
+                            for (x in 0 until width) {
+                                val noise = grainNoise((x / cell).toInt(), cy)
+                                val offset = (noise - 0.5f) * 2f * amount * 255f
+                                val b = (y * width + x) * 4
+                                for (c in 0 until 3) {
+                                    pixels[b + c] = (pixels[b + c].toInt().and(0xFF) + offset)
+                                        .roundToInt().coerceIn(0, 255).toByte()
+                                }
+                            }
+                        }
+                    }
                 }
                 is RustFlipFilterSnapshot -> {
                     if (filter.horizontal || filter.vertical) {
@@ -567,6 +656,25 @@ object FrameFilterProcessors {
         val kernel = gaussianKernel(radius / 3f)
         val horizontal = weightedPass(src, w, h, kernel, false)
         return weightedPass(horizontal, w, h, kernel, true)
+    }
+
+    private fun parseArgbRgb(hex: String): IntArray? {
+        val s = hex.trim().removePrefix("#")
+        if (s.length != 6 && s.length != 8) return null
+        val packed = s.toLongOrNull(16) ?: return null
+        return intArrayOf(
+            (packed shr 16 and 0xFF).toInt(),
+            (packed shr 8 and 0xFF).toInt(),
+            (packed and 0xFF).toInt(),
+        )
+    }
+
+    private fun grainNoise(cellX: Int, cellY: Int): Float {
+        var hash = cellX * 0x9E3779B1.toInt() xor (cellY * 0x85EBCA77.toInt())
+        hash = hash xor (hash ushr 15)
+        hash *= 0x2545F491
+        hash = hash xor (hash ushr 13)
+        return (hash and 0xFFFFFF).toFloat() / 0xFFFFFF.toFloat()
     }
 
     private fun applyBoxBlur(src: ByteArray, w: Int, h: Int, radius: Int): ByteArray {

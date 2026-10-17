@@ -189,6 +189,30 @@ pub enum VideoFilter {
         #[serde(default = "default_mosaic_size")]
         size: f32,
     },
+    Posterize {
+        #[serde(default = "default_posterize_levels")]
+        levels: f32,
+    },
+    Duotone {
+        #[serde(default = "default_duotone_dark")]
+        dark: String,
+        #[serde(default = "default_duotone_light")]
+        light: String,
+    },
+    Grain {
+        #[serde(default = "default_grain_amount")]
+        amount: f32,
+        #[serde(default = "default_grain_size")]
+        size: f32,
+    },
+    Vignette {
+        #[serde(default = "default_vignette_amount")]
+        amount: f32,
+        #[serde(default = "default_vignette_radius")]
+        radius: f32,
+        #[serde(default = "default_vignette_softness")]
+        softness: f32,
+    },
     Opacity {
         value: f32,
     },
@@ -227,6 +251,38 @@ fn default_chroma_spill() -> f32 {
 
 fn default_mosaic_size() -> f32 {
     16.0
+}
+
+fn default_vignette_amount() -> f32 {
+    0.5
+}
+
+fn default_vignette_radius() -> f32 {
+    0.6
+}
+
+fn default_vignette_softness() -> f32 {
+    0.4
+}
+
+fn default_posterize_levels() -> f32 {
+    8.0
+}
+
+fn default_duotone_dark() -> String {
+    "FF1A1A3E".to_string()
+}
+
+fn default_duotone_light() -> String {
+    "FFF2C14E".to_string()
+}
+
+fn default_grain_amount() -> f32 {
+    0.15
+}
+
+fn default_grain_size() -> f32 {
+    2.0
 }
 
 fn default_lut_strength() -> f32 {
@@ -300,6 +356,22 @@ pub enum AudioFilter {
         #[serde(default)]
         preset: ReverbPreset,
     },
+    /// Lowers this clip's level while anything mixed before it is loud, which
+    /// ducks a music bed under a voiceover on another track.
+    Ducking {
+        #[serde(default = "default_ducking_amount")]
+        amount: f32,
+        #[serde(default = "default_ducking_release_ms")]
+        release_ms: i64,
+    },
+}
+
+fn default_ducking_amount() -> f32 {
+    0.6
+}
+
+fn default_ducking_release_ms() -> i64 {
+    400
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

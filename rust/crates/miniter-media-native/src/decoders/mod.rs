@@ -48,7 +48,9 @@ impl From<crate::demux::DecodeBackendError> for DecodeError {
     any(
         all(target_os = "android", target_arch = "aarch64"),
         target_arch = "wasm32",
-        target_os = "linux"
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows"
     )
 ))]
 pub mod baaba;
@@ -61,6 +63,7 @@ pub mod baaba;
 ))]
 pub mod videoson;
 
+mod hybrid;
 pub mod session;
 
 #[allow(unused_variables)]
@@ -84,7 +87,9 @@ pub fn create_backend(
         any(
             all(target_os = "android", target_arch = "aarch64"),
             target_arch = "wasm32",
-            target_os = "linux"
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
         )
     ))]
     if hardware_acceleration {
@@ -93,7 +98,14 @@ pub fn create_backend(
         match baaba::BaabaBackend::new(width, height, mime, description, hardware_acceleration) {
             Ok(dec) => {
                 if dec.is_supported(fourcc) {
-                    return Ok(Box::new(dec));
+                    // A hardware decoder that fails mid-stream continues in software: the
+                    // software backend is made on demand and the samples since the last
+                    // restart point are replayed through it.
+                    let make_sw = move || create_software_backend(fourcc, width, height);
+                    return Ok(Box::new(hybrid::HybridBackend::new(
+                        Box::new(dec),
+                        Box::new(make_sw),
+                    )));
                 }
                 crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
             }
@@ -104,6 +116,16 @@ pub fn create_backend(
         }
     }
 
+    let hw_suffix = hw_suffix(hw_attempted);
+    create_software_backend(fourcc, width, height).map_err(|e| format!("{e}{hw_suffix}"))
+}
+
+/// The software (pure-Rust) decoder for `fourcc`, or why there is none.
+fn create_software_backend(
+    fourcc: u32,
+    width: u32,
+    height: u32,
+) -> Result<Box<dyn VideoDecoderBackend>, String> {
     // SW decoder fallback (videoson) – tried for every codec with a feature flag.
     if fourcc == H264_FOURCC {
         #[cfg(feature = "videoson")]
@@ -122,8 +144,7 @@ pub fn create_backend(
                 return Ok(Box::new(dec));
             }
         }
-        let hw_suffix = hw_suffix(hw_attempted);
-        return Err(format!("no HEVC decoder available{hw_suffix}"));
+        return Err("no HEVC decoder available".into());
     }
 
     if fourcc == VP8_FOURCC {
@@ -133,8 +154,7 @@ pub fn create_backend(
                 return Ok(Box::new(dec));
             }
         }
-        let hw_suffix = hw_suffix(hw_attempted);
-        return Err(format!("no VP8 decoder available{hw_suffix}"));
+        return Err("no VP8 decoder available".into());
     }
 
     if fourcc == VP9_FOURCC {
@@ -144,8 +164,7 @@ pub fn create_backend(
                 return Ok(Box::new(dec));
             }
         }
-        let hw_suffix = hw_suffix(hw_attempted);
-        return Err(format!("no VP9 decoder available{hw_suffix}"));
+        return Err("no VP9 decoder available".into());
     }
 
     if fourcc == AV1_FOURCC || fourcc == AV1_IVF_FOURCC {
@@ -155,8 +174,7 @@ pub fn create_backend(
                 return Ok(Box::new(dec));
             }
         }
-        let hw_suffix = hw_suffix(hw_attempted);
-        return Err(format!("no AV1 decoder available{hw_suffix}"));
+        return Err("no AV1 decoder available".into());
     }
 
     Err(format!("unsupported codec 0x{fourcc:08x}"))
@@ -168,7 +186,9 @@ fn hw_suffix(hw_attempted: bool) -> &'static str {
         && cfg!(any(
             target_os = "android",
             target_arch = "wasm32",
-            target_os = "linux"
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
         ));
     if hw_attempted {
         " (HW decoder attempted)"

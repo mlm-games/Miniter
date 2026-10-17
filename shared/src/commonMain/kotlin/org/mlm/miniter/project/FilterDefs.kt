@@ -17,3 +17,11 @@ data class FilterDef(
     val displayName: String,
     val properties: List<FilterPropertyDef>,
 )
+
+val speedPresets: List<Pair<Float, String>> = listOf(
+    0.25f to "0.25x",
+    0.5f to "0.5x",
+    1f to "1x",
+    2f to "2x",
+    4f to "4x",
+)

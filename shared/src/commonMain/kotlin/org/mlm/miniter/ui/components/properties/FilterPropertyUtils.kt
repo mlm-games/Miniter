@@ -8,12 +8,16 @@ import org.mlm.miniter.editor.model.RustChromaKeyFilterSnapshot
 import org.mlm.miniter.editor.model.RustColorGradeFilterSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
 import org.mlm.miniter.editor.model.RustCropFilterSnapshot
+import org.mlm.miniter.editor.model.RustDuotoneFilterSnapshot
+import org.mlm.miniter.editor.model.RustGrainFilterSnapshot
 import org.mlm.miniter.editor.model.RustHueFilterSnapshot
 import org.mlm.miniter.editor.model.RustLutFilterSnapshot
 import org.mlm.miniter.editor.model.RustMosaicFilterSnapshot
 import org.mlm.miniter.editor.model.RustMosaicKind
+import org.mlm.miniter.editor.model.RustPosterizeFilterSnapshot
 import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
+import org.mlm.miniter.editor.model.RustVignetteFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
@@ -63,6 +67,19 @@ val FILTERS: List<FilterDef> = listOf(
     FilterDef("Lut", "LUT", listOf(
         FilterPropertyDef("strength", "Strength", 0f..1f, format = ::fmtPct, keyframeSuffix = "lut_strength"),
     )),
+    FilterDef("Vignette", "Vignette", listOf(
+        FilterPropertyDef("amount", "Amount", 0f..1f, format = ::fmtPct, keyframeSuffix = "vignette_amount"),
+        FilterPropertyDef("radius", "Radius", 0f..1.5f, format = ::fmtPct, keyframeSuffix = "vignette_radius"),
+        FilterPropertyDef("softness", "Softness", 0.05f..2f, format = ::fmtPct, keyframeSuffix = "vignette_softness"),
+    )),
+    FilterDef("Posterize", "Posterize", listOf(
+        FilterPropertyDef("levels", "Levels", 2f..32f, 30, { "${it.toInt()}" }, "posterize_levels"),
+    )),
+    FilterDef("Grain", "Film Grain", listOf(
+        FilterPropertyDef("amount", "Amount", 0f..0.5f, format = ::fmtPct, keyframeSuffix = "grain_amount"),
+        FilterPropertyDef("size", "Grain size", 1f..8f, 7, { "${it.toInt()}px" }, "grain_size"),
+    )),
+    FilterDef("Duotone", "Duotone", emptyList()),
     FilterDef("Blur", "Blur", listOf(
         FilterPropertyDef("radius", "Blur radius", 1f..20f, 18, { "${it.toInt()}px" }, "blur_radius"),
         FilterPropertyDef("angle", "Motion angle", -180f..180f, format = ::fmtDeg, keyframeSuffix = "blur_angle"),
@@ -101,6 +118,16 @@ val chromaKeyPresets: List<ChromaKeyPreset> = listOf(
     ChromaKeyPreset("Cyan", "FF00FFFF"),
 )
 
+data class DuotonePreset(val label: String, val dark: String, val light: String)
+
+val duotonePresets: List<DuotonePreset> = listOf(
+    DuotonePreset("Noir", "FF000000", "FFFFFFFF"),
+    DuotonePreset("Sunset", "FF1A1A3E", "FFF2C14E"),
+    DuotonePreset("Ice", "FF0B2545", "FF9FD8F7"),
+    DuotonePreset("Emerald", "FF04231A", "FF7FE3B0"),
+    DuotonePreset("Rose", "FF2B0A18", "FFF7A8C4"),
+)
+
 val mosaicKindOptions: List<Pair<RustMosaicKind, String>> = listOf(
     RustMosaicKind.Square to "Square",
     RustMosaicKind.Hexagon to "Hexagon",
@@ -123,6 +150,10 @@ fun filterDefByType(filter: RustVideoFilterSnapshot): FilterDef? = when (filter)
     is RustColorGradeFilterSnapshot -> FILTERS_BY_SERIAL_NAME["ColorGrade"]
     is RustChromaKeyFilterSnapshot -> FILTERS_BY_SERIAL_NAME["ChromaKey"]
     is RustLutFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Lut"]
+    is RustVignetteFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Vignette"]
+    is RustPosterizeFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Posterize"]
+    is RustGrainFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Grain"]
+    is RustDuotoneFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Duotone"]
     is RustMosaicFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Mosaic"]
     is RustBlurFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Blur"]
     is RustSharpenFilterSnapshot -> FILTERS_BY_SERIAL_NAME["Sharpen"]
@@ -164,6 +195,21 @@ fun readFilterProperty(filter: RustVideoFilterSnapshot, paramKey: String): Float
         else -> 0f
     }
     is RustMosaicFilterSnapshot -> when (paramKey) {
+        "size" -> filter.size
+        else -> 0f
+    }
+    is RustVignetteFilterSnapshot -> when (paramKey) {
+        "amount" -> filter.amount
+        "radius" -> filter.radius
+        "softness" -> filter.softness
+        else -> 0f
+    }
+    is RustPosterizeFilterSnapshot -> when (paramKey) {
+        "levels" -> filter.levels
+        else -> 0f
+    }
+    is RustGrainFilterSnapshot -> when (paramKey) {
+        "amount" -> filter.amount
         "size" -> filter.size
         else -> 0f
     }

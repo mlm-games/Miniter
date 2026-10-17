@@ -306,6 +306,7 @@ fun ProjectScreen(
                 },
                 onAddFilter = vm::addFilter,
                 onRemoveFilter = vm::removeFilter,
+                onApplyFilterToAll = vm::applyFilterToAllClips,
                 onUpdateFilterParams = vm::updateFilterParams,
                 onToggleFilterEnabled = vm::setFilterEnabled,
                 onMoveFilter = vm::moveFilter,
@@ -313,6 +314,7 @@ fun ProjectScreen(
                 onSetVolume = vm::setClipVolume,
                 onSetTransitionIn = vm::setTransitionIn,
                 onSetTransitionOut = vm::setTransitionOut,
+                onApplyTransitionToAll = vm::applyTransitionToAllCuts,
                 onUpdateText = vm::updateTextClip,
                 onUpdateTextStyle = { clipId, fontSize, color, bgColor, posX, posY, bold, italic, fontFamily ->
                     vm.updateTextClipStyle(clipId, fontSize, color, bgColor, posX, posY, bold, italic, fontFamily)

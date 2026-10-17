@@ -32,6 +32,18 @@ use baabaabaabaabababbababbaa::platform::wasm::{
     WasmVideoDecoderOutput as PlatformVideoDecoderOutput, WebCodecsHost as PlatformHost,
 };
 
+#[cfg(target_os = "macos")]
+use baabaabaabaabababbababbaa::platform::apple::{
+    AppleVideoDecoderInput as PlatformVideoDecoderInput,
+    AppleVideoDecoderOutput as PlatformVideoDecoderOutput, VideoToolboxHost as PlatformHost,
+};
+
+#[cfg(target_os = "windows")]
+use baabaabaabaabababbababbaa::platform::windows::{
+    MediaFoundationHost as PlatformHost, WindowsVideoDecoderInput as PlatformVideoDecoderInput,
+    WindowsVideoDecoderOutput as PlatformVideoDecoderOutput,
+};
+
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::runtime::Runtime;
 

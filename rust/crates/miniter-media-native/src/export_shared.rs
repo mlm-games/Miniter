@@ -1121,7 +1121,25 @@ pub(crate) fn apply_video_filters(
                     shadows: *shadows,
                 },
             ),
+            VideoFilter::Vignette {
+                amount,
+                radius,
+                softness,
+            } => filters::apply_vignette(pixels, w, h, *amount, *radius, *softness),
             VideoFilter::Grayscale => filters::apply_grayscale(pixels),
+            VideoFilter::Posterize { levels } => filters::apply_posterize(pixels, *levels),
+            VideoFilter::Duotone { dark, light } => {
+                let dark_rgb = parse_argb_hex(dark, [0, 0, 0, 255]);
+                let light_rgb = parse_argb_hex(light, [255, 255, 255, 255]);
+                filters::apply_duotone(
+                    pixels,
+                    [dark_rgb[0], dark_rgb[1], dark_rgb[2]],
+                    [light_rgb[0], light_rgb[1], light_rgb[2]],
+                );
+            }
+            VideoFilter::Grain { amount, size } => {
+                filters::apply_grain(pixels, w, h, *amount, *size)
+            }
             VideoFilter::ChromaKey {
                 key_color,
                 tolerance,
@@ -1177,11 +1195,16 @@ pub(crate) fn apply_video_filters(
                 right,
                 bottom,
             } => {
-                let cropped = crop_rgba(pixels, w, h, *left, *top, *right, *bottom);
+                // `right` and `bottom` are insets from the opposite edge, as the
+                // properties UI labels them and as the preview reads them. The
+                // crop helpers below take both as edges, so convert once here.
+                let right_edge = 1.0 - right.clamp(0.0, 1.0);
+                let bottom_edge = 1.0 - bottom.clamp(0.0, 1.0);
+                let cropped = crop_rgba(pixels, w, h, *left, *top, right_edge, bottom_edge);
                 if cropped.len() == w.saturating_mul(h).saturating_mul(4) {
                     *pixels = cropped;
                 } else {
-                    let (cw, ch) = crop_output_dims(w, h, *left, *top, *right, *bottom);
+                    let (cw, ch) = crop_output_dims(w, h, *left, *top, right_edge, bottom_edge);
                     if cw == 0 || ch == 0 || cropped.len() != cw * ch * 4 {
                         *pixels = fit_rgba_into_canvas_fallback(&cropped, w, h);
                     } else {

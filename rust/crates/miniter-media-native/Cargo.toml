@@ -64,6 +64,14 @@ baabaabaabaabababbababbaa = { workspace = true, features = [
     "linux",
 ], optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+baabaabaabaabababbababbaa = { workspace = true, features = [
+    "apple",
+], optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+baabaabaabaabababbababbaa = { workspace = true, optional = true }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 baabaabaabaabababbababbaa = { workspace = true, optional = true }
 tokio = { version = "1", features = ["rt", "sync", "macros"] }

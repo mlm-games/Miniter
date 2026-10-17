@@ -94,6 +94,16 @@ fn mix_project_audio_internal(
         });
     }
 
+    // Ducking reads its gain from whatever is already in the mix, so the clips
+    // carrying it have to be mixed last. Mixing is otherwise a plain sum, so
+    // reordering cannot change the result.
+    let mut scheduled = scheduled;
+    scheduled.sort_by_key(|clip| {
+        clip.audio_filters
+            .iter()
+            .any(|f| matches!(f, AudioFilter::Ducking { .. }))
+    });
+
     let has_normalize = scheduled.iter().any(|clip| {
         clip.audio_filters
             .iter()
@@ -171,6 +181,17 @@ fn mix_project_audio_internal(
             .iter()
             .any(|f| matches!(f, AudioFilter::Reverse));
 
+        let ducking = clip.audio_filters.iter().find_map(|f| match f {
+            AudioFilter::Ducking { amount, release_ms } => Some((*amount, *release_ms)),
+            _ => None,
+        });
+        let release_frames = ducking
+            .map(|(_, release_ms)| {
+                micros_to_frames(release_ms.max(0) * 1_000, config.sample_rate).max(1)
+            })
+            .unwrap_or(1);
+        let mut duck_envelope = 0.0f32;
+
         for dst_offset in 0..clip.timeline_len_frames {
             let dst_frame = clip.timeline_start_frame + dst_offset;
             // Speed 0 holds the source start frame for the whole clip (freeze).
@@ -196,7 +217,20 @@ fn mix_project_audio_internal(
                 config.sample_rate,
                 &clip.audio_filters,
             );
-            let effective_gain = clip.gain * fade_gain;
+            let duck_gain = match ducking {
+                Some((amount, _)) => {
+                    let level = frame_peak(&mixed, dst_frame, out_channels);
+                    let coeff = if level > duck_envelope {
+                        DUCK_ATTACK_COEFF
+                    } else {
+                        (1.0 / release_frames as f32).min(1.0)
+                    };
+                    duck_envelope += (level - duck_envelope) * coeff;
+                    (1.0 - amount.clamp(0.0, 1.0) * duck_envelope.clamp(0.0, 1.0)).clamp(0.0, 1.0)
+                }
+                None => 1.0,
+            };
+            let effective_gain = clip.gain * fade_gain * duck_gain;
             let (pan_left, pan_right) = pan_gains(&clip.audio_filters, out_channels);
 
             if effective_gain > 0.0 {
@@ -325,6 +359,17 @@ fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<Schedule
     }
 
     scheduled
+}
+
+const DUCK_ATTACK_COEFF: f32 = 0.5;
+
+/// Peak magnitude of one interleaved frame, used as the ducking sidechain.
+fn frame_peak(mixed: &[f32], frame: usize, channels: usize) -> f32 {
+    let start = (frame * channels).min(mixed.len());
+    let end = (start + channels).min(mixed.len());
+    mixed[start..end]
+        .iter()
+        .fold(0.0f32, |peak, sample| peak.max(sample.abs()))
 }
 
 fn calculate_fade_gain(

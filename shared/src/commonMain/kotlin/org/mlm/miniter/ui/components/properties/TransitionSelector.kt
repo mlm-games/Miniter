@@ -74,6 +74,13 @@ val fadeTransitionOptions = listOf(
     TransitionOption(RustTransitionKind.CrossFade, "Fade", defaultDurationUs = 500_000L, icon = Icons.Default.Animation),
 )
 
+val transitionDurationPresets: List<Pair<Float, String>> = listOf(
+    0.25f to "0.25s",
+    0.5f to "0.5s",
+    1f to "1s",
+    1.5f to "1.5s",
+)
+
 val textTransitionOptions = listOf(
     TransitionOption(null, "None", icon = Icons.Default.Block),
     TransitionOption(RustTransitionKind.CrossFade, "Fade", defaultDurationUs = 500_000L, icon = Icons.Default.Animation),
@@ -182,5 +189,23 @@ fun TransitionSelector(
             steps = durationSteps,
         )
         Text("${formatFixed(durationVal, 1)}s", style = MaterialTheme.typography.labelSmall)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            transitionDurationPresets.forEach { (seconds, label) ->
+                AssistChip(
+                    onClick = {
+                        onSetTransition(
+                            RustTransitionSnapshot(
+                                kind = currentTransition.kind,
+                                duration = (seconds * 1_000_000f).toLong(),
+                            )
+                        )
+                    },
+                    label = { Text(label) },
+                )
+            }
+        }
     }
 }

@@ -320,6 +320,22 @@ fn filter_param_mut<'a>(filter: &'a mut VideoFilter, suffix: &str) -> Option<&'a
             _ => None,
         },
         VideoFilter::Lut { strength, .. } => (suffix == "lut_strength").then_some(strength),
+        VideoFilter::Vignette {
+            amount,
+            radius,
+            softness,
+        } => match suffix {
+            "vignette_amount" => Some(amount),
+            "vignette_radius" => Some(radius),
+            "vignette_softness" => Some(softness),
+            _ => None,
+        },
+        VideoFilter::Posterize { levels } => (suffix == "posterize_levels").then_some(levels),
+        VideoFilter::Grain { amount, size } => match suffix {
+            "grain_amount" => Some(amount),
+            "grain_size" => Some(size),
+            _ => None,
+        },
         _ => None,
     }
 }
