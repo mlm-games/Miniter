@@ -408,9 +408,9 @@ dependencies = [
 
 [[package]]
 name = "baabaabaabaabababbababbaa"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e2e0ffd5fe222d84abdde736a9de50575cf945f6ca31e69407bd5ec9c313a6e"
+checksum = "6ee406affafa474fa8764b065502d60e6a27c54e604a7e58bfd46be19a00398a"
 dependencies = [
  "anodecs",
  "bytes",
