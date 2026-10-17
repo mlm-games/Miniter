@@ -239,6 +239,16 @@ enum class RustTransitionKind {
     SlideLeft,
     SlideRight,
     Dissolve,
+    SlideUp,
+    SlideDown,
+    ZoomIn,
+    ZoomOut,
+    FadeThroughBlack,
+    WipeFromLeft,
+    WipeFromRight,
+    WipeFromTop,
+    WipeFromBottom,
+    IrisOpen,
 }
 
 @Serializable
@@ -305,12 +315,74 @@ data class RustContrastFilterSnapshot(val value: Float) : RustVideoFilterSnapsho
 data class RustSaturationFilterSnapshot(val value: Float) : RustVideoFilterSnapshot
 
 @Serializable
+@SerialName("ColorGrade")
+data class RustColorGradeFilterSnapshot(
+    val brightness: Float = 0f,
+    val contrast: Float = 1f,
+    val saturation: Float = 1f,
+    val vibrance: Float = 0f,
+    val temperature: Float = 0f,
+    val tint: Float = 0f,
+    val exposure: Float = 0f,
+    val gamma: Float = 1f,
+    val lift: Float = 0f,
+    val gain: Float = 1f,
+    val highlights: Float = 0f,
+    val shadows: Float = 0f,
+) : RustVideoFilterSnapshot
+
+@Serializable
 @SerialName("Grayscale")
 data object RustGrayscaleFilterSnapshot : RustVideoFilterSnapshot
 
 @Serializable
+@SerialName("ChromaKey")
+data class RustChromaKeyFilterSnapshot(
+    @SerialName("key_color")
+    val keyColor: String = "FF00FF00",
+    val tolerance: Float = 0.25f,
+    val softness: Float = 0.1f,
+    val spill: Float = 0.5f,
+) : RustVideoFilterSnapshot
+
+@Serializable
+@SerialName("Lut")
+data class RustLutFilterSnapshot(
+    val path: String = "",
+    val strength: Float = 1f,
+) : RustVideoFilterSnapshot
+
+@Serializable
+@SerialName("Mosaic")
+data class RustMosaicFilterSnapshot(
+    val kind: RustMosaicKind = RustMosaicKind.Square,
+    val size: Float = 16f,
+) : RustVideoFilterSnapshot
+
+@Serializable
+enum class RustMosaicKind {
+    Square,
+    Hexagon,
+    Triangle,
+}
+
+@Serializable
 @SerialName("Blur")
-data class RustBlurFilterSnapshot(val radius: Float) : RustVideoFilterSnapshot
+data class RustBlurFilterSnapshot(
+    val radius: Float,
+    val kind: RustBlurKind = RustBlurKind.Stack,
+    val angle: Float = 0f,
+) : RustVideoFilterSnapshot
+
+@Serializable
+enum class RustBlurKind {
+    Stack,
+    Box,
+    Gaussian,
+    Motion,
+    Radial,
+    Zoom,
+}
 
 @Serializable
 @SerialName("Sharpen")
@@ -392,6 +464,26 @@ enum class RustBlendMode {
     Multiply,
     Screen,
     Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    LinearDodge,
+    LinearBurn,
+    LinearLight,
+    VividLight,
+    PinLight,
+    HardMix,
+    Subtract,
+    Average,
+    Negation,
+    Phoenix,
+    Reflect,
+    Glow,
 }
 
 @Serializable
@@ -495,6 +587,49 @@ data object RustNormalizeAudioFilterSnapshot : RustAudioFilterSnapshot
 @Serializable
 @SerialName("Reverse")
 data object RustReverseAudioFilterSnapshot : RustAudioFilterSnapshot
+
+@Serializable
+@SerialName("Equalizer")
+data class RustEqualizerAudioFilterSnapshot(
+    val preset: RustEqPreset = RustEqPreset.Natural,
+) : RustAudioFilterSnapshot
+
+@Serializable
+@SerialName("Reverb")
+data class RustReverbAudioFilterSnapshot(
+    val preset: RustReverbPreset = RustReverbPreset.Studio,
+) : RustAudioFilterSnapshot
+
+@Serializable
+enum class RustEqPreset {
+    Natural,
+    AmRadio,
+    BassBooster,
+    BassReducer,
+    BgmMode,
+    HipHop,
+    Jazz,
+    Pop,
+    RnB,
+    Rock,
+    TrebleBooster,
+    TrebleReducer,
+    Voice,
+}
+
+@Serializable
+enum class RustReverbPreset {
+    Studio,
+    Bathroom,
+    Cathedral,
+    Cave,
+    Arena,
+    Church,
+    ConcertHall,
+    EchoRoom,
+    HallDelay,
+    SpringReverb,
+}
 
 @Serializable
 data class RustExportProfileSnapshot(

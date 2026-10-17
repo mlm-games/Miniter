@@ -51,7 +51,9 @@ use miniter_domain::time::Timestamp;
 use miniter_domain::track::TrackKind;
 use miniter_render_plan::compositor::FramePlanIterator;
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
-use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
+use miniter_render_plan::transition_blend::{
+    opacity_pair, slide_offset, slide_offset_y, transition_scales,
+};
 use miniter_render_plan::validate::validate_frame_plan;
 
 fn store_wasm_preview_frame(rgba: &[u8], width: u32, height: u32) {
@@ -422,6 +424,11 @@ pub fn export_project_to_bytes(
     on_progress: impl Fn(u32),
 ) -> Result<WasmExportArtifact, String> {
     clear_wasm_export_preview();
+    for (path, bytes) in registered_files {
+        if path.to_ascii_lowercase().ends_with(".cube") {
+            filters::register_cube_lut_bytes(path, bytes);
+        }
+    }
     let format = project.export_profile.format;
     let (extension, mime_type) = export_target_info(format)?;
     let file_name = resolve_output_file_name(project, output_path, extension);
@@ -2647,6 +2654,21 @@ fn render_node(
                     alpha_over(&mut canvas, &top_layer);
                     Ok(canvas)
                 }
+                miniter_domain::transition::TransitionKind::FadeThroughBlack => {
+                    if eased < 0.5 {
+                        let mut canvas = bottom_img;
+                        let mut shade = opaque_black(width, height);
+                        filters::scale_alpha(&mut shade, 2.0 * eased);
+                        alpha_over(&mut canvas, &shade);
+                        Ok(canvas)
+                    } else {
+                        let mut canvas = opaque_black(width, height);
+                        let mut top_layer = top_img;
+                        filters::scale_alpha(&mut top_layer, 2.0 * eased - 1.0);
+                        alpha_over(&mut canvas, &top_layer);
+                        Ok(canvas)
+                    }
+                }
                 miniter_domain::transition::TransitionKind::SlideLeft
                 | miniter_domain::transition::TransitionKind::SlideRight => {
                     let mut canvas = bottom_img;
@@ -2661,6 +2683,50 @@ fn render_node(
                         dx,
                         0,
                     );
+                    Ok(canvas)
+                }
+                miniter_domain::transition::TransitionKind::SlideUp
+                | miniter_domain::transition::TransitionKind::SlideDown => {
+                    let mut canvas = bottom_img;
+                    let dy = (slide_offset_y(*kind, eased) * height as f32).round() as i32;
+                    alpha_over_with_offset(
+                        &mut canvas,
+                        &top_img,
+                        width,
+                        height,
+                        width,
+                        height,
+                        0,
+                        dy,
+                    );
+                    Ok(canvas)
+                }
+                miniter_domain::transition::TransitionKind::ZoomIn
+                | miniter_domain::transition::TransitionKind::ZoomOut => {
+                    let (bottom_scale, top_scale) = transition_scales(*kind, eased);
+                    let (bottom_a, top_a) = opacity_pair(*kind, eased);
+                    let mut canvas = if bottom_scale != 1.0 {
+                        transform_rgba(&bottom_img, width, height, bottom_scale, 0.0, 0.0, 0.0)
+                    } else {
+                        bottom_img
+                    };
+                    filters::scale_alpha(&mut canvas, bottom_a);
+                    let mut top_layer = if top_scale != 1.0 {
+                        transform_rgba(&top_img, width, height, top_scale, 0.0, 0.0, 0.0)
+                    } else {
+                        top_img
+                    };
+                    filters::scale_alpha(&mut top_layer, top_a);
+                    alpha_over(&mut canvas, &top_layer);
+                    Ok(canvas)
+                }
+                miniter_domain::transition::TransitionKind::WipeFromLeft
+                | miniter_domain::transition::TransitionKind::WipeFromRight
+                | miniter_domain::transition::TransitionKind::WipeFromTop
+                | miniter_domain::transition::TransitionKind::WipeFromBottom
+                | miniter_domain::transition::TransitionKind::IrisOpen => {
+                    let mut canvas = bottom_img;
+                    alpha_over_wipe(&mut canvas, &top_img, width, height, *kind, eased);
                     Ok(canvas)
                 }
                 _ => Ok(bottom_img),

@@ -1,4 +1,7 @@
-use crate::transition_blend::opacity_pair;
+use crate::transition_blend::{
+    opacity_pair, slide_exit_offset, slide_exit_offset_y, slide_offset, slide_offset_y,
+    transition_scales,
+};
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
 use miniter_domain::ease_in_out;
 use miniter_domain::export::SubtitleMode;
@@ -8,8 +11,8 @@ use miniter_domain::mask::{
     BlendMode, MaskComposition, MaskEffect, MaskOperation, MaskShape, MaskSource, MaskTransform,
 };
 use miniter_domain::param;
-use miniter_domain::text_overlay::TextOverlay;
-use miniter_domain::time::{MediaDuration, Timestamp, scale_us_round};
+use miniter_domain::text_overlay::{TextOverlay, TextStyle};
+use miniter_domain::time::{MediaDuration, Timestamp};
 use miniter_domain::timeline::Timeline;
 use miniter_domain::transition::{Transition, TransitionKind};
 
@@ -230,6 +233,141 @@ fn apply_transform_keyframes(
     });
 }
 
+fn parse_filter_param_key(param: &str) -> Option<(usize, &str)> {
+    let rest = param.strip_prefix("filter.")?;
+    let (index, suffix) = rest.split_once('.')?;
+    Some((index.parse().ok()?, suffix))
+}
+
+fn filter_param_mut<'a>(filter: &'a mut VideoFilter, suffix: &str) -> Option<&'a mut f32> {
+    match filter {
+        VideoFilter::Transform {
+            scale,
+            translate_x,
+            translate_y,
+            rotate,
+        } => match suffix {
+            "scale" => Some(scale),
+            "translate_x" => Some(translate_x),
+            "translate_y" => Some(translate_y),
+            "rotate" => Some(rotate),
+            _ => None,
+        },
+        VideoFilter::Brightness { value } => (suffix == "brightness").then_some(value),
+        VideoFilter::Contrast { value } => (suffix == "contrast").then_some(value),
+        VideoFilter::Saturation { value } => (suffix == "saturation").then_some(value),
+        VideoFilter::Hue { degrees } => (suffix == "hue_deg").then_some(degrees),
+        VideoFilter::Rotate { degrees } => (suffix == "rotate_deg").then_some(degrees),
+        VideoFilter::Sharpen { amount } => (suffix == "sharpen_amount").then_some(amount),
+        VideoFilter::Blur { radius, angle, .. } => match suffix {
+            "blur_radius" => Some(radius),
+            "blur_angle" => Some(angle),
+            _ => None,
+        },
+        VideoFilter::Mosaic { size, .. } => (suffix == "mosaic_size").then_some(size),
+        VideoFilter::Crop {
+            left,
+            top,
+            right,
+            bottom,
+        } => match suffix {
+            "crop_left" => Some(left),
+            "crop_top" => Some(top),
+            "crop_right" => Some(right),
+            "crop_bottom" => Some(bottom),
+            _ => None,
+        },
+        VideoFilter::CanvasBackground { blur_radius, .. } => {
+            (suffix == "canvas_blur").then_some(blur_radius)
+        }
+        VideoFilter::ColorGrade {
+            brightness,
+            contrast,
+            saturation,
+            vibrance,
+            temperature,
+            tint,
+            exposure,
+            gamma,
+            lift,
+            gain,
+            highlights,
+            shadows,
+        } => match suffix {
+            "grade_brightness" => Some(brightness),
+            "grade_contrast" => Some(contrast),
+            "grade_saturation" => Some(saturation),
+            "grade_vibrance" => Some(vibrance),
+            "grade_temperature" => Some(temperature),
+            "grade_tint" => Some(tint),
+            "grade_exposure" => Some(exposure),
+            "grade_gamma" => Some(gamma),
+            "grade_lift" => Some(lift),
+            "grade_gain" => Some(gain),
+            "grade_highlights" => Some(highlights),
+            "grade_shadows" => Some(shadows),
+            _ => None,
+        },
+        VideoFilter::ChromaKey {
+            tolerance,
+            softness,
+            spill,
+            ..
+        } => match suffix {
+            "chroma_tolerance" => Some(tolerance),
+            "chroma_softness" => Some(softness),
+            "chroma_spill" => Some(spill),
+            _ => None,
+        },
+        VideoFilter::Lut { strength, .. } => (suffix == "lut_strength").then_some(strength),
+        _ => None,
+    }
+}
+
+fn apply_filter_param_keyframes(
+    filters: &mut [VideoFilter],
+    source: &[VideoEffect],
+    curve: &KeyframeCurve,
+    local_time: MediaDuration,
+) {
+    if filters.is_empty() || curve.keyframes.is_empty() {
+        return;
+    }
+
+    let mut applied: Vec<(usize, String)> = Vec::new();
+    for keyframe in &curve.keyframes {
+        let Some((index, suffix)) = parse_filter_param_key(&keyframe.param) else {
+            continue;
+        };
+        // Indices in `filter.<index>.<suffix>` address the clip's full filter
+        // list, matching the UI, while `filters` holds only the enabled ones.
+        let Some(position) = active_position(source, index) else {
+            continue;
+        };
+        if applied
+            .iter()
+            .any(|(seen_index, seen_suffix)| *seen_index == index && seen_suffix.as_str() == suffix)
+        {
+            continue;
+        }
+        let Some(value) = curve.evaluate(&keyframe.param, local_time) else {
+            continue;
+        };
+        if let Some(slot) = filter_param_mut(&mut filters[position], suffix) {
+            *slot = value;
+        }
+        applied.push((index, suffix.to_string()));
+    }
+}
+
+fn active_position(source: &[VideoEffect], index: usize) -> Option<usize> {
+    let effect = source.get(index)?;
+    if !effect.enabled {
+        return None;
+    }
+    Some(source.iter().take(index).filter(|fx| fx.enabled).count())
+}
+
 fn node_for_clip(
     clip: &Clip,
     t: Timestamp,
@@ -245,15 +383,15 @@ fn node_for_clip(
     }
 
     let local_offset = t - clip.timeline_start;
-    let source_pts = Timestamp::from_micros(
-        clip.source_start.as_micros() + scale_us_round(local_offset.as_micros(), clip.speed),
-    );
+    let source_pts =
+        Timestamp::from_micros(clip.source_start.as_micros() + clip.source_offset_at(local_offset));
 
     match &clip.kind {
         ClipKind::Video(v) => {
             let opacity = clip_opacity_at(clip, local_offset);
             let mut filters = active_filters(&v.filters);
             apply_transform_keyframes(&mut filters, &clip.keyframes, local_offset);
+            apply_filter_param_keyframes(&mut filters, &v.filters, &clip.keyframes, local_offset);
             let source_pts = if filters.iter().any(|f| matches!(f, VideoFilter::Reverse)) {
                 mirror_source_pts(clip, source_pts)
             } else {
@@ -300,8 +438,7 @@ fn node_for_clip(
                     return Some(faded);
                 }
                 let prev_pts = Timestamp::from_micros(
-                    prev.source_start.as_micros()
-                        + scale_us_round((t - prev.timeline_start).as_micros(), prev.speed),
+                    prev.source_start.as_micros() + prev.source_offset_at(t - prev.timeline_start),
                 );
                 if let ClipKind::Video(pv) = &prev.kind {
                     let prev_opacity = clip_opacity_at(prev, t - prev.timeline_start);
@@ -354,10 +491,7 @@ fn node_for_clip(
                     if adjacent && next_t < next.timeline_end() {
                         let next_pts = Timestamp::from_micros(
                             next.source_start.as_micros()
-                                + scale_us_round(
-                                    (next_t - next.timeline_start).as_micros(),
-                                    next.speed,
-                                ),
+                                + next.source_offset_at(next_t - next.timeline_start),
                         );
                         let next_opacity = clip_opacity_at(next, next_t - next.timeline_start);
                         let next_filters = active_filters(&nv.filters);
@@ -404,6 +538,7 @@ fn node_for_clip(
             if let Some(fs) = clip.keyframes.evaluate(param::TEXT_FONT_SIZE, local_offset) {
                 modified.style.font_size = fs;
             }
+            apply_motion_from_clip_transitions(clip, t, &mut modified.style);
             apply_opacity_from_clip_transitions(clip, t, &mut opacity);
             Some(RenderNode::Text {
                 overlay: modified,
@@ -445,6 +580,46 @@ fn apply_opacity_from_clip_transitions(clip: &Clip, t: Timestamp, opacity: &mut 
             let (fade_a, _) = opacity_pair(trans.kind, eased);
             *opacity *= fade_a;
         }
+    }
+}
+
+fn apply_motion_from_clip_transitions(clip: &Clip, t: Timestamp, style: &mut TextStyle) {
+    if let Some(ref trans) = clip.transition_in {
+        let progress = transition_progress(clip, trans, t);
+        if progress < 1.0 {
+            let eased = ease_in_out(progress);
+            let (_, scale) = transition_scales(trans.kind, eased);
+            apply_text_motion(
+                style,
+                slide_offset(trans.kind, eased),
+                slide_offset_y(trans.kind, eased),
+                scale,
+            );
+        }
+    }
+
+    if let Some(ref trans) = clip.transition_out {
+        let out_progress = transition_out_progress(clip, trans, t);
+        if out_progress < 1.0 {
+            let eased = ease_in_out(out_progress);
+            let (scale, _) = transition_scales(trans.kind, eased);
+            apply_text_motion(
+                style,
+                slide_exit_offset(trans.kind, eased),
+                slide_exit_offset_y(trans.kind, eased),
+                scale,
+            );
+        }
+    }
+}
+
+fn apply_text_motion(style: &mut TextStyle, dx: f32, dy: f32, scale: f32) {
+    if dx != 0.0 || dy != 0.0 {
+        style.position_x += dx;
+        style.position_y += dy;
+    }
+    if scale != 1.0 && scale > 0.0 {
+        style.font_size = (style.font_size * scale).max(1.0);
     }
 }
 

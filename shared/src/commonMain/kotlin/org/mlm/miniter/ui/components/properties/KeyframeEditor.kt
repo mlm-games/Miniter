@@ -49,6 +49,7 @@ fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
     return when (paramKey) {
         KeyframeParams.OPACITY -> clip.opacity
         KeyframeParams.VOLUME -> clip.volume
+        KeyframeParams.SPEED -> clip.speed.toFloat()
         KeyframeParams.TEXT_POSITION_X -> (clip.kind as? RustTextClipKind)?.style?.positionX ?: 0.5f
         KeyframeParams.TEXT_POSITION_Y -> (clip.kind as? RustTextClipKind)?.style?.positionY ?: 0.9f
         KeyframeParams.TEXT_FONT_SIZE -> (clip.kind as? RustTextClipKind)?.style?.fontSize ?: 24f
@@ -100,6 +101,7 @@ fun KeyframeEditor(
                 val order = listOf(
                     KeyframeParams.OPACITY,
                     KeyframeParams.VOLUME,
+                    KeyframeParams.SPEED,
                     KeyframeParams.TRANSFORM_SCALE,
                     KeyframeParams.TRANSFORM_TRANSLATE_X,
                     KeyframeParams.TRANSFORM_TRANSLATE_Y,

@@ -143,6 +143,16 @@ pub enum EditCommand {
         index: usize,
         old_duration_us: i64,
     },
+    UpdateAudioFilter {
+        clip_id: ClipId,
+        index: usize,
+        filter: AudioFilter,
+    },
+    UpdateAudioFilterInverse {
+        clip_id: ClipId,
+        index: usize,
+        old_filter: AudioFilter,
+    },
     SetTransitionIn {
         clip_id: ClipId,
         #[serde(default)]

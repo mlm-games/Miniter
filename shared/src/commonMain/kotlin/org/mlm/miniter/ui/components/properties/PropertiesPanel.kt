@@ -20,24 +20,34 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import miniter.shared.generated.resources.Res
 import miniter.shared.generated.resources.common_remove
 import org.jetbrains.compose.resources.stringResource
+import io.github.aakira.napier.Napier
 import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.FileKitType
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.platform.platformPath
+import org.mlm.miniter.engine.CubeLutKind
+import org.mlm.miniter.engine.parseCubeLut
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
 import org.mlm.miniter.editor.model.RustCanvasBackgroundFilterSnapshot
+import org.mlm.miniter.editor.model.RustChromaKeyFilterSnapshot
+import org.mlm.miniter.editor.model.RustColorGradeFilterSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
 import org.mlm.miniter.editor.model.RustCropFilterSnapshot
+import org.mlm.miniter.editor.model.RustEqualizerAudioFilterSnapshot
+import org.mlm.miniter.editor.model.RustMosaicFilterSnapshot
+import org.mlm.miniter.editor.model.RustReverbAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFlipFilterSnapshot
 import org.mlm.miniter.editor.model.RustHueFilterSnapshot
+import org.mlm.miniter.editor.model.RustLutFilterSnapshot
 import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
 import org.mlm.miniter.editor.model.RustReverseVideoFilterSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
@@ -57,6 +67,7 @@ import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustVideoClipKind
 
+import org.mlm.miniter.editor.model.RustBlendMode
 import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustMaskComposition
@@ -69,6 +80,8 @@ import org.mlm.miniter.editor.model.RustRectangleMaskShape
 import org.mlm.miniter.editor.model.RustShapeMaskSource
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.project.KenBurnsPreset
+import org.mlm.miniter.project.kenBurnsPresets
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.MASK_PARAM_DEFS
 import org.mlm.miniter.project.defaultOf
@@ -82,6 +95,7 @@ fun PropertiesPanel(
     onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
+    onReplaceFilter: (String, Int, RustVideoFilterSnapshot) -> Unit = { _, _, _ -> },
     onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
     onMoveFilter: (String, Int, Int) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
@@ -93,9 +107,12 @@ fun PropertiesPanel(
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
+    onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
+    onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
     onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
     onUpdateAudioFilterDuration: (String, Int, Long) -> Unit = { _, _, _ -> },
+    onReplaceAudioFilter: (String, Int, RustAudioFilterSnapshot) -> Unit = { _, _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
@@ -145,6 +162,7 @@ fun PropertiesPanel(
                 onAddFilter = onAddFilter,
                 onRemoveFilter = onRemoveFilter,
                 onUpdateFilterParams = onUpdateFilterParams,
+                onReplaceFilter = onReplaceFilter,
                 onToggleFilterEnabled = onToggleFilterEnabled,
                 onMoveFilter = onMoveFilter,
                 onSetSpeed = onSetSpeed,
@@ -152,6 +170,8 @@ fun PropertiesPanel(
                 onSetTransitionIn = onSetTransitionIn,
                 onSetTransitionOut = onSetTransitionOut,
                 onSetOpacity = onSetOpacity,
+                onSetBlendMode = onSetBlendMode,
+                onApplyKenBurns = onApplyKenBurns,
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
@@ -160,7 +180,19 @@ fun PropertiesPanel(
                 onUpdateMask = onUpdateMask,
                 onSetMaskEnabled = onSetMaskEnabled,
             )
-            is RustAudioClipKind -> AudioClipProperties(clip, kind, playheadMs, onSetVolume, onAddAudioFilter, onRemoveAudioFilter, onUpdateAudioFilterDuration, onAddKeyframe, onRemoveKeyframe, onUpdateKeyframe)
+            is RustAudioClipKind -> AudioClipProperties(
+                clip = clip,
+                kind = kind,
+                playheadMs = playheadMs,
+                onSetVolume = onSetVolume,
+                onAddAudioFilter = onAddAudioFilter,
+                onRemoveAudioFilter = onRemoveAudioFilter,
+                onUpdateAudioFilterDuration = onUpdateAudioFilterDuration,
+                onReplaceAudioFilter = onReplaceAudioFilter,
+                onAddKeyframe = onAddKeyframe,
+                onRemoveKeyframe = onRemoveKeyframe,
+                onUpdateKeyframe = onUpdateKeyframe,
+            )
             is RustTextClipKind -> TextClipProperties(
                 clip = clip,
                 kind = kind,
@@ -197,6 +229,7 @@ private fun VideoClipProperties(
     onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
     onRemoveFilter: (String, Int) -> Unit,
     onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
+    onReplaceFilter: (String, Int, RustVideoFilterSnapshot) -> Unit = { _, _, _ -> },
     onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
     onMoveFilter: (String, Int, Int) -> Unit,
     onSetSpeed: (String, Float) -> Unit,
@@ -204,6 +237,8 @@ private fun VideoClipProperties(
     onSetTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
+    onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
+    onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
@@ -221,6 +256,35 @@ private fun VideoClipProperties(
     val clipTransition = clip.transitionIn
     val clipFilters = kind.filters
 
+    val lutScope = rememberCoroutineScope()
+    var lutTarget by remember { mutableStateOf<Pair<Int, RustLutFilterSnapshot>?>(null) }
+    var lutPickError by remember(clip.id) { mutableStateOf<String?>(null) }
+    val lutPicker = rememberFilePickerLauncher(
+        type = FileKitType.File(extensions = SupportedFormats.lutExtensions),
+    ) { file: PlatformFile? ->
+        file?.let { picked ->
+            lutScope.launch {
+                val path = try {
+                    PlatformFileSystem.stageForNativeAccess(picked.platformPath())
+                } catch (error: Exception) {
+                    Napier.e("LUT file could not be staged", error)
+                    lutPickError = "Could not use LUT: ${error.message}"
+                    return@launch
+                }
+                lutPickError = null
+                val target = lutTarget
+                if (target == null) {
+                    onAddFilter(
+                        clip.id,
+                        RustVideoEffectSnapshot(filter = RustLutFilterSnapshot(path = path), enabled = true),
+                    )
+                } else {
+                    onReplaceFilter(clip.id, target.first, target.second.copy(path = path))
+                }
+            }
+        }
+    }
+
     Text(fileName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(4.dp))
     Text(
@@ -231,7 +295,10 @@ private fun VideoClipProperties(
 
     Spacer(Modifier.height(16.dp))
 
-    Text("Speed", style = MaterialTheme.typography.labelMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Speed", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        KeyframeToggle(KeyframeParams.SPEED, clip, clipOffsetUs, onAddKeyframe)
+    }
     var speedValue by remember(clipSpeed) { mutableFloatStateOf(clipSpeed) }
     Slider(
         value = speedValue,
@@ -272,6 +339,44 @@ private fun VideoClipProperties(
         valueRange = 0f..1f,
     )
     Text(paramDefOrUnknown(KeyframeParams.OPACITY).format(opacityValue), style = MaterialTheme.typography.labelSmall)
+
+    Spacer(Modifier.height(16.dp))
+
+    Text("Blend", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    var blendExpanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { blendExpanded = true }) {
+            Text(blendModeLabel(clip.blendMode))
+        }
+        DropdownMenu(expanded = blendExpanded, onDismissRequest = { blendExpanded = false }) {
+            blendModeOptions.forEach { (mode, label) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        onSetBlendMode(clip.id, mode)
+                        blendExpanded = false
+                    },
+                )
+            }
+        }
+    }
+
+    Spacer(Modifier.height(16.dp))
+
+    Text("Ken Burns", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        kenBurnsPresets.forEach { preset ->
+            AssistChip(
+                onClick = { onApplyKenBurns(clip.id, preset) },
+                label = { Text(preset.label) },
+            )
+        }
+    }
 
     Spacer(Modifier.height(16.dp))
 
@@ -326,7 +431,20 @@ private fun VideoClipProperties(
                     },
                 )
             }
+            DropdownMenuItem(
+                text = { Text("LUT") },
+                onClick = {
+                    lutTarget = null
+                    expanded = false
+                    lutPicker.launch()
+                },
+            )
         }
+    }
+
+    lutPickError?.let { message ->
+        Spacer(Modifier.height(4.dp))
+        Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
     }
 
     clipFilters.forEachIndexed { index, effect ->
@@ -384,6 +502,119 @@ private fun VideoClipProperties(
                 },
                 label = { Text("Flip V") },
             )
+        }
+    }
+
+    clipFilters.forEachIndexed { index, effect ->
+        val chroma = effect.filter as? RustChromaKeyFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            chromaKeyPresets.forEach { preset ->
+                FilterChip(
+                    selected = chroma.keyColor.equals(preset.color, ignoreCase = true),
+                    onClick = { onReplaceFilter(clip.id, index, chroma.copy(keyColor = preset.color)) },
+                    label = { Text(preset.label) },
+                )
+            }
+        }
+    }
+
+    clipFilters.forEachIndexed { index, effect ->
+        val mosaic = effect.filter as? RustMosaicFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            mosaicKindOptions.forEach { (kind, label) ->
+                FilterChip(
+                    selected = mosaic.kind == kind,
+                    onClick = { onReplaceFilter(clip.id, index, mosaic.copy(kind = kind)) },
+                    label = { Text(label) },
+                )
+            }
+        }
+    }
+
+    clipFilters.forEachIndexed { index, effect ->
+        val blur = effect.filter as? RustBlurFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            blurKindOptions.forEach { (kind, label) ->
+                FilterChip(
+                    selected = blur.kind == kind,
+                    onClick = { onReplaceFilter(clip.id, index, blur.copy(kind = kind)) },
+                    label = { Text(label) },
+                )
+            }
+        }
+    }
+
+    clipFilters.forEachIndexed { index, effect ->
+        val lut = effect.filter as? RustLutFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        var lutInfo by remember(lut.path) { mutableStateOf<String?>(null) }
+        var lutError by remember(lut.path) { mutableStateOf<String?>(null) }
+        LaunchedEffect(lut.path) {
+            lutInfo = null
+            lutError = null
+            if (lut.path.isEmpty()) return@LaunchedEffect
+            val parsed = try {
+                parseCubeLut(PlatformFileSystem.readText(lut.path))
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+            parsed
+                .onSuccess {
+                    lutInfo = if (it.kind == CubeLutKind.ThreeD) "Size: 3D ${it.size}³" else "Size: 1D ${it.size}"
+                }
+                .onFailure { lutError = it.message ?: "Invalid LUT file" }
+        }
+
+        val lutFileName = lut.path.takeIf { it.isNotEmpty() }
+            ?.substringAfterLast("/")
+            ?.substringAfterLast("\\")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("LUT file", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                lutFileName ?: "None",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (lutFileName != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (lutFileName != null) {
+                IconButton(
+                    onClick = { onReplaceFilter(clip.id, index, lut.copy(path = "")) },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Remove LUT file", modifier = Modifier.size(16.dp))
+                }
+            }
+            Spacer(Modifier.width(4.dp))
+            OutlinedButton(
+                onClick = {
+                    lutTarget = index to lut
+                    lutPicker.launch()
+                },
+                modifier = Modifier.height(32.dp),
+            ) {
+                Text(if (lutFileName != null) "Change" else "Select", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+
+        lutInfo?.let { info ->
+            Spacer(Modifier.height(4.dp))
+            Text(info, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        lutError?.let { message ->
+            Spacer(Modifier.height(4.dp))
+            Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
         }
     }
 
@@ -458,6 +689,7 @@ private fun AudioClipProperties(
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit,
     onRemoveAudioFilter: (String, Int) -> Unit,
     onUpdateAudioFilterDuration: (String, Int, Long) -> Unit,
+    onReplaceAudioFilter: (String, Int, RustAudioFilterSnapshot) -> Unit = { _, _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
@@ -519,6 +751,20 @@ private fun AudioClipProperties(
                 text = { Text("Reverse") },
                 onClick = {
                     onAddAudioFilter(clip.id, RustReverseAudioFilterSnapshot)
+                    audioFilterExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Equalizer") },
+                onClick = {
+                    onAddAudioFilter(clip.id, RustEqualizerAudioFilterSnapshot())
+                    audioFilterExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Reverb") },
+                onClick = {
+                    onAddAudioFilter(clip.id, RustReverbAudioFilterSnapshot())
                     audioFilterExpanded = false
                 },
             )
@@ -594,6 +840,64 @@ private fun AudioClipProperties(
                     Text("Reverse", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                     IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
                         Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.common_remove), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            is RustEqualizerAudioFilterSnapshot -> {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Equalizer", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.common_remove), modifier = Modifier.size(16.dp))
+                    }
+                }
+                var eqExpanded by remember(filter) { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(onClick = { eqExpanded = true }) {
+                        Text(eqPresetLabel(filter.preset))
+                    }
+                    DropdownMenu(expanded = eqExpanded, onDismissRequest = { eqExpanded = false }) {
+                        eqPresetOptions.forEach { (preset, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    onReplaceAudioFilter(clip.id, index, filter.copy(preset = preset))
+                                    eqExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            is RustReverbAudioFilterSnapshot -> {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Reverb", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.common_remove), modifier = Modifier.size(16.dp))
+                    }
+                }
+                var reverbExpanded by remember(filter) { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(onClick = { reverbExpanded = true }) {
+                        Text(reverbPresetLabel(filter.preset))
+                    }
+                    DropdownMenu(expanded = reverbExpanded, onDismissRequest = { reverbExpanded = false }) {
+                        reverbPresetOptions.forEach { (preset, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    onReplaceAudioFilter(clip.id, index, filter.copy(preset = preset))
+                                    reverbExpanded = false
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -834,6 +1138,7 @@ private fun TextClipProperties(
         transitionOut = transitionOut,
         onSetTransitionIn = { onSetTextTransitionIn(clip.id, it) },
         onSetTransitionOut = { onSetTextTransitionOut(clip.id, it) },
+        options = textTransitionOptions,
     )
 }
 
@@ -842,6 +1147,9 @@ private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
     RustBrightnessFilterSnapshot(0f),
     RustContrastFilterSnapshot(1f),
     RustSaturationFilterSnapshot(1f),
+    RustColorGradeFilterSnapshot(),
+    RustChromaKeyFilterSnapshot(),
+    RustMosaicFilterSnapshot(),
     RustGrayscaleFilterSnapshot,
     RustBlurFilterSnapshot(5f),
     RustSharpenFilterSnapshot(1f),

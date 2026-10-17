@@ -6,5 +6,6 @@ expect object SupportedFormats {
     val imageExtensions: List<String>
     val subtitleExtensions: List<String>
     val fontExtensions: List<String>
+    val lutExtensions: List<String>
     val formatHelpMessage: String
 }

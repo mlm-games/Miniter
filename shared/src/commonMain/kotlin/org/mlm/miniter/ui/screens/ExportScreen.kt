@@ -909,7 +909,9 @@ private fun AspectRatioChips(
 
     fun matchesRatio(aw: Int, ah: Int): Boolean {
         if (aspectW <= 0 || aspectH <= 0) return false
-        return aspectW.toLong() * ah == aspectH.toLong() * aw
+        val target = aw.toDouble() / ah.toDouble()
+        val actual = aspectW.toDouble() / aspectH.toDouble()
+        return kotlin.math.abs(actual - target) / target < 0.01
     }
 
     fun applyAspect(aw: Int, ah: Int, fallbackW: String, fallbackH: String) {
@@ -944,6 +946,30 @@ private fun AspectRatioChips(
             onClick = { applyAspect(1, 1, "1080", "1080") },
             enabled = enabled,
             label = { Text("1:1") },
+        )
+        FilterChip(
+            selected = matchesRatio(4, 3),
+            onClick = { applyAspect(4, 3, "1920", "1440") },
+            enabled = enabled,
+            label = { Text("4:3") },
+        )
+        FilterChip(
+            selected = matchesRatio(3, 4),
+            onClick = { applyAspect(3, 4, "1080", "1440") },
+            enabled = enabled,
+            label = { Text("3:4") },
+        )
+        FilterChip(
+            selected = matchesRatio(4, 5),
+            onClick = { applyAspect(4, 5, "1080", "1350") },
+            enabled = enabled,
+            label = { Text("4:5") },
+        )
+        FilterChip(
+            selected = matchesRatio(235, 100),
+            onClick = { applyAspect(235, 100, "1920", "816") },
+            enabled = enabled,
+            label = { Text("2.35:1") },
         )
     }
 }

@@ -203,6 +203,13 @@ class RustCommandJson(
             put("duration_us", JsonPrimitive(durationUs))
         }
 
+    fun updateAudioFilter(clipId: String, index: Int, filter: RustAudioFilterSnapshot): String =
+        wrap("UpdateAudioFilter") {
+            put("clip_id", uuid(clipId))
+            put("index", JsonPrimitive(index))
+            put("filter", json.encodeToJsonElement(RustAudioFilterSnapshot.serializer(), filter))
+        }
+
     fun setTransitionIn(clipId: String, transition: RustTransitionSnapshot?): String =
         wrap("SetTransitionIn") {
             put("clip_id", uuid(clipId))

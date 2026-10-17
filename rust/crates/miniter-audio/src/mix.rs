@@ -2,10 +2,13 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use miniter_domain::Project;
-use miniter_domain::clip::ClipKind;
+use miniter_domain::clip::{ClipKind, speed_ramp_source_offset};
 use miniter_domain::filter::AudioFilter;
+use miniter_domain::keyframe::{KeyframeCurve, param};
+use miniter_domain::time::MediaDuration;
 
 use crate::decode::{DecodeAudioError, DecodedAudio, decode_audio_f32, decode_audio_f32_bytes};
+use crate::dsp;
 use crate::util;
 
 #[derive(Debug, Clone, Copy)]
@@ -48,6 +51,7 @@ struct ScheduledAudioClip {
     source_start_frame: usize,
     source_end_frame: Option<usize>,
     speed: f64,
+    speed_keyframes: KeyframeCurve,
     gain: f32,
     /// Source channel to play, from a `Channel` filter; None plays all.
     source_channel: Option<usize>,
@@ -139,6 +143,29 @@ fn mix_project_audio_internal(
             continue;
         }
 
+        let dsp_samples = if dsp::has_clip_dsp(&clip.audio_filters) {
+            let mut processed = asset.samples.clone();
+            let start = clip
+                .source_start_frame
+                .saturating_mul(out_channels)
+                .min(processed.len());
+            let end = source_end_frame
+                .saturating_mul(out_channels)
+                .min(processed.len());
+            if start < end {
+                dsp::apply_clip_dsp(
+                    &mut processed[start..end],
+                    out_channels,
+                    config.sample_rate,
+                    &clip.audio_filters,
+                );
+            }
+            Some(processed)
+        } else {
+            None
+        };
+        let asset_samples: &[f32] = dsp_samples.as_deref().unwrap_or(&asset.samples);
+
         let is_reversed = clip
             .audio_filters
             .iter()
@@ -148,12 +175,13 @@ fn mix_project_audio_internal(
             let dst_frame = clip.timeline_start_frame + dst_offset;
             // Speed 0 holds the source start frame for the whole clip (freeze).
             let is_hold = clip.speed == 0.0;
+            let offset_frames = clip.source_offset_frames(dst_offset, config.sample_rate);
             let src_pos = if is_hold {
                 (clip.source_start_frame as f64).clamp(0.0, asset_frames.saturating_sub(1) as f64)
             } else if is_reversed {
-                source_end_frame as f64 - 1.0 - (dst_offset as f64 * clip.speed)
+                source_end_frame as f64 - 1.0 - offset_frames
             } else {
-                clip.source_start_frame as f64 + (dst_offset as f64 * clip.speed)
+                clip.source_start_frame as f64 + offset_frames
             };
 
             if !is_hold
@@ -176,7 +204,7 @@ fn mix_project_audio_internal(
                 mix_interpolated_frame(
                     &mut mixed,
                     dst_frame,
-                    &asset.samples,
+                    asset_samples,
                     asset_frames,
                     out_channels,
                     src_pos,
@@ -282,6 +310,7 @@ fn collect_scheduled_audio(project: &Project, config: MixConfig) -> Vec<Schedule
                 source_start_frame: micros_to_frames(source_start_us, config.sample_rate),
                 source_end_frame,
                 speed: clip.speed,
+                speed_keyframes: clip.keyframes.clone(),
                 gain: clip.volume,
                 source_channel: audio_filters
                     .iter()
@@ -368,6 +397,33 @@ fn micros_to_frames(micros: i64, sample_rate: u32) -> usize {
     }
 
     (((micros as i128) * (sample_rate as i128) + 500_000) / 1_000_000) as usize
+}
+
+fn frames_to_micros(frames: usize, sample_rate: u32) -> i64 {
+    if sample_rate == 0 {
+        return 0;
+    }
+
+    ((frames as i128 * 1_000_000 + (sample_rate as i128) / 2) / sample_rate as i128) as i64
+}
+
+impl ScheduledAudioClip {
+    /// Source frames consumed after `dst_offset` output frames. A keyframed
+    /// speed curve is integrated, otherwise the constant `speed` scales
+    /// directly so unramped clips keep the exact frame-domain arithmetic.
+    fn source_offset_frames(&self, dst_offset: usize, sample_rate: u32) -> f64 {
+        if !self.speed_keyframes.has_param(param::SPEED) {
+            return dst_offset as f64 * self.speed;
+        }
+
+        let local_us = frames_to_micros(dst_offset, sample_rate);
+        let offset_us = speed_ramp_source_offset(
+            &self.speed_keyframes,
+            self.speed,
+            MediaDuration::from_micros(local_us),
+        );
+        micros_to_frames(offset_us.max(0), sample_rate) as f64
+    }
 }
 
 fn convert_channels_interleaved(input: &[f32], in_channels: u16, out_channels: u16) -> Vec<f32> {

@@ -74,6 +74,7 @@ fn test_raw_pts(path: &str, expected_fourcc: u32, label: &str) {
         hardware_acceleration: None,
         output_mode: VideoOutputMode::Cpu,
         color: None,
+        latency_optimized: None,
     };
     let (mut input, mut output): (CrosVideoDecoderInput, CrosVideoDecoderOutput) = host
         .create_video_decoder(config)

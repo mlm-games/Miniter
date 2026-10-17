@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -23,9 +24,12 @@ import org.mlm.miniter.editor.RustDispatchException
 import org.mlm.miniter.editor.RustProjectStore
 import org.mlm.miniter.nav.MAX_EXTRA_IMPORT_PATHS
 import org.mlm.miniter.editor.model.RustAudioClipKind
+import org.mlm.miniter.editor.model.RustBlendMode
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
 import org.mlm.miniter.editor.model.RustBrightnessFilterSnapshot
+import org.mlm.miniter.editor.model.RustChromaKeyFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
+import org.mlm.miniter.editor.model.RustColorGradeFilterSnapshot
 import org.mlm.miniter.editor.model.RustContrastFilterSnapshot
 import org.mlm.miniter.editor.model.RustCropFilterSnapshot
 import org.mlm.miniter.editor.model.RustFlipFilterSnapshot
@@ -41,7 +45,11 @@ import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustMaskEffect
 import org.mlm.miniter.editor.model.RustProjectSnapshot
+import org.mlm.miniter.editor.model.RustReverseAudioFilterSnapshot
+import org.mlm.miniter.editor.model.RustReverseVideoFilterSnapshot
 import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
+import org.mlm.miniter.editor.model.RustLutFilterSnapshot
+import org.mlm.miniter.editor.model.RustMosaicFilterSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
@@ -71,6 +79,8 @@ import org.mlm.miniter.platform.usToMs
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.RecentProjectsRepository
+import org.mlm.miniter.project.KenBurnsPreset
+import org.mlm.miniter.project.keyframesFor
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.rust.BeatTrack
@@ -239,10 +249,61 @@ class ProjectViewModel(
     fun snapToBeat(sourcePath: String, timeMs: Long, toleranceMs: Long = 150L): Long? =
         _beats.value[sourcePath]?.snap(timeMs, toleranceMs)
 
+    val beatMarkersMs: StateFlow<List<Long>> =
+        combine(_beats, rustStore.snapshot) { beats, snapshot ->
+            beatMarkersIn(beats, snapshot)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private fun beatMarkersIn(
+        beats: Map<String, BeatTrack>,
+        snapshot: RustProjectSnapshot?,
+    ): List<Long> {
+        if (beats.isEmpty() || snapshot == null) return emptyList()
+        val markers = mutableListOf<Long>()
+        for (clip in snapshot.timeline.tracks.flatMap { it.clips }) {
+            val source = when (val kind = clip.kind) {
+                is RustVideoClipKind -> kind.sourcePath to
+                    kind.filters.any { it.filter is RustReverseVideoFilterSnapshot }
+                is RustAudioClipKind -> kind.sourcePath to
+                    kind.filters.any { it is RustReverseAudioFilterSnapshot }
+                else -> null
+            } ?: continue
+            if (source.second) continue
+            val onsets = beats[source.first]?.onsetsMs
+            if (onsets.isNullOrEmpty()) continue
+            val speed = if (clip.speed.isFinite() && clip.speed > 0.0) clip.speed else 1.0
+            val sourceStartMs = clip.sourceStartUs / 1000.0
+            val clipStartMs = clip.timelineStartUs / 1000.0
+            val clipDurationMs = clip.timelineDurationUs / 1000.0
+            for (onsetMs in onsets) {
+                val localMs = (onsetMs - sourceStartMs) / speed
+                if (localMs < 0.0 || localMs > clipDurationMs) continue
+                markers += (clipStartMs + localMs).toLong()
+            }
+        }
+        markers.sort()
+        return markers
+    }
+
     init {
         viewModelScope.launch {
             settingsRepository.flow.collect { settings ->
                 hardwareAccelerationEnabled = settings.hardwareAccelerationEnabled
+            }
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            rustStore.snapshot.collect { snapshot ->
+                val clips = snapshot?.timeline?.tracks?.flatMap { it.clips } ?: return@collect
+                for (clip in clips) {
+                    when (val kind = clip.kind) {
+                        is RustVideoClipKind -> requestBeats(kind.sourcePath)
+                        is RustAudioClipKind -> requestBeats(kind.sourcePath)
+                        else -> Unit
+                    }
+                }
             }
         }
     }
@@ -1714,6 +1775,10 @@ class ProjectViewModel(
         )
     }
 
+    fun setClipBlendMode(clipId: String, blendMode: RustBlendMode) {
+        dispatchAndSync(rustStore.commands.setClipBlendMode(clipId, blendMode.name))
+    }
+
     fun addAudioFilter(clipId: String, filter: RustAudioFilterSnapshot) {
         dispatchAndSync(rustStore.commands.addAudioFilter(clipId = clipId, filter = filter))
     }
@@ -1727,6 +1792,10 @@ class ProjectViewModel(
             rustStore.commands.updateAudioFilterDuration(clipId, filterIndex, durationUs),
             "AudioFilter",
         )
+    }
+
+    fun replaceAudioFilter(clipId: String, filterIndex: Int, filter: RustAudioFilterSnapshot) {
+        dispatchAndSync(rustStore.commands.updateAudioFilter(clipId, filterIndex, filter))
     }
 
     fun updateTextClip(clipId: String, newText: String) {
@@ -1843,7 +1912,35 @@ class ProjectViewModel(
             is RustBrightnessFilterSnapshot -> RustBrightnessFilterSnapshot(newParams["value"] ?: filter.value)
             is RustContrastFilterSnapshot -> RustContrastFilterSnapshot(newParams["value"] ?: filter.value)
             is RustSaturationFilterSnapshot -> RustSaturationFilterSnapshot(newParams["value"] ?: filter.value)
-            is RustBlurFilterSnapshot -> RustBlurFilterSnapshot(newParams["radius"] ?: filter.radius)
+            is RustColorGradeFilterSnapshot -> RustColorGradeFilterSnapshot(
+                brightness = newParams["brightness"] ?: filter.brightness,
+                contrast = newParams["contrast"] ?: filter.contrast,
+                saturation = newParams["saturation"] ?: filter.saturation,
+                vibrance = newParams["vibrance"] ?: filter.vibrance,
+                temperature = newParams["temperature"] ?: filter.temperature,
+                tint = newParams["tint"] ?: filter.tint,
+                exposure = newParams["exposure"] ?: filter.exposure,
+                gamma = newParams["gamma"] ?: filter.gamma,
+                lift = newParams["lift"] ?: filter.lift,
+                gain = newParams["gain"] ?: filter.gain,
+                highlights = newParams["highlights"] ?: filter.highlights,
+                shadows = newParams["shadows"] ?: filter.shadows,
+            )
+            is RustChromaKeyFilterSnapshot -> filter.copy(
+                tolerance = newParams["tolerance"] ?: filter.tolerance,
+                softness = newParams["softness"] ?: filter.softness,
+                spill = newParams["spill"] ?: filter.spill,
+            )
+            is RustMosaicFilterSnapshot -> filter.copy(
+                size = newParams["size"] ?: filter.size,
+            )
+            is RustLutFilterSnapshot -> filter.copy(
+                strength = newParams["strength"] ?: filter.strength,
+            )
+            is RustBlurFilterSnapshot -> filter.copy(
+                radius = newParams["radius"] ?: filter.radius,
+                angle = newParams["angle"] ?: filter.angle,
+            )
             is RustSharpenFilterSnapshot -> RustSharpenFilterSnapshot(newParams["amount"] ?: filter.amount)
             is RustTransformFilterSnapshot -> RustTransformFilterSnapshot(
                 scale = newParams["scale"] ?: filter.scale,
@@ -1877,6 +1974,18 @@ class ProjectViewModel(
                 filter = current.copy(filter = updatedFilter),
             ),
             "Filter",
+        )
+    }
+
+    fun replaceFilter(clipId: String, filterIndex: Int, filter: RustVideoFilterSnapshot) {
+        val video = findRustClip(clipId)?.kind as? RustVideoClipKind ?: return
+        val current = video.filters.getOrNull(filterIndex) ?: return
+        dispatchAndSync(
+            rustStore.commands.updateVideoFilter(
+                clipId = clipId,
+                index = filterIndex,
+                filter = current.copy(filter = filter),
+            ),
         )
     }
 
@@ -1937,6 +2046,20 @@ class ProjectViewModel(
         dispatchAndSync(rustStore.commands.addKeyframe(clipId, keyframe))
     }
 
+    fun applyKenBurns(clipId: String, preset: KenBurnsPreset) {
+        val clip = findRustClip(clipId) ?: return
+        val durationUs = clip.timelineDurationUs
+        if (durationUs <= 0L) return
+        beginContinuousEdit("Ken Burns")
+        try {
+            for (keyframe in preset.keyframesFor(durationUs)) {
+                dispatchCoalescing(rustStore.commands.addKeyframe(clipId, keyframe), "Ken Burns")
+            }
+        } finally {
+            commitContinuousEdit()
+        }
+    }
+
     fun removeKeyframe(clipId: String, index: Int) {
         dispatchAndSync(rustStore.commands.removeKeyframe(clipId, index))
     }
@@ -1984,6 +2107,14 @@ class ProjectViewModel(
         if (dph < minDist) {
             nearest = playhead
             minDist = dph
+        }
+
+        for (beatMs in beatMarkersMs.value) {
+            val dbe = kotlin.math.abs(ms - beatMs)
+            if (dbe < minDist) {
+                nearest = beatMs
+                minDist = dbe
+            }
         }
 
         for (clip in snapshot.timeline.tracks.flatMap { it.clips }) {

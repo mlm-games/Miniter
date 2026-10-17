@@ -6,11 +6,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
+import org.mlm.miniter.editor.model.RustBlendMode
+import org.mlm.miniter.project.KenBurnsPreset
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustMaskEffect
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
+import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,11 +35,15 @@ fun PropertiesBottomSheet(
     onUpdateText: (String, String) -> Unit,
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
     onSetOpacity: (String, Float) -> Unit,
+    onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
+    onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
+    onReplaceFilter: (String, Int, RustVideoFilterSnapshot) -> Unit = { _, _, _ -> },
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
     onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
     onUpdateAudioFilterDuration: (String, Int, Long) -> Unit = { _, _, _ -> },
+    onReplaceAudioFilter: (String, Int, RustAudioFilterSnapshot) -> Unit = { _, _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
@@ -73,11 +80,15 @@ fun PropertiesBottomSheet(
                 onUpdateText = onUpdateText,
                 onUpdateTextStyle = onUpdateTextStyle,
                 onSetOpacity = onSetOpacity,
+                onSetBlendMode = onSetBlendMode,
+                onApplyKenBurns = onApplyKenBurns,
+                onReplaceFilter = onReplaceFilter,
                 onSetTextTransitionIn = onSetTextTransitionIn,
                 onSetTextTransitionOut = onSetTextTransitionOut,
                 onAddAudioFilter = onAddAudioFilter,
                 onRemoveAudioFilter = onRemoveAudioFilter,
                 onUpdateAudioFilterDuration = onUpdateAudioFilterDuration,
+                onReplaceAudioFilter = onReplaceAudioFilter,
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,

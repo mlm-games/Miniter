@@ -29,7 +29,9 @@ use miniter_domain::time::Timestamp;
 use miniter_domain::track::TrackKind;
 use miniter_render_plan::compositor::{FramePlanIterator, first_video_dimensions};
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
-use miniter_render_plan::transition_blend::{opacity_pair, slide_offset};
+use miniter_render_plan::transition_blend::{
+    opacity_pair, slide_offset, slide_offset_y, transition_scales,
+};
 use miniter_render_plan::validate::validate_frame_plan;
 use std::collections::HashMap;
 use std::fs::{File, create_dir_all};
@@ -720,18 +722,20 @@ impl AnyEncoder {
         }
     }
 
-    /// Drain the HW tail. Native platform encoders are async under the hood
-    /// (W3C WebCodecs: outputs MAY arrive only after further inputs, MUST all
-    /// arrive on flush), so the last frames are still buffered when the frame
-    /// loop ends. Native counterpart of the WASM `drain_completed` loop.
+    /// Drain the HW tail. Native platform encoders emit exactly one packet per
+    /// submitted frame, so `pending_frames()` frames are still owed when the
+    /// frame loop ends. Reading beyond that count blocks forever: the worker
+    /// thread stays alive until the session drops and will never emit another
+    /// packet, so the extra read used to freeze the export at 100%.
     /// Best-effort: a drain error must not fail an export that already
     /// encoded every frame - log and return what we have.
     fn finish_hw(&mut self) -> Vec<EncodedVideoOutput> {
         match self {
             AnyEncoder::Sw(_) => Vec::new(),
             AnyEncoder::Hw(e) => {
+                let pending = e.pending_frames();
                 let mut out = Vec::new();
-                for _ in 0..=e.pending_frames() {
+                for _ in 0..pending {
                     match e.drain_one() {
                         Ok(Some(sample)) => out.push(sample),
                         Ok(None) => break,
@@ -740,6 +744,12 @@ impl AnyEncoder {
                             break;
                         }
                     }
+                }
+                if out.len() as u32 != pending {
+                    log::warn!(
+                        "HW tail drain collected {} of {pending} buffered frames",
+                        out.len()
+                    );
                 }
                 out
             }
@@ -1416,6 +1426,21 @@ fn render_node(
                     alpha_over(&mut canvas, &top_layer);
                     Ok(canvas)
                 }
+                miniter_domain::transition::TransitionKind::FadeThroughBlack => {
+                    if eased < 0.5 {
+                        let mut canvas = bottom_img;
+                        let mut shade = opaque_black(width, height);
+                        filters::scale_alpha(&mut shade, 2.0 * eased);
+                        alpha_over(&mut canvas, &shade);
+                        Ok(canvas)
+                    } else {
+                        let mut canvas = opaque_black(width, height);
+                        let mut top_layer = top_img;
+                        filters::scale_alpha(&mut top_layer, 2.0 * eased - 1.0);
+                        alpha_over(&mut canvas, &top_layer);
+                        Ok(canvas)
+                    }
+                }
                 miniter_domain::transition::TransitionKind::SlideLeft
                 | miniter_domain::transition::TransitionKind::SlideRight => {
                     let mut canvas = bottom_img;
@@ -1430,6 +1455,50 @@ fn render_node(
                         dx,
                         0,
                     );
+                    Ok(canvas)
+                }
+                miniter_domain::transition::TransitionKind::SlideUp
+                | miniter_domain::transition::TransitionKind::SlideDown => {
+                    let mut canvas = bottom_img;
+                    let dy = (slide_offset_y(*kind, eased) * height as f32).round() as i32;
+                    alpha_over_with_offset(
+                        &mut canvas,
+                        &top_img,
+                        width,
+                        height,
+                        width,
+                        height,
+                        0,
+                        dy,
+                    );
+                    Ok(canvas)
+                }
+                miniter_domain::transition::TransitionKind::ZoomIn
+                | miniter_domain::transition::TransitionKind::ZoomOut => {
+                    let (bottom_scale, top_scale) = transition_scales(*kind, eased);
+                    let (bottom_a, top_a) = opacity_pair(*kind, eased);
+                    let mut canvas = if bottom_scale != 1.0 {
+                        transform_rgba(&bottom_img, width, height, bottom_scale, 0.0, 0.0, 0.0)
+                    } else {
+                        bottom_img
+                    };
+                    filters::scale_alpha(&mut canvas, bottom_a);
+                    let mut top_layer = if top_scale != 1.0 {
+                        transform_rgba(&top_img, width, height, top_scale, 0.0, 0.0, 0.0)
+                    } else {
+                        top_img
+                    };
+                    filters::scale_alpha(&mut top_layer, top_a);
+                    alpha_over(&mut canvas, &top_layer);
+                    Ok(canvas)
+                }
+                miniter_domain::transition::TransitionKind::WipeFromLeft
+                | miniter_domain::transition::TransitionKind::WipeFromRight
+                | miniter_domain::transition::TransitionKind::WipeFromTop
+                | miniter_domain::transition::TransitionKind::WipeFromBottom
+                | miniter_domain::transition::TransitionKind::IrisOpen => {
+                    let mut canvas = bottom_img;
+                    alpha_over_wipe(&mut canvas, &top_img, width, height, *kind, eased);
                     Ok(canvas)
                 }
                 _ => Ok(bottom_img),

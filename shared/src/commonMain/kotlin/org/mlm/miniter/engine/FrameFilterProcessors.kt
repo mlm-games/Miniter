@@ -1,10 +1,19 @@
 package org.mlm.miniter.engine
 
+import io.github.aakira.napier.Napier
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.mlm.miniter.editor.model.*
+import org.mlm.miniter.platform.PlatformFileSystem
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.sin
 import kotlin.math.PI
+import kotlin.math.exp
+import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 object FrameFilterProcessors {
@@ -12,7 +21,33 @@ object FrameFilterProcessors {
     private const val GRAY_G = 0.587f
     private const val GRAY_B = 0.114f
 
-    fun applyFilters(
+    private fun srgbToLinear(v: Float): Float =
+        if (v <= 0.04045f) v / 12.92f else ((v + 0.055f) / 1.055f).pow(2.4f)
+
+    private fun linearToSrgb(v: Float): Float {
+        val c = v.coerceIn(0f, 1f)
+        return if (c <= 0.0031308f) c * 12.92f else 1.055f * c.pow(1f / 2.4f) - 0.055f
+    }
+
+    private inline fun eachPixelInLinear(
+        pixels: ByteArray,
+        total: Int,
+        body: (FloatArray) -> Unit,
+    ) {
+        val rgb = FloatArray(3)
+        for (i in 0 until total) {
+            val b = i * 4
+            for (c in 0 until 3) {
+                rgb[c] = srgbToLinear(pixels[b + c].toInt().and(0xFF) / 255f)
+            }
+            body(rgb)
+            for (c in 0 until 3) {
+                pixels[b + c] = (linearToSrgb(rgb[c]) * 255f).roundToInt().coerceIn(0, 255).toByte()
+            }
+        }
+    }
+
+    suspend fun applyFilters(
         src: ByteArray,
         width: Int,
         height: Int,
@@ -26,34 +61,26 @@ object FrameFilterProcessors {
         for (filter in filters) {
             when (filter) {
                 is RustBrightnessFilterSnapshot -> {
-                    val offset = (filter.value / 100f * 255f).toInt()
-                    for (i in 0 until total) {
-                        val b = i * 4
-                        pixels[b] = (pixels[b].toInt().and(0xFF) + offset).coerceIn(0, 255).toByte()
-                        pixels[b + 1] = (pixels[b + 1].toInt().and(0xFF) + offset).coerceIn(0, 255).toByte()
-                        pixels[b + 2] = (pixels[b + 2].toInt().and(0xFF) + offset).coerceIn(0, 255).toByte()
+                    val offset = filter.value / 100f
+                    eachPixelInLinear(pixels, total) { rgb ->
+                        for (c in 0 until 3) rgb[c] = (rgb[c] + offset).coerceIn(0f, 1f)
                     }
                 }
                 is RustContrastFilterSnapshot -> {
                     val factor = filter.value
-                    for (i in 0 until total) {
-                        val b = i * 4
-                        pixels[b] = (((pixels[b].toInt().and(0xFF) - 128) * factor) + 128).toInt().coerceIn(0, 255).toByte()
-                        pixels[b + 1] = (((pixels[b + 1].toInt().and(0xFF) - 128) * factor) + 128).toInt().coerceIn(0, 255).toByte()
-                        pixels[b + 2] = (((pixels[b + 2].toInt().and(0xFF) - 128) * factor) + 128).toInt().coerceIn(0, 255).toByte()
+                    eachPixelInLinear(pixels, total) { rgb ->
+                        for (c in 0 until 3) {
+                            rgb[c] = ((rgb[c] - 0.5f) * factor + 0.5f).coerceIn(0f, 1f)
+                        }
                     }
                 }
                 is RustSaturationFilterSnapshot -> {
                     val factor = filter.value
-                    for (i in 0 until total) {
-                        val b = i * 4
-                        val r = pixels[b].toInt().and(0xFF).toFloat()
-                        val g = pixels[b + 1].toInt().and(0xFF).toFloat()
-                        val bl = pixels[b + 2].toInt().and(0xFF).toFloat()
-                        val gray = GRAY_R * r + GRAY_G * g + GRAY_B * bl
-                        pixels[b] = (gray + (r - gray) * factor).toInt().coerceIn(0, 255).toByte()
-                        pixels[b + 1] = (gray + (g - gray) * factor).toInt().coerceIn(0, 255).toByte()
-                        pixels[b + 2] = (gray + (bl - gray) * factor).toInt().coerceIn(0, 255).toByte()
+                    eachPixelInLinear(pixels, total) { rgb ->
+                        val gray = GRAY_R * rgb[0] + GRAY_G * rgb[1] + GRAY_B * rgb[2]
+                        for (c in 0 until 3) {
+                            rgb[c] = (gray + (rgb[c] - gray) * factor).coerceIn(0f, 1f)
+                        }
                     }
                 }
                 RustGrayscaleFilterSnapshot -> {
@@ -80,8 +107,19 @@ object FrameFilterProcessors {
                     }
                 }
                 is RustBlurFilterSnapshot -> {
-                    val radius = filter.radius.coerceIn(1f, 25f).toInt()
-                    pixels = applyBoxBlur(pixels, width, height, radius)
+                    val radius = filter.radius.coerceIn(1f, 25f)
+                    pixels = when (filter.kind) {
+                        RustBlurKind.Stack, RustBlurKind.Box ->
+                            applyBoxBlur(pixels, width, height, radius.toInt())
+                        RustBlurKind.Gaussian ->
+                            applyGaussianBlur(pixels, width, height, radius)
+                        RustBlurKind.Motion ->
+                            applyMotionBlur(pixels, width, height, radius, filter.angle)
+                        RustBlurKind.Radial ->
+                            applyRadialBlur(pixels, width, height, radius)
+                        RustBlurKind.Zoom ->
+                            applyZoomBlur(pixels, width, height, radius)
+                    }
                 }
                 is RustSharpenFilterSnapshot -> {
                     val amount = filter.amount.coerceAtLeast(0f)
@@ -93,11 +131,10 @@ object FrameFilterProcessors {
                     val angle = (filter.degrees % 360f * PI.toFloat() / 180f)
                     val cosA = cos(angle.toDouble()).toFloat()
                     val sinA = sin(angle.toDouble()).toFloat()
-                    for (i in 0 until total) {
-                        val b = i * 4
-                        val r = pixels[b].toInt().and(0xFF) / 255f
-                        val g = pixels[b + 1].toInt().and(0xFF) / 255f
-                        val bl = pixels[b + 2].toInt().and(0xFF) / 255f
+                    eachPixelInLinear(pixels, total) { rgb ->
+                        val r = rgb[0]
+                        val g = rgb[1]
+                        val bl = rgb[2]
                         val nr = (0.299f + 0.701f * cosA + 0.168f * sinA) * r +
                                 (0.587f - 0.587f * cosA + 0.330f * sinA) * g +
                                 (0.114f - 0.114f * cosA - 0.497f * sinA) * bl
@@ -107,10 +144,105 @@ object FrameFilterProcessors {
                         val nb = (0.299f - 0.300f * cosA + 1.250f * sinA) * r +
                                 (0.587f - 0.588f * cosA - 1.050f * sinA) * g +
                                 (0.114f + 0.886f * cosA - 0.203f * sinA) * bl
-                        pixels[b] = (nr.coerceIn(0f, 1f) * 255).toInt().coerceIn(0, 255).toByte()
-                        pixels[b + 1] = (ng.coerceIn(0f, 1f) * 255).toInt().coerceIn(0, 255).toByte()
-                        pixels[b + 2] = (nb.coerceIn(0f, 1f) * 255).toInt().coerceIn(0, 255).toByte()
+                        rgb[0] = nr.coerceIn(0f, 1f)
+                        rgb[1] = ng.coerceIn(0f, 1f)
+                        rgb[2] = nb.coerceIn(0f, 1f)
                     }
+                }
+                is RustColorGradeFilterSnapshot -> {
+                    val identity = filter.brightness == 0f && filter.contrast == 1f &&
+                        filter.saturation == 1f && filter.vibrance == 0f &&
+                        filter.temperature == 0f && filter.tint == 0f &&
+                        filter.exposure == 0f && filter.gamma == 1f &&
+                        filter.lift == 0f && filter.gain == 1f &&
+                        filter.highlights == 0f && filter.shadows == 0f
+                    if (!identity) {
+                        val ev = 2f.pow(filter.exposure)
+                        val rGain = ev * (1f + 0.3f * filter.temperature)
+                        val gGain = ev * (1f + 0.3f * filter.tint)
+                        val bGain = ev * (1f - 0.3f * filter.temperature)
+                        val invGamma = if (filter.gamma > 0f) 1f / filter.gamma else 1f
+                        val toneMap = filter.highlights != 0f || filter.shadows != 0f
+                        val saturate = filter.saturation != 1f || filter.vibrance != 0f
+                        eachPixelInLinear(pixels, total) { rgb ->
+                            var r = rgb[0] * rGain * filter.gain + filter.lift
+                            var g = rgb[1] * gGain * filter.gain + filter.lift
+                            var bl = rgb[2] * bGain * filter.gain + filter.lift
+                            if (toneMap) {
+                                val l = (0.2126f * r + 0.7152f * g + 0.0722f * bl).coerceIn(0f, 1f)
+                                val adjust = filter.highlights * l * l +
+                                    filter.shadows * (1f - l) * (1f - l)
+                                r += adjust
+                                g += adjust
+                                bl += adjust
+                            }
+                            r = ((r + filter.brightness) - 0.5f) * filter.contrast + 0.5f
+                            g = ((g + filter.brightness) - 0.5f) * filter.contrast + 0.5f
+                            bl = ((bl + filter.brightness) - 0.5f) * filter.contrast + 0.5f
+                            r = r.coerceAtLeast(0f).pow(invGamma)
+                            g = g.coerceAtLeast(0f).pow(invGamma)
+                            bl = bl.coerceAtLeast(0f).pow(invGamma)
+                            if (saturate) {
+                                val l = 0.2126f * r + 0.7152f * g + 0.0722f * bl
+                                val mx = maxOf(r, g, bl)
+                                val mn = minOf(r, g, bl)
+                                val current = if (mx > 0f) (mx - mn) / mx else 0f
+                                val s = (filter.saturation + filter.vibrance * (1f - current))
+                                    .coerceAtLeast(0f)
+                                r = l + (r - l) * s
+                                g = l + (g - l) * s
+                                bl = l + (bl - l) * s
+                            }
+                            rgb[0] = r.coerceIn(0f, 1f)
+                            rgb[1] = g.coerceIn(0f, 1f)
+                            rgb[2] = bl.coerceIn(0f, 1f)
+                        }
+                    }
+                }
+                is RustChromaKeyFilterSnapshot -> {
+                    val s = filter.keyColor.trim().removePrefix("#")
+                    val packed = s.toLongOrNull(16)
+                    if (packed != null && (s.length == 6 || s.length == 8)) {
+                        val kr = (packed shr 16 and 0xFF) / 255f
+                        val kg = (packed shr 8 and 0xFF) / 255f
+                        val kb = (packed and 0xFF) / 255f
+                        val ky = 0.299f * kr + 0.587f * kg + 0.114f * kb
+                        val kCb = 0.564f * (kb - ky)
+                        val kCr = 0.713f * (kr - ky)
+                        val tol = filter.tolerance.coerceIn(0f, 1f)
+                        val soft = filter.softness.coerceIn(1f / 255f, 1f)
+                        val spill = filter.spill.coerceIn(0f, 1f)
+                        for (i in 0 until total) {
+                            val b = i * 4
+                            val r = pixels[b].toInt().and(0xFF) / 255f
+                            val g = pixels[b + 1].toInt().and(0xFF) / 255f
+                            val bl = pixels[b + 2].toInt().and(0xFF) / 255f
+                            val y = 0.299f * r + 0.587f * g + 0.114f * bl
+                            val dcb = 0.564f * (bl - y) - kCb
+                            val dcr = 0.713f * (r - y) - kCr
+                            val matte = ((sqrt(dcb * dcb + dcr * dcr) - tol) / soft).coerceIn(0f, 1f)
+                            if (matte >= 1f) continue
+                            val a = pixels[b + 3].toInt().and(0xFF) / 255f
+                            pixels[b + 3] = (a * matte * 255f).toInt().coerceIn(0, 255).toByte()
+                            if (spill > 0f) {
+                                val sp = spill * (1f - matte)
+                                pixels[b] = ((r + (y - r) * sp).coerceIn(0f, 1f) * 255f).toInt().coerceIn(0, 255).toByte()
+                                pixels[b + 1] = ((g + (y - g) * sp).coerceIn(0f, 1f) * 255f).toInt().coerceIn(0, 255).toByte()
+                                pixels[b + 2] = ((bl + (y - bl) * sp).coerceIn(0f, 1f) * 255f).toInt().coerceIn(0, 255).toByte()
+                            }
+                        }
+                    }
+                }
+                is RustLutFilterSnapshot -> {
+                    if (filter.path.isNotEmpty()) {
+                        val lut = loadCubeLut(filter.path)
+                        if (lut != null) {
+                            applyCubeLut(pixels, total, lut, filter.strength)
+                        }
+                    }
+                }
+                is RustMosaicFilterSnapshot -> {
+                    pixels = applyMosaic(pixels, width, height, filter.kind, filter.size)
                 }
                 is RustFlipFilterSnapshot -> {
                     if (filter.horizontal || filter.vertical) {
@@ -221,6 +353,222 @@ object FrameFilterProcessors {
         return dst
     }
 
+    private fun hexCell(x: Float, y: Float, r: Float): Pair<Int, Int> {
+        val cx = (0.57735027f * x - (1f / 3f) * y) / r
+        val cz = ((2f / 3f) * y) / r
+        val cy = -cx - cz
+        val rx = cx.roundToInt()
+        val ry = cy.roundToInt()
+        val rz = cz.roundToInt()
+        val dx = abs(rx - cx)
+        val dy = abs(ry - cy)
+        val dz = abs(rz - cz)
+        return when {
+            dx > dy && dx > dz -> Pair(-ry - rz, rz)
+            dy > dz -> Pair(rx, rz)
+            else -> Pair(rx, -rx - ry)
+        }
+    }
+
+    private fun applyMosaic(
+        src: ByteArray,
+        w: Int,
+        h: Int,
+        kind: RustMosaicKind,
+        size: Float,
+    ): ByteArray {
+        val s = size.coerceAtLeast(1f)
+        val total = w * h
+        val index = HashMap<Long, Int>()
+        val sums = ArrayList<FloatArray>()
+        val counts = ArrayList<Int>()
+        val owner = IntArray(total)
+
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val cell = when (kind) {
+                    RustMosaicKind.Square -> Pair((x / s).toInt(), (y / s).toInt())
+                    RustMosaicKind.Hexagon -> hexCell(x.toFloat(), y.toFloat(), s)
+                    RustMosaicKind.Triangle -> {
+                        val gx = (x / s).toInt()
+                        val gy = (y / s).toInt()
+                        val fx = x - gx * s
+                        val fy = y - gy * s
+                        Pair(gx * 2 + if (fx + fy < s) 0 else 1, gy)
+                    }
+                }
+                val key = (cell.first.toLong() shl 32) xor (cell.second.toLong() and 0xFFFFFFFFL)
+                val idx = index.getOrPut(key) {
+                    sums.add(FloatArray(4))
+                    counts.add(0)
+                    sums.size - 1
+                }
+                val p = (y * w + x) * 4
+                for (c in 0 until 4) {
+                    sums[idx][c] += src[p + c].toInt().and(0xFF)
+                }
+                counts[idx]++
+                owner[y * w + x] = idx
+            }
+        }
+
+        val out = src.copyOf()
+        for (i in 0 until total) {
+            val c = owner[i]
+            val n = counts[c].coerceAtLeast(1)
+            val p = i * 4
+            for (ch in 0 until 4) {
+                out[p + ch] = (sums[c][ch] / n).toInt().coerceIn(0, 255).toByte()
+            }
+        }
+        return out
+    }
+
+    private fun blurTaps(radius: Float): Int =
+        (radius * 3f).roundToInt().coerceIn(4, 64)
+
+    private fun bilinear(src: ByteArray, w: Int, h: Int, x: Float, y: Float): FloatArray {
+        val cx = x.coerceIn(0f, (w - 1).toFloat())
+        val cy = y.coerceIn(0f, (h - 1).toFloat())
+        val x0 = cx.toInt()
+        val y0 = cy.toInt()
+        val x1 = (x0 + 1).coerceAtMost(w - 1)
+        val y1 = (y0 + 1).coerceAtMost(h - 1)
+        val fx = cx - x0
+        val fy = cy - y0
+        val out = FloatArray(4)
+        for (c in 0 until 4) {
+            val p00 = src[(y0 * w + x0) * 4 + c].toInt().and(0xFF).toFloat()
+            val p10 = src[(y0 * w + x1) * 4 + c].toInt().and(0xFF).toFloat()
+            val p01 = src[(y1 * w + x0) * 4 + c].toInt().and(0xFF).toFloat()
+            val p11 = src[(y1 * w + x1) * 4 + c].toInt().and(0xFF).toFloat()
+            val top = p00 + (p10 - p00) * fx
+            val bottom = p01 + (p11 - p01) * fx
+            out[c] = top + (bottom - top) * fy
+        }
+        return out
+    }
+
+    private fun accumulateTaps(
+        src: ByteArray,
+        w: Int,
+        h: Int,
+        taps: Int,
+        tap: (Float, Float, Float) -> Pair<Float, Float>,
+    ): ByteArray {
+        val out = src.copyOf()
+        val inv = 1f / taps.coerceAtLeast(1)
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val acc = FloatArray(4)
+                for (t in 0 until taps) {
+                    val f = if (taps > 1) t.toFloat() / (taps - 1) else 0f
+                    val (sx, sy) = tap(x.toFloat(), y.toFloat(), f)
+                    val s = bilinear(src, w, h, sx, sy)
+                    for (c in 0 until 4) acc[c] += s[c]
+                }
+                val p = (y * w + x) * 4
+                for (c in 0 until 4) {
+                    out[p + c] = (acc[c] * inv).roundToInt().coerceIn(0, 255).toByte()
+                }
+            }
+        }
+        return out
+    }
+
+    private fun applyMotionBlur(src: ByteArray, w: Int, h: Int, radius: Float, angleDeg: Float): ByteArray {
+        val taps = blurTaps(radius)
+        val reach = radius.coerceAtLeast(1f)
+        val angle = angleDeg * PI.toFloat() / 180f
+        val dx = cos(angle) * reach
+        val dy = sin(angle) * reach
+        return accumulateTaps(src, w, h, taps) { x, y, t ->
+            val o = t - 0.5f
+            Pair(x + dx * o * 2f, y + dy * o * 2f)
+        }
+    }
+
+    private fun applyRadialBlur(src: ByteArray, w: Int, h: Int, radius: Float): ByteArray {
+        val taps = blurTaps(radius)
+        val cx = w / 2f
+        val cy = h / 2f
+        val sweep = radius * 2f * PI.toFloat() / 180f
+        return accumulateTaps(src, w, h, taps) { x, y, t ->
+            val a = (t - 0.5f) * sweep
+            val s = sin(a)
+            val c = cos(a)
+            val px = x - cx
+            val py = y - cy
+            Pair(cx + px * c - py * s, cy + px * s + py * c)
+        }
+    }
+
+    private fun applyZoomBlur(src: ByteArray, w: Int, h: Int, radius: Float): ByteArray {
+        val taps = blurTaps(radius)
+        val cx = w / 2f
+        val cy = h / 2f
+        val spread = (radius * 0.02f).coerceIn(0f, 0.9f)
+        return accumulateTaps(src, w, h, taps) { x, y, t ->
+            val k = 1f + spread * t
+            Pair(cx + (x - cx) * k, cy + (y - cy) * k)
+        }
+    }
+
+    private fun gaussianKernel(sigma: Float): FloatArray {
+        val s = sigma.coerceAtLeast(0.1f)
+        val r = ceil(s * 3f).toInt().coerceAtLeast(1)
+        val kernel = FloatArray(r * 2 + 1)
+        var sum = 0f
+        for (i in kernel.indices) {
+            val d = (i - r).toFloat()
+            val v = exp(-(d * d) / (2f * s * s))
+            kernel[i] = v
+            sum += v
+        }
+        if (sum > 0f) {
+            for (i in kernel.indices) kernel[i] /= sum
+        }
+        return kernel
+    }
+
+    private fun weightedPass(
+        src: ByteArray,
+        w: Int,
+        h: Int,
+        kernel: FloatArray,
+        vertical: Boolean,
+    ): ByteArray {
+        val out = ByteArray(src.size)
+        val r = kernel.size / 2
+        val len = if (vertical) h else w
+        val lines = if (vertical) w else h
+        for (line in 0 until lines) {
+            for (i in 0 until len) {
+                val acc = FloatArray(4)
+                for (ki in kernel.indices) {
+                    val j = (i + ki - r).coerceIn(0, len - 1)
+                    val x = if (vertical) line else j
+                    val y = if (vertical) j else line
+                    val p = (y * w + x) * 4
+                    for (c in 0 until 4) acc[c] += src[p + c].toInt().and(0xFF) * kernel[ki]
+                }
+                val x = if (vertical) line else i
+                val y = if (vertical) i else line
+                val p = (y * w + x) * 4
+                for (c in 0 until 4) {
+                    out[p + c] = acc[c].roundToInt().coerceIn(0, 255).toByte()
+                }
+            }
+        }
+        return out
+    }
+
+    private fun applyGaussianBlur(src: ByteArray, w: Int, h: Int, radius: Float): ByteArray {
+        val kernel = gaussianKernel(radius / 3f)
+        val horizontal = weightedPass(src, w, h, kernel, false)
+        return weightedPass(horizontal, w, h, kernel, true)
+    }
+
     private fun applyBoxBlur(src: ByteArray, w: Int, h: Int, radius: Int): ByteArray {
         if (w == 0 || h == 0 || radius <= 0) return src
         val size = radius * 2 + 1
@@ -317,5 +665,218 @@ object FrameFilterProcessors {
             }
         }
         return dst
+    }
+}
+
+private const val MAX_LUT_1D_SIZE = 65_536
+private const val MAX_LUT_3D_SIZE = 256
+private const val LUT_VALUE_TOLERANCE = 1e-3f
+
+enum class CubeLutKind { OneD, ThreeD }
+
+class CubeLut internal constructor(
+    val kind: CubeLutKind,
+    val size: Int,
+    internal val domainMin: FloatArray,
+    internal val domainMax: FloatArray,
+    internal val entries: FloatArray,
+)
+
+private val lutMutex = Mutex()
+private val lutCache = HashMap<String, CubeLut?>()
+
+fun parseCubeLut(text: String): Result<CubeLut> = runCatching {
+    var kind: CubeLutKind? = null
+    var size = 0
+    val domainMin = floatArrayOf(0f, 0f, 0f)
+    val domainMax = floatArrayOf(1f, 1f, 1f)
+    var entries = FloatArray(3 * 1024)
+    var count = 0
+
+    var line = 0
+    for (raw in text.lineSequence()) {
+        line++
+        val content = raw.substringBefore('#').trim()
+        if (content.isEmpty()) continue
+        val tokens = content.split(' ', '\t', '\r', '\u000B', '\u000C').filter { it.isNotEmpty() }
+        val first = tokens.first()
+
+        if (looksNumeric(first)) {
+            val entry = parseCubeLutEntry(tokens, line)
+            if ((count + 1) * 3 > entries.size) entries = entries.copyOf(entries.size * 2)
+            entry.copyInto(entries, count * 3)
+            count++
+            continue
+        }
+
+        when (first.uppercase()) {
+            "LUT_1D_SIZE" -> {
+                val parsed = parseCubeLutSize(tokens.drop(1), MAX_LUT_1D_SIZE, line)
+                if (kind != null) throw IllegalArgumentException("conflicting LUT size declarations")
+                kind = CubeLutKind.OneD
+                size = parsed
+            }
+            "LUT_3D_SIZE" -> {
+                val parsed = parseCubeLutSize(tokens.drop(1), MAX_LUT_3D_SIZE, line)
+                if (kind != null) throw IllegalArgumentException("conflicting LUT size declarations")
+                kind = CubeLutKind.ThreeD
+                size = parsed
+            }
+            "DOMAIN_MIN" -> parseCubeLutDomain(tokens.drop(1), line).copyInto(domainMin)
+            "DOMAIN_MAX" -> parseCubeLutDomain(tokens.drop(1), line).copyInto(domainMax)
+        }
+    }
+
+    val lutKind = kind ?: throw IllegalArgumentException("missing LUT_1D_SIZE or LUT_3D_SIZE")
+    for (channel in 0 until 3) {
+        if (domainMax[channel] <= domainMin[channel]) {
+            throw IllegalArgumentException("invalid domain: maximum must exceed minimum")
+        }
+    }
+    val expected = when (lutKind) {
+        CubeLutKind.OneD -> size
+        CubeLutKind.ThreeD -> size * size * size
+    }
+    if (count != expected) {
+        throw IllegalArgumentException("LUT declares $expected entries but contains $count")
+    }
+    CubeLut(lutKind, size, domainMin, domainMax, entries.copyOf(count * 3))
+}
+
+private fun looksNumeric(token: String): Boolean =
+    token.first().let { it in '0'..'9' || it == '-' || it == '+' || it == '.' }
+
+private fun parseCubeLutSize(tokens: List<String>, max: Int, line: Int): Int {
+    val size = tokens.singleOrNull()?.toIntOrNull()
+        ?: throw IllegalArgumentException("line $line: expected one LUT size")
+    if (size < 2 || size > max) {
+        throw IllegalArgumentException("unsupported LUT size $size")
+    }
+    return size
+}
+
+private fun parseCubeLutDomain(tokens: List<String>, line: Int): FloatArray {
+    if (tokens.size != 3) {
+        throw IllegalArgumentException("line $line: expected three domain values")
+    }
+    val domain = FloatArray(3)
+    for (channel in 0 until 3) {
+        val value = tokens[channel].toFloatOrNull()
+        if (value == null || !value.isFinite()) {
+            throw IllegalArgumentException("line $line: value is not finite")
+        }
+        domain[channel] = value
+    }
+    return domain
+}
+
+private fun parseCubeLutEntry(tokens: List<String>, line: Int): FloatArray {
+    if (tokens.size != 3) {
+        throw IllegalArgumentException("line $line: expected three values")
+    }
+    val entry = FloatArray(3)
+    for (channel in 0 until 3) {
+        val value = tokens[channel].toFloatOrNull()
+        if (value == null || !value.isFinite()) {
+            throw IllegalArgumentException("line $line: value is not finite")
+        }
+        if (value < -LUT_VALUE_TOLERANCE || value > 1f + LUT_VALUE_TOLERANCE) {
+            throw IllegalArgumentException("line $line: value is outside the 0..1 range")
+        }
+        entry[channel] = value.coerceIn(0f, 1f)
+    }
+    return entry
+}
+
+private suspend fun loadCubeLut(path: String): CubeLut? = lutMutex.withLock {
+    lutCache[path]?.let { return@withLock it }
+    if (lutCache.containsKey(path) && !PlatformFileSystem.exists(path)) return@withLock null
+
+    val lut = try {
+        parseCubeLut(PlatformFileSystem.readText(path)).getOrElse { error ->
+            Napier.w("LUT file $path ignored: ${error.message}")
+            null
+        }
+    } catch (error: Exception) {
+        Napier.w("LUT file $path could not be read: ${error.message}")
+        null
+    }
+    lutCache[path] = lut
+    lut
+}
+
+private fun cubeLutAxis(value: Float, min: Float, max: Float, size: Int): Float {
+    val span = max - min
+    val normalized = if (span > 0f) (value - min) / span else value
+    val last = (size - 1).toFloat()
+    return (normalized * last).coerceIn(0f, last)
+}
+
+private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
+
+private fun sampleCubeLut1d(lut: CubeLut, size: Int, value: FloatArray, out: FloatArray) {
+    for (channel in 0 until 3) {
+        val axis = cubeLutAxis(value[channel], lut.domainMin[channel], lut.domainMax[channel], size)
+        val low = floor(axis).toInt()
+        val high = minOf(low + 1, size - 1)
+        out[channel] = lerp(
+            lut.entries[low * 3 + channel],
+            lut.entries[high * 3 + channel],
+            axis - low,
+        )
+    }
+}
+
+private fun sampleCubeLut3d(lut: CubeLut, size: Int, value: FloatArray, out: FloatArray) {
+    val axis = FloatArray(3)
+    for (channel in 0 until 3) {
+        axis[channel] = cubeLutAxis(value[channel], lut.domainMin[channel], lut.domainMax[channel], size)
+    }
+
+    val r0 = floor(axis[0]).toInt()
+    val g0 = floor(axis[1]).toInt()
+    val b0 = floor(axis[2]).toInt()
+    val r1 = minOf(r0 + 1, size - 1)
+    val g1 = minOf(g0 + 1, size - 1)
+    val b1 = minOf(b0 + 1, size - 1)
+    val tr = axis[0] - r0
+    val tg = axis[1] - g0
+    val tb = axis[2] - b0
+
+    for (channel in 0 until 3) {
+        val c000 = lut.entries[(r0 + g0 * size + b0 * size * size) * 3 + channel]
+        val c100 = lut.entries[(r1 + g0 * size + b0 * size * size) * 3 + channel]
+        val c010 = lut.entries[(r0 + g1 * size + b0 * size * size) * 3 + channel]
+        val c110 = lut.entries[(r1 + g1 * size + b0 * size * size) * 3 + channel]
+        val c001 = lut.entries[(r0 + g0 * size + b1 * size * size) * 3 + channel]
+        val c101 = lut.entries[(r1 + g0 * size + b1 * size * size) * 3 + channel]
+        val c011 = lut.entries[(r0 + g1 * size + b1 * size * size) * 3 + channel]
+        val c111 = lut.entries[(r1 + g1 * size + b1 * size * size) * 3 + channel]
+        val c00 = lerp(c000, c100, tr)
+        val c10 = lerp(c010, c110, tr)
+        val c01 = lerp(c001, c101, tr)
+        val c11 = lerp(c011, c111, tr)
+        out[channel] = lerp(lerp(c00, c10, tg), lerp(c01, c11, tg), tb)
+    }
+}
+
+private fun applyCubeLut(pixels: ByteArray, total: Int, lut: CubeLut, strength: Float) {
+    val mix = strength.coerceIn(0f, 1f)
+    if (mix <= 0f) return
+    val original = FloatArray(3)
+    val mapped = FloatArray(3)
+    for (i in 0 until total) {
+        val b = i * 4
+        for (channel in 0 until 3) {
+            original[channel] = pixels[b + channel].toInt().and(0xFF) / 255f
+        }
+        when (lut.kind) {
+            CubeLutKind.OneD -> sampleCubeLut1d(lut, lut.size, original, mapped)
+            CubeLutKind.ThreeD -> sampleCubeLut3d(lut, lut.size, original, mapped)
+        }
+        for (channel in 0 until 3) {
+            val value = original[channel] + (mapped[channel] - original[channel]) * mix
+            pixels[b + channel] = (value * 255f).roundToInt().coerceIn(0, 255).toByte()
+        }
     }
 }

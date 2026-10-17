@@ -1,11 +1,14 @@
 use crate::filter::{AudioFilter, VideoEffect};
-use crate::keyframe::KeyframeCurve;
+use crate::keyframe::{KeyframeCurve, param};
 use crate::mask::{BlendMode, MaskEffect};
 use crate::text_overlay::TextOverlay;
 use crate::time::{MediaDuration, Timestamp, scale_us_round};
 use crate::transition::Transition;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+const SPEED_RAMP_STEPS: usize = 64;
+const SPEED_RAMP_BOUND_GROWTH_LIMIT: u32 = 40;
 
 fn default_opacity() -> f32 {
     1.0
@@ -80,6 +83,53 @@ impl Clip {
         crate::time::TimeRange::new(self.timeline_start, self.timeline_end())
     }
 
+    /// Source time consumed after `local_offset` of timeline time. A keyframed
+    /// `speed` curve makes the rate vary, so the offset is the integral of the
+    /// curve rather than `local_offset * speed`. Video and audio both read the
+    /// source position through this so they cannot drift apart.
+    pub fn source_offset_at(&self, local_offset: MediaDuration) -> i64 {
+        speed_ramp_source_offset(&self.keyframes, self.speed, local_offset)
+    }
+
+    /// Inverse of [`Clip::source_offset_at`]. The speed curve keeps the
+    /// mapping monotonic, so a bisection recovers the local offset.
+    pub fn local_offset_at_source_offset(&self, source_offset_us: i64) -> i64 {
+        if source_offset_us <= 0 {
+            return 0;
+        }
+
+        if !self.keyframes.has_param(param::SPEED) {
+            let speed = if self.speed.is_finite() && self.speed > 0.0 {
+                self.speed
+            } else {
+                1.0
+            };
+            return (source_offset_us as f64 / speed).round() as i64;
+        }
+
+        let mut low = 0i64;
+        let mut high = self.timeline_duration.as_micros().max(1);
+        // A clip trimmed short must still be extendable back out to the source
+        // it has left, which can need more local time than it currently has, so
+        // grow the bound until the ramp has consumed the requested source.
+        let mut growth = 0;
+        while growth < SPEED_RAMP_BOUND_GROWTH_LIMIT
+            && self.source_offset_at(MediaDuration::from_micros(high)) < source_offset_us
+        {
+            high = high.saturating_mul(2);
+            growth += 1;
+        }
+        while high - low > 100 {
+            let mid = low + (high - low) / 2;
+            if self.source_offset_at(MediaDuration::from_micros(mid)) < source_offset_us {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        high
+    }
+
     pub fn normalize_source_bounds_in_place(&mut self) {
         // Speed 0 is a freeze frame and survives; negative and non-finite
         // speeds reset to normal playback.
@@ -92,8 +142,9 @@ impl Clip {
         }
 
         if self.source_end.is_zero() && !self.timeline_duration.is_zero() {
-            let inferred = self.source_start.as_micros()
-                + scale_us_round(self.timeline_duration.as_micros(), self.speed);
+            self.keyframes.sort_by_offset();
+            let inferred =
+                self.source_start.as_micros() + self.source_offset_at(self.timeline_duration);
             self.source_end =
                 MediaDuration::from_micros(inferred.max(self.source_start.as_micros()));
         }
@@ -121,6 +172,53 @@ pub struct VideoClip {
     pub audio_filters: Vec<AudioFilter>,
     #[serde(default)]
     pub masks: Vec<MaskEffect>,
+}
+
+/// Integrates a keyframed `speed` curve over `local_offset`. Exposed as a free
+/// function so the audio mixer, which works from a scheduled snapshot rather
+/// than a `Clip`, uses the exact same mapping as the renderer.
+pub fn speed_ramp_source_offset(
+    keyframes: &KeyframeCurve,
+    speed: f64,
+    local_offset: MediaDuration,
+) -> i64 {
+    let total_us = local_offset.as_micros();
+    if total_us <= 0 {
+        return 0;
+    }
+
+    if !keyframes.has_param(param::SPEED) {
+        return scale_us_round(total_us, speed);
+    }
+
+    let fallback = if speed.is_finite() && speed >= 0.0 {
+        speed
+    } else {
+        1.0
+    };
+    let speed_at = |local_us: i64| -> f64 {
+        keyframes
+            .evaluate(param::SPEED, MediaDuration::from_micros(local_us))
+            .map(|v| {
+                if v.is_finite() && v >= 0.0 {
+                    v as f64
+                } else {
+                    fallback
+                }
+            })
+            .unwrap_or(fallback)
+    };
+
+    let dt = total_us as f64 / SPEED_RAMP_STEPS as f64;
+    let mut accumulated = 0.0f64;
+    let mut previous = speed_at(0);
+    for step in 1..=SPEED_RAMP_STEPS {
+        let t = (dt * step as f64).round() as i64;
+        let current = speed_at(t);
+        accumulated += (previous + current) * 0.5 * dt;
+        previous = current;
+    }
+    accumulated.round() as i64
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

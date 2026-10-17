@@ -3,6 +3,7 @@ use crate::history::History;
 use crate::selection::Selection;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
 use miniter_domain::filter::{AudioFilter, VideoEffect};
+use miniter_domain::keyframe::{Keyframe, KeyframeCurve, param};
 use miniter_domain::project::Project;
 use miniter_domain::time::{MediaDuration, Timestamp, scale_us_round, unscale_us_round};
 use miniter_domain::track::{Track, TrackId};
@@ -200,9 +201,7 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             new_clip_id,
         } => apply_split_clip(state, clip_id, at, new_clip_id),
 
-        EditCommand::JoinClips { left_id, right_id } => {
-            apply_join_clips(state, left_id, right_id)
-        }
+        EditCommand::JoinClips { left_id, right_id } => apply_join_clips(state, left_id, right_id),
 
         EditCommand::SetClipSpeed { clip_id, speed } => {
             if speed <= 0.0 {
@@ -210,14 +209,11 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             }
             let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
             let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
-            let new_duration = timeline_duration_from_source_bounds(
-                speed,
-                original.source_start,
-                original.source_end,
-            )?;
-            ensure_positive_duration(new_duration)?;
             let mut updated = original.clone();
             updated.speed = speed;
+            let new_duration =
+                timeline_duration_for_clip(&updated, updated.source_start, updated.source_end)?;
+            ensure_positive_duration(new_duration)?;
             updated.timeline_duration = new_duration;
             state.project.timeline.tracks[track_idx]
                 .can_insert_clip(&updated, Some(clip_id))
@@ -566,6 +562,36 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             })
         }
 
+        EditCommand::UpdateAudioFilter {
+            clip_id,
+            index,
+            filter,
+        } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            let filters = audio_filters_mut(&mut clip.kind, clip_id)?;
+            let old_filter = swap_audio_filter(filters, index, filter)?;
+            Ok(EditCommand::UpdateAudioFilterInverse {
+                clip_id,
+                index,
+                old_filter,
+            })
+        }
+
+        EditCommand::UpdateAudioFilterInverse {
+            clip_id,
+            index,
+            old_filter,
+        } => {
+            let clip = find_clip_mut(state, clip_id)?;
+            let filters = audio_filters_mut(&mut clip.kind, clip_id)?;
+            let current = swap_audio_filter(filters, index, old_filter)?;
+            Ok(EditCommand::UpdateAudioFilter {
+                clip_id,
+                index,
+                filter: current,
+            })
+        }
+
         EditCommand::SetTransitionIn {
             clip_id,
             transition,
@@ -831,8 +857,12 @@ fn apply_trim_clip_start(
     }
 
     let delta_timeline_us = clamped_start.as_micros() - original.timeline_start.as_micros();
+    // Before the first `speed` keyframe the rate is constant, and `evaluate`
+    // clamps to that value for earlier times, so extending the clip backwards
+    // consumes source at the initial rate.
+    let backward_rate = initial_speed_rate(&original);
     if delta_timeline_us < 0 {
-        let headroom_us = unscale_us_round(original.source_start.as_micros(), original.speed);
+        let headroom_us = unscale_us_round(original.source_start.as_micros(), backward_rate);
         let earliest_start_us = original
             .timeline_start
             .as_micros()
@@ -841,8 +871,12 @@ fn apply_trim_clip_start(
             return Err(ApplyError::InvalidSourceBounds);
         }
     }
-    let mut recalculated_source_start =
-        original.source_start.as_micros() + scale_us_round(delta_timeline_us, original.speed);
+    let advanced_us = if delta_timeline_us >= 0 {
+        original.source_offset_at(MediaDuration::from_micros(delta_timeline_us))
+    } else {
+        scale_us_round(delta_timeline_us, backward_rate)
+    };
+    let mut recalculated_source_start = original.source_start.as_micros() + advanced_us;
     if recalculated_source_start < 0 {
         recalculated_source_start = 0;
     }
@@ -853,11 +887,10 @@ fn apply_trim_clip_start(
     let mut updated = original.clone();
     updated.timeline_start = clamped_start;
     updated.source_start = MediaDuration::from_micros(recalculated_source_start);
-    updated.timeline_duration = timeline_duration_from_source_bounds(
-        updated.speed,
-        updated.source_start,
-        updated.source_end,
-    )?;
+    updated.keyframes = rebase_keyframes(&original.keyframes, delta_timeline_us);
+    let new_duration =
+        timeline_duration_for_clip(&updated, updated.source_start, updated.source_end)?;
+    updated.timeline_duration = new_duration;
     ensure_positive_duration(updated.timeline_duration)?;
     if !matches!(original.kind, ClipKind::Text(_) | ClipKind::Subtitle(_)) {
         ensure_clip_source_bounds(&updated)?;
@@ -895,9 +928,8 @@ fn apply_trim_clip_end(
             if original.source_total_duration.as_micros() <= original.source_start.as_micros() {
                 new_duration
             } else {
-                MediaDuration::from_micros(unscale_us_round(
+                MediaDuration::from_micros(original.local_offset_at_source_offset(
                     original.source_total_duration.as_micros() - original.source_start.as_micros(),
-                    original.speed,
                 ))
             }
         }
@@ -919,8 +951,7 @@ fn apply_trim_clip_end(
     }
 
     let new_source_end = MediaDuration::from_micros(
-        original.source_start.as_micros()
-            + scale_us_round(clamped_duration.as_micros(), original.speed),
+        original.source_start.as_micros() + original.source_offset_at(clamped_duration),
     );
 
     let mut updated = original.clone();
@@ -966,7 +997,7 @@ fn apply_split_clip(
     ensure_positive_duration(right_dur)?;
 
     let split_source_start = MediaDuration::from_micros(
-        original.source_start.as_micros() + scale_us_round(left_dur.as_micros(), original.speed),
+        original.source_start.as_micros() + original.source_offset_at(left_dur),
     );
 
     let mut left = original.clone();
@@ -979,6 +1010,7 @@ fn apply_split_clip(
     right.timeline_duration = right_dur;
     right.source_start = split_source_start;
     right.transition_in = None;
+    right.keyframes = rebase_keyframes(&original.keyframes, left_dur.as_micros());
 
     ensure_clip_source_bounds(&left)?;
     ensure_clip_source_bounds(&right)?;
@@ -1030,15 +1062,23 @@ fn apply_join_clips(
     } else {
         right.source_start == left.source_end
     };
-    if !(adjacent && same_speed && continuous) {
+    // One keyframe curve cannot express a rate step at the cut, so only join
+    // when the rates the two clips play at there agree.
+    let rate_continuous = (rate_at(&left.keyframes, left.speed, left.timeline_duration)
+        - rate_at(&right.keyframes, right.speed, MediaDuration::ZERO))
+    .abs()
+        <= SPEED_RATE_EPSILON;
+    if !(adjacent && same_speed && continuous && rate_continuous) {
         return Err(ApplyError::NotJoinable { left_id, right_id });
     }
 
     let mut joined = left.clone();
+    let boundary = left.timeline_duration;
     joined.timeline_duration = MediaDuration::from_micros(
         left.timeline_duration.as_micros() + right.timeline_duration.as_micros(),
     );
     joined.source_end = right.source_end;
+    joined.keyframes = joined_speed_curve(&left, &right, boundary);
     // The cut is gone, so a fade over it goes with it; the inverse restores it.
     let cut_transition = joined.transition_out.take();
     ensure_clip_source_bounds(&joined)?;
@@ -1112,6 +1152,166 @@ fn ensure_clip_source_bounds(clip: &Clip) -> Result<(), ApplyError> {
     } else {
         Ok(())
     }
+}
+
+const SPEED_RATE_EPSILON: f64 = 1.0e-4;
+
+/// Playback rate the curve reports at `at`, falling back to the clip's recorded
+/// speed when there is no ramp.
+fn rate_at(curve: &KeyframeCurve, recorded: f64, at: MediaDuration) -> f64 {
+    let fallback = if recorded.is_finite() && recorded > 0.0 {
+        recorded
+    } else {
+        1.0
+    };
+    if !curve.has_param(param::SPEED) {
+        return fallback;
+    }
+    curve
+        .evaluate(param::SPEED, at)
+        .filter(|value| value.is_finite())
+        .map(f64::from)
+        .unwrap_or(fallback)
+}
+
+/// Rate the clip plays at before any `speed` keyframe applies. `evaluate`
+/// clamps to the first keyframe for earlier times, so this is also the rate
+/// used when extending a clip backwards past its start.
+fn initial_speed_rate(clip: &Clip) -> f64 {
+    rate_at(&clip.keyframes, clip.speed, MediaDuration::ZERO)
+}
+
+fn upsert_key(curve: &mut KeyframeCurve, keyframe: Keyframe) {
+    if let Some(pos) = curve
+        .keyframes
+        .iter()
+        .position(|k| k.param == keyframe.param && k.offset == keyframe.offset)
+    {
+        curve.keyframes[pos] = keyframe;
+        return;
+    }
+    curve.keyframes.push(keyframe);
+}
+
+fn upsert_speed_key(curve: &mut KeyframeCurve, offset: MediaDuration, rate: f64) {
+    upsert_key(
+        curve,
+        Keyframe {
+            param: param::SPEED.to_string(),
+            offset,
+            value: if rate.is_finite() { rate as f32 } else { 1.0 },
+            easing: Default::default(),
+        },
+    );
+}
+
+/// The joined clip plays the two clips back to back, so its ramp is the left
+/// clip's curve up to the cut followed by the right clip's curve rebased onto
+/// it. Callers only reach here when the rates agree at the cut, which makes the
+/// concatenation exact: linear interpolation between shared endpoints is
+/// unchanged by splitting a segment.
+fn joined_speed_curve(left: &Clip, right: &Clip, boundary: MediaDuration) -> KeyframeCurve {
+    let left_ramped = left.keyframes.has_param(param::SPEED);
+    let right_ramped = right.keyframes.has_param(param::SPEED);
+    if !left_ramped && !right_ramped {
+        return left.keyframes.clone();
+    }
+
+    let boundary_us = boundary.as_micros();
+    let mut merged = KeyframeCurve::default();
+    for keyframe in &left.keyframes.keyframes {
+        if keyframe.param == param::SPEED && keyframe.offset.as_micros() >= boundary_us {
+            continue;
+        }
+        merged.keyframes.push(keyframe.clone());
+    }
+
+    if !merged.keyframes.iter().any(|k| k.param == param::SPEED) {
+        upsert_speed_key(&mut merged, MediaDuration::ZERO, initial_speed_rate(left));
+    }
+    upsert_speed_key(
+        &mut merged,
+        boundary,
+        rate_at(&right.keyframes, right.speed, MediaDuration::ZERO),
+    );
+
+    if right_ramped {
+        for keyframe in &right.keyframes.keyframes {
+            if keyframe.param != param::SPEED {
+                continue;
+            }
+            upsert_key(
+                &mut merged,
+                Keyframe {
+                    offset: MediaDuration::from_micros(keyframe.offset.as_micros() + boundary_us),
+                    ..keyframe.clone()
+                },
+            );
+        }
+    }
+
+    merged.sort_by_offset();
+    merged
+}
+
+/// Re-expresses `curve` in a new local time base, where `offset_us` is where
+/// the new clip start falls in the old base. Keyframe offsets are clip-local,
+/// so every parameter has to move: a fade-out keyed near the old out-point
+/// would otherwise fall beyond a shortened clip and never fire.
+fn rebase_keyframes(curve: &KeyframeCurve, offset_us: i64) -> KeyframeCurve {
+    if offset_us == 0 || curve.keyframes.is_empty() {
+        return curve.clone();
+    }
+
+    let mut rebased = KeyframeCurve::default();
+
+    if offset_us > 0 {
+        let cut = MediaDuration::from_micros(offset_us);
+        let mut params: Vec<&str> = curve.keyframes.iter().map(|k| k.param.as_str()).collect();
+        params.sort_unstable();
+        params.dedup();
+        // Keys at or before the cut are gone, so anchor each parameter at the
+        // value it held there and let the surviving keys interpolate from it.
+        for param in params {
+            if let Some(value) = curve.evaluate(param, cut) {
+                rebased.keyframes.push(Keyframe {
+                    param: param.to_string(),
+                    offset: MediaDuration::ZERO,
+                    value,
+                    easing: Default::default(),
+                });
+            }
+        }
+    }
+
+    for keyframe in &curve.keyframes {
+        let shifted = keyframe.offset.as_micros() - offset_us;
+        if shifted <= 0 {
+            continue;
+        }
+        rebased.keyframes.push(Keyframe {
+            offset: MediaDuration::from_micros(shifted),
+            ..keyframe.clone()
+        });
+    }
+
+    rebased.sort_by_offset();
+    rebased
+}
+
+fn timeline_duration_for_clip(
+    clip: &Clip,
+    source_start: MediaDuration,
+    source_end: MediaDuration,
+) -> Result<MediaDuration, ApplyError> {
+    if !clip.keyframes.has_param(param::SPEED) {
+        return timeline_duration_from_source_bounds(clip.speed, source_start, source_end);
+    }
+
+    let span = (source_end.as_micros() - source_start.as_micros()).max(0);
+    let duration = MediaDuration::from_micros(clip.local_offset_at_source_offset(span));
+    ensure_positive_duration(duration)?;
+    Ok(duration)
 }
 
 fn timeline_duration_from_source_bounds(
@@ -1290,6 +1490,15 @@ fn swap_audio_filter_duration(
         _ => unreachable!(),
     }
     Ok(old)
+}
+
+fn swap_audio_filter(
+    filters: &mut [AudioFilter],
+    index: usize,
+    filter: AudioFilter,
+) -> Result<AudioFilter, ApplyError> {
+    let slot = filters.get_mut(index).ok_or(ApplyError::IndexOutOfBounds)?;
+    Ok(std::mem::replace(slot, filter))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1582,11 +1791,11 @@ mod tests {
         assert_eq!(clips.len(), 2, "undo must bring the second piece back");
         assert_eq!(clips[0].id, clip_id);
         assert_eq!(clips[1].id, tail_id);
-        assert_eq!(clips[0].timeline_duration, MediaDuration::from_micros(4_000_000));
         assert_eq!(
-            clips[1].timeline_start,
-            Timestamp::from_micros(4_000_000)
+            clips[0].timeline_duration,
+            MediaDuration::from_micros(4_000_000)
         );
+        assert_eq!(clips[1].timeline_start, Timestamp::from_micros(4_000_000));
         assert_eq!(clips[1].source_start, MediaDuration::from_micros(4_000_000));
         assert_eq!(clips[1].source_end, MediaDuration::from_micros(10_000_000));
     }
@@ -1653,7 +1862,11 @@ mod tests {
             .iter()
             .map(|c| c.id)
             .collect();
-        assert_eq!(ids, vec![clip_id, tail_id], "undo must restore the same ids");
+        assert_eq!(
+            ids,
+            vec![clip_id, tail_id],
+            "undo must restore the same ids"
+        );
 
         dispatch(
             &mut state,

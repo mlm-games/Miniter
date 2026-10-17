@@ -26,6 +26,9 @@ actual object SupportedFormats {
     actual val fontExtensions: List<String> by lazy {
         listOf("ttf", "otf", "woff", "woff2")
     }
+    actual val lutExtensions: List<String> by lazy {
+        listOf("cube")
+    }
 
     actual val formatHelpMessage: String by lazy {
         val os = System.getProperty("os.name").lowercase()

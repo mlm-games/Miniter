@@ -8,6 +8,16 @@ pub enum TransitionKind {
     SlideLeft,
     SlideRight,
     Dissolve,
+    SlideUp,
+    SlideDown,
+    ZoomIn,
+    ZoomOut,
+    FadeThroughBlack,
+    WipeFromLeft,
+    WipeFromRight,
+    WipeFromTop,
+    WipeFromBottom,
+    IrisOpen,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

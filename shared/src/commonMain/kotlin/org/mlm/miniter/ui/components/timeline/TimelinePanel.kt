@@ -90,6 +90,7 @@ fun TimelinePanel(
     isPlaying: Boolean = false,
     selectedClipId: String?,
     snapIndicatorMs: Long?,
+    beatMarkersMs: List<Long> = emptyList(),
     onPlayheadChange: (Long) -> Unit,
     onClipSelected: (String?) -> Unit,
     onBeginEdit: () -> Unit,
@@ -159,6 +160,7 @@ fun TimelinePanel(
             dpPerMs = dpPerMs,
             playheadMs = playheadMs,
             scrollState = horizontalScrollState,
+            beatMarkersMs = beatMarkersMs,
             onTap = { tapDp ->
                 onPlayheadChange(xToMs(tapDp, dpPerMs, timelineDurationMs))
             },
@@ -222,12 +224,14 @@ private fun TimelineRuler(
     dpPerMs: Float,
     playheadMs: Long,
     scrollState: ScrollState,
+    beatMarkersMs: List<Long>,
     onTap: (tapDp: Float) -> Unit,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val rulerTextColor = MaterialTheme.colorScheme.onSurfaceVariant
     val rulerLineColor = MaterialTheme.colorScheme.outlineVariant
     val playheadColor = MaterialTheme.colorScheme.error
+    val beatMarkerColor = MaterialTheme.colorScheme.tertiary
     val density = LocalDensity.current
 
     Row(modifier = Modifier.fillMaxWidth().height(RULER_HEIGHT)) {
@@ -284,6 +288,13 @@ private fun TimelineRuler(
                         drawLine(rulerLineColor.copy(0.4f), Offset(x, h * 0.7f), Offset(x, h), 0.5f)
                     }
                     ms += minorMs
+                }
+                val beatTop = h * 0.55f
+                val beatBottom = h * 0.8f
+                for (beatMs in beatMarkersMs) {
+                    val bx = msToX(beatMs, dpPerMs, timelineDurationMs) * density.density
+                    if (bx < 0f || bx > size.width) continue
+                    drawLine(beatMarkerColor, Offset(bx, beatTop), Offset(bx, beatBottom), 1f)
                 }
                 val phX = msToX(playheadMs, dpPerMs, timelineDurationMs) * density.density
                 val hs = PLAYHEAD_HEAD_SIZE.toPx()

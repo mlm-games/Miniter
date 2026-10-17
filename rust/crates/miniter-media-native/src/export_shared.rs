@@ -4,11 +4,13 @@ use fast_image_resize::images::{Image, ImageRef};
 use fast_image_resize::{PixelType, Resizer};
 use fontdue::{Font, FontSettings};
 use miniter_audio::util;
-use miniter_domain::filter::VideoFilter;
+use miniter_domain::filter::{BlurKind, MosaicKind, VideoFilter};
 use miniter_domain::mask::{
     BlendMode, MaskComposition, MaskEffect, MaskOperation, MaskShape, MaskSource, MaskTransform,
 };
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
+use miniter_domain::transition::TransitionKind;
+use miniter_render_plan::transition_blend::wipe_coverage;
 use std::io::Write;
 
 pub(crate) fn audio_track_config(audio: &EncodedOpus, sample_rate: u32) -> OpusTrackConfigOut {
@@ -221,6 +223,14 @@ pub(crate) fn transparent_rgba(width: usize, height: usize) -> Vec<u8> {
     vec![0u8; width * height * 4]
 }
 
+pub(crate) fn opaque_black(width: usize, height: usize) -> Vec<u8> {
+    let mut buf = vec![0u8; width * height * 4];
+    for px in buf.as_chunks_mut::<4>().0 {
+        px[3] = 255;
+    }
+    buf
+}
+
 pub(crate) fn alpha_over(dst: &mut [u8], src: &[u8]) {
     for (d, s) in dst
         .as_chunks_mut::<4>()
@@ -266,6 +276,46 @@ pub(crate) fn alpha_over_with_offset(
     }
 }
 
+pub(crate) fn alpha_over_wipe(
+    dst: &mut [u8],
+    src: &[u8],
+    width: usize,
+    height: usize,
+    kind: TransitionKind,
+    progress: f32,
+) {
+    if width == 0 || height == 0 {
+        return;
+    }
+    let w = width as f32;
+    let h = height as f32;
+    let len = width * height * 4;
+    if dst.len() < len || src.len() < len {
+        return;
+    }
+
+    for y in 0..height {
+        for x in 0..width {
+            let coverage = wipe_coverage(kind, x as f32, y as f32, w, h, progress);
+            if coverage <= 0.0 {
+                continue;
+            }
+            let i = (y * width + x) * 4;
+            if coverage >= 1.0 {
+                alpha_over_pixel(&mut dst[i..i + 4], &src[i..i + 4]);
+            } else {
+                let scaled = [
+                    src[i],
+                    src[i + 1],
+                    src[i + 2],
+                    ((src[i + 3] as f32) * coverage).round().clamp(0.0, 255.0) as u8,
+                ];
+                alpha_over_pixel(&mut dst[i..i + 4], &scaled);
+            }
+        }
+    }
+}
+
 pub(crate) fn alpha_over_pixel(dst: &mut [u8], src: &[u8]) {
     blend_over_pixel(dst, src, BlendMode::Normal);
 }
@@ -281,6 +331,104 @@ pub fn blend_over(dst: &mut [u8], src: &[u8], mode: BlendMode) {
     }
 }
 
+fn blend_channel(mode: BlendMode, cb: f32, cs: f32) -> f32 {
+    fn hard_light(cb: f32, cs: f32) -> f32 {
+        if cs <= 0.5 {
+            2.0 * cs * cb
+        } else {
+            1.0 - 2.0 * (1.0 - cs) * (1.0 - cb)
+        }
+    }
+    fn color_dodge(cb: f32, cs: f32) -> f32 {
+        if cb <= 0.0 {
+            0.0
+        } else if cs >= 1.0 {
+            1.0
+        } else {
+            (cb / (1.0 - cs)).min(1.0)
+        }
+    }
+    fn color_burn(cb: f32, cs: f32) -> f32 {
+        if cb >= 1.0 {
+            1.0
+        } else if cs <= 0.0 {
+            0.0
+        } else {
+            1.0 - ((1.0 - cb) / cs).min(1.0)
+        }
+    }
+    fn reflect(cb: f32, cs: f32) -> f32 {
+        if cs >= 1.0 {
+            1.0
+        } else {
+            ((cb * cb) / (1.0 - cs)).min(1.0)
+        }
+    }
+
+    match mode {
+        BlendMode::Normal => cs,
+        BlendMode::Multiply => cb * cs,
+        BlendMode::Screen => cb + cs - cb * cs,
+        BlendMode::Overlay => hard_light(cs, cb),
+        BlendMode::Darken => cb.min(cs),
+        BlendMode::Lighten => cb.max(cs),
+        BlendMode::ColorDodge => color_dodge(cb, cs),
+        BlendMode::ColorBurn => color_burn(cb, cs),
+        BlendMode::HardLight => hard_light(cb, cs),
+        BlendMode::SoftLight => {
+            if cs <= 0.5 {
+                cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb)
+            } else {
+                let d = if cb <= 0.25 {
+                    ((16.0 * cb - 12.0) * cb + 4.0) * cb
+                } else {
+                    cb.sqrt()
+                };
+                cb + (2.0 * cs - 1.0) * (d - cb)
+            }
+        }
+        BlendMode::Difference => (cb - cs).abs(),
+        BlendMode::Exclusion => cb + cs - 2.0 * cb * cs,
+        BlendMode::LinearDodge => (cb + cs).min(1.0),
+        BlendMode::LinearBurn => (cb + cs - 1.0).max(0.0),
+        BlendMode::LinearLight => {
+            if cs <= 0.5 {
+                (cb + 2.0 * cs - 1.0).max(0.0)
+            } else {
+                (cb + 2.0 * cs - 1.0).min(1.0)
+            }
+        }
+        BlendMode::VividLight => {
+            if cs <= 0.5 {
+                color_burn(cb, 2.0 * cs)
+            } else {
+                color_dodge(cb, 2.0 * cs - 1.0)
+            }
+        }
+        BlendMode::PinLight => {
+            if cs <= 0.5 {
+                cb.min(2.0 * cs)
+            } else {
+                cb.max(2.0 * cs - 1.0)
+            }
+        }
+        BlendMode::HardMix => {
+            if cb + cs >= 1.0 {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        BlendMode::Subtract => (cb - cs).max(0.0),
+        BlendMode::Average => (cb + cs) * 0.5,
+        BlendMode::Negation => 1.0 - (1.0 - cb - cs).abs(),
+        BlendMode::Phoenix => (cb.min(cs) - cb.max(cs) + 1.0).clamp(0.0, 1.0),
+        BlendMode::Reflect => reflect(cb, cs),
+        BlendMode::Glow => reflect(cs, cb),
+        _ => cs,
+    }
+}
+
 pub fn blend_over_pixel(dst: &mut [u8], src: &[u8], mode: BlendMode) {
     let sa = src[3] as f32 / 255.0;
     let da = dst[3] as f32 / 255.0;
@@ -289,70 +437,19 @@ pub fn blend_over_pixel(dst: &mut [u8], src: &[u8], mode: BlendMode) {
         return;
     }
 
-    match mode {
-        BlendMode::Normal => {
-            let out_a = sa + da * (1.0 - sa);
-            if out_a <= 0.0 {
-                dst.copy_from_slice(&[0, 0, 0, 0]);
-                return;
-            }
-            for c in 0..3 {
-                let sv = src[c] as f32 / 255.0;
-                let dv = dst[c] as f32 / 255.0;
-                let out = (sv * sa + dv * da * (1.0 - sa)) / out_a;
-                dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
-            }
-            dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
-        }
-        BlendMode::Multiply => {
-            let out_a = sa + da * (1.0 - sa);
-            if out_a <= 0.0 {
-                dst.copy_from_slice(&[0, 0, 0, 0]);
-                return;
-            }
-            for c in 0..3 {
-                let sv = src[c] as f32 / 255.0;
-                let dv = dst[c] as f32 / 255.0;
-                let out = (sv * dv * sa + dv * da * (1.0 - sa)) / out_a;
-                dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
-            }
-            dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
-        }
-        BlendMode::Screen => {
-            let out_a = sa + da * (1.0 - sa);
-            if out_a <= 0.0 {
-                dst.copy_from_slice(&[0, 0, 0, 0]);
-                return;
-            }
-            for c in 0..3 {
-                let sv = src[c] as f32 / 255.0;
-                let dv = dst[c] as f32 / 255.0;
-                let out = ((1.0 - (1.0 - sv) * (1.0 - dv)) * sa + dv * da * (1.0 - sa)) / out_a;
-                dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
-            }
-            dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
-        }
-        BlendMode::Overlay => {
-            let out_a = sa + da * (1.0 - sa);
-            if out_a <= 0.0 {
-                dst.copy_from_slice(&[0, 0, 0, 0]);
-                return;
-            }
-            for c in 0..3 {
-                let sv = src[c] as f32 / 255.0;
-                let dv = dst[c] as f32 / 255.0;
-                let blended = if dv < 0.5 {
-                    2.0 * sv * dv
-                } else {
-                    1.0 - 2.0 * (1.0 - sv) * (1.0 - dv)
-                };
-                let out = (blended * sa + dv * da * (1.0 - sa)) / out_a;
-                dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
-            }
-            dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
-        }
-        _ => {}
+    let out_a = sa + da * (1.0 - sa);
+    if out_a <= 0.0 {
+        dst.copy_from_slice(&[0, 0, 0, 0]);
+        return;
     }
+
+    for c in 0..3 {
+        let sv = src[c] as f32 / 255.0;
+        let dv = dst[c] as f32 / 255.0;
+        let out = (blend_channel(mode, dv, sv) * sa + dv * da * (1.0 - sa)) / out_a;
+        dst[c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+    dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
 }
 
 /// Render a mask shape to a grayscale RGBA buffer.
@@ -994,9 +1091,74 @@ pub(crate) fn apply_video_filters(
             VideoFilter::Brightness { value } => filters::adjust_brightness(pixels, *value),
             VideoFilter::Contrast { value } => filters::adjust_contrast(pixels, *value),
             VideoFilter::Saturation { value } => filters::adjust_saturation(pixels, *value),
+            VideoFilter::ColorGrade {
+                brightness,
+                contrast,
+                saturation,
+                vibrance,
+                temperature,
+                tint,
+                exposure,
+                gamma,
+                lift,
+                gain,
+                highlights,
+                shadows,
+            } => filters::apply_color_grade(
+                pixels,
+                &filters::ColorGrade {
+                    brightness: *brightness,
+                    contrast: *contrast,
+                    saturation: *saturation,
+                    vibrance: *vibrance,
+                    temperature: *temperature,
+                    tint: *tint,
+                    exposure: *exposure,
+                    gamma: *gamma,
+                    lift: *lift,
+                    gain: *gain,
+                    highlights: *highlights,
+                    shadows: *shadows,
+                },
+            ),
             VideoFilter::Grayscale => filters::apply_grayscale(pixels),
+            VideoFilter::ChromaKey {
+                key_color,
+                tolerance,
+                softness,
+                spill,
+            } => {
+                let key = parse_argb_hex(key_color, [0, 255, 0, 255]);
+                filters::apply_chroma_key(
+                    pixels,
+                    [key[0], key[1], key[2]],
+                    *tolerance,
+                    *softness,
+                    *spill,
+                );
+            }
+            VideoFilter::Lut { path, strength } => {
+                filters::apply_cube_lut_file(pixels, path, *strength)
+            }
+            VideoFilter::Mosaic { kind, size } => match kind {
+                MosaicKind::Square => filters::mosaic_square(pixels, w, h, *size),
+                MosaicKind::Hexagon => filters::mosaic_hexagon(pixels, w, h, *size),
+                MosaicKind::Triangle => filters::mosaic_triangle(pixels, w, h, *size),
+                _ => filters::mosaic_square(pixels, w, h, *size),
+            },
             VideoFilter::Sepia => filters::apply_sepia(pixels),
-            VideoFilter::Blur { radius } => filters::blur_rgba(pixels, w, h, *radius),
+            VideoFilter::Blur {
+                radius,
+                kind,
+                angle,
+            } => match kind {
+                BlurKind::Box => filters::blur_box_rgba(pixels, w, h, *radius),
+                BlurKind::Gaussian => filters::blur_gaussian_rgba(pixels, w, h, *radius),
+                BlurKind::Motion => filters::blur_motion_rgba(pixels, w, h, *radius, *angle),
+                BlurKind::Radial => filters::blur_radial_rgba(pixels, w, h, *radius),
+                BlurKind::Zoom => filters::blur_zoom_rgba(pixels, w, h, *radius),
+                _ => filters::blur_rgba(pixels, w, h, *radius),
+            },
             VideoFilter::Sharpen { amount } => filters::sharpen_rgba(pixels, w, h, *amount),
             VideoFilter::Opacity { value } => filters::scale_alpha(pixels, *value),
             VideoFilter::Hue { degrees } => filters::adjust_hue(pixels, *degrees),
@@ -1165,8 +1327,8 @@ pub(crate) fn render_text_overlay_with_files(
         .unwrap_or((font_size * 0.8, -font_size * 0.2, 0.0));
     let line_height = (ascent - descent + line_gap).ceil().max(font_size);
 
-    let anchor_x = (overlay.style.position_x.clamp(0.0, 1.0) * width as f32) as i32;
-    let anchor_y = (overlay.style.position_y.clamp(0.0, 1.0) * height as f32) as i32;
+    let anchor_x = (overlay.style.position_x * width as f32) as i32;
+    let anchor_y = (overlay.style.position_y * height as f32) as i32;
     let total_text_h = (line_height * lines.len() as f32 - line_gap.max(0.0)).max(0.0);
     let start_y = anchor_y - (total_text_h / 2.0).round() as i32;
 
@@ -1692,17 +1854,9 @@ pub(crate) fn map_subtitle_event_to_timeline_sample(
     text: &str,
     ass_event: Option<muxfin::codec::ass::AssEvent>,
 ) -> Option<SoftSubtitleSample> {
-    let speed = if clip.speed.is_finite() && clip.speed > 0.0 {
-        clip.speed
-    } else {
-        1.0
-    };
-
     let clip_source_start = clip.source_start.as_micros();
-    let inferred_source_end = clip_source_start
-        + (clip.timeline_duration.as_micros() as f64 * speed)
-            .round()
-            .max(1.0) as i64;
+    let inferred_source_end =
+        clip_source_start + clip.source_offset_at(clip.timeline_duration).max(1);
     let clip_source_end = if clip.source_end.as_micros() > clip_source_start {
         clip.source_end.as_micros()
     } else {
@@ -1715,8 +1869,8 @@ pub(crate) fn map_subtitle_event_to_timeline_sample(
         return None;
     }
 
-    let local_start = ((visible_start - clip_source_start) as f64 / speed).round() as i64;
-    let local_end = ((visible_end - clip_source_start) as f64 / speed).round() as i64;
+    let local_start = clip.local_offset_at_source_offset(visible_start - clip_source_start);
+    let local_end = clip.local_offset_at_source_offset(visible_end - clip_source_start);
 
     let clip_timeline_start = clip.timeline_start.as_micros();
     let clip_timeline_end = clip.timeline_end().as_micros();

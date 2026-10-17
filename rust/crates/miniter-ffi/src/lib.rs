@@ -170,6 +170,30 @@ impl EditorStateHandle {
 mod native_ffi {
     use super::*;
 
+    /// WASM installs console_log; native builds had no logger at all, so every
+    /// engine `log::warn!`/`log::info!` was dropped. WARN+ goes to stderr,
+    /// which is visible when the desktop app is started from a terminal.
+    fn init_native_logging() {
+        struct StderrLogger;
+
+        impl log::Log for StderrLogger {
+            fn enabled(&self, metadata: &log::Metadata) -> bool {
+                metadata.level() <= log::Level::Warn
+            }
+
+            fn log(&self, record: &log::Record) {
+                if self.enabled(record.metadata()) {
+                    eprintln!("[miniter/{}] {}", record.level(), record.args());
+                }
+            }
+
+            fn flush(&self) {}
+        }
+
+        static LOGGER: StderrLogger = StderrLogger;
+        let _ = log::set_logger(&LOGGER).map(|()| log::set_max_level(log::LevelFilter::Warn));
+    }
+
     #[derive(uniffi::Object)]
     pub struct EditorHandle(EditorStateHandle);
 
@@ -177,6 +201,7 @@ mod native_ffi {
     impl EditorHandle {
         #[uniffi::constructor]
         pub fn new(name: String) -> Self {
+            init_native_logging();
             Self(EditorStateHandle::new(name))
         }
 
@@ -511,11 +536,10 @@ mod native_ffi {
         height: u32,
         masks_json: String,
     ) -> Result<Vec<u8>, MiniterError> {
-        let masks: Vec<miniter_domain::mask::MaskEffect> =
-            serde_json::from_str(&masks_json)
-                .map_err(|e| MiniterError::Parse {
-                    detail: format!("Invalid masks JSON: {e}"),
-                })?;
+        let masks: Vec<miniter_domain::mask::MaskEffect> = serde_json::from_str(&masks_json)
+            .map_err(|e| MiniterError::Parse {
+                detail: format!("Invalid masks JSON: {e}"),
+            })?;
         let mut pixels = rgba;
         miniter_media_native::export_shared::apply_masks_to_frame(
             &mut pixels,
@@ -578,6 +602,7 @@ mod native_ffi {
         project_json: String,
         output_path: String,
     ) -> Result<bool, MiniterError> {
+        init_native_logging();
         EXPORT_CANCELLED.store(false, Ordering::SeqCst);
         EXPORT_PROGRESS.store(0, Ordering::SeqCst);
 
@@ -1436,6 +1461,7 @@ mod web_ffi {
                     hardware_acceleration: Some(true),
                     output_mode: VideoOutputMode::Cpu,
                     color: None,
+                    latency_optimized: None,
                 },
                 true,
             ),
@@ -1448,6 +1474,7 @@ mod web_ffi {
                     hardware_acceleration: Some(true),
                     output_mode: VideoOutputMode::Cpu,
                     color: None,
+                    latency_optimized: None,
                 },
                 true,
             ),
@@ -1460,6 +1487,7 @@ mod web_ffi {
                     hardware_acceleration: Some(false),
                     output_mode: VideoOutputMode::Cpu,
                     color: None,
+                    latency_optimized: None,
                 },
                 false,
             ),
@@ -1472,6 +1500,7 @@ mod web_ffi {
                     hardware_acceleration: Some(true),
                     output_mode: VideoOutputMode::Cpu,
                     color: None,
+                    latency_optimized: None,
                 },
                 true,
             ),
@@ -1484,6 +1513,7 @@ mod web_ffi {
                     hardware_acceleration: Some(true),
                     output_mode: VideoOutputMode::Cpu,
                     color: None,
+                    latency_optimized: None,
                 },
                 true,
             ),
@@ -1496,6 +1526,7 @@ mod web_ffi {
                     hardware_acceleration: Some(true),
                     output_mode: VideoOutputMode::Cpu,
                     color: None,
+                    latency_optimized: None,
                 },
                 true,
             ),

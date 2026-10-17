@@ -70,6 +70,7 @@ private fun applyEasing(easing: Easing, t: Float): Float = when (easing) {
 object KeyframeParams {
     const val OPACITY = "opacity"
     const val VOLUME = "volume"
+    const val SPEED = "speed"
     const val TRANSFORM_SCALE = "transform.scale"
     const val TRANSFORM_TRANSLATE_X = "transform.translate_x"
     const val TRANSFORM_TRANSLATE_Y = "transform.translate_y"
@@ -130,6 +131,7 @@ val MASK_PARAM_DEFS: Map<String, ParamDef> = listOf(
 val ALL_PARAMS: List<ParamDef> = listOf(
     ParamDef(KeyframeParams.OPACITY, "Opacity", 0f..1f, default = 1f, format = ::fmtPct, color = Color(0xFF5B8DEF)),
     ParamDef(KeyframeParams.VOLUME, "Volume", 0f..2f, default = 1f, 19, format = ::fmtPct, color = Color(0xFF4CAF50)),
+    ParamDef(KeyframeParams.SPEED, "Speed", 0.25f..4f, default = 1f, 14, format = ::fmt1d, color = Color(0xFFEC407A)),
     ParamDef(KeyframeParams.TRANSFORM_SCALE, "Scale", 0.5f..3f, default = 1f, 24, format = ::fmt1d, color = Color(0xFFFF9800)),
     ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_X, "Pan X", -1f..1f, default = 0.0f, format = ::fmtPct, color = Color(0xFFFF9800)),
     ParamDef(KeyframeParams.TRANSFORM_TRANSLATE_Y, "Pan Y", -1f..1f, default = 0.0f, format = ::fmtPct, color = Color(0xFFFF9800)),

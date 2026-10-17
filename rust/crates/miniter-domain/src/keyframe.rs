@@ -12,6 +12,8 @@ pub mod param {
     pub const TEXT_POSITION_Y: &str = "text.position_y";
     pub const TEXT_FONT_SIZE: &str = "text.font_size";
 
+    pub const SPEED: &str = "speed";
+
     pub const MASK_FEATHER: &str = "mask.feather";
     pub const MASK_SCALE: &str = "mask.scale";
     pub const MASK_TRANSLATE_X: &str = "mask.translate_x";
@@ -53,6 +55,10 @@ pub struct KeyframeCurve {
 }
 
 impl KeyframeCurve {
+    pub fn has_param(&self, param: &str) -> bool {
+        self.keyframes.iter().any(|k| k.param == param)
+    }
+
     pub fn evaluate(&self, param: &str, local_time: MediaDuration) -> Option<f32> {
         let relevant: Vec<&Keyframe> = self.keyframes.iter().filter(|k| k.param == param).collect();
 

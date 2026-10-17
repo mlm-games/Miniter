@@ -113,6 +113,7 @@ impl BaabaBackend {
             hardware_acceleration: Some(hardware_acceleration),
             output_mode: VideoOutputMode::Cpu,
             color,
+            latency_optimized: None,
         };
         let host = PlatformHost::new();
         let (input, output) = host

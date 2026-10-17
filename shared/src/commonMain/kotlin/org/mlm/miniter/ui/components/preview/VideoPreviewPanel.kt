@@ -56,6 +56,7 @@ import org.mlm.miniter.platform.normalizeMediaUriForPlayback
 import org.mlm.miniter.platform.rememberSubtitleFontFamily
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
+import org.mlm.miniter.ui.components.properties.blendModeLabel
 import kotlin.time.TimeSource
 
 private suspend fun seekToPosition(
@@ -105,6 +106,7 @@ sealed interface VisibleMedia {
         val filters: List<RustVideoEffectSnapshot>,
         val masks: List<RustMaskEffect> = emptyList(),
         val keyframes: RustKeyframeCurve = RustKeyframeCurve(),
+        val blendMode: RustBlendMode = RustBlendMode.Normal,
     ) : VisibleMedia
 
     data class Text(
@@ -154,26 +156,7 @@ private fun collectVisibleMedia(
 
             when (val kind = clip.kind) {
                 is RustVideoClipKind -> {
-                    visibleMedia.add(
-                        VisibleMedia.Video(
-                            id = clip.id,
-                            trackIndex = trackIndex,
-                            trackId = track.id,
-                            startMs = clip.timelineStartUs / 1000L,
-                            durationMs = clip.timelineDurationUs / 1000L,
-                            sourceStartMs = clip.sourceStartUs / 1000L,
-                            opacity = clip.opacity,
-                            sourcePath = kind.sourcePath,
-                            sourceEndMs = clip.sourceEndUs / 1000L,
-                            sourceTotalDurationMs = clip.sourceTotalDurationUs / 1000L,
-                            speed = clip.speed.toFloat(),
-                            volume = clip.volume,
-                            muted = clip.muted,
-                            filters = kind.filters,
-                            masks = kind.masks,
-                            keyframes = clip.keyframes,
-                        )
-                    )
+                    visibleMedia.add(visibleVideoOf(clip, trackIndex, track.id, kind))
                 }
                 is RustTextClipKind -> {
                     visibleMedia.add(
@@ -218,6 +201,263 @@ private fun collectVisibleMedia(
     }
 
     return visibleMedia.sortedBy { it.trackIndex }
+}
+
+private fun visibleVideoOf(
+    clip: RustClipSnapshot,
+    trackIndex: Int,
+    trackId: String,
+    kind: RustVideoClipKind,
+): VisibleMedia.Video = VisibleMedia.Video(
+    id = clip.id,
+    trackIndex = trackIndex,
+    trackId = trackId,
+    startMs = clip.timelineStartUs / 1000L,
+    durationMs = clip.timelineDurationUs / 1000L,
+    sourceStartMs = clip.sourceStartUs / 1000L,
+    opacity = clip.opacity,
+    sourcePath = kind.sourcePath,
+    sourceEndMs = clip.sourceEndUs / 1000L,
+    sourceTotalDurationMs = clip.sourceTotalDurationUs / 1000L,
+    speed = clip.speed.toFloat(),
+    volume = clip.volume,
+    muted = clip.muted,
+    filters = kind.filters,
+    masks = kind.masks,
+    keyframes = clip.keyframes,
+    blendMode = clip.blendMode,
+)
+
+private fun VisibleMedia.Video.opacityAt(playheadUs: Long): Float =
+    keyframes.evaluate(KeyframeParams.OPACITY, playheadUs - startMs * 1000L) ?: opacity
+
+/// Where a clip sits in a transition. `Incoming` is the layer the transition
+/// brings in, `Outgoing` the one it leaves behind, and `Stationary` a clip the
+/// exporter draws unchanged underneath a transition.
+private enum class TransitionRole {
+    Incoming,
+    Outgoing,
+    Stationary,
+}
+
+private fun previewLayer(
+    video: VisibleMedia.Video,
+    isPrimary: Boolean,
+    clipAlpha: Float,
+    kind: RustTransitionKind,
+    eased: Float,
+    role: TransitionRole,
+    contentArea: Rect,
+): PreviewLayer {
+    val (outAlpha, inAlpha) = opacityPair(kind, eased)
+    val (outScale, inScale) = transitionScales(kind, eased)
+    return when (role) {
+        TransitionRole.Incoming -> PreviewLayer(
+            id = video.id,
+            video = video,
+            isPrimary = isPrimary,
+            alpha = clipAlpha * inAlpha,
+            scale = inScale,
+            offsetX = slideOffset(kind, eased),
+            offsetY = slideOffsetY(kind, eased),
+            wipe = wipeReveal(kind, eased, contentArea),
+        )
+        TransitionRole.Outgoing -> PreviewLayer(
+            id = video.id,
+            video = video,
+            isPrimary = isPrimary,
+            alpha = clipAlpha * outAlpha,
+            scale = outScale,
+        )
+        TransitionRole.Stationary -> PreviewLayer(
+            id = video.id,
+            video = video,
+            isPrimary = isPrimary,
+            alpha = clipAlpha,
+        )
+    }
+}
+
+/// A layer outside any transition keeps its own blend mode; the exporter
+/// composites both ends of a transition with plain source-over instead.
+private fun plainPreviewLayer(
+    video: VisibleMedia.Video,
+    isPrimary: Boolean,
+    alpha: Float,
+): PreviewLayer = PreviewLayer(
+    id = video.id,
+    video = video,
+    isPrimary = isPrimary,
+    alpha = alpha,
+    blend = blendModeFor(video.blendMode),
+)
+
+private fun shadeLayer(id: String, alpha: Float): PreviewLayer =
+    PreviewLayer(id = "$id:shade", video = null, alpha = alpha)
+
+/// The layers the playhead sees, in the order the exporter's stack composites
+/// them. A clip inside a transition contributes both ends of it, so the
+/// neighbouring clip the exporter samples joins the stack even though the
+/// playhead is not over it.
+private fun buildPreviewLayers(
+    snapshot: RustProjectSnapshot?,
+    visibleMedia: List<VisibleMedia>,
+    primaryVideoId: String?,
+    playheadUs: Long,
+    contentArea: Rect,
+): List<PreviewLayer> {
+    if (snapshot == null) return emptyList()
+
+    val layers = mutableListOf<PreviewLayer>()
+
+    visibleMedia.filterIsInstance<VisibleMedia.Video>().forEach { video ->
+        val track = snapshot.timeline.tracks.getOrNull(video.trackIndex) ?: return@forEach
+        val index = track.clips.indexOfFirst { it.id == video.id }
+        if (index < 0) return@forEach
+
+        val clip = track.clips[index]
+        val previous = track.clips.getOrNull(index - 1)
+        val incomingKind = previous?.kind as? RustVideoClipKind
+        val next = track.clips.getOrNull(index + 1)
+        val nextKind = next?.kind as? RustVideoClipKind
+        val transitionIn = clip.transitionIn
+        val transitionOut = clip.transitionOut
+
+        val isPrimary = video.id == primaryVideoId
+        // The primary's own opacity is baked into the frame it grabs.
+        val clipAlpha = if (isPrimary) 1f else video.opacityAt(playheadUs)
+
+        when {
+            transitionIn != null && previous != null && incomingKind != null &&
+                isNeighbouring(previous.endUs, clip.timelineStartUs) -> {
+                val kind = transitionIn.kind
+                val eased = easeInOut(
+                    transitionInProgress(clip.timelineStartUs, transitionIn.duration, playheadUs)
+                )
+                val previousVideo = visibleVideoOf(previous, video.trackIndex, video.trackId, incomingKind)
+                val previousAlpha = previousVideo.opacityAt(playheadUs)
+                when {
+                    kind == RustTransitionKind.FadeThroughBlack && eased >= 0.5f -> {
+                        layers += shadeLayer(video.id, 1f)
+                        layers += previewLayer(video, isPrimary, clipAlpha, kind, eased, TransitionRole.Incoming, contentArea)
+                    }
+                    kind == RustTransitionKind.FadeThroughBlack -> {
+                        layers += previewLayer(previousVideo, false, previousAlpha, kind, eased, TransitionRole.Stationary, contentArea)
+                        layers += shadeLayer(video.id, (2f * eased).coerceIn(0f, 1f))
+                    }
+                    else -> {
+                        layers += previewLayer(previousVideo, false, previousAlpha, kind, eased, TransitionRole.Outgoing, contentArea)
+                        layers += previewLayer(video, isPrimary, clipAlpha, kind, eased, TransitionRole.Incoming, contentArea)
+                    }
+                }
+            }
+            // No clip to hand over from: the exporter fades the clip in on its
+            // own here, without any slide, zoom or wipe.
+            transitionIn != null && previous != null &&
+                !isNeighbouring(previous.endUs, clip.timelineStartUs) -> {
+                val topAlpha = opacityPair(
+                    transitionIn.kind,
+                    easeInOut(transitionInProgress(clip.timelineStartUs, transitionIn.duration, playheadUs)),
+                ).second
+                layers += plainPreviewLayer(video, isPrimary, clipAlpha * topAlpha)
+            }
+            else -> {
+                val outDurationUs = transitionOut?.duration ?: 0L
+                val outProgress = transitionOutProgress(clip.endUs, outDurationUs, playheadUs)
+                val fadeStartUs = transitionOutFadeStartUs(clip.endUs, outDurationUs)
+                when {
+                    transitionOut != null && outProgress > 0f && outProgress < 1f &&
+                        next != null && nextKind != null &&
+                        isNeighbouring(clip.endUs, next.timelineStartUs) &&
+                        next.timelineStartUs + (playheadUs - fadeStartUs) < next.endUs -> {
+                        val kind = transitionOut.kind
+                        val eased = easeInOut(outProgress)
+                        val nextVideo = visibleVideoOf(next, video.trackIndex, video.trackId, nextKind)
+                        val nextAlpha = nextVideo.opacityAt(playheadUs)
+                        when {
+                            kind == RustTransitionKind.FadeThroughBlack && eased >= 0.5f -> {
+                                layers += shadeLayer(video.id, 1f)
+                                layers += previewLayer(nextVideo, false, nextAlpha, kind, eased, TransitionRole.Incoming, contentArea)
+                            }
+                            kind == RustTransitionKind.FadeThroughBlack -> {
+                                layers += previewLayer(video, isPrimary, clipAlpha, kind, eased, TransitionRole.Stationary, contentArea)
+                                layers += shadeLayer(video.id, (2f * eased).coerceIn(0f, 1f))
+                            }
+                            else -> {
+                                layers += previewLayer(video, isPrimary, clipAlpha, kind, eased, TransitionRole.Outgoing, contentArea)
+                                layers += previewLayer(nextVideo, false, nextAlpha, kind, eased, TransitionRole.Incoming, contentArea)
+                            }
+                        }
+                    }
+                    else -> layers += plainPreviewLayer(video, isPrimary, clipAlpha)
+                }
+            }
+        }
+    }
+
+    return layers
+}
+
+private data class TextTransition(
+    val alpha: Float,
+    val offsetX: Float,
+    val offsetY: Float,
+    val scale: Float,
+) {
+    companion object {
+        val Identity = TextTransition(1f, 0f, 0f, 1f)
+    }
+}
+
+/// Text and subtitles carry transitions too, as a fade plus motion on the text
+/// itself rather than as a composite of two clips.
+private fun collectTextTransitions(
+    snapshot: RustProjectSnapshot?,
+    playheadUs: Long,
+): Map<String, TextTransition> {
+    if (snapshot == null) return emptyMap()
+
+    val transitions = mutableMapOf<String, TextTransition>()
+
+    snapshot.timeline.tracks.forEachIndexed { _, track ->
+        if (track.muted) return@forEachIndexed
+
+        track.clips.forEach { clip ->
+            if (playheadUs < clip.timelineStartUs || playheadUs >= clip.endUs) return@forEach
+            if (clip.kind !is RustTextClipKind && clip.kind !is RustSubtitleClipKind) return@forEach
+
+            var alpha = 1f
+            var offsetX = 0f
+            var offsetY = 0f
+            var scale = 1f
+
+            clip.transitionIn?.let { trans ->
+                val progress = transitionInProgress(clip.timelineStartUs, trans.duration, playheadUs)
+                if (progress < 1f) {
+                    val eased = easeInOut(progress)
+                    alpha *= opacityPair(trans.kind, eased).second
+                    offsetX += slideOffset(trans.kind, eased)
+                    offsetY += slideOffsetY(trans.kind, eased)
+                    scale *= transitionScales(trans.kind, eased).second
+                }
+            }
+
+            clip.transitionOut?.let { trans ->
+                val progress = transitionOutProgress(clip.endUs, trans.duration, playheadUs)
+                if (progress < 1f) {
+                    val eased = easeInOut(progress)
+                    alpha *= opacityPair(trans.kind, eased).first
+                    offsetX += slideExitOffset(trans.kind, eased)
+                    offsetY += slideExitOffsetY(trans.kind, eased)
+                    scale *= transitionScales(trans.kind, eased).first
+                }
+            }
+
+            transitions[clip.id] = TextTransition(alpha, offsetX, offsetY, scale)
+        }
+    }
+
+    return transitions
 }
 
 private data class TransformValues(
@@ -292,7 +532,6 @@ fun EditorVideoPreview(
 
     val videosByZ = visibleMedia.filterIsInstance<VisibleMedia.Video>().sortedBy { it.trackIndex }
     val primaryVideo = videosByZ.maxByOrNull { it.trackIndex }
-    val backgroundVideos = videosByZ.filter { it.id != primaryVideo?.id }
     val textOverlays = visibleMedia.filterIsInstance<VisibleMedia.Text>()
     val subtitles = visibleMedia.filterIsInstance<VisibleMedia.Subtitle>()
 
@@ -887,6 +1126,21 @@ fun EditorVideoPreview(
         }
     }
 
+    val previewLayers = remember(snapshot, visibleMedia, primaryVideo?.id, playheadMs, contentArea) {
+        buildPreviewLayers(snapshot, visibleMedia, primaryVideo?.id, playheadMs * 1000L, contentArea)
+    }
+
+    val textTransitions = remember(snapshot, playheadMs) {
+        collectTextTransitions(snapshot, playheadMs * 1000L)
+    }
+
+    val approximatedBlendMode = remember(visibleMedia) {
+        visibleMedia
+            .filterIsInstance<VisibleMedia.Video>()
+            .map { it.blendMode }
+            .firstOrNull { it in approximatedBlendModes }
+    }
+
     val transformModifier = Modifier
         .fillMaxSize()
         .graphicsLayer {
@@ -924,92 +1178,151 @@ fun EditorVideoPreview(
             else -> {
                 Box(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = transformModifier) {
-                        backgroundVideos.forEach { bgVideo ->
-                            val bgLocalUs = (playheadMs - bgVideo.startMs) * 1000L
-                            val bgTransformFilter = findTransformFilter(bgVideo.filters)
-                            val bgKfScale = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_SCALE, bgLocalUs)
-                            val bgKfTx = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, bgLocalUs)
-                            val bgKfTy = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, bgLocalUs)
-                            val bgKfRot = bgVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_ROTATE, bgLocalUs)
-                            val hasBgKF = bgKfScale != null || bgKfTx != null || bgKfTy != null || bgKfRot != null
-                            val bgDisplay = clipDisplayValues(bgVideo, bgKfScale, bgKfTx, bgKfTy, bgKfRot, hasBgKF, bgTransformFilter)
-                            val bgEffectiveOpacity = bgVideo.keyframes.evaluate(
-                                KeyframeParams.OPACITY, bgLocalUs,
-                            ) ?: bgVideo.opacity
-                            val bgOffset = playheadMs - bgVideo.startMs
-                            val bgSourceTime = (bgVideo.sourceStartMs + (bgOffset * bgVideo.speed).toLong())
-                                .coerceAtLeast(0L)
-                            BackgroundVideoFrame(
-                                sourcePath = bgVideo.sourcePath,
-                                sourceTimeMs = bgSourceTime,
-                                masks = bgVideo.masks.filter { it.enabled },
-                                opacity = 1f,
-                                onFrameLoaded = { frame ->
-                                    backgroundFrames = backgroundFrames + (bgVideo.id to frame)
-                                }
-                            )
+                        // The exporter flattens the stack over black, so a blend
+                        // mode with nothing under it lands on black, not on the
+                        // panel's own background.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black),
+                        )
 
-                            backgroundFrames[bgVideo.id]?.let { frame ->
-                                val bgBitmap = remember(frame) { frame.toImageBitmap() }
-                                Image(
-                                    bitmap = bgBitmap,
-                                    contentDescription = "Background video",
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .then(clipTransformModifier(bgDisplay, viewportSize))
-                                        .graphicsLayer { alpha = bgEffectiveOpacity },
-                                    contentScale = ContentScale.Fit,
-                                )
+                        previewLayers.forEach { layer ->
+                            key(layer.id) {
+                                val wipe = layer.wipe
+                                val layerModifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        alpha = layer.alpha
+                                        blendMode = layer.blend
+                                        scaleX = layer.scale
+                                        scaleY = layer.scale
+                                        translationX = layer.offsetX * contentArea.width
+                                        translationY = layer.offsetY * contentArea.height
+                                        if (wipe != null) {
+                                            clip = true
+                                            shape = wipe
+                                        }
+                                    }
+
+                                val layerVideo = layer.video
+                                if (layerVideo == null) {
+                                    Box(modifier = layerModifier.background(Color.Black))
+                                } else {
+                                    val layerLocalUs = (playheadMs - layerVideo.startMs) * 1000L
+                                    val layerTransformFilter = findTransformFilter(layerVideo.filters)
+                                    val layerKfScale = layerVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_SCALE, layerLocalUs)
+                                    val layerKfTx = layerVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_X, layerLocalUs)
+                                    val layerKfTy = layerVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_TRANSLATE_Y, layerLocalUs)
+                                    val layerKfRot = layerVideo.keyframes.evaluate(KeyframeParams.TRANSFORM_ROTATE, layerLocalUs)
+                                    val layerHasKF = layerKfScale != null || layerKfTx != null || layerKfTy != null || layerKfRot != null
+                                    val layerDisplay = clipDisplayValues(layerVideo, layerKfScale, layerKfTx, layerKfTy, layerKfRot, layerHasKF, layerTransformFilter)
+                                    val layerOffset = playheadMs - layerVideo.startMs
+                                    val layerSourceTime = (layerVideo.sourceStartMs + (layerOffset * layerVideo.speed).toLong())
+                                        .coerceAtLeast(0L)
+
+                                    Box(modifier = layerModifier) {
+                                        if (layer.isPrimary) {
+                                            when {
+                                                !isPlaying && scrubbedFrame != null -> {
+                                                    Box(modifier = Modifier.fillMaxSize()) {
+                                                        val bitmap = remember(scrubbedFrame) { scrubbedFrame!!.toImageBitmap() }
+                                                        Image(
+                                                            bitmap = bitmap,
+                                                            contentDescription = "Preview",
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .then(clipTransformModifier(primaryDisplay, viewportSize)),
+                                                            contentScale = ContentScale.Fit,
+                                                        )
+                                                    }
+                                                }
+
+                                                canPlayPrimary && lastLoadedPath == primaryVideoPath -> {
+                                                    Box(modifier = Modifier.fillMaxSize()) {
+                                                        VideoPlayerSurface(
+                                                            playerState = playerState,
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .then(clipTransformModifier(primaryDisplay, viewportSize)),
+                                                        )
+                                                    }
+                                                }
+
+                                                thumbnailFallback != null -> {
+                                                    val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
+                                                    Image(
+                                                        bitmap = bitmap,
+                                                        contentDescription = "Thumbnail",
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = ContentScale.Fit,
+                                                    )
+                                                }
+
+                                                visibleMedia.isNotEmpty() -> {
+                                                    Icon(
+                                                        Icons.Default.VideoFile, null,
+                                                        modifier = Modifier.size(48.dp),
+                                                        tint = Color.White.copy(alpha = 0.3f),
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            BackgroundVideoFrame(
+                                                sourcePath = layerVideo.sourcePath,
+                                                sourceTimeMs = layerSourceTime,
+                                                masks = layerVideo.masks.filter { it.enabled },
+                                                opacity = 1f,
+                                                onFrameLoaded = { frame ->
+                                                    backgroundFrames = backgroundFrames + (layerVideo.id to frame)
+                                                }
+                                            )
+
+                                            backgroundFrames[layerVideo.id]?.let { frame ->
+                                                val layerBitmap = remember(frame) { frame.toImageBitmap() }
+                                                Image(
+                                                    bitmap = layerBitmap,
+                                                    contentDescription = "Video layer",
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .then(clipTransformModifier(layerDisplay, viewportSize)),
+                                                    contentScale = ContentScale.Fit,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
 
-                        when {
-                            !isPlaying && scrubbedFrame != null -> {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    val bitmap = remember(scrubbedFrame) { scrubbedFrame!!.toImageBitmap() }
+                        // Nothing video-shaped at the playhead: keep the
+                        // thumbnail and the placeholder the panel always
+                        // showed behind text-only regions.
+                        if (previewLayers.none { it.isPrimary }) {
+                            when {
+                                thumbnailFallback != null -> {
+                                    val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
                                     Image(
                                         bitmap = bitmap,
-                                        contentDescription = "Preview",
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .then(clipTransformModifier(primaryDisplay, viewportSize)),
+                                        contentDescription = "Thumbnail",
+                                        modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Fit,
                                     )
                                 }
-                            }
 
-                            canPlayPrimary && lastLoadedPath == primaryVideoPath -> {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    VideoPlayerSurface(
-                                        playerState = playerState,
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .then(clipTransformModifier(primaryDisplay, viewportSize)),
+                                visibleMedia.isNotEmpty() -> {
+                                    Icon(
+                                        Icons.Default.VideoFile, null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = Color.White.copy(alpha = 0.3f),
                                     )
                                 }
-                            }
-
-                            thumbnailFallback != null -> {
-                                val bitmap = remember(thumbnailFallback) { thumbnailFallback.toImageBitmap() }
-                                Image(
-                                    bitmap = bitmap,
-                                    contentDescription = "Thumbnail",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Fit,
-                                )
-                            }
-
-                            visibleMedia.isNotEmpty() -> {
-                                Icon(
-                                    Icons.Default.VideoFile, null,
-                                    modifier = Modifier.size(48.dp),
-                                    tint = Color.White.copy(alpha = 0.3f),
-                                )
                             }
                         }
 
                     textOverlays.forEach { textOverlay ->
                         val style = textOverlay.style
+                        val textTransition = textTransitions[textOverlay.id] ?: TextTransition.Identity
                         // Read at gesture start, not at modifier creation: the
                         // pointerInput key does not change when the panel or a
                         // drag edits the style.
@@ -1022,8 +1335,8 @@ fun EditorVideoPreview(
 
                         Text(
                             text = textOverlay.text,
-                            color = textColor.copy(alpha = textColor.alpha * textOverlay.opacity),
-                            fontSize = style.fontSize.sp,
+                            color = textColor.copy(alpha = textColor.alpha * textOverlay.opacity * textTransition.alpha),
+                            fontSize = (style.fontSize * textTransition.scale).sp,
                             fontFamily = resolveFontFamily(style.fontFamily),
                             fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
                             fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
@@ -1034,8 +1347,8 @@ fun EditorVideoPreview(
                                 .offset {
                                     val cw = contentArea.width.toInt()
                                     val ch = contentArea.height.toInt()
-                                    val anchorX = (style.positionX * cw + contentArea.left).toInt()
-                                    val anchorY = (style.positionY * ch + contentArea.top).toInt()
+                                    val anchorX = ((style.positionX + textTransition.offsetX) * cw + contentArea.left).toInt()
+                                    val anchorY = ((style.positionY + textTransition.offsetY) * ch + contentArea.top).toInt()
                                     val tw = layout?.size?.width ?: 0
                                     val th = layout?.size?.height ?: 0
                                     val ox = when (style.alignment) {
@@ -1090,9 +1403,10 @@ fun EditorVideoPreview(
                     subtitles.forEach { subtitle ->
                         var subLayout by remember(subtitle.id, subtitle.text, subtitle.fontPath) { mutableStateOf<TextLayoutResult?>(null) }
                         val subtitleFontFamily = rememberSubtitleFontFamily(subtitle.fontPath)
+                        val subtitleTransition = textTransitions[subtitle.id] ?: TextTransition.Identity
                         Text(
                             text = subtitle.text,
-                            color = Color.White.copy(alpha = 0.9f),
+                            color = Color.White.copy(alpha = 0.9f * subtitleTransition.alpha),
                             fontSize = 16.sp,
                             fontFamily = subtitleFontFamily,
                             textAlign = TextAlign.Center,
@@ -1111,6 +1425,19 @@ fun EditorVideoPreview(
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
+                    }
+
+                    approximatedBlendMode?.let { mode ->
+                        Text(
+                            text = "Preview approximates ${blendModeLabel(mode)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 8.dp)
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
                     }
 
                     if (canEditCrop && cropEditing) {

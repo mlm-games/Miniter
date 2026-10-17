@@ -12,9 +12,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,13 +40,33 @@ data class TransitionOption(
 val videoTransitionOptions = listOf(
     TransitionOption(null, "None", icon = Icons.Default.Block),
     TransitionOption(RustTransitionKind.CrossFade, "Cross Fade",
-        "Fades to/from black between clips", Icons.Default.Animation),
+        "Fades between clips", Icons.Default.Animation),
     TransitionOption(RustTransitionKind.Dissolve, "Dissolve",
         "Smooth dissolve between clips", Icons.Default.BlurOn),
     TransitionOption(RustTransitionKind.SlideLeft, "Slide Left",
         "Previous slides out left, this enters from right", Icons.AutoMirrored.Filled.ArrowBack),
     TransitionOption(RustTransitionKind.SlideRight, "Slide Right",
         "Previous slides out right, this enters from left", Icons.AutoMirrored.Filled.ArrowForward),
+    TransitionOption(RustTransitionKind.SlideUp, "Slide Up",
+        "Previous slides out upward, this enters from below", Icons.Default.KeyboardArrowUp),
+    TransitionOption(RustTransitionKind.SlideDown, "Slide Down",
+        "Previous slides out downward, this enters from above", Icons.Default.KeyboardArrowDown),
+    TransitionOption(RustTransitionKind.ZoomIn, "Zoom In",
+        "This clip zooms into place", Icons.Default.ZoomIn),
+    TransitionOption(RustTransitionKind.ZoomOut, "Zoom Out",
+        "Previous clip zooms away", Icons.Default.ZoomOut),
+    TransitionOption(RustTransitionKind.FadeThroughBlack, "Fade Through Black",
+        "Previous fades to black, then this fades in", Icons.Default.Animation),
+    TransitionOption(RustTransitionKind.WipeFromLeft, "Wipe From Left",
+        "Edge sweeps left to right, revealing this clip", Icons.AutoMirrored.Filled.ArrowBack),
+    TransitionOption(RustTransitionKind.WipeFromRight, "Wipe From Right",
+        "Edge sweeps right to left, revealing this clip", Icons.AutoMirrored.Filled.ArrowForward),
+    TransitionOption(RustTransitionKind.WipeFromTop, "Wipe From Top",
+        "Edge sweeps top to bottom, revealing this clip", Icons.Default.KeyboardArrowUp),
+    TransitionOption(RustTransitionKind.WipeFromBottom, "Wipe From Bottom",
+        "Edge sweeps bottom to top, revealing this clip", Icons.Default.KeyboardArrowDown),
+    TransitionOption(RustTransitionKind.IrisOpen, "Iris Open",
+        "Circular opening reveals this clip", Icons.Default.Adjust),
 )
 
 val fadeTransitionOptions = listOf(
@@ -49,11 +74,20 @@ val fadeTransitionOptions = listOf(
     TransitionOption(RustTransitionKind.CrossFade, "Fade", defaultDurationUs = 500_000L, icon = Icons.Default.Animation),
 )
 
-val subtitleTransitionOptions = listOf(
+val textTransitionOptions = listOf(
     TransitionOption(null, "None", icon = Icons.Default.Block),
     TransitionOption(RustTransitionKind.CrossFade, "Fade", defaultDurationUs = 500_000L, icon = Icons.Default.Animation),
     TransitionOption(RustTransitionKind.SlideLeft, "Slide Left", defaultDurationUs = 500_000L, icon = Icons.AutoMirrored.Filled.ArrowBack),
     TransitionOption(RustTransitionKind.SlideRight, "Slide Right", defaultDurationUs = 500_000L, icon = Icons.AutoMirrored.Filled.ArrowForward),
+    TransitionOption(RustTransitionKind.SlideUp, "Slide Up", defaultDurationUs = 500_000L, icon = Icons.Default.KeyboardArrowUp),
+    TransitionOption(RustTransitionKind.SlideDown, "Slide Down", defaultDurationUs = 500_000L, icon = Icons.Default.KeyboardArrowDown),
+    TransitionOption(RustTransitionKind.ZoomIn, "Zoom In", defaultDurationUs = 500_000L, icon = Icons.Default.ZoomIn),
+    TransitionOption(RustTransitionKind.ZoomOut, "Zoom Out", defaultDurationUs = 500_000L, icon = Icons.Default.ZoomOut),
+)
+
+val subtitleTransitionOptions = listOf(
+    TransitionOption(null, "None", icon = Icons.Default.Block),
+    TransitionOption(RustTransitionKind.CrossFade, "Fade", defaultDurationUs = 500_000L, icon = Icons.Default.Animation),
 )
 
 @Composable

@@ -88,6 +88,10 @@ pub enum VideoFilter {
     Grayscale,
     Blur {
         radius: f32,
+        #[serde(default)]
+        kind: BlurKind,
+        #[serde(default)]
+        angle: f32,
     },
     Sharpen {
         amount: f32,
@@ -135,6 +139,56 @@ pub enum VideoFilter {
         #[serde(default = "default_canvas_blur")]
         blur_radius: f32,
     },
+    ColorGrade {
+        #[serde(default)]
+        brightness: f32,
+        #[serde(default = "default_grade_unity")]
+        contrast: f32,
+        #[serde(default = "default_grade_unity")]
+        saturation: f32,
+        #[serde(default)]
+        vibrance: f32,
+        #[serde(default)]
+        temperature: f32,
+        #[serde(default)]
+        tint: f32,
+        #[serde(default)]
+        exposure: f32,
+        #[serde(default = "default_grade_unity")]
+        gamma: f32,
+        #[serde(default)]
+        lift: f32,
+        #[serde(default = "default_grade_unity")]
+        gain: f32,
+        #[serde(default)]
+        highlights: f32,
+        #[serde(default)]
+        shadows: f32,
+    },
+    ChromaKey {
+        #[serde(default = "default_chroma_key_color")]
+        key_color: String,
+        #[serde(default = "default_chroma_tolerance")]
+        tolerance: f32,
+        #[serde(default = "default_chroma_softness")]
+        softness: f32,
+        #[serde(default = "default_chroma_spill")]
+        spill: f32,
+    },
+    /// Path to a `.cube` LUT applied to the encoded values. An empty or
+    /// unreadable file leaves the frame unchanged.
+    Lut {
+        #[serde(default)]
+        path: String,
+        #[serde(default = "default_lut_strength")]
+        strength: f32,
+    },
+    Mosaic {
+        #[serde(default)]
+        kind: MosaicKind,
+        #[serde(default = "default_mosaic_size")]
+        size: f32,
+    },
     Opacity {
         value: f32,
     },
@@ -149,6 +203,55 @@ fn default_canvas_color() -> String {
 
 fn default_canvas_blur() -> f32 {
     24.0
+}
+
+fn default_grade_unity() -> f32 {
+    1.0
+}
+
+fn default_chroma_key_color() -> String {
+    "FF00FF00".to_string()
+}
+
+fn default_chroma_tolerance() -> f32 {
+    0.25
+}
+
+fn default_chroma_softness() -> f32 {
+    0.1
+}
+
+fn default_chroma_spill() -> f32 {
+    0.5
+}
+
+fn default_mosaic_size() -> f32 {
+    16.0
+}
+
+fn default_lut_strength() -> f32 {
+    1.0
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub enum BlurKind {
+    #[default]
+    Stack,
+    Box,
+    Gaussian,
+    Motion,
+    Radial,
+    Zoom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub enum MosaicKind {
+    #[default]
+    Square,
+    Hexagon,
+    Triangle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -187,4 +290,49 @@ pub enum AudioFilter {
     Channel {
         index: u16,
     },
+    /// Graphic equaliser preset applied to the clip's decoded samples.
+    Equalizer {
+        #[serde(default)]
+        preset: EqPreset,
+    },
+    /// Room reverb mixed under the clip's dry signal.
+    Reverb {
+        #[serde(default)]
+        preset: ReverbPreset,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub enum EqPreset {
+    #[default]
+    Natural,
+    AmRadio,
+    BassBooster,
+    BassReducer,
+    BgmMode,
+    HipHop,
+    Jazz,
+    Pop,
+    RnB,
+    Rock,
+    TrebleBooster,
+    TrebleReducer,
+    Voice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub enum ReverbPreset {
+    #[default]
+    Studio,
+    Bathroom,
+    Cathedral,
+    Cave,
+    Arena,
+    Church,
+    ConcertHall,
+    EchoRoom,
+    HallDelay,
+    SpringReverb,
 }

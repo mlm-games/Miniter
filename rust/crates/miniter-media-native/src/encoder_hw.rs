@@ -24,6 +24,12 @@ mod hw {
         VideoFrame, VideoPlanes,
     };
 
+    /// Upper bound for one tail-drain read. The platform worker emits the
+    /// owed packets while the session is alive, so a packet that is not
+    /// produced within this window is never coming.
+    #[cfg(not(target_arch = "wasm32"))]
+    const HW_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
     #[cfg(target_os = "android")]
     use baabaabaabaabababbababbaa::platform::android::{
         AndroidVideoEncoderInput, AndroidVideoEncoderOutput, MediaCodecHost,
@@ -367,22 +373,35 @@ mod hw {
         }
 
         /// Frames submitted but not yet surfaced as output. Native
-        /// encode_frame blocks on one packet() per submit, so this lags by
-        /// at most one; the drain loop uses it as an upper bound.
+        /// encode_frame blocks on one packet() per submit, so exactly this
+        /// many packets are still owed to the caller.
         #[cfg(not(target_arch = "wasm32"))]
         pub fn pending_frames(&self) -> u32 {
             self.frame_index.saturating_sub(self.emitted_frames)
         }
 
         /// Pull one more output packet after the last submit (native tail
-        /// drain). Returns Ok(None) when the encoder has nothing buffered.
+        /// drain). Bounded wait: returns Ok(None) when no packet arrives
+        /// within the drain timeout, so a tail the encoder never delivers
+        /// cannot wedge the export.
         #[cfg(not(target_arch = "wasm32"))]
         pub fn drain_one(&mut self) -> Result<Option<EncodedVideoOutput>, EncodeError> {
             use baabaabaabaabababbababbaa::VideoEncoderOutput;
-            let pkt = self
-                .rt
-                .block_on(self.output.packet())
-                .map_err(|e| EncodeError::Backend(format!("HwEncoder drain: {e:?}")))?;
+            let rt = &self.rt;
+            let output = &mut self.output;
+            let drained = rt.block_on(async {
+                match tokio::time::timeout(HW_DRAIN_TIMEOUT, output.packet()).await {
+                    Ok(res) => res,
+                    Err(_) => {
+                        log::warn!(
+                            "HW encoder produced no tail packet within {HW_DRAIN_TIMEOUT:?}"
+                        );
+                        Ok(None)
+                    }
+                }
+            });
+            let pkt =
+                drained.map_err(|e| EncodeError::Backend(format!("HwEncoder drain: {e:?}")))?;
             match pkt {
                 Some(pkt) => {
                     let bytes = pkt.payload.to_vec();

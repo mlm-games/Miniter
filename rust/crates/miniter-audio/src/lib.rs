@@ -1,6 +1,7 @@
 pub mod beats;
 pub mod codecs;
 pub mod decode;
+pub mod dsp;
 pub mod loudness;
 pub mod mix;
 pub mod probe;
