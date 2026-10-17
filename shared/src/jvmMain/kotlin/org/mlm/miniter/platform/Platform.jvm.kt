@@ -5,6 +5,8 @@ import androidx.compose.runtime.Composable
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import org.mlm.miniter.ffi.hardwareProbeCodecs
+import org.mlm.miniter.ffi.hardwareProbeStatus
 
 @Composable
 actual fun getDynamicColorScheme(
@@ -12,13 +14,31 @@ actual fun getDynamicColorScheme(
     useDynamicColors: Boolean
 ): ColorScheme? {return null}
 
-actual fun isHardwareAccelerationAvailable(): Boolean = isVaapiAvailable()
+/// The platform backend's own probe (VA-API display, Media Foundation MFTs, VideoToolbox),
+/// tried once; `null` when the build has no probe (or it failed), so the OS checks below apply.
+private val nativeProbe: Pair<String, List<String>>? by lazy {
+    runCatching {
+        val status = hardwareProbeStatus()
+        if (status.isBlank()) null else status to hardwareProbeCodecs()
+    }.getOrNull()
+}
 
-actual fun getHardwareAccelerationName(): String = "VAAPI"
+actual fun isHardwareAccelerationAvailable(): Boolean =
+    nativeProbe?.second?.isNotEmpty() ?: isVaapiAvailable()
 
-actual fun isHardwareDecoderGuaranteed(): Boolean = isVaapiAvailable()
+actual fun getHardwareAccelerationName(): String = when {
+    isWindows() -> "Media Foundation"
+    isMac() -> "VideoToolbox"
+    else -> "VAAPI"
+}
+
+actual fun isHardwareDecoderGuaranteed(): Boolean =
+    nativeProbe?.let { it.second.isNotEmpty() } ?: isVaapiAvailable()
 
 actual fun getHardwareDecoderStatus(): String {
+    nativeProbe?.let { (status, codecs) ->
+        return if (codecs.isEmpty()) "$status (no codecs)" else "$status (${codecs.joinToString(", ")})"
+    }
     if (isWindows() || isMac()) return "Unknown (native decoder not probed on this OS)"
     if (!isVaapiAvailable()) {
         return if (isNvidiaPresent()) "Unknown (NVIDIA GPU present, VAAPI not detected)"
@@ -33,6 +53,7 @@ actual fun getHardwareDecoderStatus(): String {
 }
 
 actual fun getSupportedHwCodecs(): List<String> {
+    nativeProbe?.second?.takeIf { it.isNotEmpty() }?.let { return it }
     cachedHwCodecs?.let { return it }
     if (!isVaapiAvailable() || !isVainfoInstalled()) {
         cachedHwCodecs = emptyList()

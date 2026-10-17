@@ -640,6 +640,20 @@ mod native_ffi {
     }
 
     #[uniffi::export]
+    pub fn hardware_probe_status() -> String {
+        miniter_media_native::hardware_probe()
+            .map(|(status, _)| status)
+            .unwrap_or_default()
+    }
+
+    #[uniffi::export]
+    pub fn hardware_probe_codecs() -> Vec<String> {
+        miniter_media_native::hardware_probe()
+            .map(|(_, codecs)| codecs)
+            .unwrap_or_default()
+    }
+
+    #[uniffi::export]
     pub fn export_progress() -> u32 {
         EXPORT_PROGRESS.load(Ordering::SeqCst)
     }

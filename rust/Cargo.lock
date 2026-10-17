@@ -408,9 +408,9 @@ dependencies = [
 
 [[package]]
 name = "baabaabaabaabababbababbaa"
-version = "0.3.2"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ee406affafa474fa8764b065502d60e6a27c54e604a7e58bfd46be19a00398a"
+checksum = "5b3d8ee522beec19dc315f31ec6b8de9cdd1ee16bab736c0555113e14e4ec7d7"
 dependencies = [
  "anodecs",
  "bytes",
@@ -1821,9 +1821,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "libva"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "493a749de39d6db1d1923fa90bc659ca7db2f9ca1481dcc84add045552185516"
+checksum = "312278464a700bf56d5053d48b71a1ccd69070ea4c615bd372b450677fb8bea6"
 dependencies = [
  "bindgen",
  "bitflags",
@@ -2384,9 +2384,9 @@ dependencies = [
 
 [[package]]
 name = "nuxodecs"
-version = "0.1.6"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a97bb03644052f8d241d62ad795f60360244b0c20d5c8ddb51c48b39cccc06e7"
+checksum = "ec4623174d31b4829388c676f0fd191a4da0e4d012aed41a3ece9f4f71d9d414"
 dependencies = [
  "anyhow",
  "byteorder",
