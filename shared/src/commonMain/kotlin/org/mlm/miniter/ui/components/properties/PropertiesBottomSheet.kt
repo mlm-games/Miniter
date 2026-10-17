@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustBlendMode
 import org.mlm.miniter.project.KenBurnsPreset
+import org.mlm.miniter.project.TextAnimationPreset
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
@@ -40,6 +41,7 @@ fun PropertiesBottomSheet(
     onSetOpacity: (String, Float) -> Unit,
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
+    onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
     onReplaceFilter: (String, Int, RustVideoFilterSnapshot) -> Unit = { _, _, _ -> },
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit,
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
@@ -87,6 +89,7 @@ fun PropertiesBottomSheet(
                 onSetOpacity = onSetOpacity,
                 onSetBlendMode = onSetBlendMode,
                 onApplyKenBurns = onApplyKenBurns,
+                onApplyTextAnimation = onApplyTextAnimation,
                 onReplaceFilter = onReplaceFilter,
                 onSetTextTransitionIn = onSetTextTransitionIn,
                 onSetTextTransitionOut = onSetTextTransitionOut,

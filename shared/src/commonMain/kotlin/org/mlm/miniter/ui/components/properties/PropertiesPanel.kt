@@ -87,9 +87,12 @@ import org.mlm.miniter.editor.model.RustPosterizeFilterSnapshot
 import org.mlm.miniter.editor.model.RustDuotoneFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrainFilterSnapshot
 import org.mlm.miniter.project.KenBurnsPreset
+import org.mlm.miniter.project.TextAnimationMode
+import org.mlm.miniter.project.TextAnimationPreset
 import org.mlm.miniter.project.kenBurnsPresets
 import org.mlm.miniter.project.randomKenBurnsPreset
 import org.mlm.miniter.project.speedPresets
+import org.mlm.miniter.project.textAnimationPresetsFor
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.MASK_PARAM_DEFS
 import org.mlm.miniter.project.defaultOf
@@ -119,6 +122,7 @@ fun PropertiesPanel(
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
+    onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
     onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
     onUpdateAudioFilterDuration: (String, Int, Long) -> Unit = { _, _, _ -> },
@@ -213,6 +217,7 @@ fun PropertiesPanel(
                 onUpdateTextStyle = onUpdateTextStyle,
                 onSetTextTransitionIn = onSetTextTransitionIn,
                 onSetTextTransitionOut = onSetTextTransitionOut,
+                onApplyTextAnimation = onApplyTextAnimation,
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
@@ -1030,6 +1035,7 @@ private fun TextClipProperties(
     onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
+    onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
@@ -1230,6 +1236,38 @@ private fun TextClipProperties(
                     BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
                 else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {}
+        }
+    }
+
+    Spacer(Modifier.height(16.dp))
+
+    Text("Animation", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        "In",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        textAnimationPresetsFor(TextAnimationMode.In).forEach { preset ->
+            AssistChip(
+                onClick = { onApplyTextAnimation(clip.id, preset) },
+                label = { Text(preset.label) },
+            )
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "Out",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        textAnimationPresetsFor(TextAnimationMode.Out).forEach { preset ->
+            AssistChip(
+                onClick = { onApplyTextAnimation(clip.id, preset) },
+                label = { Text(preset.label) },
+            )
         }
     }
 

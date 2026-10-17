@@ -83,6 +83,8 @@ import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.project.KenBurnsPreset
+import org.mlm.miniter.project.TextAnimationBase
+import org.mlm.miniter.project.TextAnimationPreset
 import org.mlm.miniter.project.keyframesFor
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
@@ -2123,6 +2125,34 @@ class ProjectViewModel(
         try {
             for (keyframe in preset.keyframesFor(durationUs)) {
                 dispatchCoalescing(rustStore.commands.addKeyframe(clipId, keyframe), "Ken Burns")
+            }
+        } finally {
+            commitContinuousEdit()
+        }
+    }
+
+    fun applyTextAnimation(clipId: String, preset: TextAnimationPreset) {
+        val clip = findRustClip(clipId) ?: return
+        val kind = clip.kind as? RustTextClipKind ?: return
+        val durationUs = clip.timelineDurationUs
+        if (durationUs <= 0L) return
+        val base = TextAnimationBase(
+            opacity = clip.opacity,
+            positionY = kind.style.positionY,
+            fontSize = kind.style.fontSize,
+        )
+        beginContinuousEdit("Text Animation")
+        try {
+            clip.keyframes.keyframes
+                .withIndex()
+                .filter { it.value.param in preset.paramKeys }
+                .map { it.index }
+                .sortedDescending()
+                .forEach { index ->
+                    dispatchCoalescing(rustStore.commands.removeKeyframe(clipId, index), "Text Animation")
+                }
+            for (keyframe in preset.keyframesFor(durationUs, base)) {
+                dispatchCoalescing(rustStore.commands.addKeyframe(clipId, keyframe), "Text Animation")
             }
         } finally {
             commitContinuousEdit()
