@@ -133,6 +133,160 @@ pub fn yuv420_to_rgba(
     rgba
 }
 
+/// Convert a planar YUV 4:2:2 frame to packed RGBA.
+///
+/// Chroma is sub-sampled 2x horizontally and sampled 1:1 vertically:
+/// `u`/`v` hold `ceil(width/2) x height` samples.  The returned vec has
+/// `width * height * 4` bytes.
+pub fn yuv422_to_rgba(
+    y: &[u8],
+    u: &[u8],
+    v: &[u8],
+    width: usize,
+    height: usize,
+    y_stride: usize,
+    u_stride: usize,
+    v_stride: usize,
+    color_info: ColorInfo,
+) -> Vec<u8> {
+    let mut rgba = vec![0u8; width * height * 4];
+    let (rv_coeff, bu_coeff, gu_coeff, gv_coeff, _) = get_matrix_coeffs(color_info.matrix, height);
+
+    let y_scale = if color_info.range == ColorRange::Limited {
+        255.0 / 219.0
+    } else {
+        1.0
+    };
+    let y_offset = if color_info.range == ColorRange::Limited {
+        16.0
+    } else {
+        0.0
+    };
+    let chroma_scale = if color_info.range == ColorRange::Limited {
+        255.0 / 224.0
+    } else {
+        1.0
+    };
+
+    let cw = width.div_ceil(2);
+    let ch = height;
+
+    if y.len() < height.saturating_mul(y_stride)
+        || u.len() < ch.saturating_mul(u_stride)
+        || v.len() < ch.saturating_mul(v_stride)
+        || cw == 0
+        || ch == 0
+    {
+        return vec![0u8; width * height * 4];
+    }
+    for row in 0..height {
+        for col in 0..width {
+            let yi = row * y_stride + col;
+            let y_val = (*y.get(yi).unwrap_or(&16) as f32 - y_offset) * y_scale;
+
+            let cx = match color_info.chroma_siting {
+                ChromaSiting::Center => col as f32 / 2.0 - 0.25,
+                ChromaSiting::Left | ChromaSiting::TopLeft => col as f32 / 2.0,
+            };
+            let ix0 = (cx.floor().clamp(0.0, cw.saturating_sub(1) as f32) as usize)
+                .min(cw.saturating_sub(1));
+            let ix1 = (ix0 + 1).min(cw.saturating_sub(1));
+            let fx = (cx - cx.floor()).clamp(0.0, 1.0);
+            let cy = row.min(ch.saturating_sub(1));
+
+            let u_val = lerp(
+                *u.get(cy * u_stride + ix0).unwrap_or(&128) as f32 - 128.0,
+                *u.get(cy * u_stride + ix1).unwrap_or(&128) as f32 - 128.0,
+                fx,
+            ) * chroma_scale;
+            let v_val = lerp(
+                *v.get(cy * v_stride + ix0).unwrap_or(&128) as f32 - 128.0,
+                *v.get(cy * v_stride + ix1).unwrap_or(&128) as f32 - 128.0,
+                fx,
+            ) * chroma_scale;
+
+            let r = (y_val + rv_coeff * v_val).clamp(0.0, 255.0) as u8;
+            let g = (y_val + gu_coeff * u_val + gv_coeff * v_val).clamp(0.0, 255.0) as u8;
+            let b = (y_val + bu_coeff * u_val).clamp(0.0, 255.0) as u8;
+
+            let base = (row * width + col) * 4;
+            rgba[base] = r;
+            rgba[base + 1] = g;
+            rgba[base + 2] = b;
+            rgba[base + 3] = 255;
+        }
+    }
+
+    rgba
+}
+
+/// Convert a planar YUV 4:4:4 frame to packed RGBA (no chroma sub-sampling).
+///
+/// `u`/`v` hold one sample per luma sample.  The returned vec has
+/// `width * height * 4` bytes.
+pub fn yuv444_to_rgba(
+    y: &[u8],
+    u: &[u8],
+    v: &[u8],
+    width: usize,
+    height: usize,
+    y_stride: usize,
+    u_stride: usize,
+    v_stride: usize,
+    color_info: ColorInfo,
+) -> Vec<u8> {
+    let mut rgba = vec![0u8; width * height * 4];
+    let (rv_coeff, bu_coeff, gu_coeff, gv_coeff, _) = get_matrix_coeffs(color_info.matrix, height);
+
+    let y_scale = if color_info.range == ColorRange::Limited {
+        255.0 / 219.0
+    } else {
+        1.0
+    };
+    let y_offset = if color_info.range == ColorRange::Limited {
+        16.0
+    } else {
+        0.0
+    };
+    let chroma_scale = if color_info.range == ColorRange::Limited {
+        255.0 / 224.0
+    } else {
+        1.0
+    };
+
+    if y.len() < height.saturating_mul(y_stride)
+        || u.len() < height.saturating_mul(u_stride)
+        || v.len() < height.saturating_mul(v_stride)
+        || width == 0
+        || height == 0
+    {
+        return vec![0u8; width * height * 4];
+    }
+    for row in 0..height {
+        for col in 0..width {
+            let yi = row * y_stride + col;
+            let y_val = (*y.get(yi).unwrap_or(&16) as f32 - y_offset) * y_scale;
+
+            let ci = row * u_stride + col;
+            let u_val = (*u.get(ci).unwrap_or(&128) as f32 - 128.0) * chroma_scale;
+            let cv = row * v_stride + col;
+            let v_val = (*v.get(cv).unwrap_or(&128) as f32 - 128.0) * chroma_scale;
+
+            let r = (y_val + rv_coeff * v_val).clamp(0.0, 255.0) as u8;
+            let g = (y_val + gu_coeff * u_val + gv_coeff * v_val).clamp(0.0, 255.0) as u8;
+            let b = (y_val + bu_coeff * u_val).clamp(0.0, 255.0) as u8;
+
+            let base = (row * width + col) * 4;
+            rgba[base] = r;
+            rgba[base + 1] = g;
+            rgba[base + 2] = b;
+            rgba[base + 3] = 255;
+        }
+    }
+
+    rgba
+}
+
 /// Convert a packed NV12 frame to RGBA.
 ///
 /// NV12 layout: Y plane (width*height bytes) followed by interleaved U/V

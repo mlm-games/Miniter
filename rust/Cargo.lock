@@ -2524,9 +2524,9 @@ dependencies = [
 
 [[package]]
 name = "oxideav-core"
-version = "0.1.36"
+version = "0.1.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a78b502f679c580ceb7cc834d23f80821673b0a393a3083d54ef82668bb9c028"
+checksum = "64502aa4210ff04a5d574ca86f2c22e064a6c3bda812914b138c777e8ce6b023"
 dependencies = [
  "bytemuck",
  "serde_json",
@@ -2535,9 +2535,9 @@ dependencies = [
 
 [[package]]
 name = "oxideav-h264"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6bbe6bb48d3460e4c5348699de767e9aa43711e75c585e1b61cb3bc2fe6c207"
+checksum = "6757ee6e7db4622536409825bec9fda8642e8225f8e49fb9331d995e9e357322"
 dependencies = [
  "oxideav-core",
  "thiserror",
@@ -2545,9 +2545,9 @@ dependencies = [
 
 [[package]]
 name = "oxideav-h265"
-version = "0.0.10"
+version = "0.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cea8de28a522e9824535756388a28ee4bdd335ac71e193b9300fa3197f581b2"
+checksum = "1b3361cbebe79d6b5fbcc8c36dede89acf3ce8b5d1b28f673f43f98760d5dc46"
 dependencies = [
  "oxideav-core",
 ]
@@ -4448,9 +4448,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "videoson"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1d953a994268cda4b16515d7672905a0f0e8111c94f5c870d9822e74655a990"
+checksum = "3d18f3e6f1833a198c335e0cd70684a1f059c00e1f7bbc3a2e57be48bbb88f60"
 dependencies = [
  "oxideav-h265",
  "videoson-codec-h264",
@@ -4464,9 +4464,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-h264"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdbb890a7caaac1fec1bba1d056bef646639315bfe370b7bc05a1ead58db285a"
+checksum = "9b2f8cd43b3b10e51b80615f54ec82816452b6c7ff77d24ec97f2dee74e0e8a9"
 dependencies = [
  "oxideav-h264",
  "rust_h264",
@@ -4475,9 +4475,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-h265"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cadef24b474adf4303dbef8412fedcf185c39cfaf027027d4b0999c61bc55d04"
+checksum = "3c9e11181dc167a7e2c2d54ef03a882c47547fc9e3c8d178ae1becfcf6b7c5fa"
 dependencies = [
  "oxideav-core",
  "oxideav-h265",
@@ -4487,9 +4487,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-rav1d"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c974923679fbc16ebacc7417bc1e1a13338804dea01f973535c1711518b7dfdb"
+checksum = "01a5291eca796223056f0256840274d8b11e34cd14ea7b7028f85cfe921b934e"
 dependencies = [
  "rav1d-safe",
  "videoson-core",
@@ -4497,9 +4497,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-vp8"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb1a38674419de90f498511081d5451767743b5f6ca8fd5e16a46fd884fcdd11"
+checksum = "b55995f25a804e63b5e7b30491613a6a56217d1cb69a5911351ecf3b7907bbfa"
 dependencies = [
  "oxideav-vp8",
  "videoson-core",
@@ -4507,9 +4507,9 @@ dependencies = [
 
 [[package]]
 name = "videoson-codec-vp9"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da52490ee1603fcf5df9032ffcd633b925eb034cb36faae9eb6f25cf91810ded"
+checksum = "d92913b5d1051ea21596b439051f9c91b816fc3fb2032cd21e560f643c6e3160"
 dependencies = [
  "oxideav-core",
  "oxideav-vp9",
@@ -4518,15 +4518,15 @@ dependencies = [
 
 [[package]]
 name = "videoson-common"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aee5cb3e1d421e7a1e9b13edc13d671ea40eec282b95a0c85794b9b0e63103f1"
+checksum = "6157bbbf8765b52e06480081fd373f2167a5b08e211b61431449b416578e1025"
 
 [[package]]
 name = "videoson-core"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3942f5b59c849e49b326979b52ba99b8c719831513f483f9e784bc7cbad465b1"
+checksum = "8cf90318f96aefe141c3347e936f815237b8ead96c296e5ebc260b1248929222"
 
 [[package]]
 name = "walkdir"

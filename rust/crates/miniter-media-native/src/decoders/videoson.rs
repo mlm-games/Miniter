@@ -203,55 +203,58 @@ impl VideosonBackend {
                     );
                     crate::yuv::nv12_to_rgba_separate(y, uv, w, h, y_stride, uv_stride, color_info)
                 }
-                PixelFormat::Yuv420 => {
-                    let y_stride = frame.plane_data[0].stride;
-                    let u_stride = frame.plane_data.get(1).map(|p| p.stride).unwrap_or(w / 2);
-                    let v_stride = frame.plane_data.get(2).map(|p| p.stride).unwrap_or(w / 2);
-                    let y_data = match &frame.plane_data[0].data {
-                        videoson::PlaneData::U8(v) => v.as_slice(),
-                        _ => {
-                            return Err(DecodeBackendError::Other(
-                                "videoson: unsupported bit depth".into(),
-                            ));
-                        }
+                PixelFormat::Yuv420 | PixelFormat::Yuv422 | PixelFormat::Yuv444 => {
+                    let shift = frame.bit_depth.saturating_sub(8);
+                    let (cw, ch) = match frame.pixfmt {
+                        PixelFormat::Yuv422 => (w.div_ceil(2), h),
+                        PixelFormat::Yuv444 => (w, h),
+                        _ => (w.div_ceil(2), h.div_ceil(2)),
                     };
+                    let y_data = plane_u8(&frame.plane_data[0], w, h, shift);
                     let u_data = frame
                         .plane_data
                         .get(1)
-                        .and_then(|p| match &p.data {
-                            videoson::PlaneData::U8(v) => Some(v.as_slice()),
-                            _ => None,
-                        })
-                        .unwrap_or(&[]);
+                        .map(|p| plane_u8(p, cw, ch, shift))
+                        .unwrap_or_default();
                     let v_data = frame
                         .plane_data
                         .get(2)
-                        .and_then(|p| match &p.data {
-                            videoson::PlaneData::U8(v) => Some(v.as_slice()),
-                            _ => None,
-                        })
-                        .unwrap_or(&[]);
+                        .map(|p| plane_u8(p, cw, ch, shift))
+                        .unwrap_or_default();
                     diag_trace(
                         self.backend_name,
-                        "Yuv420",
+                        match frame.pixfmt {
+                            PixelFormat::Yuv422 => "Yuv422",
+                            PixelFormat::Yuv444 => "Yuv444",
+                            _ => "Yuv420",
+                        },
                         w,
                         h,
                         &format!(
-                            "ystride={y_stride} ylen={} ustride={u_stride} ulen={} vstride={v_stride} vlen={} yrows[0]={:x} yrows[100]={:x} yrows[200]={:x} yrows[539]={:x} yrows[1079]={:x}",
+                            "depth={} ylen={} ulen={} vlen={} yrows[0]={:x} yrows[100]={:x} yrows[200]={:x} yrows[539]={:x} yrows[1079]={:x}",
+                            frame.bit_depth,
                             y_data.len(),
                             u_data.len(),
                             v_data.len(),
-                            diag_row_hash(y_data, y_stride, 0, w),
-                            diag_row_hash(y_data, y_stride, 100, w),
-                            diag_row_hash(y_data, y_stride, 200, w),
-                            diag_row_hash(y_data, y_stride, 539, w),
-                            diag_row_hash(y_data, y_stride, 1079, w),
+                            diag_row_hash(&y_data, w, 0, w),
+                            diag_row_hash(&y_data, w, 100, w),
+                            diag_row_hash(&y_data, w, 200, w),
+                            diag_row_hash(&y_data, w, 539, w),
+                            diag_row_hash(&y_data, w, 1079, w),
                         ),
                         frame.pts.map(|p| p / 1000).unwrap_or(fallback_pts_us),
                     );
-                    crate::yuv::yuv420_to_rgba(
-                        y_data, u_data, v_data, w, h, y_stride, u_stride, v_stride, color_info,
-                    )
+                    match frame.pixfmt {
+                        PixelFormat::Yuv422 => crate::yuv::yuv422_to_rgba(
+                            &y_data, &u_data, &v_data, w, h, w, cw, cw, color_info,
+                        ),
+                        PixelFormat::Yuv444 => crate::yuv::yuv444_to_rgba(
+                            &y_data, &u_data, &v_data, w, h, w, cw, cw, color_info,
+                        ),
+                        _ => crate::yuv::yuv420_to_rgba(
+                            &y_data, &u_data, &v_data, w, h, w, cw, cw, color_info,
+                        ),
+                    }
                 }
                 PixelFormat::Gray => {
                     let y_data = match &frame.plane_data[0].data {
@@ -324,6 +327,29 @@ fn diag_trace(name: &str, fmt: &str, w: usize, h: usize, extra: &str, pts: i64) 
     if n < 8 || n.is_multiple_of(50) {
         log::warn!("SWDEC n={n} {name} {fmt} {w}x{h} {extra} pts={pts}");
     }
+}
+
+/// Plane samples normalized to tightly packed 8-bit; above-8-bit sources are
+/// shifted down by their stream's depth.
+fn plane_u8(plane: &videoson::VideoPlane, width: usize, height: usize, shift: u8) -> Vec<u8> {
+    let mut out = vec![0u8; width * height];
+    for row in 0..height {
+        let src = row * plane.stride;
+        let dst = row * width;
+        match &plane.data {
+            videoson::PlaneData::U8(s) => {
+                for col in 0..width {
+                    out[dst + col] = s.get(src + col).copied().unwrap_or(0);
+                }
+            }
+            videoson::PlaneData::U16(s) => {
+                for col in 0..width {
+                    out[dst + col] = (s.get(src + col).copied().unwrap_or(0) >> shift) as u8;
+                }
+            }
+        }
+    }
+    out
 }
 
 fn map_videoson_color(reported: &videoson::ColorInfo, height: u32) -> ColorInfo {
