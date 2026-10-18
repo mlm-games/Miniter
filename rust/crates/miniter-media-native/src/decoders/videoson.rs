@@ -13,6 +13,9 @@ pub struct VideosonBackend {
     eos_sent: bool,
     backend_name: &'static str,
     allowed_fourccs: Vec<u32>,
+    /// Colour parsed from the container's parameter sets, used when the
+    /// bitstream's own report is absent.
+    fallback_color: Option<ColorInfo>,
     /// Buffer of recent PTS values used to derive frame duration from the
     /// minimum positive delta between sorted PTS values (display order).
     pts_buffer: Vec<i64>,
@@ -37,6 +40,7 @@ impl VideosonBackend {
             eos_sent: false,
             backend_name,
             allowed_fourccs,
+            fallback_color: None,
             pts_buffer: Vec::new(),
             min_pts_delta_us: i64::MAX,
             non_zero_pts_seen: 0,
@@ -154,6 +158,12 @@ impl VideosonBackend {
         ))
     }
 
+    /// The software decoder does not see the container's codec description, so
+    /// the caller supplies the colour parsed from it.
+    pub fn set_fallback_color(&mut self, color: Option<ColorInfo>) {
+        self.fallback_color = color;
+    }
+
     fn drain_ready_frames(&mut self, fallback_pts_us: i64) -> Result<(), DecodeBackendError> {
         while let Some(frame) = self
             .inner
@@ -162,7 +172,7 @@ impl VideosonBackend {
         {
             let (w, h) = (frame.width as usize, frame.height as usize);
 
-            let color_info = map_videoson_color(&frame.color_info, h as u32);
+            let color_info = map_videoson_color(&frame.color_info, h as u32, self.fallback_color);
 
             let rgba = match frame.pixfmt {
                 PixelFormat::Nv12 => {
@@ -352,9 +362,13 @@ fn plane_u8(plane: &videoson::VideoPlane, width: usize, height: usize, shift: u8
     out
 }
 
-fn map_videoson_color(reported: &videoson::ColorInfo, height: u32) -> ColorInfo {
+fn map_videoson_color(
+    reported: &videoson::ColorInfo,
+    height: u32,
+    fallback: Option<ColorInfo>,
+) -> ColorInfo {
     if !reported.signalled {
-        return ColorInfo::infer(height);
+        return fallback.unwrap_or_else(|| ColorInfo::infer(height));
     }
     let mut info = ColorInfo::infer(height);
     info.range = if reported.full_range {

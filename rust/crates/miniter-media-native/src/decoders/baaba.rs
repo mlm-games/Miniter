@@ -68,6 +68,10 @@ pub struct BaabaBackend {
     frame_buffer: VecDeque<RgbaFrame>,
     flushed: bool,
     reorder_depth: usize,
+    /// VP9 carries its colour in the stream, not in a container description
+    /// the hardware decoder is handed, so it is read from the first keyframe.
+    inband_vp9: bool,
+    sniffed_color: Option<ColorInfo>,
     #[cfg(target_arch = "wasm32")]
     copy_rx: tokio::sync::mpsc::UnboundedReceiver<PendingFrame>,
     #[cfg(target_arch = "wasm32")]
@@ -107,14 +111,13 @@ impl BaabaBackend {
         // height heuristic applies as before.
         let color = description
             .as_deref()
-            .and_then(|d| codec_from_mime(mime).map(|codec| (codec, d)))
-            .and_then(|(codec, d)| videoson::color::extradata_color(codec, d))
+            .and_then(|d| super::stream_color(mime, d))
             .map(|c| VideoColorInfo {
                 primaries: c.primaries,
                 transfer: c.transfer,
                 matrix: c.matrix,
                 full_range: c.full_range,
-                signalled: c.signalled,
+                signalled: true,
             });
 
         let config = VideoDecoderConfig {
@@ -157,6 +160,8 @@ impl BaabaBackend {
             frame_buffer: VecDeque::new(),
             flushed: false,
             reorder_depth,
+            inband_vp9: mime == "video/vp9",
+            sniffed_color: None,
             #[cfg(target_arch = "wasm32")]
             copy_rx,
             #[cfg(target_arch = "wasm32")]
@@ -169,7 +174,8 @@ impl BaabaBackend {
         loop {
             match self.output.try_frame() {
                 Ok(Some(frame)) => {
-                    self.frame_buffer.push_back(convert_baaba_frame(frame)?);
+                    self.frame_buffer
+                        .push_back(convert_baaba_frame(frame, self.sniffed_color)?);
                 }
                 Ok(None) => break,
                 Err(e) => {
@@ -184,6 +190,7 @@ impl BaabaBackend {
             &self.copy_tx,
             &mut self.copy_rx,
             &mut self.frame_buffer,
+            self.sniffed_color,
         )?;
 
         Ok(())
@@ -200,12 +207,32 @@ impl BaabaBackend {
     }
 }
 
-fn codec_from_mime(mime: &str) -> Option<videoson::CodecType> {
-    match mime {
-        "video/avc" => Some(videoson::CodecType::H264),
-        "video/hevc" | "video/h265" => Some(videoson::CodecType::H265),
-        _ => None,
+/// VP9 signals colour in every keyframe's uncompressed header (ITU-T H.273
+/// codes once mapped as ffmpeg maps them) and the hardware decoder reports
+/// none of it.
+fn sniff_vp9_color(data: &[u8]) -> Option<ColorInfo> {
+    use nuxodecs::codec::vp9::parser::{ColorRange as Vp9Range, ColorSpace as Vp9Space, Parser};
+    let mut parser = Parser::default();
+    let frame = parser.parse_frame(data, 0, data.len()).ok()?;
+    let header = frame.header;
+    let matrix = match header.color_space {
+        Vp9Space::Bt601 => 5,     // BT.470BG
+        Vp9Space::Bt709 => 1,     // BT.709
+        Vp9Space::Smpte170 => 6,  // SMPTE 170M
+        Vp9Space::Smpte240 => 7,  // SMPTE 240M
+        Vp9Space::Bt2020 => 9,    // BT.2020 non-constant luminance
+        Vp9Space::CsSrgb => 0,    // identity (R'G'B')
+        Vp9Space::Unknown | Vp9Space::Reserved2 => return None,
+    };
+    let mut info = ColorInfo::infer(header.height);
+    if let Some(mapped) = ColorInfo::matrix_from_cicp(matrix) {
+        info.matrix = mapped;
     }
+    info.range = match header.color_range {
+        Vp9Range::FullSwing => ColorRange::Full,
+        Vp9Range::StudioSwing => ColorRange::Limited,
+    };
+    Some(info)
 }
 
 /// ITU-T H.273 matrix_coeffs code to the enum used by the YUV→RGB path.
@@ -217,7 +244,10 @@ fn map_matrix(matrix: u8, height: u32) -> MatrixCoeffs {
     ColorInfo::matrix_from_cicp(matrix).unwrap_or_else(|| ColorInfo::infer(height).matrix)
 }
 
-fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendError> {
+fn convert_baaba_frame(
+    frame: BaabaFrame,
+    fallback: Option<ColorInfo>,
+) -> Result<RgbaFrame, DecodeBackendError> {
     let pts_us = frame.timestamp.as_micros().min(i64::MAX as u128) as i64;
     let w = frame.dimensions.width as usize;
     let h = frame.dimensions.height as usize;
@@ -232,7 +262,7 @@ fn convert_baaba_frame(frame: BaabaFrame) -> Result<RgbaFrame, DecodeBackendErro
             };
             info
         }
-        None => ColorInfo::infer(frame.dimensions.height),
+        None => fallback.unwrap_or_else(|| ColorInfo::infer(frame.dimensions.height)),
     };
 
     match frame.planes {
@@ -355,6 +385,7 @@ fn drain_raw_frames(
     copy_tx: &tokio::sync::mpsc::UnboundedSender<PendingFrame>,
     copy_rx: &mut tokio::sync::mpsc::UnboundedReceiver<PendingFrame>,
     frame_buffer: &mut VecDeque<RgbaFrame>,
+    color: Option<ColorInfo>,
 ) -> Result<(), DecodeBackendError> {
     while let Some(raw_frame) = output
         .try_frame_raw()
@@ -426,7 +457,7 @@ fn drain_raw_frames(
             color: None,
             planes: VideoPlanes::Cpu(data),
         };
-        frame_buffer.push_back(convert_baaba_frame(baaba_frame)?);
+        frame_buffer.push_back(convert_baaba_frame(baaba_frame, color)?);
     }
 
     Ok(())
@@ -452,6 +483,10 @@ impl VideoDecoderBackend for BaabaBackend {
         is_sync: bool,
     ) -> Result<Option<RgbaFrame>, DecodeBackendError> {
         let pts_clamped = pts_us.max(0) as u64;
+
+        if self.inband_vp9 && self.sniffed_color.is_none() && is_sync {
+            self.sniffed_color = sniff_vp9_color(data);
+        }
 
         if let Some(frame) = self.pop_frame()? {
             let packet = EncodedVideoPacket {
