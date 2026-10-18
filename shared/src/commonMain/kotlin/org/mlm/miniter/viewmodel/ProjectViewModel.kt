@@ -1793,6 +1793,64 @@ class ProjectViewModel(
         )
     }
 
+    fun moveSelectedClipsToTrack(anchorClipId: String, toTrackId: String) {
+        val snapshot = rustStore.snapshot.value ?: return
+        val tracks = snapshot.timeline.tracks
+        val selectedIds = _state.value.selectedClipIds
+        val anchorTrackIndex = tracks.indexOfFirst { track -> track.clips.any { it.id == anchorClipId } }
+        val targetTrackIndex = tracks.indexOfFirst { track -> track.id == toTrackId }
+        if (anchorTrackIndex < 0 || targetTrackIndex < 0 || targetTrackIndex == anchorTrackIndex) return
+        val trackDelta = targetTrackIndex - anchorTrackIndex
+
+        val moving = tracks.flatMapIndexed { index, track ->
+            track.clips.filter { it.id in selectedIds }.map { index to it }
+        }
+        if (moving.isEmpty()) return
+
+        for ((sourceIndex, clip) in moving) {
+            val sourceTrack = tracks[sourceIndex]
+            val destination = tracks.getOrNull(sourceIndex + trackDelta)
+            if (destination == null) {
+                snackbarManager.showError("Cannot move selection: it would run past the end of the track list")
+                return
+            }
+            if (sourceTrack.locked) {
+                snackbarManager.showError("Cannot move selection: '${sourceTrack.name}' is locked")
+                return
+            }
+            if (destination.locked) {
+                snackbarManager.showError("Cannot move selection: '${destination.name}' is locked")
+                return
+            }
+            if (!trackAcceptsClip(destination, clip)) {
+                snackbarManager.showError("Cannot move selection: '${destination.name}' does not accept this clip")
+                return
+            }
+            val endUs = clip.timelineStartUs + clip.timelineDurationUs
+            val collides = destination.clips.any { other ->
+                other.id !in selectedIds && other.overlapsRange(clip.timelineStartUs, endUs)
+            }
+            if (collides) {
+                snackbarManager.showError("Cannot move selection: clips would overlap on '${destination.name}'")
+                return
+            }
+        }
+
+        val ordered = if (trackDelta > 0) {
+            moving.sortedByDescending { it.first }
+        } else {
+            moving.sortedBy { it.first }
+        }
+        val commands = ordered.map { (sourceIndex, clip) ->
+            rustStore.commands.moveClip(
+                clipId = clip.id,
+                trackId = tracks[sourceIndex + trackDelta].id,
+                newStartUs = clip.timelineStartUs,
+            )
+        }
+        dispatchCoalescing(rustStore.commands.batch("Move selection", commands), "Move")
+    }
+
     fun trimClipStartAbsolute(clipId: String, newStartMs: Long) {
         val snapshot = rustStore.snapshot.value ?: return
         val track = snapshot.timeline.tracks.firstOrNull { t -> t.clips.any { it.id == clipId } } ?: return

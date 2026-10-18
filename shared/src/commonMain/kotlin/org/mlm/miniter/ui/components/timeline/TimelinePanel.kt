@@ -129,6 +129,7 @@ fun TimelinePanel(
     onBeginEdit: () -> Unit,
     onClipMoveAbsolute: (clipId: String, absoluteStartMs: Long) -> Unit,
     onClipMoveToTrack: (clipId: String, fromTrackId: String, toTrackId: String) -> Unit,
+    onSelectionMoveToTrack: (anchorClipId: String, toTrackId: String) -> Unit,
     onCommitEdit: () -> Unit,
     onCancelEdit: () -> Unit,
     onClipTrimStartAbsolute: (clipId: String, newStartMs: Long) -> Unit,
@@ -243,6 +244,7 @@ fun TimelinePanel(
                     onBeginEdit = onBeginEdit,
                     onClipMoveAbsolute = onClipMoveAbsolute,
                     onClipMoveToTrack = onClipMoveToTrack,
+                    onSelectionMoveToTrack = onSelectionMoveToTrack,
                     onCommitEdit = onCommitEdit,
                     onCancelEdit = onCancelEdit,
                     onClipTrimStartAbsolute = onClipTrimStartAbsolute,
@@ -500,6 +502,7 @@ private fun TrackRow(
     onBeginEdit: () -> Unit,
     onClipMoveAbsolute: (String, Long) -> Unit,
     onClipMoveToTrack: (String, String, String) -> Unit,
+    onSelectionMoveToTrack: (String, String) -> Unit,
     onCommitEdit: () -> Unit,
     onCancelEdit: () -> Unit,
     onClipTrimStartAbsolute: (String, Long) -> Unit,
@@ -649,7 +652,11 @@ private fun TrackRow(
                         sameTypeIndex = sameTypeIndex,
                         sameTypeTrackIds = sameTypeUnlocked,
                         onMoveToTrack = { toTrackId ->
-                            if (!inMultiSelection) onClipMoveToTrack(clip.id, track.id, toTrackId)
+                            if (inMultiSelection) {
+                                onSelectionMoveToTrack(clip.id, toTrackId)
+                            } else {
+                                onClipMoveToTrack(clip.id, track.id, toTrackId)
+                            }
                         },
                     )
                 }

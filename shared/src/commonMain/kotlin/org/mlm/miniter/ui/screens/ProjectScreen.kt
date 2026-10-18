@@ -332,6 +332,7 @@ fun ProjectScreen(
                     onBeginEdit = vm::beginEdit,
                     onClipMoveAbsolute = vm::moveClipAbsolute,
                     onClipMoveToTrack = vm::moveClipToTrack,
+                    onSelectionMoveToTrack = vm::moveSelectedClipsToTrack,
                     onCommitEdit = vm::commitEdit,
                     onCancelEdit = vm::cancelEdit,
                     onClipTrimStartAbsolute = vm::trimClipStartAbsolute,
