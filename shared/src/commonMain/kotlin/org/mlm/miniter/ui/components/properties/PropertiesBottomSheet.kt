@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustBlendMode
 import org.mlm.miniter.project.KenBurnsPreset
+import org.mlm.miniter.project.SpeedCurvePreset
 import org.mlm.miniter.project.TextAnimationPreset
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
@@ -41,6 +42,7 @@ fun PropertiesBottomSheet(
     onSetOpacity: (String, Float) -> Unit,
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
+    onApplySpeedCurve: (String, SpeedCurvePreset?) -> Unit = { _, _ -> },
     onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
     onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
     onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
@@ -91,6 +93,7 @@ fun PropertiesBottomSheet(
                 onSetOpacity = onSetOpacity,
                 onSetBlendMode = onSetBlendMode,
                 onApplyKenBurns = onApplyKenBurns,
+                onApplySpeedCurve = onApplySpeedCurve,
                 onFitToCanvas = onFitToCanvas,
                 onFreezeFrame = onFreezeFrame,
                 onApplyTextAnimation = onApplyTextAnimation,

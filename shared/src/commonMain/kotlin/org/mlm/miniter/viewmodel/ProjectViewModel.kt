@@ -83,6 +83,7 @@ import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.project.KenBurnsPreset
+import org.mlm.miniter.project.SpeedCurvePreset
 import org.mlm.miniter.project.TextAnimationBase
 import org.mlm.miniter.project.TextAnimationPreset
 import org.mlm.miniter.project.keyframesFor
@@ -93,6 +94,7 @@ import org.mlm.miniter.rust.BeatTrack
 import org.mlm.miniter.rust.RustCoreSession
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.util.toArgbHex
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToLong
 import kotlin.time.Clock
@@ -2330,6 +2332,52 @@ class ProjectViewModel(
         } finally {
             commitContinuousEdit()
         }
+    }
+
+    fun applySpeedCurve(clipId: String, preset: SpeedCurvePreset?) {
+        val clip = findRustClip(clipId) ?: return
+        if (preset == null) {
+            if (clip.keyframes.keyframes.none { it.param == KeyframeParams.SPEED }) return
+        } else if (clip.timelineDurationUs <= 0L) {
+            return
+        }
+        beginContinuousEdit("Speed curve")
+        try {
+            removeSpeedKeyframes(clipId)
+            if (preset != null) {
+                var durationUs = clip.timelineDurationUs
+                writeSpeedKeyframes(clipId, preset, durationUs)
+                var iterations = 0
+                while (iterations < 4) {
+                    val nextDurationUs = findRustClip(clipId)?.timelineDurationUs ?: break
+                    if (abs(nextDurationUs - durationUs) <= 2000L) break
+                    removeSpeedKeyframes(clipId)
+                    durationUs = nextDurationUs
+                    writeSpeedKeyframes(clipId, preset, durationUs)
+                    iterations++
+                }
+            }
+        } finally {
+            commitContinuousEdit()
+        }
+    }
+
+    private fun writeSpeedKeyframes(clipId: String, preset: SpeedCurvePreset, durationUs: Long) {
+        for (keyframe in preset.keyframesFor(durationUs)) {
+            dispatchCoalescing(rustStore.commands.addKeyframe(clipId, keyframe), "Speed curve")
+        }
+    }
+
+    private fun removeSpeedKeyframes(clipId: String) {
+        val clip = findRustClip(clipId) ?: return
+        clip.keyframes.keyframes
+            .withIndex()
+            .filter { it.value.param == KeyframeParams.SPEED }
+            .map { it.index }
+            .sortedDescending()
+            .forEach { index ->
+                dispatchCoalescing(rustStore.commands.removeKeyframe(clipId, index), "Speed curve")
+            }
     }
 
     fun removeKeyframe(clipId: String, index: Int) {

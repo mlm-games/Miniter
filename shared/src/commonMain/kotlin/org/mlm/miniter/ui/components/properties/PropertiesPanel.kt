@@ -90,10 +90,12 @@ import org.mlm.miniter.editor.model.RustPosterizeFilterSnapshot
 import org.mlm.miniter.editor.model.RustDuotoneFilterSnapshot
 import org.mlm.miniter.editor.model.RustGrainFilterSnapshot
 import org.mlm.miniter.project.KenBurnsPreset
+import org.mlm.miniter.project.SpeedCurvePreset
 import org.mlm.miniter.project.TextAnimationMode
 import org.mlm.miniter.project.TextAnimationPreset
 import org.mlm.miniter.project.kenBurnsPresets
 import org.mlm.miniter.project.randomKenBurnsPreset
+import org.mlm.miniter.project.speedCurvePresets
 import org.mlm.miniter.project.speedPresets
 import org.mlm.miniter.project.textAnimationPresetsFor
 import org.mlm.miniter.project.KeyframeParams
@@ -125,6 +127,7 @@ fun PropertiesPanel(
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
+    onApplySpeedCurve: (String, SpeedCurvePreset?) -> Unit = { _, _ -> },
     onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
     onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
     onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
@@ -193,6 +196,7 @@ fun PropertiesPanel(
                 onSetOpacity = onSetOpacity,
                 onSetBlendMode = onSetBlendMode,
                 onApplyKenBurns = onApplyKenBurns,
+                onApplySpeedCurve = onApplySpeedCurve,
                 onFitToCanvas = onFitToCanvas,
                 onFreezeFrame = onFreezeFrame,
                 onAddKeyframe = onAddKeyframe,
@@ -265,6 +269,7 @@ private fun VideoClipProperties(
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
+    onApplySpeedCurve: (String, SpeedCurvePreset?) -> Unit = { _, _ -> },
     onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
     onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
@@ -352,6 +357,30 @@ private fun VideoClipProperties(
                 label = { Text(label) },
             )
         }
+    }
+
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "Speed curve",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(4.dp))
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        speedCurvePresets.forEach { preset ->
+            AssistChip(
+                onClick = { onApplySpeedCurve(clip.id, preset) },
+                label = { Text(preset.label) },
+            )
+        }
+        AssistChip(
+            onClick = { onApplySpeedCurve(clip.id, null) },
+            label = { Text("None") },
+        )
     }
 
     Spacer(Modifier.height(16.dp))

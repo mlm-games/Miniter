@@ -311,6 +311,7 @@ fun ProjectScreen(
                 onToggleFilterEnabled = vm::setFilterEnabled,
                 onMoveFilter = vm::moveFilter,
                 onSetSpeed = vm::setClipSpeed,
+                onApplySpeedCurve = vm::applySpeedCurve,
                 onSetVolume = vm::setClipVolume,
                 onSetTransitionIn = vm::setTransitionIn,
                 onSetTransitionOut = vm::setTransitionOut,
