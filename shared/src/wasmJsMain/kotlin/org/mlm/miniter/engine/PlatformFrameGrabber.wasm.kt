@@ -1,20 +1,34 @@
 package org.mlm.miniter.engine
 
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.mlm.miniter.editor.model.RustMaskEffect
-import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.synchronized as platformSynchronized
 import org.mlm.miniter.rust.RustCoreSession
+import org.mlm.miniter.rust.WasmEditorHandle
+
+@Serializable
+private data class WasmCompositeFramePayload(
+    val width: Int,
+    val height: Int,
+    val rgbaBase64: String,
+    val ptsUs: Long = 0,
+)
+
+private val compositePayloadJson = Json { ignoreUnknownKeys = true }
 
 actual class PlatformFrameGrabber actual constructor() {
     private val mutex = Mutex()
     private val guard = Any()
     private var currentPath: String? = null
     private var invalidateEpoch = 0L
+    private var compositeHandle: WasmEditorHandle? = null
 
     actual suspend fun open(path: String) {
         mutex.withLock {
@@ -30,9 +44,6 @@ actual class PlatformFrameGrabber actual constructor() {
 
     actual suspend fun grabFrame(
         timestampMs: Long,
-        filters: List<RustVideoFilterSnapshot>,
-        masks: List<RustMaskEffect>,
-        opacity: Float,
         width: Int,
         height: Int,
         hardwareAcceleration: Boolean,
@@ -41,32 +52,47 @@ actual class PlatformFrameGrabber actual constructor() {
 
         try {
             val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L, hardwareAcceleration)
-            var rgba = frame.pixels
-            var fw = frame.width
-            var fh = frame.height
-
-            // The export renderer composites filters, then masks, then the
-            // clip's opacity; the same order here keeps the preview and the
-            // render identical.
-            if (filters.isNotEmpty()) {
-                rgba = FrameFilterProcessors.applyFilters(rgba, fw, fh, filters, 1f)
+            val finalW = if (width > 0) width else frame.width
+            val finalH = if (height > 0) height else frame.height
+            if (frame.width != finalW || frame.height != finalH) {
+                return@withContext scaleRgbaToImageData(frame.pixels, frame.width, frame.height, finalW, finalH)
             }
 
-            if (masks.isNotEmpty()) {
-                rgba = RustCoreSession.applyMasks(rgba, fw, fh, masksToWireJson(masks))
-            }
+            ImageData.create(frame.width, frame.height, frame.pixels)
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
-            if (opacity < 1f) {
-                rgba = FrameFilterProcessors.applyFilters(rgba, fw, fh, emptyList(), opacity)
-            }
+    actual suspend fun openProject(projectJson: String) {
+        compositeHandle = WasmEditorHandle.fromJson(projectJson)
+    }
 
-            val finalW = if (width > 0) width else fw
-            val finalH = if (height > 0) height else fh
-            if (fw != finalW || fh != finalH) {
-                return@withContext scaleRgbaToImageData(rgba, fw, fh, finalW, finalH)
+    @OptIn(ExperimentalEncodingApi::class)
+    actual suspend fun grabCompositeFrame(
+        timestampUs: Long,
+        width: Int,
+        height: Int,
+        hardwareAcceleration: Boolean,
+        ignoreCropClipId: String?,
+    ): ImageData? = withContext(Dispatchers.Default) {
+        val handle = compositeHandle ?: return@withContext null
+        try {
+            val payload = compositePayloadJson.decodeFromString<WasmCompositeFramePayload>(
+                handle.renderPreviewFrame(
+                    timestampUs.toDouble(),
+                    width.toDouble(),
+                    height.toDouble(),
+                    hardwareAcceleration,
+                    ignoreCropClipId ?: "",
+                )
+            )
+            val pixels = Base64.decode(payload.rgbaBase64)
+            if (pixels.size == payload.width * payload.height * 4) {
+                ImageData.create(payload.width, payload.height, pixels)
+            } else {
+                null
             }
-
-            ImageData.create(fw, fh, rgba)
         } catch (_: Throwable) {
             null
         }
@@ -77,6 +103,7 @@ actual class PlatformFrameGrabber actual constructor() {
             invalidateEpoch++
             currentPath = null
         }
+        compositeHandle = null
     }
 }
 

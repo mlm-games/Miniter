@@ -1,4 +1,5 @@
 pub mod compositor;
+pub mod preview;
 pub mod render_graph;
 pub mod transition_blend;
 pub mod validate;

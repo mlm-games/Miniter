@@ -1,11 +1,15 @@
 package org.mlm.miniter.editor
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.mlm.miniter.editor.model.RustProjectSnapshot
+import org.mlm.miniter.engine.ImageData
+import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.rust.RustCoreRepository
 import org.mlm.miniter.rust.RustCoreSession
 
@@ -168,11 +172,42 @@ class RustProjectStore(
         return repository.currentOrNull()?.validateRenderPlanAtPlayhead(width, height)
     }
 
+    suspend fun renderPreviewFrame(
+        timestampUs: Long,
+        width: Int,
+        height: Int,
+        hardwareAcceleration: Boolean,
+        ignoreCropClipId: String? = null,
+    ): ImageData? = withContext(Dispatchers.Default) {
+        if (width <= 0 || height <= 0) return@withContext null
+        val json = try {
+            exportProjectJson()
+        } catch (_: Exception) {
+            return@withContext null
+        }
+        val grabber = compositeGrabber ?: PlatformFrameGrabber().also { compositeGrabber = it }
+        try {
+            if (json != compositeProjectJson) {
+                grabber.openProject(json)
+                compositeProjectJson = json
+            }
+            grabber.grabCompositeFrame(timestampUs, width, height, hardwareAcceleration, ignoreCropClipId)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun clear() {
+        compositeGrabber?.release()
+        compositeGrabber = null
+        compositeProjectJson = null
         repository.clearAtomically {
             _snapshot.value = null
         }
     }
+
+    private var compositeGrabber: PlatformFrameGrabber? = null
+    private var compositeProjectJson: String? = null
 
     @Throws(RustNoSessionException::class)
     private fun refresh(): RustProjectSnapshot {

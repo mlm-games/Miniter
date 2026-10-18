@@ -322,6 +322,33 @@ mod native_ffi {
                 .map_err(|e| MiniterError::Serialize { detail: e })
         }
 
+        pub fn render_preview_frame(
+            &self,
+            timestamp_us: i64,
+            width: u32,
+            height: u32,
+            hardware_acceleration: bool,
+            ignore_crop_clip_id: Option<String>,
+        ) -> Result<FrameData, MiniterError> {
+            let state = self.0.0.lock().map_err(|_| MiniterError::LockPoisoned)?;
+            let rgba = miniter_media_native::export::render_preview_frame(
+                &state.project.timeline,
+                miniter_domain::time::Timestamp::from_micros(timestamp_us.max(0)),
+                width,
+                height,
+                miniter_domain::export::SubtitleMode::Hard,
+                hardware_acceleration,
+                ignore_crop_clip_id.as_deref(),
+            )
+            .map_err(|e| MiniterError::from_export_error(&e))?;
+            Ok(FrameData {
+                width,
+                height,
+                rgba,
+                pts_us: timestamp_us.max(0),
+            })
+        }
+
         pub fn duration_us(&self) -> i64 {
             self.0.duration_us()
         }
@@ -899,6 +926,37 @@ mod web_ffi {
         pub fn render_plan_at_playhead(&self, width: u32, height: u32) -> Result<String, JsValue> {
             self.0
                 .render_plan_at_playhead(width, height)
+                .map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))
+        }
+
+        #[wasm_bindgen(js_name = renderPreviewFrame)]
+        pub fn render_preview_frame(
+            &self,
+            timestamp_us: f64,
+            width: u32,
+            height: u32,
+            hardware_acceleration: bool,
+            ignore_crop_clip_id: Option<String>,
+        ) -> Result<String, JsValue> {
+            let state = self.0.0.lock().map_err(|_| JsValue::from_str("Lock poisoned"))?;
+            let ignore_crop_clip_id = ignore_crop_clip_id.filter(|id| !id.is_empty());
+            let rgba = miniter_media_native::wasm_export::render_preview_frame(
+                &state.project,
+                timestamp_us as i64,
+                width,
+                height,
+                hardware_acceleration,
+                ignore_crop_clip_id.as_deref(),
+                &mut registered_file_content,
+            )
+            .map_err(|e| JsValue::from_str(&format!("Media error: {e}")))?;
+            let frame = WasmFrameData {
+                width,
+                height,
+                rgba_base64: base64::engine::general_purpose::STANDARD.encode(rgba),
+                pts_us: timestamp_us as i64,
+            };
+            serde_json::to_string(&frame)
                 .map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))
         }
 

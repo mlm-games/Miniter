@@ -2013,6 +2013,111 @@ pub fn render_single_frame_cached(
     )
 }
 
+struct PreviewDecodeCache {
+    sources_key: u64,
+    hardware_acceleration: bool,
+    decode_cache: ExportDecodeCache,
+}
+
+std::thread_local! {
+    static PREVIEW_DECODE_CACHE: std::cell::RefCell<Option<PreviewDecodeCache>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn preview_sources_key(root: &RenderNode) -> u64 {
+    fn mix(hash: &mut u64, bytes: &[u8]) {
+        for byte in bytes {
+            *hash ^= u64::from(*byte);
+            *hash = hash.wrapping_mul(0x0000_0100_0000_01B3);
+        }
+    }
+
+    fn walk(node: &RenderNode, hash: &mut u64) {
+        match node {
+            RenderNode::VideoFrame {
+                clip_id,
+                source_path,
+                ..
+            } => {
+                mix(hash, clip_id.0.as_bytes());
+                mix(hash, source_path.as_bytes());
+            }
+            RenderNode::Subtitle { source_path, .. } => mix(hash, source_path.as_bytes()),
+            RenderNode::Stack(children) => {
+                for child in children {
+                    walk(child, hash);
+                }
+            }
+            RenderNode::TransitionBlend { bottom, top, .. } => {
+                walk(bottom, hash);
+                walk(top, hash);
+            }
+            RenderNode::Masked { source, .. } | RenderNode::Adjustment { source, .. } => {
+                walk(source, hash)
+            }
+            _ => {}
+        }
+    }
+
+    let mut hash = 0xCBF2_9CE4_8422_2325;
+    walk(root, &mut hash);
+    hash
+}
+
+pub fn render_preview_frame(
+    timeline: &miniter_domain::Timeline,
+    timestamp: Timestamp,
+    width: u32,
+    height: u32,
+    subtitle_mode: SubtitleMode,
+    hardware_acceleration: bool,
+    ignore_crop_clip_id: Option<&str>,
+) -> Result<Vec<u8>, ExportError> {
+    if width == 0 || height == 0 {
+        return Err(ExportError::Internal(
+            "preview frame size cannot be zero".to_string(),
+        ));
+    }
+
+    let mut plan = plan_frame(timeline, timestamp, width, height, subtitle_mode);
+    if let Some(clip_id) = ignore_crop_clip_id {
+        miniter_render_plan::preview::strip_crop(&mut plan.root, clip_id);
+    }
+    miniter_render_plan::preview::rewrite_video_sources(&mut plan.root, &mut |path: &str| {
+        let proxy = crate::proxy::playback_source_for(Path::new(path));
+        (proxy.as_path() != Path::new(path)).then(|| proxy.to_string_lossy().into_owned())
+    });
+
+    let sources_key = preview_sources_key(&plan.root);
+    PREVIEW_DECODE_CACHE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let replace = match slot.as_ref() {
+            Some(state) => {
+                state.sources_key != sources_key
+                    || state.hardware_acceleration != hardware_acceleration
+            }
+            None => true,
+        };
+        if replace {
+            *slot = Some(PreviewDecodeCache {
+                sources_key,
+                hardware_acceleration,
+                decode_cache: ExportDecodeCache::new(hardware_acceleration),
+            });
+        }
+        let state = slot.as_mut().ok_or_else(|| {
+            ExportError::Internal("preview decode cache missing after install".to_string())
+        })?;
+        render_node(
+            &plan.root,
+            width as usize,
+            height as usize,
+            &mut state.decode_cache,
+            &AtomicI64::new(-1),
+        )
+    })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum OpusEncodeError {
     #[error("Unsupported sample rate: {0}")]

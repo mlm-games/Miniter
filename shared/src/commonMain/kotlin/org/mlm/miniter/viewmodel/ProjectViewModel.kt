@@ -2577,9 +2577,6 @@ class ProjectViewModel(
             for (sampleMs in timestamps) {
                 val frame = grabber.grabFrame(
                     timestampMs = sampleMs,
-                    filters = emptyList(),
-                    masks = emptyList(),
-                    opacity = 1f,
                     width = 160,
                     height = 0,
                 ) ?: continue
@@ -2917,9 +2914,6 @@ class ProjectViewModel(
             for (sampleMs in timestamps) {
                 val frame = grabber.grabFrame(
                     timestampMs = sampleMs,
-                    filters = emptyList(),
-                    masks = emptyList(),
-                    opacity = 1f,
                     width = 160,
                     height = 0,
                 ) ?: continue
@@ -3056,9 +3050,6 @@ class ProjectViewModel(
             for (sampleMs in timestamps) {
                 val frame = grabber.grabFrame(
                     timestampMs = sampleMs,
-                    filters = emptyList(),
-                    masks = emptyList(),
-                    opacity = 1f,
                     width = 320,
                     height = 0,
                 ) ?: continue
@@ -3219,9 +3210,6 @@ class ProjectViewModel(
             for (sampleMs in timestamps) {
                 val frame = grabber.grabFrame(
                     timestampMs = sampleMs,
-                    filters = emptyList(),
-                    masks = emptyList(),
-                    opacity = 1f,
                     width = 320,
                     height = 0,
                 ) ?: continue

@@ -2765,3 +2765,45 @@ fn render_node(
         }
     }
 }
+
+pub fn render_preview_frame<F>(
+    project: &Project,
+    timestamp_us: i64,
+    width: u32,
+    height: u32,
+    hardware_acceleration: bool,
+    ignore_crop_clip_id: Option<&str>,
+    load_source: &mut F,
+) -> Result<Vec<u8>, String>
+where
+    F: FnMut(&str) -> Option<Vec<u8>>,
+{
+    if width == 0 || height == 0 {
+        return Err("preview frame size cannot be zero".to_string());
+    }
+
+    let mut plan = plan_frame(
+        &project.timeline,
+        Timestamp::from_micros(timestamp_us.max(0)),
+        width,
+        height,
+        SubtitleMode::Hard,
+    );
+    if let Some(clip_id) = ignore_crop_clip_id {
+        miniter_render_plan::preview::strip_crop(&mut plan.root, clip_id);
+    }
+
+    let mut paths: Vec<String> = Vec::new();
+    miniter_render_plan::preview::collect_source_paths(&plan.root, &mut paths);
+    let mut files: HashMap<String, Vec<u8>> = HashMap::new();
+    for path in paths {
+        if let Some(bytes) = (*load_source)(&path) {
+            files.insert(path, bytes);
+        }
+    }
+
+    let mut decode_cache = ExportDecodeCache::new(&files, hardware_acceleration);
+    decode_cache.default_width = width;
+    decode_cache.default_height = height;
+    render_node(&plan.root, width as usize, height as usize, &mut decode_cache)
+}

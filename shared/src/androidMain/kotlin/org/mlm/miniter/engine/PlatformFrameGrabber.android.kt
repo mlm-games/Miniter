@@ -1,11 +1,13 @@
 package org.mlm.miniter.engine
 
+import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.mlm.miniter.editor.model.RustMaskEffect
-import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
+import org.mlm.miniter.ffi.EditorHandle as NativeEditorHandle
 import org.mlm.miniter.platform.PlatformFileSystem
 import org.mlm.miniter.platform.synchronized as platformSynchronized
 import org.mlm.miniter.rust.RustCoreSession
@@ -17,6 +19,9 @@ actual class PlatformFrameGrabber {
     @Volatile
     private var currentPath: String? = null
     private var invalidateEpoch = 0L
+
+    private var compositeExecutor: ExecutorCoroutineDispatcher? = null
+    private var compositeHandle: NativeEditorHandle? = null
 
     actual suspend fun open(path: String) {
         mutex.withLock {
@@ -32,9 +37,6 @@ actual class PlatformFrameGrabber {
 
     actual suspend fun grabFrame(
         timestampMs: Long,
-        filters: List<RustVideoFilterSnapshot>,
-        masks: List<RustMaskEffect>,
-        opacity: Float,
         width: Int,
         height: Int,
         hardwareAcceleration: Boolean,
@@ -43,34 +45,46 @@ actual class PlatformFrameGrabber {
 
         try {
             val frame = RustCoreSession.extractThumbnail(path, timestampMs * 1000L, hardwareAcceleration)
-            var rgba = frame.pixels
-            var fw = frame.width
-            var fh = frame.height
-
-            // The export renderer composites filters, then masks, then the
-            // clip's opacity; the same order here keeps the preview and the
-            // render identical.
-            if (filters.isNotEmpty()) {
-                rgba = FrameFilterProcessors.applyFilters(rgba, fw, fh, filters, 1f)
+            val finalW = if (width > 0) width else frame.width
+            val finalH = if (height > 0) height else frame.height
+            if (frame.width != finalW || frame.height != finalH) {
+                return@withContext scaleRgbaToImageData(frame.pixels, frame.width, frame.height, finalW, finalH)
             }
 
-            if (masks.isNotEmpty()) {
-                rgba = RustCoreSession.applyMasks(rgba, fw, fh, masksToWireJson(masks))
-            }
-
-            if (opacity < 1f) {
-                rgba = FrameFilterProcessors.applyFilters(rgba, fw, fh, emptyList(), opacity)
-            }
-
-
-            val finalW = if (width > 0) width else fw
-            val finalH = if (height > 0) height else fh
-            if (fw != finalW || fh != finalH) {
-                return@withContext scaleRgbaToImageData(rgba, fw, fh, finalW, finalH)
-            }
-
-            ImageData(fw, fh, rgba)
+            ImageData(frame.width, frame.height, frame.pixels)
         } catch (e: Exception) {
+            null
+        }
+    }
+
+    actual suspend fun openProject(projectJson: String) {
+        val previous = withContext(compositeDispatcher()) {
+            val handle = NativeEditorHandle.fromJson(projectJson)
+            val old = compositeHandle
+            compositeHandle = handle
+            old
+        }
+        previous?.close()
+    }
+
+    actual suspend fun grabCompositeFrame(
+        timestampUs: Long,
+        width: Int,
+        height: Int,
+        hardwareAcceleration: Boolean,
+        ignoreCropClipId: String?,
+    ): ImageData? = withContext(compositeDispatcher()) {
+        val handle = compositeHandle ?: return@withContext null
+        try {
+            val frame = handle.renderPreviewFrame(
+                timestampUs,
+                width.toUInt(),
+                height.toUInt(),
+                hardwareAcceleration,
+                ignoreCropClipId,
+            )
+            ImageData.create(frame.width.toInt(), frame.height.toInt(), frame.rgba.copyOf())
+        } catch (_: Exception) {
             null
         }
     }
@@ -80,6 +94,19 @@ actual class PlatformFrameGrabber {
             invalidateEpoch++
             currentPath = null
         }
+        compositeHandle?.close()
+        compositeHandle = null
+        compositeExecutor?.close()
+        compositeExecutor = null
+    }
+
+    private fun compositeDispatcher(): ExecutorCoroutineDispatcher {
+        compositeExecutor?.let { return it }
+        val created = Executors
+            .newSingleThreadExecutor { runnable -> Thread(runnable, "miniter-preview-render") }
+            .asCoroutineDispatcher()
+        compositeExecutor = created
+        return created
     }
 }
 
@@ -93,8 +120,7 @@ private fun scaleRgbaToImageData(
             val srcX = x * srcW / dstW
             val si = (srcY * srcW + srcX) * 4
             val di = (y * dstW + x) * 4
-            dst[di] = src[si]; dst[di + 1] = src[si + 1]
-            dst[di + 2] = src[si + 2]; dst[di + 3] = src[si + 3]
+            dst[di] = src[si]; dst[di + 1] = src[si + 1]; dst[di + 2] = src[si + 2]; dst[di + 3] = src[si + 3]
         }
     }
     return ImageData(dstW, dstH, dst)
