@@ -62,6 +62,7 @@ data class RustTrackSnapshot(
     val name: String,
     val kind: RustTrackKind,
     val muted: Boolean = false,
+    val solo: Boolean = false,
     val locked: Boolean = false,
     val clips: List<RustClipSnapshot> = emptyList(),
 )

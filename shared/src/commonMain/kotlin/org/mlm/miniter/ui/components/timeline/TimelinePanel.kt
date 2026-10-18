@@ -134,9 +134,12 @@ fun TimelinePanel(
     onClipTrimStartAbsolute: (clipId: String, newStartMs: Long) -> Unit,
     onClipTrimEndAbsolute: (clipId: String, newEndMs: Long) -> Unit,
     onToggleMute: (String) -> Unit,
+    onToggleSolo: (String) -> Unit = {},
     onToggleLock: (String) -> Unit,
     onAddTrack: (RustTrackKind) -> Unit,
     onRemoveTrack: (String) -> Unit,
+    onMoveTrackUp: (String) -> Unit = {},
+    onMoveTrackDown: (String) -> Unit = {},
     onSnapPosition: (Long, Set<String>) -> Long,
     onClearSnap: () -> Unit = {},
     onSplitClip: (String) -> Unit = {},
@@ -167,6 +170,7 @@ fun TimelinePanel(
     }
 
     val tracks = snapshot.timeline.tracks
+    val soloActive = tracks.any { it.solo }
     val dpPerMs = max(zoomLevel * 0.1f, 0.01f)
     val density = LocalDensity.current
 
@@ -217,7 +221,7 @@ fun TimelinePanel(
         Column(
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
         ) {
-            tracks.forEach { track ->
+            tracks.forEachIndexed { trackIndex, track ->
                 TrackRow(
                     track = track,
                     allTracks = tracks,
@@ -230,6 +234,9 @@ fun TimelinePanel(
                     scrollState = horizontalScrollState,
                     canRemove = !(track.kind == RustTrackKind.Video &&
                             tracks.count { it.kind == RustTrackKind.Video } <= 1),
+                    canMoveUp = trackIndex > 0,
+                    canMoveDown = trackIndex < tracks.lastIndex,
+                    soloActive = soloActive,
                     playheadColor = playheadColor,
                     snapLineColor = snapLineColor,
                     onClipSelected = onClipSelected,
@@ -241,7 +248,10 @@ fun TimelinePanel(
                     onClipTrimStartAbsolute = onClipTrimStartAbsolute,
                     onClipTrimEndAbsolute = onClipTrimEndAbsolute,
                     onToggleMute = { onToggleMute(track.id) },
+                    onToggleSolo = { onToggleSolo(track.id) },
                     onToggleLock = { onToggleLock(track.id) },
+                    onMoveUp = { onMoveTrackUp(track.id) },
+                    onMoveDown = { onMoveTrackDown(track.id) },
                     onRemoveTrack = { onRemoveTrack(track.id) },
                     onSnapPosition = onSnapPosition,
                     onClearSnap = onClearSnap,
@@ -481,6 +491,9 @@ private fun TrackRow(
     snapIndicatorMs: Long?,
     scrollState: ScrollState,
     canRemove: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    soloActive: Boolean,
     playheadColor: Color,
     snapLineColor: Color,
     onClipSelected: (String?, ClipSelectionMode) -> Unit,
@@ -492,7 +505,10 @@ private fun TrackRow(
     onClipTrimStartAbsolute: (String, Long) -> Unit,
     onClipTrimEndAbsolute: (String, Long) -> Unit,
     onToggleMute: () -> Unit,
+    onToggleSolo: () -> Unit,
     onToggleLock: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
     onRemoveTrack: () -> Unit,
     onSnapPosition: (Long, Set<String>) -> Long,
     onClearSnap: () -> Unit,
@@ -533,8 +549,20 @@ private fun TrackRow(
     }
 
     Row(modifier = Modifier.fillMaxWidth().height(TRACK_HEIGHT)) {
-        TrackHeader(track, canRemove, onToggleMute, onToggleLock, onRemoveTrack,
-            Modifier.width(TRACK_HEADER_WIDTH).fillMaxHeight())
+        TrackHeader(
+            track = track,
+            canRemove = canRemove,
+            canMoveUp = canMoveUp,
+            canMoveDown = canMoveDown,
+            soloActive = soloActive,
+            onToggleMute = onToggleMute,
+            onToggleSolo = onToggleSolo,
+            onToggleLock = onToggleLock,
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown,
+            onRemoveTrack = onRemoveTrack,
+            modifier = Modifier.width(TRACK_HEADER_WIDTH).fillMaxHeight(),
+        )
         VerticalDivider(thickness = 0.5.dp)
 
         Box(

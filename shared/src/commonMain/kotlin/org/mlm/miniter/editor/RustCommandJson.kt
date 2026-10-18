@@ -45,6 +45,12 @@ class RustCommandJson(
             put("track_id", uuid(trackId))
         }
 
+    fun moveTrack(trackId: String, toIndex: Int): String =
+        wrap("MoveTrack") {
+            put("track_id", uuid(trackId))
+            put("to_index", JsonPrimitive(toIndex))
+        }
+
     fun renameTrack(trackId: String, newName: String): String =
         wrap("RenameTrack") {
             put("track_id", uuid(trackId))
@@ -55,6 +61,12 @@ class RustCommandJson(
         wrap("SetTrackMuted") {
             put("track_id", uuid(trackId))
             put("muted", JsonPrimitive(muted))
+        }
+
+    fun setTrackSolo(trackId: String, solo: Boolean): String =
+        wrap("SetTrackSolo") {
+            put("track_id", uuid(trackId))
+            put("solo", JsonPrimitive(solo))
         }
 
     fun setTrackLocked(trackId: String, locked: Boolean): String =

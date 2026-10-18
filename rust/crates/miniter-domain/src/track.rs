@@ -47,6 +47,8 @@ pub struct Track {
     pub name: String,
     pub kind: TrackKind,
     pub muted: bool,
+    #[serde(default)]
+    pub solo: bool,
     pub locked: bool,
     pub clips: Vec<Clip>,
 }
@@ -58,6 +60,7 @@ impl Track {
             name: name.into(),
             kind,
             muted: false,
+            solo: false,
             locked: false,
             clips: Vec::new(),
         }

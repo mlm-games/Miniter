@@ -70,9 +70,14 @@ pub fn plan_frame(
     subtitle_mode: SubtitleMode,
 ) -> RenderPlan {
     let mut layers: Vec<RenderNode> = Vec::new();
+    let solo_active = timeline.tracks.iter().any(|track| track.solo);
 
     for track in &timeline.tracks {
-        if track.muted {
+        if solo_active {
+            if !track.solo {
+                continue;
+            }
+        } else if track.muted {
             continue;
         }
         let Some(clip) = track.clip_at(t) else {

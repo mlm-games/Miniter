@@ -1645,11 +1645,56 @@ class ProjectViewModel(
     fun removeTrack(trackId: String) {
         val snapshot = rustStore.snapshot.value ?: return
         val track = snapshot.timeline.tracks.find { it.id == trackId } ?: return
+        if (track.clips.isNotEmpty()) {
+            snackbarManager.showError("Delete this track's clips first")
+            return
+        }
         if (track.kind == RustTrackKind.Video && snapshot.timeline.tracks.count { it.kind == RustTrackKind.Video } <= 1) {
             snackbarManager.showError("Cannot remove the only video track")
             return
         }
-        dispatchAndSync(rustStore.commands.removeTrack(trackId))
+        if (applyTrackEdit("Remove track", rustStore.commands.removeTrack(trackId))) {
+            if (_state.value.selectedTrackId == trackId) {
+                _state.update { it.copy(selectedTrackId = null) }
+            }
+        }
+    }
+
+    fun moveTrack(trackId: String, toIndex: Int) {
+        val tracks = rustStore.snapshot.value?.timeline?.tracks ?: return
+        val fromIndex = tracks.indexOfFirst { it.id == trackId }
+        if (fromIndex < 0 || toIndex < 0 || toIndex > tracks.lastIndex || toIndex == fromIndex) return
+        applyTrackEdit("Reorder track", rustStore.commands.moveTrack(trackId, toIndex))
+    }
+
+    fun moveTrackUp(trackId: String) {
+        val tracks = rustStore.snapshot.value?.timeline?.tracks ?: return
+        val fromIndex = tracks.indexOfFirst { it.id == trackId }
+        if (fromIndex <= 0) return
+        moveTrack(trackId, fromIndex - 1)
+    }
+
+    fun moveTrackDown(trackId: String) {
+        val tracks = rustStore.snapshot.value?.timeline?.tracks ?: return
+        val fromIndex = tracks.indexOfFirst { it.id == trackId }
+        if (fromIndex < 0 || fromIndex >= tracks.lastIndex) return
+        moveTrack(trackId, fromIndex + 1)
+    }
+
+    fun toggleTrackSolo(trackId: String) {
+        val solo = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { it.id == trackId }?.solo ?: return
+        applyTrackEdit("Solo", rustStore.commands.setTrackSolo(trackId, !solo))
+    }
+
+    private fun applyTrackEdit(label: String, commandJson: String): Boolean {
+        beginContinuousEdit(label)
+        var failed = false
+        try {
+            if (!dispatchCoalescing(commandJson, label)) failed = true
+        } finally {
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
+        return !failed
     }
 
     fun moveClipAbsolute(clipId: String, absoluteStartMs: Long) {

@@ -27,6 +27,12 @@ pub enum EditCommand {
     },
     RestoreTrack {
         track: miniter_domain::track::Track,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    MoveTrack {
+        track_id: TrackId,
+        to_index: usize,
     },
     RenameTrack {
         track_id: TrackId,
@@ -35,6 +41,10 @@ pub enum EditCommand {
     SetTrackMuted {
         track_id: TrackId,
         muted: bool,
+    },
+    SetTrackSolo {
+        track_id: TrackId,
+        solo: bool,
     },
     SetTrackLocked {
         track_id: TrackId,

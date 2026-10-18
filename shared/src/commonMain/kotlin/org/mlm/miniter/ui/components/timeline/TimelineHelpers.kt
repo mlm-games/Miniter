@@ -1,8 +1,10 @@
 package org.mlm.miniter.ui.components.timeline
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -11,8 +13,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTrackSnapshot
 
@@ -20,8 +27,14 @@ import org.mlm.miniter.editor.model.RustTrackSnapshot
 fun TrackHeader(
     track: RustTrackSnapshot,
     canRemove: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    soloActive: Boolean,
     onToggleMute: () -> Unit,
+    onToggleSolo: () -> Unit,
     onToggleLock: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
     onRemoveTrack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -40,10 +53,14 @@ fun TrackHeader(
     }
 
     var showMenu by remember { mutableStateOf(false) }
+    val soloExcluded = soloActive && !track.solo
 
     Box(
         modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .background(
+                if (track.solo) MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
+                else MaterialTheme.colorScheme.surfaceContainerLow
+            )
             .pointerInput(Unit) {
                 detectTapGestures(
                     onLongPress = { showMenu = true },
@@ -55,18 +72,78 @@ fun TrackHeader(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(
-                icon, track.name,
-                Modifier.size(18.dp),
-                tint = if (track.muted) trackColor.copy(alpha = 0.3f) else trackColor,
-            )
-
-            if (track.locked) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Icon(
-                    Icons.Default.Lock, "Locked",
-                    Modifier.size(10.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    icon, track.name,
+                    Modifier.size(18.dp),
+                    tint = if (track.muted || soloExcluded) trackColor.copy(alpha = 0.3f) else trackColor,
                 )
+                if (track.locked) {
+                    Icon(
+                        Icons.Default.Lock, "Locked",
+                        Modifier.size(10.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(3.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(18.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(
+                            if (track.solo) MaterialTheme.colorScheme.tertiary
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        )
+                        .clickable(onClick = onToggleSolo)
+                        .semantics {
+                            contentDescription =
+                                if (track.solo) "Solo on, tap to unsolo ${track.name}"
+                                else "Solo ${track.name}"
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "S",
+                        fontSize = 10.sp,
+                        fontWeight = if (track.solo) FontWeight.Bold else FontWeight.Medium,
+                        color = if (track.solo) MaterialTheme.colorScheme.onTertiary
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    )
+                }
+
+                Box(
+                    Modifier
+                        .size(18.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(
+                            if (track.muted) MaterialTheme.colorScheme.errorContainer
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        )
+                        .clickable(onClick = onToggleMute)
+                        .semantics {
+                            contentDescription =
+                                if (track.muted) "Muted, tap to unmute ${track.name}"
+                                else "Mute ${track.name}"
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeOff, null,
+                        Modifier.size(12.dp),
+                        tint = if (track.muted) MaterialTheme.colorScheme.onErrorContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    )
+                }
             }
         }
 
@@ -86,6 +163,17 @@ fun TrackHeader(
                 onClick = { onToggleMute(); showMenu = false },
             )
             DropdownMenuItem(
+                text = { Text(if (track.solo) "Unsolo" else "Solo") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Headphones, null, Modifier.size(18.dp),
+                        tint = if (track.solo) MaterialTheme.colorScheme.tertiary
+                        else LocalContentColor.current,
+                    )
+                },
+                onClick = { onToggleSolo(); showMenu = false },
+            )
+            DropdownMenuItem(
                 text = { Text(if (track.locked) "Unlock" else "Lock") },
                 leadingIcon = {
                     Icon(
@@ -94,6 +182,19 @@ fun TrackHeader(
                     )
                 },
                 onClick = { onToggleLock(); showMenu = false },
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Move Up") },
+                leadingIcon = { Icon(Icons.Default.KeyboardArrowUp, null, Modifier.size(18.dp)) },
+                enabled = canMoveUp,
+                onClick = { onMoveUp(); showMenu = false },
+            )
+            DropdownMenuItem(
+                text = { Text("Move Down") },
+                leadingIcon = { Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(18.dp)) },
+                enabled = canMoveDown,
+                onClick = { onMoveDown(); showMenu = false },
             )
             if (canRemove) {
                 HorizontalDivider()

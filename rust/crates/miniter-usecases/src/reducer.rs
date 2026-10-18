@@ -47,17 +47,41 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
         EditCommand::Nop => Ok(EditCommand::Nop),
 
         EditCommand::RemoveTrack { track_id } => {
+            let from_index = find_track_index(state, track_id)?;
+            if !state.project.timeline.tracks[from_index].clips.is_empty() {
+                return Err(ApplyError::TrackNotEmpty(track_id));
+            }
             let track = state
                 .project
                 .timeline
                 .remove_track(track_id)
                 .ok_or(ApplyError::TrackNotFound(track_id))?;
-            Ok(EditCommand::RestoreTrack { track })
+            Ok(EditCommand::RestoreTrack {
+                track,
+                index: Some(from_index),
+            })
         }
 
-        EditCommand::RestoreTrack { track } => {
-            state.project.timeline.add_track(track.clone());
-            Ok(EditCommand::RemoveTrack { track_id: track.id })
+        EditCommand::RestoreTrack { track, index } => {
+            let at = index
+                .unwrap_or(state.project.timeline.tracks.len())
+                .min(state.project.timeline.tracks.len());
+            let track_id = track.id;
+            state.project.timeline.tracks.insert(at, track);
+            Ok(EditCommand::RemoveTrack { track_id })
+        }
+
+        EditCommand::MoveTrack { track_id, to_index } => {
+            let from_index = find_track_index(state, track_id)?;
+            if to_index >= state.project.timeline.tracks.len() {
+                return Err(ApplyError::IndexOutOfBounds);
+            }
+            let track = state.project.timeline.tracks.remove(from_index);
+            state.project.timeline.tracks.insert(to_index, track);
+            Ok(EditCommand::MoveTrack {
+                track_id,
+                to_index: from_index,
+            })
         }
 
         EditCommand::RenameTrack { track_id, new_name } => {
@@ -84,6 +108,20 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             Ok(EditCommand::SetTrackMuted {
                 track_id,
                 muted: was,
+            })
+        }
+
+        EditCommand::SetTrackSolo { track_id, solo } => {
+            let track = state
+                .project
+                .timeline
+                .track_mut(track_id)
+                .ok_or(ApplyError::TrackNotFound(track_id))?;
+            let was = track.solo;
+            track.solo = solo;
+            Ok(EditCommand::SetTrackSolo {
+                track_id,
+                solo: was,
             })
         }
 
@@ -1754,6 +1792,9 @@ pub enum ApplyError {
 
     #[error("Track is locked: {0:?}")]
     TrackLocked(miniter_domain::track::TrackId),
+
+    #[error("Track still holds clips: {0:?}")]
+    TrackNotEmpty(miniter_domain::track::TrackId),
 
     #[error("Clip {clip_id:?} is incompatible with track {track_id:?}")]
     IncompatibleTrackKind { track_id: TrackId, clip_id: ClipId },
