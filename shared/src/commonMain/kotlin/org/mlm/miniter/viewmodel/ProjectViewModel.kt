@@ -88,6 +88,7 @@ import org.mlm.miniter.project.TextAnimationPreset
 import org.mlm.miniter.project.keyframesFor
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
+import org.mlm.miniter.project.pixelSize
 import org.mlm.miniter.rust.BeatTrack
 import org.mlm.miniter.rust.RustCoreSession
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
@@ -1908,6 +1909,66 @@ class ProjectViewModel(
             index,
             mapOf("left" to left, "top" to top, "right" to right, "bottom" to bottom),
         )
+    }
+
+    fun fitClipToCanvas(clipId: String, fill: Boolean) {
+        val snapshot = rustStore.snapshot.value ?: return
+        val clip = findRustClip(clipId) ?: return
+        val video = clip.kind as? RustVideoClipKind ?: return
+        if (video.width <= 0 || video.height <= 0) return
+        val videos = snapshot.timeline.tracks
+            .flatMap { it.clips }
+            .mapNotNull { it.kind as? RustVideoClipKind }
+            .filter { it.width > 0 && it.height > 0 }
+        val source = videos.firstOrNull() ?: return
+        val (canvasWidth, canvasHeight) = snapshot.exportProfile.resolution.pixelSize(source.width, source.height)
+        if (canvasWidth <= 0 || canvasHeight <= 0) return
+        val fitScale = minOf(
+            canvasWidth.toFloat() / video.width,
+            canvasHeight.toFloat() / video.height,
+        )
+        val targetScale = if (fill) {
+            maxOf(
+                canvasWidth.toFloat() / video.width,
+                canvasHeight.toFloat() / video.height,
+            ) / fitScale
+        } else {
+            1f
+        }
+        val index = video.filters.indexOfFirst { it.filter is RustTransformFilterSnapshot }
+        val existing = video.filters.getOrNull(index)
+        val effect = RustVideoEffectSnapshot(
+            filter = RustTransformFilterSnapshot(
+                scale = targetScale,
+                translateX = 0f,
+                translateY = 0f,
+                rotate = (existing?.filter as? RustTransformFilterSnapshot)?.rotate ?: 0f,
+            ),
+            enabled = existing?.enabled ?: true,
+        )
+        val framingParams = listOf(
+            KeyframeParams.TRANSFORM_SCALE,
+            KeyframeParams.TRANSFORM_TRANSLATE_X,
+            KeyframeParams.TRANSFORM_TRANSLATE_Y,
+        )
+        beginContinuousEdit("Framing")
+        try {
+            clip.keyframes.keyframes
+                .withIndex()
+                .filter { it.value.param in framingParams }
+                .map { it.index }
+                .sortedDescending()
+                .forEach { keyframeIndex ->
+                    dispatchCoalescing(rustStore.commands.removeKeyframe(clipId, keyframeIndex), "Framing")
+                }
+            if (index >= 0) {
+                dispatchCoalescing(rustStore.commands.updateVideoFilter(clipId, index, effect), "Framing")
+            } else {
+                dispatchCoalescing(rustStore.commands.addVideoFilter(clipId, effect), "Framing")
+            }
+        } finally {
+            commitContinuousEdit()
+        }
     }
 
     fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {

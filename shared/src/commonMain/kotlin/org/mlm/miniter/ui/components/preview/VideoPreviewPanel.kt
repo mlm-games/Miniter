@@ -55,6 +55,7 @@ import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
 import org.mlm.miniter.platform.rememberSubtitleFontFamily
 import org.mlm.miniter.project.KeyframeParams
+import org.mlm.miniter.project.pixelSize
 import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.ui.components.properties.blendModeLabel
 import kotlin.time.TimeSource
@@ -1099,15 +1100,8 @@ fun EditorVideoPreview(
         ?.firstNotNullOfOrNull { clip ->
             (clip.kind as? RustVideoClipKind)?.height?.takeIf { it > 0 }
         } ?: 0
-    val (exportWidth, exportHeight) = when (val resolution = snapshot?.exportProfile?.resolution) {
-        RustExportResolution.Source -> sourceWidth to sourceHeight
-        RustExportResolution.Sd480 -> 854 to 480
-        RustExportResolution.Hd720 -> 1280 to 720
-        RustExportResolution.Hd1080 -> 1920 to 1080
-        RustExportResolution.Uhd4k -> 3840 to 2160
-        is RustExportResolution.Custom -> resolution.width to resolution.height
-        null -> 0 to 0
-    }
+    val (exportWidth, exportHeight) = snapshot?.exportProfile?.resolution
+        ?.pixelSize(sourceWidth, sourceHeight) ?: (0 to 0)
 
     val contentArea = remember(viewportSize, exportWidth, exportHeight) {
         val vw = viewportSize.width.coerceAtLeast(1).toFloat()

@@ -322,6 +322,7 @@ fun ProjectScreen(
                 onSetOpacity = vm::setClipOpacity,
                 onSetBlendMode = vm::setClipBlendMode,
                 onApplyKenBurns = vm::applyKenBurns,
+                onFitToCanvas = vm::fitClipToCanvas,
                 onApplyTextAnimation = vm::applyTextAnimation,
                 onReplaceFilter = vm::replaceFilter,
                 onSetTextTransitionIn = vm::setTextTransitionIn,

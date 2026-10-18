@@ -122,6 +122,7 @@ fun PropertiesPanel(
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
+    onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
     onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
     onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
@@ -188,6 +189,7 @@ fun PropertiesPanel(
                 onSetOpacity = onSetOpacity,
                 onSetBlendMode = onSetBlendMode,
                 onApplyKenBurns = onApplyKenBurns,
+                onFitToCanvas = onFitToCanvas,
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
@@ -258,6 +260,7 @@ private fun VideoClipProperties(
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
+    onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
@@ -410,6 +413,17 @@ private fun VideoClipProperties(
             onClick = { onApplyKenBurns(clip.id, randomKenBurnsPreset()) },
             label = { Text("Random") },
         )
+    }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = { onFitToCanvas(clip.id, false) }) {
+            Text("Fit")
+        }
+        TextButton(onClick = { onFitToCanvas(clip.id, true) }) {
+            Text("Fill")
+        }
     }
 
     Spacer(Modifier.height(16.dp))

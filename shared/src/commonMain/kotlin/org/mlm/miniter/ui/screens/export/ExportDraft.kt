@@ -2,6 +2,7 @@ package org.mlm.miniter.ui.screens.export
 
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustExportResolution
+import org.mlm.miniter.project.pixelSize
 
 data class ExportDraft(
     val widthText: String = "",
@@ -110,14 +111,7 @@ fun resolutionToTexts(
     sourceWidth: Int,
     sourceHeight: Int,
 ): Pair<String, String> {
-    val (w, h) = when (resolution) {
-        RustExportResolution.Source -> sourceWidth to sourceHeight
-        RustExportResolution.Sd480 -> 854 to 480
-        RustExportResolution.Hd720 -> 1280 to 720
-        RustExportResolution.Hd1080 -> 1920 to 1080
-        RustExportResolution.Uhd4k -> 3840 to 2160
-        is RustExportResolution.Custom -> resolution.width to resolution.height
-    }
+    val (w, h) = resolution.pixelSize(sourceWidth, sourceHeight)
     return (w.takeIf { it > 0 }?.toString() ?: "") to (h.takeIf { it > 0 }?.toString() ?: "")
 }
 
