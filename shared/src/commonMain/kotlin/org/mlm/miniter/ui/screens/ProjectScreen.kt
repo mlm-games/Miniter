@@ -58,6 +58,7 @@ fun ProjectScreen(
     val canUndo = uiState.canUndo
     val canRedo = uiState.canRedo
     val isDirty = uiState.isDirty
+    val autoReframeRunning = uiState.autoReframeRunning
 
     var showExitConfirm by remember { mutableStateOf(false) }
     var showPropertiesSheet by remember { mutableStateOf(false) }
@@ -324,6 +325,8 @@ fun ProjectScreen(
                 onSetBlendMode = vm::setClipBlendMode,
                 onApplyKenBurns = vm::applyKenBurns,
                 onFitToCanvas = vm::fitClipToCanvas,
+                onAutoReframe = vm::autoReframeClip,
+                autoReframeRunning = autoReframeRunning,
                 onFreezeFrame = vm::freezeFrame,
                 onApplyTextAnimation = vm::applyTextAnimation,
                 onReplaceFilter = vm::replaceFilter,

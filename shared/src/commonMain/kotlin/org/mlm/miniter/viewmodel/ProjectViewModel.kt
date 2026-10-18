@@ -69,8 +69,9 @@ import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.overlapsRange
 import org.mlm.miniter.engine.ImageData
-import org.mlm.miniter.engine.isActive
+import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.PlatformVideoEngine
+import org.mlm.miniter.engine.isActive
 import org.mlm.miniter.engine.ScrubProxy
 import org.mlm.miniter.engine.VideoInfo
 import org.mlm.miniter.settings.AppSettings
@@ -81,15 +82,22 @@ import org.mlm.miniter.platform.msToUs
 import org.mlm.miniter.platform.usToMs
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.randomUuid
+import org.mlm.miniter.project.AUTO_REFRAME_MAX_SAMPLES
+import org.mlm.miniter.project.AUTO_REFRAME_SAMPLE_STEP_MS
+import org.mlm.miniter.project.AutoReframeSample
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.project.KenBurnsPreset
 import org.mlm.miniter.project.SpeedCurvePreset
 import org.mlm.miniter.project.TextAnimationBase
 import org.mlm.miniter.project.TextAnimationPreset
+import org.mlm.miniter.project.autoReframeKeyframes
+import org.mlm.miniter.project.autoReframeLocalOffset
 import org.mlm.miniter.project.keyframesFor
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.project.pixelSize
+import org.mlm.miniter.project.saliencyCentroid
+import org.mlm.miniter.project.smoothAutoReframeSamples
 import org.mlm.miniter.rust.BeatTrack
 import org.mlm.miniter.rust.RustCoreSession
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
@@ -121,6 +129,7 @@ data class ProjectUiState(
     val zoomLevel: Float = 1f,
     val thumbnails: List<ImageData> = emptyList(),
     val isLoadingThumbnails: Boolean = false,
+    val autoReframeRunning: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val undoLabel: String? = null,
@@ -2083,6 +2092,144 @@ class ProjectViewModel(
         } finally {
             commitContinuousEdit()
         }
+    }
+
+    fun autoReframeClip(clipId: String) {
+        if (_state.value.autoReframeRunning) return
+        val snapshot = rustStore.snapshot.value ?: return
+        val clip = findRustClip(clipId) ?: return
+        val video = clip.kind as? RustVideoClipKind
+        if (video == null) {
+            snackbarManager.showError("Auto reframe needs a video clip")
+            return
+        }
+        if (!video.fps.isFinite() || video.fps <= 0.0 || video.width <= 0 || video.height <= 0) {
+            snackbarManager.showError("Auto reframe needs a clip with valid frame rate and dimensions")
+            return
+        }
+        if (video.sourcePath.isBlank()) {
+            snackbarManager.showError("Auto reframe needs a clip with a source file")
+            return
+        }
+        if (clip.timelineDurationUs <= 0L || clip.sourceEndUs <= clip.sourceStartUs) {
+            snackbarManager.showError("Auto reframe needs a clip with a valid source range")
+            return
+        }
+        val source = snapshot.timeline.tracks
+            .flatMap { it.clips }
+            .mapNotNull { it.kind as? RustVideoClipKind }
+            .firstOrNull { it.width > 0 && it.height > 0 }
+            ?: video
+        val (canvasWidth, canvasHeight) = snapshot.exportProfile.resolution.pixelSize(source.width, source.height)
+        if (canvasWidth <= 0 || canvasHeight <= 0) {
+            snackbarManager.showError("Auto reframe needs a valid export resolution")
+            return
+        }
+
+        _state.update { it.copy(autoReframeRunning = true) }
+        viewModelScope.launch {
+            try {
+                val samples = gatherAutoReframeSamples(clip, video)
+                if (samples.isEmpty()) {
+                    snackbarManager.showError("Auto reframe found no frames to analyse")
+                    return@launch
+                }
+                val keyframes = autoReframeKeyframes(
+                    samples = smoothAutoReframeSamples(samples),
+                    videoWidth = video.width,
+                    videoHeight = video.height,
+                    canvasWidth = canvasWidth,
+                    canvasHeight = canvasHeight,
+                )
+                if (keyframes.isEmpty()) {
+                    snackbarManager.showError("Auto reframe could not fit this clip to the canvas")
+                    return@launch
+                }
+                val current = findRustClip(clipId)
+                if (current == null ||
+                    current.timelineDurationUs != clip.timelineDurationUs ||
+                    current.sourceStartUs != clip.sourceStartUs ||
+                    current.sourceEndUs != clip.sourceEndUs
+                ) {
+                    snackbarManager.showError("The clip changed during analysis; run Auto reframe again")
+                    return@launch
+                }
+                val framingParams = listOf(
+                    KeyframeParams.TRANSFORM_SCALE,
+                    KeyframeParams.TRANSFORM_TRANSLATE_X,
+                    KeyframeParams.TRANSFORM_TRANSLATE_Y,
+                )
+                beginContinuousEdit("Auto reframe")
+                try {
+                    current.keyframes.keyframes
+                        .withIndex()
+                        .filter { it.value.param in framingParams }
+                        .map { it.index }
+                        .sortedDescending()
+                        .forEach { index ->
+                            dispatchCoalescing(rustStore.commands.removeKeyframe(clipId, index), "Auto reframe")
+                        }
+                    for (keyframe in keyframes) {
+                        dispatchCoalescing(rustStore.commands.addKeyframe(clipId, keyframe), "Auto reframe")
+                    }
+                } finally {
+                    commitContinuousEdit()
+                }
+                snackbarManager.show("Auto reframe applied")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                snackbarManager.showError("Auto reframe failed: ${e.message}")
+            } finally {
+                _state.update { it.copy(autoReframeRunning = false) }
+            }
+        }
+    }
+
+    private suspend fun gatherAutoReframeSamples(
+        clip: RustClipSnapshot,
+        video: RustVideoClipKind,
+    ): List<AutoReframeSample> {
+        val startMs = clip.sourceStartUs / 1000L
+        val endMs = clip.sourceEndUs / 1000L
+        if (endMs < startMs) return emptyList()
+        val spanMs = endMs - startMs
+        val stepMs = maxOf(AUTO_REFRAME_SAMPLE_STEP_MS, spanMs / AUTO_REFRAME_MAX_SAMPLES + 1L)
+        val timestamps = mutableListOf<Long>()
+        var timestampMs = startMs
+        while (timestampMs <= endMs) {
+            timestamps += timestampMs
+            if (endMs - timestampMs < stepMs) break
+            timestampMs += stepMs
+        }
+        if (timestamps.last() < endMs) timestamps += endMs
+
+        val samples = mutableListOf<AutoReframeSample>()
+        val grabber = PlatformFrameGrabber()
+        try {
+            grabber.open(video.sourcePath)
+            for (sampleMs in timestamps) {
+                val frame = grabber.grabFrame(
+                    timestampMs = sampleMs,
+                    filters = emptyList(),
+                    masks = emptyList(),
+                    opacity = 1f,
+                    width = 160,
+                    height = 0,
+                ) ?: continue
+                val (x, y) = withContext(Dispatchers.Default) { saliencyCentroid(frame) }
+                val sourceOffsetUs = (sampleMs - startMs) * 1000L
+                samples += AutoReframeSample(
+                    sourceMs = sampleMs,
+                    localOffsetUs = autoReframeLocalOffset(clip, sourceOffsetUs),
+                    x = x,
+                    y = y,
+                )
+            }
+        } finally {
+            grabber.release()
+        }
+        return samples
     }
 
     fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {

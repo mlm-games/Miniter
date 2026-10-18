@@ -129,6 +129,8 @@ fun PropertiesPanel(
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
     onApplySpeedCurve: (String, SpeedCurvePreset?) -> Unit = { _, _ -> },
     onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
+    onAutoReframe: (String) -> Unit = { _ -> },
+    autoReframeRunning: Boolean = false,
     onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
     onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
@@ -198,6 +200,8 @@ fun PropertiesPanel(
                 onApplyKenBurns = onApplyKenBurns,
                 onApplySpeedCurve = onApplySpeedCurve,
                 onFitToCanvas = onFitToCanvas,
+                onAutoReframe = onAutoReframe,
+                autoReframeRunning = autoReframeRunning,
                 onFreezeFrame = onFreezeFrame,
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
@@ -271,6 +275,8 @@ private fun VideoClipProperties(
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
     onApplySpeedCurve: (String, SpeedCurvePreset?) -> Unit = { _, _ -> },
     onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
+    onAutoReframe: (String) -> Unit = { _ -> },
+    autoReframeRunning: Boolean = false,
     onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
@@ -464,6 +470,12 @@ private fun VideoClipProperties(
         }
         TextButton(onClick = { onFitToCanvas(clip.id, true) }) {
             Text("Fill")
+        }
+        TextButton(
+            onClick = { onAutoReframe(clip.id) },
+            enabled = !autoReframeRunning,
+        ) {
+            Text("Auto reframe")
         }
         TextButton(
             onClick = { showFreezeDialog = true },
