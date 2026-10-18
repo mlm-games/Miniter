@@ -139,6 +139,7 @@ data class ProjectUiState(
     val projectPath: String? = null,
     val selectedTrackId: String? = null,
     val selectedClipId: String? = null,
+    val selectedClipIds: Set<String> = emptySet(),
     val playheadMs: Long = 0L,
     val isPlaying: Boolean = false,
     val isSaving: Boolean = false,
@@ -931,9 +932,28 @@ class ProjectViewModel(
     }
 
     fun deleteSelectedClip() {
-        val clipId = _state.value.selectedClipId ?: return
-        selectClip(null)
-        removeClip(clipId)
+        val snapshot = rustStore.snapshot.value ?: return
+        val clipIds = snapshot.timeline.tracks
+            .flatMap { track -> track.clips.map { it.id } }
+            .filter { it in _state.value.selectedClipIds }
+        if (clipIds.isEmpty()) return
+        beginContinuousEdit("Delete")
+        var failed = false
+        try {
+            fun send(command: String): Boolean {
+                if (failed) return false
+                if (!dispatchCoalescing(command, "Delete")) {
+                    failed = true
+                    return false
+                }
+                return true
+            }
+            for (clipId in clipIds) {
+                if (!send(rustStore.commands.removeClip(clipId))) break
+            }
+        } finally {
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
     }
 
     fun setPlaying(playing: Boolean) {
@@ -1547,6 +1567,12 @@ class ProjectViewModel(
     }
 
     fun moveClipAbsolute(clipId: String, absoluteStartMs: Long) {
+        val dragBase = preDragSnapshot
+        if (dragBase != null && _state.value.selectedClipIds.size > 1 && clipId in _state.value.selectedClipIds) {
+            moveSelectedClipsAbsolute(dragBase, clipId, absoluteStartMs)
+            return
+        }
+
         val snapshot = rustStore.snapshot.value ?: return
         val track = snapshot.timeline.tracks.firstOrNull { t -> t.clips.any { it.id == clipId } } ?: return
         val clip = track.clips.firstOrNull { it.id == clipId } ?: return
@@ -1568,6 +1594,44 @@ class ProjectViewModel(
             ),
             "Move",
         )
+    }
+
+    private fun moveSelectedClipsAbsolute(
+        dragBase: RustProjectSnapshot,
+        anchorClipId: String,
+        absoluteStartMs: Long,
+    ) {
+        val anchor = findClipWithTrack(dragBase, anchorClipId)?.second ?: return
+        val deltaUs = absoluteStartMs.coerceAtLeast(0L).msToUs - anchor.timelineStartUs
+        if (deltaUs == 0L) return
+        val selectedIds = _state.value.selectedClipIds
+        val moving = dragBase.timeline.tracks.flatMap { track ->
+            track.clips.filter { it.id in selectedIds }.map { track to it }
+        }
+        if (moving.isEmpty()) return
+        for ((track, clip) in moving) {
+            val newStartUs = clip.timelineStartUs + deltaUs
+            if (track.locked || newStartUs < 0L) return
+            val newEndUs = newStartUs + clip.timelineDurationUs
+            val collides = track.clips.any { other -> other.id !in selectedIds && other.overlapsRange(newStartUs, newEndUs) }
+            if (collides) return
+        }
+        val ordered = if (deltaUs > 0L) {
+            moving.sortedByDescending { it.second.timelineStartUs }
+        } else {
+            moving.sortedBy { it.second.timelineStartUs }
+        }
+        for ((track, clip) in ordered) {
+            val moved = dispatchCoalescing(
+                rustStore.commands.moveClip(
+                    clipId = clip.id,
+                    trackId = track.id,
+                    newStartUs = clip.timelineStartUs + deltaUs,
+                ),
+                "Move",
+            )
+            if (!moved) return
+        }
     }
 
     fun moveClipToTrack(clipId: String, fromTrackId: String, toTrackId: String) {
@@ -3201,22 +3265,64 @@ class ProjectViewModel(
     }
 
     fun selectClip(clipId: String?) {
-        _state.update { it.copy(selectedClipId = clipId) }
+        _state.update {
+            it.copy(
+                selectedClipId = clipId,
+                selectedClipIds = if (clipId == null) emptySet() else setOf(clipId),
+            )
+        }
     }
+
+    fun toggleClipSelection(clipId: String) {
+        if (findRustClip(clipId) == null) return
+        _state.update { state ->
+            val next = if (clipId in state.selectedClipIds) {
+                state.selectedClipIds - clipId
+            } else {
+                state.selectedClipIds + clipId
+            }
+            val primary = when {
+                clipId in next -> clipId
+                state.selectedClipId == clipId -> next.firstOrNull()
+                else -> state.selectedClipId
+            }
+            state.copy(selectedClipId = primary, selectedClipIds = next)
+        }
+    }
+
+    fun extendClipSelection(clipId: String) {
+        if (findRustClip(clipId) == null) return
+        _state.update {
+            it.copy(
+                selectedClipId = clipId,
+                selectedClipIds = it.selectedClipIds + clipId,
+            )
+        }
+    }
+
+    fun selectAllClips() {
+        val snapshot = rustStore.snapshot.value ?: return
+        val clipIds = snapshot.timeline.tracks.flatMap { track -> track.clips.map { it.id } }
+        if (clipIds.isEmpty()) return
+        val primary = _state.value.selectedClipId?.takeIf { it in clipIds } ?: clipIds.first()
+        _state.update { it.copy(selectedClipId = primary, selectedClipIds = clipIds.toSet()) }
+    }
+
+    fun clearClipSelection() = selectClip(null)
 
     fun setZoom(zoom: Float) {
         _state.update { it.copy(zoomLevel = zoom.coerceIn(0.1f, 4f)) }
     }
 
-    fun snapPosition(ms: Long, excludeClipId: String? = null): Long {
-        val nearest = computeSnapPosition(ms, excludeClipId)
+    fun snapPosition(ms: Long, excludeClipIds: Set<String> = emptySet()): Long {
+        val nearest = computeSnapPosition(ms, excludeClipIds)
         _state.update { it.copy(snapIndicatorMs = if (nearest != ms) nearest else null) }
         return nearest
     }
 
     private fun computeSnapPosition(
         ms: Long,
-        excludeClipId: String? = null,
+        excludeClipIds: Set<String> = emptySet(),
         includePlayhead: Boolean = true,
     ): Long {
         val snapThresholdMs = (SNAP_THRESHOLD_BASE / _state.value.zoomLevel).toLong().coerceAtLeast(50)
@@ -3245,7 +3351,7 @@ class ProjectViewModel(
         }
 
         for (clip in snapshot.timeline.tracks.flatMap { it.clips }) {
-            if (clip.id == excludeClipId) continue
+            if (clip.id in excludeClipIds) continue
             val startMs = clip.timelineStartUs.usToMs
             val endMs = (clip.timelineStartUs + clip.timelineDurationUs).usToMs
 
@@ -3374,6 +3480,15 @@ class ProjectViewModel(
             ?.firstOrNull { it.id == clipId }
     }
 
+    private fun findClipWithTrack(
+        snapshot: RustProjectSnapshot,
+        clipId: String,
+    ): Pair<RustTrackSnapshot, RustClipSnapshot>? {
+        return snapshot.timeline.tracks.firstNotNullOfOrNull { track ->
+            track.clips.firstOrNull { it.id == clipId }?.let { track to it }
+        }
+    }
+
     private fun dispatchSilent(commandJson: String) {
         rustStore.dispatch(commandJson)
     }
@@ -3382,6 +3497,7 @@ class ProjectViewModel(
         projectPath: String? = _state.value.projectPath,
         selectedTrackId: String? = _state.value.selectedTrackId,
         selectedClipId: String? = _state.value.selectedClipId,
+        selectedClipIds: Set<String> = _state.value.selectedClipIds,
         playheadMs: Long = _state.value.playheadMs,
         isDirty: Boolean = true,
     ) {
@@ -3392,12 +3508,26 @@ class ProjectViewModel(
         if (!hasVideoClips) {
             sourceDurationMs = 0L
         }
+        val liveClipIds = snapshot?.timeline?.tracks
+            ?.flatMap { it.clips }
+            ?.map { it.id }
+            ?.toSet()
+            ?: emptySet()
+        val reconciledSelection: Set<String> = if (selectedClipId == null) {
+            emptySet()
+        } else {
+            val kept = selectedClipIds.filterTo(mutableSetOf()) { it in liveClipIds }
+            if (selectedClipId in liveClipIds) kept.add(selectedClipId)
+            kept
+        }
+        val primaryClipId = selectedClipId?.takeIf { it in reconciledSelection } ?: reconciledSelection.firstOrNull()
         _state.update {
             it.copy(
                 snapshot = snapshot,
                 projectPath = projectPath,
                 selectedTrackId = selectedTrackId,
-                selectedClipId = selectedClipId,
+                selectedClipId = primaryClipId,
+                selectedClipIds = reconciledSelection,
                 playheadMs = playheadMs,
                 isLoading = false,
                 isDirty = isDirty,

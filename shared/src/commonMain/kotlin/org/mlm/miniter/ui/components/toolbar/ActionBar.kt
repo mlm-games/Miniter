@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,6 +17,7 @@ import io.github.mlmgames.settings.core.annotations.SettingPlatform
 @Composable
 fun ActionBar(
     hasSelection: Boolean,
+    selectedCount: Int = 0,
     zoomLevel: Float,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
@@ -25,6 +27,7 @@ fun ActionBar(
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     onDeselect: () -> Unit,
+    onSelectAll: () -> Unit = {},
     onProperties: () -> Unit,
     onDetectScenes: () -> Unit = {},
     detectScenesRunning: Boolean = false,
@@ -42,6 +45,9 @@ fun ActionBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selectedCount > 1) {
+                SelectionCountBadge(selectedCount)
+            }
             AnimatedContent(
                 targetState = hasSelection,
                 transitionSpec = {
@@ -93,6 +99,11 @@ fun ActionBar(
                         )
                     } else {
                         ActionChip(
+                            icon = Icons.Default.SelectAll,
+                            label = "Select all",
+                            onClick = onSelectAll,
+                        )
+                        ActionChip(
                             icon = Icons.Default.TextFields,
                             label = "Text",
                             onClick = onAddText,
@@ -122,6 +133,21 @@ fun ActionBar(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SelectionCountBadge(count: Int) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Text(
+            "$count clips selected",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+        )
     }
 }
 

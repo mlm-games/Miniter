@@ -23,6 +23,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -55,6 +59,8 @@ private val PLAYHEAD_HEAD_SIZE = 10.dp
 private val ADD_TRACK_ROW_HEIGHT = 36.dp
 private const val MIN_TIMELINE_DURATION_MS = 30_000L
 private const val TIMELINE_PADDING_MS = 5000L
+
+enum class ClipSelectionMode { Replace, Toggle, Extend }
 
 /**
  * Long-term fix for #14: cap the composable timeline width so deep zoom on
@@ -90,11 +96,11 @@ fun TimelinePanel(
     playheadMs: Long,
     zoomLevel: Float,
     isPlaying: Boolean = false,
-    selectedClipId: String?,
+    selectedClipIds: Set<String>,
     snapIndicatorMs: Long?,
     beatMarkersMs: List<Long> = emptyList(),
     onPlayheadChange: (Long) -> Unit,
-    onClipSelected: (String?) -> Unit,
+    onClipSelected: (String?, ClipSelectionMode) -> Unit,
     onBeginEdit: () -> Unit,
     onClipMoveAbsolute: (clipId: String, absoluteStartMs: Long) -> Unit,
     onClipMoveToTrack: (clipId: String, fromTrackId: String, toTrackId: String) -> Unit,
@@ -106,7 +112,7 @@ fun TimelinePanel(
     onToggleLock: (String) -> Unit,
     onAddTrack: (RustTrackKind) -> Unit,
     onRemoveTrack: (String) -> Unit,
-    onSnapPosition: (Long, String?) -> Long,
+    onSnapPosition: (Long, Set<String>) -> Long,
     onClearSnap: () -> Unit = {},
     onSplitClip: (String) -> Unit = {},
     onJoinClip: (String) -> Unit = {},
@@ -181,7 +187,7 @@ fun TimelinePanel(
                     totalContentWidthDp = totalContentWidthDp,
                     timelineDurationMs = timelineDurationMs,
                     playheadMs = playheadMs,
-                    selectedClipId = selectedClipId,
+                    selectedClipIds = selectedClipIds,
                     snapIndicatorMs = snapIndicatorMs,
                     scrollState = horizontalScrollState,
                     canRemove = !(track.kind == RustTrackKind.Video &&
@@ -318,13 +324,13 @@ private fun TrackRow(
     totalContentWidthDp: Dp,
     timelineDurationMs: Long,
     playheadMs: Long,
-    selectedClipId: String?,
+    selectedClipIds: Set<String>,
     snapIndicatorMs: Long?,
     scrollState: ScrollState,
     canRemove: Boolean,
     playheadColor: Color,
     snapLineColor: Color,
-    onClipSelected: (String?) -> Unit,
+    onClipSelected: (String?, ClipSelectionMode) -> Unit,
     onBeginEdit: () -> Unit,
     onClipMoveAbsolute: (String, Long) -> Unit,
     onClipMoveToTrack: (String, String, String) -> Unit,
@@ -335,7 +341,7 @@ private fun TrackRow(
     onToggleMute: () -> Unit,
     onToggleLock: () -> Unit,
     onRemoveTrack: () -> Unit,
-    onSnapPosition: (Long, String?) -> Long,
+    onSnapPosition: (Long, Set<String>) -> Long,
     onClearSnap: () -> Unit,
     onPlayheadChange: (Long) -> Unit,
     onSplitClip: (String) -> Unit,
@@ -360,7 +366,7 @@ private fun TrackRow(
             Modifier.weight(1f).fillMaxHeight().clipToBounds()
                 .horizontalScroll(scrollState)
                 .pointerInput(dpPerMs) {
-                    detectTapGestures { onClipSelected(null) }
+                    detectTapGestures { onClipSelected(null, ClipSelectionMode.Replace) }
                 }
         ) {
             Box(Modifier.width(totalContentWidthDp).fillMaxHeight()) {
@@ -373,7 +379,8 @@ private fun TrackRow(
                     val leftDp = msToX(clipStartMs(clip), dpPerMs, timelineDurationMs)
                     val rightDp = msToX(clipEndMs(clip), dpPerMs, timelineDurationMs)
                     val widthDp = (rightDp - leftDp).coerceAtLeast(1f).dp
-                    val isSelected = clip.id == selectedClipId
+                    val isSelected = clip.id in selectedClipIds
+                    val inMultiSelection = isSelected && selectedClipIds.size > 1
 
                     ClipBlock(
                         clip = clip,
@@ -385,10 +392,11 @@ private fun TrackRow(
                         dpPerMs = dpPerMs,
                         playheadMs = playheadMs,
                         modifier = Modifier.offset(x = leftDp.dp).fillMaxHeight().padding(vertical = 2.dp),
-                        onTap = { onClipSelected(clip.id) },
+                        onTap = { mode -> onClipSelected(clip.id, mode) },
                         onBeginEdit = onBeginEdit,
                         onDragAbsolute = { absoluteMs ->
-                            val snapped = onSnapPosition(absoluteMs, clip.id)
+                            val snapExcludeIds = if (inMultiSelection) selectedClipIds else setOf(clip.id)
+                            val snapped = onSnapPosition(absoluteMs, snapExcludeIds)
                             onClipMoveAbsolute(clip.id, snapped)
                         },
                         onDragEnd = { onCommitEdit(); onClearSnap() },
@@ -420,7 +428,7 @@ private fun TrackRow(
                         sameTypeIndex = sameTypeIndex,
                         sameTypeTrackIds = sameTypeUnlocked,
                         onMoveToTrack = { toTrackId ->
-                            onClipMoveToTrack(clip.id, track.id, toTrackId)
+                            if (!inMultiSelection) onClipMoveToTrack(clip.id, track.id, toTrackId)
                         },
                     )
                 }
@@ -458,7 +466,7 @@ private fun ClipBlock(
     dpPerMs: Float,
     playheadMs: Long,
     modifier: Modifier = Modifier,
-    onTap: () -> Unit,
+    onTap: (ClipSelectionMode) -> Unit,
     onBeginEdit: () -> Unit,
     onDragAbsolute: (absoluteStartMs: Long) -> Unit,
     onDragEnd: () -> Unit,
@@ -524,6 +532,7 @@ private fun ClipBlock(
             playheadMs < clipEndMs(clip)
 
     var showContextMenu by remember { mutableStateOf(false) }
+    val tapSelectionMode = remember { mutableStateOf(ClipSelectionMode.Replace) }
 
     val waveformSourcePath = (clip.kind as? RustAudioClipKind)?.sourcePath
         ?: (clip.kind as? RustVideoClipKind)?.sourcePath
@@ -543,8 +552,20 @@ private fun ClipBlock(
                 .clip(RoundedCornerShape(6.dp))
                 .border(if (isSelected) 2.dp else 0.dp, borderColor, RoundedCornerShape(6.dp))
                 .pointerInput(clip.id) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val modifiers = awaitPointerEvent(PointerEventPass.Initial).keyboardModifiers
+                            tapSelectionMode.value = when {
+                                modifiers.isShiftPressed -> ClipSelectionMode.Extend
+                                modifiers.isCtrlPressed || modifiers.isMetaPressed -> ClipSelectionMode.Toggle
+                                else -> ClipSelectionMode.Replace
+                            }
+                        }
+                    }
+                }
+                .pointerInput(clip.id) {
                     detectTapGestures(
-                        onTap = { onTap() },
+                        onTap = { onTap(tapSelectionMode.value) },
                         onLongPress = { showContextMenu = true },
                     )
                 }

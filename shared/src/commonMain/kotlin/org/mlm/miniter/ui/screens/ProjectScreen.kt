@@ -26,6 +26,7 @@ import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.components.preview.EditorVideoPreview
 import org.mlm.miniter.ui.components.properties.PropertiesBottomSheet
+import org.mlm.miniter.ui.components.timeline.ClipSelectionMode
 import org.mlm.miniter.ui.components.timeline.TimelinePanel
 import org.mlm.miniter.ui.components.toolbar.ActionBar
 import org.mlm.miniter.ui.components.toolbar.CompactTopBar
@@ -53,6 +54,7 @@ fun ProjectScreen(
     val playheadMs = uiState.playheadMs
     val isPlaying = uiState.isPlaying
     val selectedClipId = uiState.selectedClipId
+    val selectedClipIds = uiState.selectedClipIds
     val zoomLevel = uiState.zoomLevel
     val snapIndicatorMs = uiState.snapIndicatorMs
     val canUndo = uiState.canUndo
@@ -241,6 +243,7 @@ fun ProjectScreen(
 
         ActionBar(
             hasSelection = selectedClipId != null,
+            selectedCount = selectedClipIds.size,
             zoomLevel = zoomLevel,
             onZoomIn = { vm.zoomIn() },
             onZoomOut = { vm.zoomOut() },
@@ -249,7 +252,8 @@ fun ProjectScreen(
             onSplit = { selectedClipId?.let { vm.splitClipAtPlayhead(it) } },
             onDuplicate = { selectedClipId?.let { vm.duplicateClip(it) } },
             onDelete = { vm.deleteSelectedClip() },
-            onDeselect = { vm.selectClip(null) },
+            onDeselect = { vm.clearClipSelection() },
+            onSelectAll = { vm.selectAllClips() },
             onProperties = { showPropertiesSheet = true },
             onDetectScenes = { selectedClipId?.let { vm.detectScenes(it) } },
             detectScenesRunning = sceneDetectRunning,
@@ -270,11 +274,17 @@ fun ProjectScreen(
                 playheadMs = playheadMs,
                 zoomLevel = zoomLevel,
                 isPlaying = isPlaying,
-                selectedClipId = selectedClipId,
+                selectedClipIds = selectedClipIds,
                 snapIndicatorMs = snapIndicatorMs,
                 beatMarkersMs = vm.beatMarkersMs.collectAsState().value,
                 onPlayheadChange = vm::seekTo,
-                onClipSelected = vm::selectClip,
+                onClipSelected = { clipId, mode ->
+                    when (mode) {
+                        ClipSelectionMode.Replace -> vm.selectClip(clipId)
+                        ClipSelectionMode.Toggle -> if (clipId == null) vm.clearClipSelection() else vm.toggleClipSelection(clipId)
+                        ClipSelectionMode.Extend -> if (clipId == null) vm.clearClipSelection() else vm.extendClipSelection(clipId)
+                    }
+                },
                 onBeginEdit = vm::beginEdit,
                 onClipMoveAbsolute = vm::moveClipAbsolute,
                 onClipMoveToTrack = vm::moveClipToTrack,
@@ -286,7 +296,7 @@ fun ProjectScreen(
                 onToggleLock = vm::toggleTrackLock,
                 onAddTrack = vm::addTrack,
                 onRemoveTrack = vm::removeTrack,
-                onSnapPosition = vm::snapPosition,
+                onSnapPosition = { ms, excludeIds -> vm.snapPosition(ms, excludeIds) },
                 onClearSnap = vm::clearSnapIndicator,
                 onSplitClip = vm::splitClipAtPlayhead,
                 onJoinClip = vm::joinClipWithNext,
