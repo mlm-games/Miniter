@@ -21,7 +21,7 @@ mod hw {
     use super::*;
     use baabaabaabaabababbababbaa::traits::VideoEncoderOutput;
     use baabaabaabaabababbababbaa::{
-        AvcBitstreamFormat, Dimensions, VideoColorSpace, VideoEncoderConfig, VideoEncoderInput,
+        AvcBitstreamFormat, Dimensions, VideoColorRange, VideoColorSpace, VideoEncoderConfig, VideoEncoderInput,
         VideoFrame, VideoPlanes,
     };
 
@@ -123,6 +123,7 @@ mod hw {
                     MatrixCoeffs::Bt709 | MatrixCoeffs::Identity => VideoColorSpace::Bt709,
                     MatrixCoeffs::Bt2020Ncl | MatrixCoeffs::Bt2020Cl => VideoColorSpace::Bt2020,
                 }),
+                color_range: Some(VideoColorRange::Limited),
             };
 
             #[cfg(target_os = "android")]

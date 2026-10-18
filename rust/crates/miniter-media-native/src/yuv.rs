@@ -393,7 +393,14 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
-/// Convert packed RGBA pixels to planar I420 (YUV 4:2:0).
+/// Convert packed RGBA pixels to planar I420 (YUV 4:2:0) in limited
+/// (video) range: luma 16..235, chroma 16..240.
+///
+/// Encoded video conventionally carries restricted-range samples, and the
+/// encoders this feeds label limited range by default (H.264 H/W and S/W write
+/// no full-range flag, VideoToolbox and VA-API assume limited); the platform
+/// encoders that do signal range are told limited explicitly (MediaCodec
+/// `color-range`, rav1e `pixel_range`).
 ///
 /// Returns `(y_plane, u_plane, v_plane)`.
 pub fn rgba_to_yuv420(
@@ -429,14 +436,17 @@ pub fn rgba_to_yuv420(
             let b = rgba[base + 2] as f32;
 
             let y = kr * r + kg * g + kb * b;
-            y_plane[row * width + col] = y.clamp(0.0, 255.0) as u8;
+            let y_limited = 16.0 + y * (219.0 / 255.0);
+            y_plane[row * width + col] = y_limited.round().clamp(16.0, 235.0) as u8;
 
             if row % 2 == 0 && col % 2 == 0 {
-                let u = (0.5 * (b - y) / (1.0 - kb) + 128.0).clamp(0.0, 255.0) as u8;
-                let v = (0.5 * (r - y) / (1.0 - kr) + 128.0).clamp(0.0, 255.0) as u8;
+                let u = 0.5 * (b - y) / (1.0 - kb) + 128.0;
+                let v = 0.5 * (r - y) / (1.0 - kr) + 128.0;
+                let u_limited = 128.0 + (u - 128.0) * (224.0 / 255.0);
+                let v_limited = 128.0 + (v - 128.0) * (224.0 / 255.0);
                 let ci = (row / 2) * cw + col / 2;
-                u_plane[ci] = u;
-                v_plane[ci] = v;
+                u_plane[ci] = u_limited.round().clamp(16.0, 240.0) as u8;
+                v_plane[ci] = v_limited.round().clamp(16.0, 240.0) as u8;
             }
         }
     }

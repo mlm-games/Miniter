@@ -408,9 +408,9 @@ dependencies = [
 
 [[package]]
 name = "baabaabaabaabababbababbaa"
-version = "0.3.5"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2787f2d2a55096447ac0f5dcd3c8724c8b82abcaf09831198d7be330ca15c58c"
+checksum = "6339abef6de52c71eaa94f572b8557abf5a7221bd0679f93d31e300ec04b2330"
 dependencies = [
  "anodecs",
  "bytes",
@@ -2384,9 +2384,9 @@ dependencies = [
 
 [[package]]
 name = "nuxodecs"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9192c7061d060a7ec8024669445ba0474c74d734bf13dc878dc08654f22e020b"
+checksum = "ba1ce2d74bcdb7dfdbe9cbea85cf93a44777774f9a3f56b4dcb615fbddc6b065"
 dependencies = [
  "anyhow",
  "byteorder",
