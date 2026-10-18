@@ -200,31 +200,34 @@ fn apply_transform_keyframes(
         return;
     }
 
-    let scale = scale.unwrap_or(1.0);
-    let tx = tx.unwrap_or(0.0);
-    let ty = ty.unwrap_or(0.0);
-    let rotate = rotate.unwrap_or(0.0);
-
     for filter in filters.iter_mut() {
         if let VideoFilter::Transform {
-            scale: s,
-            translate_x: t_x,
-            translate_y: t_y,
-            rotate: r,
+            scale: current_scale,
+            translate_x: current_x,
+            translate_y: current_y,
+            rotate: current_rotate,
         } = filter
         {
-            *s = scale;
-            *t_x = tx;
-            *t_y = ty;
-            *r = rotate;
+            if let Some(value) = scale {
+                *current_scale = value;
+            }
+            if let Some(value) = tx {
+                *current_x = value;
+            }
+            if let Some(value) = ty {
+                *current_y = value;
+            }
+            if let Some(value) = rotate {
+                *current_rotate = value;
+            }
             return;
         }
     }
     filters.push(VideoFilter::Transform {
-        scale,
-        translate_x: tx,
-        translate_y: ty,
-        rotate,
+        scale: scale.unwrap_or(1.0),
+        translate_x: tx.unwrap_or(0.0),
+        translate_y: ty.unwrap_or(0.0),
+        rotate: rotate.unwrap_or(0.0),
     });
 }
 
