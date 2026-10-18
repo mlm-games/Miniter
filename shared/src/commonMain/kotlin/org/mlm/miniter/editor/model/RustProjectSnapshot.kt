@@ -746,6 +746,13 @@ data class RustDuckingAudioFilterSnapshot(
 ) : RustAudioFilterSnapshot
 
 @Serializable
+@SerialName("Denoise")
+data class RustDenoiseAudioFilterSnapshot(
+    @SerialName("amount")
+    val amount: Float = 0.5f,
+) : RustAudioFilterSnapshot
+
+@Serializable
 enum class RustEqPreset {
     Natural,
     AmRadio,

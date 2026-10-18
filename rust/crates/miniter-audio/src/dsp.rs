@@ -336,11 +336,214 @@ fn apply_reverb(samples: &mut [f32], channels: usize, sample_rate: u32, preset: 
     }
 }
 
+const DENOISE_FRAME: usize = 1024;
+const DENOISE_FFT: usize = DENOISE_FRAME.next_power_of_two();
+const DENOISE_HOP: usize = DENOISE_FRAME / 2;
+const DENOISE_BINS: usize = DENOISE_FFT / 2 + 1;
+const DENOISE_FLOOR: f32 = 0.1;
+const DENOISE_PERCENTILE: f32 = 0.2;
+const DENOISE_SAMPLES: usize = 2048;
+
+struct Radix2Fft {
+    twiddle: Vec<(f32, f32)>,
+    reverse: Vec<usize>,
+}
+
+impl Radix2Fft {
+    fn new(size: usize) -> Self {
+        let twiddle = (0..size)
+            .map(|k| {
+                let angle = std::f32::consts::TAU * k as f32 / size as f32;
+                (angle.cos(), -angle.sin())
+            })
+            .collect();
+        let bits = size.trailing_zeros();
+        let reverse = (0..size)
+            .map(|index| {
+                let mut mirrored = 0usize;
+                for bit in 0..bits {
+                    mirrored |= ((index >> bit) & 1) << (bits - 1 - bit);
+                }
+                mirrored
+            })
+            .collect();
+        Self { twiddle, reverse }
+    }
+
+    fn transform(&self, re: &mut [f32], im: &mut [f32], inverse: bool) {
+        let size = self.reverse.len();
+        for (index, &mirrored) in self.reverse.iter().enumerate() {
+            if index < mirrored {
+                re.swap(index, mirrored);
+                im.swap(index, mirrored);
+            }
+        }
+        let mut span = 2;
+        while span <= size {
+            let half = span / 2;
+            let step = size / span;
+            for base in (0..size).step_by(span) {
+                for k in 0..half {
+                    let root = self.twiddle[k * step];
+                    let (wr, wi) = if inverse {
+                        (root.0, -root.1)
+                    } else {
+                        root
+                    };
+                    let a_re = re[base + k];
+                    let a_im = im[base + k];
+                    let b_re = re[base + k + half];
+                    let b_im = im[base + k + half];
+                    let t_re = b_re * wr - b_im * wi;
+                    let t_im = b_re * wi + b_im * wr;
+                    re[base + k] = a_re + t_re;
+                    im[base + k] = a_im + t_im;
+                    re[base + k + half] = a_re - t_re;
+                    im[base + k + half] = a_im - t_im;
+                }
+            }
+            span <<= 1;
+        }
+        if inverse {
+            let scale = 1.0 / size as f32;
+            for value in re.iter_mut() {
+                *value *= scale;
+            }
+            for value in im.iter_mut() {
+                *value *= scale;
+            }
+        }
+    }
+}
+
+fn denoise_window() -> Vec<f32> {
+    (0..DENOISE_FRAME)
+        .map(|n| 0.5 - 0.5 * (std::f32::consts::TAU * n as f32 / DENOISE_FRAME as f32).cos())
+        .collect()
+}
+
+fn denoise_analysis_frame(
+    samples: &[f32],
+    start: usize,
+    window: &[f32],
+    re: &mut [f32],
+    im: &mut [f32],
+) {
+    for (i, (re_value, im_value)) in re.iter_mut().zip(im.iter_mut()).enumerate() {
+        let sample = samples.get(start + i).copied().unwrap_or(0.0);
+        let taper = window.get(i).copied().unwrap_or(0.0);
+        *re_value = sample * taper;
+        *im_value = 0.0;
+    }
+}
+
+fn denoise_channel(samples: &mut [f32], amount: f32, fft: &Radix2Fft, window: &[f32]) {
+    let len = samples.len();
+    if len < DENOISE_FRAME {
+        return;
+    }
+    let frame_count = len.div_ceil(DENOISE_HOP);
+    let stride = frame_count.div_ceil(DENOISE_SAMPLES);
+    let sampled = frame_count.div_ceil(stride);
+
+    let mut collected: Vec<Vec<f32>> = (0..DENOISE_BINS)
+        .map(|_| Vec::with_capacity(sampled))
+        .collect();
+    let mut re = vec![0.0f32; DENOISE_FFT];
+    let mut im = vec![0.0f32; DENOISE_FFT];
+
+    let mut start = 0usize;
+    let mut frame_index = 0usize;
+    while start < len {
+        if frame_index % stride == 0 {
+            denoise_analysis_frame(samples, start, window, &mut re, &mut im);
+            fft.transform(&mut re, &mut im, false);
+            for bin in 0..DENOISE_BINS {
+                collected[bin].push(re[bin].hypot(im[bin]));
+            }
+        }
+        start += DENOISE_HOP;
+        frame_index += 1;
+    }
+
+    let mut noise = vec![0.0f32; DENOISE_BINS];
+    for (bin, values) in collected.iter_mut().enumerate() {
+        values.sort_by(f32::total_cmp);
+        let rank = ((values.len() as f32 * DENOISE_PERCENTILE).ceil() as usize)
+            .clamp(1, values.len());
+        noise[bin] = values[rank - 1];
+    }
+
+    let mut output = vec![0.0f32; len];
+    let mut weight = vec![0.0f32; len];
+    start = 0;
+    while start < len {
+        denoise_analysis_frame(samples, start, window, &mut re, &mut im);
+        fft.transform(&mut re, &mut im, false);
+        for bin in 0..DENOISE_BINS {
+            let magnitude = re[bin].hypot(im[bin]);
+            if magnitude > 0.0 {
+                let target = (magnitude - amount * noise[bin]).max(DENOISE_FLOOR * magnitude);
+                let scale = target / magnitude;
+                re[bin] *= scale;
+                im[bin] *= scale;
+            }
+        }
+        fft.transform(&mut re, &mut im, true);
+        for i in 0..DENOISE_FRAME {
+            let position = start + i;
+            if position < len {
+                output[position] += re[i];
+                weight[position] += window[i];
+            }
+        }
+        start += DENOISE_HOP;
+    }
+
+    for position in 0..len {
+        if weight[position] > 1.0e-6 {
+            samples[position] = output[position] / weight[position];
+        }
+    }
+}
+
+fn apply_denoise(samples: &mut [f32], channels: usize, amount: f32) {
+    let amount = amount.clamp(0.0, 1.0);
+    if amount <= 0.0 || channels == 0 || samples.is_empty() {
+        return;
+    }
+    let frames = samples.len() / channels;
+    if frames == 0 {
+        return;
+    }
+
+    let fft = Radix2Fft::new(DENOISE_FFT);
+    let window = denoise_window();
+
+    if channels == 1 {
+        denoise_channel(samples, amount, &fft, &window);
+        return;
+    }
+
+    let mut channel = vec![0.0f32; frames];
+    for ch in 0..channels {
+        for (index, value) in channel.iter_mut().enumerate() {
+            *value = samples[index * channels + ch];
+        }
+        denoise_channel(&mut channel, amount, &fft, &window);
+        for (index, value) in channel.iter().enumerate() {
+            samples[index * channels + ch] = *value;
+        }
+    }
+}
+
 pub fn has_clip_dsp(filters: &[AudioFilter]) -> bool {
     filters.iter().any(|filter| {
         matches!(
             filter,
-            AudioFilter::Equalizer { .. } | AudioFilter::Reverb { .. }
+            AudioFilter::Equalizer { .. }
+                | AudioFilter::Reverb { .. }
+                | AudioFilter::Denoise { .. }
         )
     })
 }
@@ -355,6 +558,7 @@ pub fn apply_clip_dsp(
         match filter {
             AudioFilter::Equalizer { preset } => apply_eq(samples, channels, sample_rate, *preset),
             AudioFilter::Reverb { preset } => apply_reverb(samples, channels, sample_rate, *preset),
+            AudioFilter::Denoise { amount } => apply_denoise(samples, channels, *amount),
             _ => {}
         }
     }

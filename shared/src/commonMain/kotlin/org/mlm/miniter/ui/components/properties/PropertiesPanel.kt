@@ -55,6 +55,7 @@ import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustSepiaFilterSnapshot
 import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
+import org.mlm.miniter.editor.model.RustDenoiseAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustDuckingAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeInAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
@@ -985,6 +986,13 @@ private fun AudioClipProperties(
                     audioFilterExpanded = false
                 },
             )
+            DropdownMenuItem(
+                text = { Text("Denoise") },
+                onClick = {
+                    onAddAudioFilter(clip.id, RustDenoiseAudioFilterSnapshot())
+                    audioFilterExpanded = false
+                },
+            )
         }
     }
 
@@ -1152,6 +1160,28 @@ private fun AudioClipProperties(
                     },
                     valueRange = 0.05f..2f,
                     steps = 38,
+                )
+            }
+            is RustDenoiseAudioFilterSnapshot -> {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Denoise", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { onRemoveAudioFilter(clip.id, index) }) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.common_remove), modifier = Modifier.size(16.dp))
+                    }
+                }
+                Text("Reduces by ${(filter.amount * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                var denoiseAmount by remember(filter) { mutableFloatStateOf(filter.amount) }
+                Slider(
+                    value = denoiseAmount,
+                    onValueChange = { denoiseAmount = it },
+                    onValueChangeFinished = {
+                        onReplaceAudioFilter(clip.id, index, filter.copy(amount = denoiseAmount))
+                    },
+                    valueRange = 0f..1f,
                 )
             }
             else -> { }

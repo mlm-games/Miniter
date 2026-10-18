@@ -364,6 +364,10 @@ pub enum AudioFilter {
         #[serde(default = "default_ducking_release_ms")]
         release_ms: i64,
     },
+    Denoise {
+        #[serde(default = "default_denoise_amount")]
+        amount: f32,
+    },
 }
 
 fn default_ducking_amount() -> f32 {
@@ -372,6 +376,10 @@ fn default_ducking_amount() -> f32 {
 
 fn default_ducking_release_ms() -> i64 {
     400
+}
+
+fn default_denoise_amount() -> f32 {
+    0.5
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
