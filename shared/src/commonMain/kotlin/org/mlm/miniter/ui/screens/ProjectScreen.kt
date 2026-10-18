@@ -1,9 +1,23 @@
 package org.mlm.miniter.ui.screens
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -11,10 +25,12 @@ import io.github.mlmgames.settings.core.SettingsRepository
 import io.github.vinceglb.filekit.dialogs.FileKitMode
 import io.github.vinceglb.filekit.dialogs.FileKitType
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
+import kotlin.math.roundToLong
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.editor.model.RustKeyframe
+import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
@@ -73,6 +89,11 @@ fun ProjectScreen(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val scope = rememberCoroutineScope()
 
+    val editorFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        editorFocusRequester.requestFocus()
+    }
+
     val settingsRepository: SettingsRepository<AppSettings> = koinInject()
     val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
 
@@ -109,7 +130,14 @@ fun ProjectScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(editorFocusRequester)
+            .onFocusChanged { if (!it.hasFocus) editorFocusRequester.requestFocus() }
+            .focusable()
+            .onKeyEvent { vm.handleEditorShortcut(it, snapshot) },
+    ) {
 
         CompactTopBar(
             projectName = snapshot?.meta?.name ?: videoName,
@@ -397,4 +425,56 @@ private fun snapshotTimelineDurationMs(snapshot: org.mlm.miniter.editor.model.Ru
         .maxOfOrNull { it.timelineStartUs + it.timelineDurationUs }
         ?: 0L
     return maxEndUs / 1000L
+}
+
+private fun ProjectViewModel.handleEditorShortcut(event: KeyEvent, snapshot: RustProjectSnapshot?): Boolean {
+    val ctrlOrCmd = (event.isCtrlPressed || event.isMetaPressed) && !event.isAltPressed
+    val plainSpace = !ctrlOrCmd && !event.isShiftPressed && !event.isAltPressed && event.key == Key.Spacebar
+    if (plainSpace) {
+        if (event.type == KeyEventType.KeyUp) {
+            togglePlayPause()
+            return true
+        }
+        return false
+    }
+    if (event.type != KeyEventType.KeyDown) return false
+    return when {
+        ctrlOrCmd && event.key == Key.Z -> {
+            if (event.isShiftPressed) redo() else undo()
+            true
+        }
+        ctrlOrCmd && event.key == Key.Y -> {
+            redo()
+            true
+        }
+        ctrlOrCmd && !event.isShiftPressed && event.key == Key.A -> {
+            selectAllClips()
+            true
+        }
+        !ctrlOrCmd && !event.isAltPressed && (event.key == Key.Delete || event.key == Key.Backspace) -> {
+            deleteSelectedClip()
+            true
+        }
+        !ctrlOrCmd && !event.isAltPressed && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> {
+            if (snapshot != null) {
+                val fps = snapshot.exportProfile.fps.takeIf { it > 0.0 } ?: 30.0
+                val stepMs = if (event.isShiftPressed) 1000L else (1000.0 / fps).roundToLong()
+                seekRelative(if (event.key == Key.DirectionLeft) -stepMs else stepMs)
+            }
+            true
+        }
+        !ctrlOrCmd && !event.isAltPressed && event.key == Key.Escape -> {
+            clearClipSelection()
+            true
+        }
+        !ctrlOrCmd && !event.isAltPressed && (event.key == Key.Equals || event.key == Key.Plus) -> {
+            zoomIn()
+            true
+        }
+        !ctrlOrCmd && !event.isAltPressed && event.key == Key.Minus -> {
+            zoomOut()
+            true
+        }
+        else -> false
+    }
 }
