@@ -515,13 +515,30 @@ pub(crate) fn render_mask_shape(
             let r = ((max_x.round() as i32) + 1).clamp(l as i32 + 1, width as i32) as usize;
             let b = ((max_y.round() as i32) + 1).clamp(t as i32 + 1, height as i32) as usize;
 
+            let rcx = (tcx - 0.5) * cos_r - (tcy - 0.5) * sin_r + 0.5;
+            let rcy = (tcx - 0.5) * sin_r + (tcy - 0.5) * cos_r + 0.5;
+            let scx = rcx * wf;
+            let scy = rcy * hf;
+            let hw = nhw.abs();
+            let hh = nhh.abs();
+            let min_u = ((tcx - hw) * wf).round() - tcx * wf;
+            let max_u = ((tcx + hw) * wf).round() - tcx * wf;
+            let min_v = ((tcy - hh) * hf).round() - tcy * hf;
+            let max_v = ((tcy + hh) * hf).round() - tcy * hf;
+
             for y in t..b {
                 for x in l..r {
-                    let i = (y * width + x) * 4;
-                    mask[i] = 255;
-                    mask[i + 1] = 255;
-                    mask[i + 2] = 255;
-                    mask[i + 3] = 255;
+                    let px = x as f32 - scx;
+                    let py = y as f32 - scy;
+                    let u = px * cos_r + py * sin_r;
+                    let v = -px * sin_r + py * cos_r;
+                    if u >= min_u && u <= max_u && v >= min_v && v <= max_v {
+                        let i = (y * width + x) * 4;
+                        mask[i] = 255;
+                        mask[i + 1] = 255;
+                        mask[i + 2] = 255;
+                        mask[i + 3] = 255;
+                    }
                 }
             }
         }
