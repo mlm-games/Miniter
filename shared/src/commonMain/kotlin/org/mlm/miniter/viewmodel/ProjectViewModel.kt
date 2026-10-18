@@ -1856,18 +1856,31 @@ class ProjectViewModel(
                 failed = true
                 return
             }
-            val latestTrack = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { it.id == track.id }
-            if (latestTrack == null) {
+            val latestTracks = rustStore.snapshot.value?.timeline?.tracks
+            if (latestTracks == null) {
                 failed = true
                 return
             }
-            val freezeEndUs = freeze.timelineStartUs + freeze.timelineDurationUs
-            val following = latestTrack.clips
-                .filter { it.id != freezeId && it.timelineStartUs >= freezeEndUs }
-                .sortedByDescending { it.timelineStartUs }
-            for (later in following) {
-                val newStartUs = later.timelineStartUs + shiftUs
-                if (!send(rustStore.commands.moveClip(later.id, latestTrack.id, newStartUs))) return
+            val freezePointUs = freeze.timelineStartUs
+            val straddling = latestTracks.any { other ->
+                other.id != track.id && other.clips.any { later ->
+                    later.timelineStartUs < freezePointUs &&
+                        later.timelineStartUs + later.timelineDurationUs > freezePointUs
+                }
+            }
+            if (straddling) {
+                failed = true
+                snackbarManager.showError("Another track has a clip across the playhead")
+                return
+            }
+            for (rippleTrack in latestTracks) {
+                val following = rippleTrack.clips
+                    .filter { it.id != freezeId && it.timelineStartUs >= freezePointUs }
+                    .sortedByDescending { it.timelineStartUs }
+                for (later in following) {
+                    val newStartUs = later.timelineStartUs + shiftUs
+                    if (!send(rustStore.commands.moveClip(later.id, rippleTrack.id, newStartUs))) return
+                }
             }
             val beforeTrim = findRustClip(freezeId)
             if (beforeTrim == null) {
