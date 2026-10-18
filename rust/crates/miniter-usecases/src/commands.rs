@@ -66,6 +66,10 @@ pub enum EditCommand {
         clip_id: ClipId,
         new_duration: MediaDuration,
     },
+    SlipClip {
+        clip_id: ClipId,
+        delta_us: i64,
+    },
     SplitClip {
         clip_id: ClipId,
         at: Timestamp,

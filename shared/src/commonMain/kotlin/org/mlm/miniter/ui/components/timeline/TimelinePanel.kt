@@ -56,6 +56,7 @@ import org.mlm.miniter.engine.THUMBNAIL_BUCKET_US
 import org.mlm.miniter.engine.ThumbnailKey
 import org.mlm.miniter.engine.thumbnailKey
 import org.mlm.miniter.engine.toImageBitmap
+import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.paramDefOrUnknown
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -140,6 +141,9 @@ fun TimelinePanel(
     onToggleClipMute: (String) -> Unit = {},
     onSplitAll: () -> Unit = {},
     onCloseGap: (String) -> Unit = {},
+    onSlipClip: (String, Boolean) -> Unit = { _, _ -> },
+    onSlideClip: (String, Boolean) -> Unit = { _, _ -> },
+    onRollClip: (String, Boolean) -> Unit = { _, _ -> },
     waveforms: Map<String, List<Float>> = emptyMap(),
     onNeedWaveform: (String) -> Unit = {},
     thumbnails: Map<ThumbnailKey, ImageData?> = emptyMap(),
@@ -240,6 +244,9 @@ fun TimelinePanel(
                     onToggleClipMute = onToggleClipMute,
                     onSplitAll = onSplitAll,
                     onCloseGap = onCloseGap,
+                    onSlipClip = onSlipClip,
+                    onSlideClip = onSlideClip,
+                    onRollClip = onRollClip,
                     waveforms = waveforms,
                     onNeedWaveform = onNeedWaveform,
                     thumbnails = thumbnails,
@@ -382,6 +389,9 @@ private fun TrackRow(
     onToggleClipMute: (String) -> Unit = {},
     onSplitAll: () -> Unit = {},
     onCloseGap: (String) -> Unit = {},
+    onSlipClip: (String, Boolean) -> Unit = { _, _ -> },
+    onSlideClip: (String, Boolean) -> Unit = { _, _ -> },
+    onRollClip: (String, Boolean) -> Unit = { _, _ -> },
     waveforms: Map<String, List<Float>> = emptyMap(),
     onNeedWaveform: (String) -> Unit = {},
     thumbnails: Map<ThumbnailKey, ImageData?> = emptyMap(),
@@ -468,6 +478,16 @@ private fun TrackRow(
                         onToggleMute = { onToggleClipMute(clip.id) },
                         onSplitAll = onSplitAll,
                         onCloseGap = { onCloseGap(track.id) },
+                        canSlip = canSlipClip(clip),
+                        canSlide = canSlideClip(
+                            track.clips.getOrNull(clipIndex - 1),
+                            clip,
+                            track.clips.getOrNull(clipIndex + 1),
+                        ),
+                        canRoll = canRollClip(clip, track.clips.getOrNull(clipIndex + 1)),
+                        onSlipClip = onSlipClip,
+                        onSlideClip = onSlideClip,
+                        onRollClip = onRollClip,
                         waveform = waveforms[
                             (clip.kind as? RustAudioClipKind)?.sourcePath
                                 ?: (clip.kind as? RustVideoClipKind)?.sourcePath
@@ -542,6 +562,12 @@ private fun ClipBlock(
     onToggleMute: () -> Unit = {},
     onSplitAll: () -> Unit = {},
     onCloseGap: () -> Unit = {},
+    canSlip: Boolean = false,
+    canSlide: Boolean = false,
+    canRoll: Boolean = false,
+    onSlipClip: (String, Boolean) -> Unit = { _, _ -> },
+    onSlideClip: (String, Boolean) -> Unit = { _, _ -> },
+    onRollClip: (String, Boolean) -> Unit = { _, _ -> },
     waveform: List<Float> = emptyList(),
     onNeedWaveform: (String) -> Unit = {},
     thumbnails: Map<ThumbnailKey, ImageData?> = emptyMap(),
@@ -905,6 +931,15 @@ private fun ClipBlock(
             onToggleMute = onToggleMute,
             onSplitAll = onSplitAll,
             onCloseGap = onCloseGap,
+            canSlip = canSlip,
+            canSlide = canSlide,
+            canRoll = canRoll,
+            onSlipLeft = { onSlipClip(clip.id, true) },
+            onSlipRight = { onSlipClip(clip.id, false) },
+            onSlideLeft = { onSlideClip(clip.id, true) },
+            onSlideRight = { onSlideClip(clip.id, false) },
+            onRollLeft = { onRollClip(clip.id, true) },
+            onRollRight = { onRollClip(clip.id, false) },
         )
 
         val kfs = clip.keyframes.keyframes
@@ -1030,6 +1065,30 @@ private fun isTrimmableClip(clip: RustClipSnapshot): Boolean =
     clip.kind is RustVideoClipKind || clip.kind is RustAudioClipKind
         || clip.kind is RustTextClipKind || clip.kind is RustSubtitleClipKind
         || clip.kind is RustAdjustmentClipKind
+
+private fun hasSpeedRamp(clip: RustClipSnapshot): Boolean =
+    clip.keyframes.keyframes.any { it.param == KeyframeParams.SPEED }
+
+private fun isSourceBacked(clip: RustClipSnapshot): Boolean =
+    clip.kind is RustVideoClipKind || clip.kind is RustAudioClipKind
+
+private fun canSlipClip(clip: RustClipSnapshot): Boolean =
+    isSourceBacked(clip) && !hasSpeedRamp(clip) &&
+        (clip.sourceStartUs > 0L || clip.sourceTotalDurationUs > clip.sourceEndUs)
+
+private fun canSlideClip(
+    previous: RustClipSnapshot?,
+    clip: RustClipSnapshot,
+    next: RustClipSnapshot?,
+): Boolean =
+    previous != null && next != null &&
+        previous.endUs == clip.timelineStartUs &&
+        next.timelineStartUs == clip.endUs &&
+        !hasSpeedRamp(previous) && !hasSpeedRamp(clip) && !hasSpeedRamp(next)
+
+private fun canRollClip(clip: RustClipSnapshot, next: RustClipSnapshot?): Boolean =
+    next != null && next.timelineStartUs == clip.endUs &&
+        !hasSpeedRamp(clip) && !hasSpeedRamp(next)
 
 private fun resolveParamColor(param: String): Color {
     if (param.startsWith("filter.")) return Color(0xFFEF5350)

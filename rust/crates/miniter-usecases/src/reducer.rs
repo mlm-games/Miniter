@@ -195,6 +195,8 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             new_duration,
         } => apply_trim_clip_end(state, clip_id, new_duration),
 
+        EditCommand::SlipClip { clip_id, delta_us } => apply_slip_clip(state, clip_id, delta_us),
+
         EditCommand::SplitClip {
             clip_id,
             at,
@@ -967,6 +969,49 @@ fn apply_trim_clip_end(
     Ok(EditCommand::TrimClipEnd {
         clip_id,
         new_duration: original.timeline_duration,
+    })
+}
+
+fn apply_slip_clip(
+    state: &mut EditorState,
+    clip_id: ClipId,
+    delta_us: i64,
+) -> Result<EditCommand, ApplyError> {
+    let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
+    let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
+
+    if !matches!(original.kind, ClipKind::Video(_) | ClipKind::Audio(_)) {
+        return Err(ApplyError::WrongClipKind(clip_id));
+    }
+    if original.keyframes.has_param(param::SPEED) {
+        return Err(ApplyError::InvalidCommand(
+            "Slip is unavailable on speed-ramped clips",
+        ));
+    }
+
+    let source_start_us = original.source_start.as_micros();
+    let source_end_us = original.source_end.as_micros();
+    let headroom_us = source_start_us.max(0);
+    let tailroom_us = original
+        .source_total_duration
+        .as_micros()
+        .saturating_sub(source_end_us)
+        .max(0);
+    let applied_us = delta_us.clamp(-headroom_us, tailroom_us);
+    if applied_us == 0 && delta_us != 0 {
+        return Err(ApplyError::InvalidSourceBounds);
+    }
+
+    let mut updated = original.clone();
+    updated.source_start = MediaDuration::from_micros(source_start_us + applied_us);
+    updated.source_end = MediaDuration::from_micros(source_end_us + applied_us);
+    ensure_clip_source_bounds(&updated)?;
+
+    state.project.timeline.tracks[track_idx].clips[clip_idx] = updated;
+
+    Ok(EditCommand::SlipClip {
+        clip_id,
+        delta_us: -applied_us,
     })
 }
 

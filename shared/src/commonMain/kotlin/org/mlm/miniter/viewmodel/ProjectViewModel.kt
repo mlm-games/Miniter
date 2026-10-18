@@ -1817,6 +1817,231 @@ class ProjectViewModel(
         )
     }
 
+    fun slipClip(clipId: String, backward: Boolean) {
+        val clip = findRustClip(clipId) ?: return
+        if (clip.kind !is RustVideoClipKind && clip.kind !is RustAudioClipKind) {
+            snackbarManager.showError("Slip needs a clip with source media")
+            return
+        }
+        if (hasSpeedRamp(clip)) {
+            snackbarManager.showError("Slip is unavailable on speed-ramped clips")
+            return
+        }
+        val stepUs = sourceFrameStepUs(clip)
+        val headroomUs = clip.sourceStartUs.coerceAtLeast(0L)
+        val tailroomUs = (clip.sourceTotalDurationUs - clip.sourceEndUs).coerceAtLeast(0L)
+        val deltaUs = (if (backward) -stepUs else stepUs).coerceIn(-headroomUs, tailroomUs)
+        if (deltaUs == 0L) {
+            snackbarManager.showError(
+                if (backward) "Clip is already at the first frame of its source"
+                else "Clip is already at the last frame of its source",
+            )
+            return
+        }
+
+        beginContinuousEdit("Slip")
+        var failed = false
+        try {
+            fun send(command: String): Boolean {
+                if (failed) return false
+                if (!dispatchCoalescing(command, "Slip")) {
+                    failed = true
+                    return false
+                }
+                return true
+            }
+
+            send(rustStore.commands.slipClip(clipId, deltaUs))
+        } finally {
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
+    }
+
+    fun slideClip(clipId: String, backward: Boolean) {
+        val snapshot = rustStore.snapshot.value ?: return
+        val located = findClipWithTrack(snapshot, clipId) ?: return
+        val (track, clip) = located
+        val ordered = track.clips.sortedBy { it.timelineStartUs }
+        val index = ordered.indexOfFirst { it.id == clipId }
+        if (index <= 0 || index >= ordered.lastIndex) {
+            snackbarManager.showError("Slide needs a clip on both sides")
+            return
+        }
+        val previous = ordered[index - 1]
+        val next = ordered[index + 1]
+        if (previous.endUs != clip.timelineStartUs || next.timelineStartUs != clip.endUs) {
+            snackbarManager.showError("Slide needs clips touching on both sides")
+            return
+        }
+        if (listOf(previous, clip, next).any { hasSpeedRamp(it) }) {
+            snackbarManager.showError("Slide is unavailable on speed-ramped clips")
+            return
+        }
+        val stepUs = timelineFrameStepUs()
+        val shrinking = if (backward) previous else next
+        if (shrinking.timelineDurationUs <= stepUs) {
+            snackbarManager.showError("Slide needs a neighbouring clip longer than one frame")
+            return
+        }
+
+        beginContinuousEdit("Slide")
+        var failed = false
+        try {
+            fun send(command: String): Boolean {
+                if (failed) return false
+                if (!dispatchCoalescing(command, "Slide")) {
+                    failed = true
+                    return false
+                }
+                return true
+            }
+
+            if (backward) {
+                if (!send(rustStore.commands.trimClipEnd(previous.id, previous.timelineDurationUs - stepUs))) return
+                if (!send(rustStore.commands.moveClip(clip.id, track.id, clip.timelineStartUs - stepUs))) return
+                val newNextStartUs = next.timelineStartUs - stepUs
+                if (!send(
+                        rustStore.commands.trimClipStart(
+                            next.id,
+                            newNextStartUs,
+                            trimSourceStartFor(next, newNextStartUs),
+                        ),
+                    )
+                ) return
+            } else {
+                val newNextStartUs = next.timelineStartUs + stepUs
+                if (!send(
+                        rustStore.commands.trimClipStart(
+                            next.id,
+                            newNextStartUs,
+                            trimSourceStartFor(next, newNextStartUs),
+                        ),
+                    )
+                ) return
+                if (!send(rustStore.commands.moveClip(clip.id, track.id, clip.timelineStartUs + stepUs))) return
+                if (!send(rustStore.commands.trimClipEnd(previous.id, previous.timelineDurationUs + stepUs))) return
+            }
+
+            val after = rustStore.snapshot.value?.timeline?.tracks
+                ?.firstOrNull { it.id == track.id }
+                ?.clips
+            val movedAfter = after?.firstOrNull { it.id == clipId }
+            val leftAfter = after?.firstOrNull { it.id == previous.id }
+            val rightAfter = after?.firstOrNull { it.id == next.id }
+            val slid = movedAfter != null && leftAfter != null && rightAfter != null &&
+                leftAfter.endUs == movedAfter.timelineStartUs &&
+                movedAfter.endUs == rightAfter.timelineStartUs &&
+                movedAfter.timelineDurationUs == clip.timelineDurationUs
+            if (!slid) {
+                failed = true
+                snackbarManager.showError("Slide was blocked by the neighbouring clips")
+            }
+        } finally {
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
+    }
+
+    fun rollClip(clipId: String, backward: Boolean) {
+        val snapshot = rustStore.snapshot.value ?: return
+        val located = findClipWithTrack(snapshot, clipId) ?: return
+        val (track, clip) = located
+        val ordered = track.clips.sortedBy { it.timelineStartUs }
+        val index = ordered.indexOfFirst { it.id == clipId }
+        if (index < 0 || index >= ordered.lastIndex) {
+            snackbarManager.showError("Roll needs a following clip")
+            return
+        }
+        val next = ordered[index + 1]
+        if (next.timelineStartUs != clip.endUs) {
+            snackbarManager.showError("Roll needs two touching clips")
+            return
+        }
+        if (hasSpeedRamp(clip) || hasSpeedRamp(next)) {
+            snackbarManager.showError("Roll is unavailable on speed-ramped clips")
+            return
+        }
+        val stepUs = timelineFrameStepUs()
+        val newBoundaryUs = if (backward) clip.endUs - stepUs else clip.endUs + stepUs
+        if (newBoundaryUs <= clip.timelineStartUs || newBoundaryUs >= next.endUs) {
+            snackbarManager.showError("Roll would leave a clip empty")
+            return
+        }
+
+        beginContinuousEdit("Roll")
+        var failed = false
+        try {
+            fun send(command: String): Boolean {
+                if (failed) return false
+                if (!dispatchCoalescing(command, "Roll")) {
+                    failed = true
+                    return false
+                }
+                return true
+            }
+
+            if (backward) {
+                if (!send(rustStore.commands.trimClipEnd(clip.id, newBoundaryUs - clip.timelineStartUs))) return
+                if (!send(
+                        rustStore.commands.trimClipStart(
+                            next.id,
+                            newBoundaryUs,
+                            trimSourceStartFor(next, newBoundaryUs),
+                        ),
+                    )
+                ) return
+            } else {
+                if (!send(
+                        rustStore.commands.trimClipStart(
+                            next.id,
+                            newBoundaryUs,
+                            trimSourceStartFor(next, newBoundaryUs),
+                        ),
+                    )
+                ) return
+                if (!send(rustStore.commands.trimClipEnd(clip.id, newBoundaryUs - clip.timelineStartUs))) return
+            }
+
+            val after = rustStore.snapshot.value?.timeline?.tracks
+                ?.firstOrNull { it.id == track.id }
+                ?.clips
+            val leftAfter = after?.firstOrNull { it.id == clipId }
+            val rightAfter = after?.firstOrNull { it.id == next.id }
+            val rolled = leftAfter != null && rightAfter != null &&
+                leftAfter.timelineStartUs == clip.timelineStartUs &&
+                leftAfter.endUs == rightAfter.timelineStartUs &&
+                abs(rightAfter.endUs - next.endUs) <= 1L
+            if (!rolled) {
+                failed = true
+                snackbarManager.showError("Roll was blocked by the source bounds")
+            }
+        } finally {
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
+    }
+
+    private fun hasSpeedRamp(clip: RustClipSnapshot): Boolean =
+        clip.keyframes.keyframes.any { it.param == KeyframeParams.SPEED }
+
+    private fun exportFrameRate(): Double {
+        val fps = rustStore.snapshot.value?.exportProfile?.fps ?: 0.0
+        return if (fps.isFinite() && fps > 0.0) fps else 30.0
+    }
+
+    private fun timelineFrameStepUs(): Long =
+        (1_000_000.0 / exportFrameRate()).roundToLong().coerceAtLeast(1L)
+
+    private fun sourceFrameStepUs(clip: RustClipSnapshot): Long {
+        val fps = (clip.kind as? RustVideoClipKind)?.fps ?: 0.0
+        val effective = if (fps.isFinite() && fps > 0.0) fps else exportFrameRate()
+        return (1_000_000.0 / effective).roundToLong().coerceAtLeast(1L)
+    }
+
+    private fun trimSourceStartFor(clip: RustClipSnapshot, newStartUs: Long): Long {
+        val deltaTimelineUs = newStartUs - clip.timelineStartUs
+        val scaled = (deltaTimelineUs.toDouble() * clip.speed).toLong()
+        return (clip.sourceStartUs + scaled).coerceIn(0L, clip.sourceTotalDurationUs.coerceAtLeast(0L))
+    }
+
     fun addTextClip(trackId: String, text: String, startMs: Long, durationMs: Long = DEFAULT_TEXT_CLIP_DURATION_US / 1000L) {
         val requestedUs = startMs.msToUs
         val durationUs = durationMs.msToUs

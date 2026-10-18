@@ -110,6 +110,14 @@ class RustCommandJson(
         put("new_duration", JsonPrimitive(newDurationUs))
     }
 
+    fun slipClip(
+        clipId: String,
+        deltaUs: Long,
+    ): String = wrap("SlipClip") {
+        put("clip_id", uuid(clipId))
+        put("delta_us", JsonPrimitive(deltaUs))
+    }
+
     fun splitClip(
         clipId: String,
         atUs: Long,

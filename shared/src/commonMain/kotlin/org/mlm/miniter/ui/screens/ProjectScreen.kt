@@ -343,6 +343,9 @@ fun ProjectScreen(
                 onToggleClipMute = vm::toggleClipMute,
                 onSplitAll = vm::splitAllAtPlayhead,
                 onCloseGap = vm::closeGapOnTrack,
+                onSlipClip = vm::slipClip,
+                onSlideClip = vm::slideClip,
+                onRollClip = vm::rollClip,
                 waveforms = vm.waveforms.collectAsState().value,
                 onNeedWaveform = vm::requestWaveform,
                 thumbnails = vm.timelineThumbnails.collectAsState().value,
@@ -449,6 +452,8 @@ private fun ProjectViewModel.handleEditorShortcut(event: KeyEvent, snapshot: Rus
         return false
     }
     if (event.type != KeyEventType.KeyDown) return false
+    val altOnly = event.isAltPressed && !event.isCtrlPressed && !event.isMetaPressed
+    val clipId = state.value.selectedClipId
     return when {
         ctrlOrCmd && event.key == Key.Z -> {
             if (event.isShiftPressed) redo() else undo()
@@ -500,6 +505,30 @@ private fun ProjectViewModel.handleEditorShortcut(event: KeyEvent, snapshot: Rus
         }
         !ctrlOrCmd && !event.isAltPressed && event.key == Key.Minus -> {
             zoomOut()
+            true
+        }
+        altOnly && event.key == Key.Comma -> {
+            clipId?.let { slideClip(it, backward = true) }
+            true
+        }
+        altOnly && event.key == Key.Period -> {
+            clipId?.let { slideClip(it, backward = false) }
+            true
+        }
+        ctrlOrCmd && event.isShiftPressed && event.key == Key.Comma -> {
+            clipId?.let { rollClip(it, backward = true) }
+            true
+        }
+        ctrlOrCmd && event.isShiftPressed && event.key == Key.Period -> {
+            clipId?.let { rollClip(it, backward = false) }
+            true
+        }
+        !ctrlOrCmd && !event.isAltPressed && event.key == Key.Comma -> {
+            clipId?.let { slipClip(it, backward = true) }
+            true
+        }
+        !ctrlOrCmd && !event.isAltPressed && event.key == Key.Period -> {
+            clipId?.let { slipClip(it, backward = false) }
             true
         }
         else -> false
