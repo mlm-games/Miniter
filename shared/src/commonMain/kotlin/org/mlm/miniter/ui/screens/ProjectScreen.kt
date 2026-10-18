@@ -62,6 +62,7 @@ fun ProjectScreen(
     val stabilizeRunning = uiState.stabilizeRunning
     val maskTrackRunning = uiState.maskTrackRunning
     val removeSilenceRunning = uiState.removeSilenceRunning
+    val sceneDetectRunning = uiState.sceneDetectRunning
 
     var showExitConfirm by remember { mutableStateOf(false) }
     var showPropertiesSheet by remember { mutableStateOf(false) }
@@ -250,6 +251,8 @@ fun ProjectScreen(
             onDelete = { vm.deleteSelectedClip() },
             onDeselect = { vm.selectClip(null) },
             onProperties = { showPropertiesSheet = true },
+            onDetectScenes = { selectedClipId?.let { vm.detectScenes(it) } },
+            detectScenesRunning = sceneDetectRunning,
             autoKeyframeEnabled = autoKeyframeEnabled,
             onToggleAutoKeyframe = { autoKeyframeEnabled = !autoKeyframeEnabled },
         )

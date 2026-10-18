@@ -26,6 +26,8 @@ fun ActionBar(
     onDelete: () -> Unit,
     onDeselect: () -> Unit,
     onProperties: () -> Unit,
+    onDetectScenes: () -> Unit = {},
+    detectScenesRunning: Boolean = false,
     autoKeyframeEnabled: Boolean = false,
     onToggleAutoKeyframe: () -> Unit = {},
 ) {
@@ -57,6 +59,12 @@ fun ActionBar(
                             icon = Icons.Default.ContentCut,
                             label = "Split",
                             onClick = onSplit,
+                        )
+                        ActionChip(
+                            icon = Icons.Default.BurstMode,
+                            label = "Detect scenes",
+                            onClick = onDetectScenes,
+                            enabled = !detectScenesRunning,
                         )
                         ActionChip(
                             icon = Icons.Default.ContentCopy,
@@ -166,6 +174,7 @@ private fun ActionChip(
     label: String,
     onClick: () -> Unit,
     isDestructive: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val colors = if (isDestructive) {
         AssistChipDefaults.assistChipColors(
@@ -178,6 +187,7 @@ private fun ActionChip(
 
     AssistChip(
         onClick = onClick,
+        enabled = enabled,
         label = {
             if (label.isNotEmpty()) {
                 Text(label, style = MaterialTheme.typography.labelSmall)

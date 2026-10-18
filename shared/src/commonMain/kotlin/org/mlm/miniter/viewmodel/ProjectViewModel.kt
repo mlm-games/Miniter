@@ -109,6 +109,11 @@ import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.project.detectSilentSourceRuns
 import org.mlm.miniter.project.pixelSize
 import org.mlm.miniter.project.saliencyCentroid
+import org.mlm.miniter.project.SCENE_MIN_FRAMES
+import org.mlm.miniter.project.SceneSample
+import org.mlm.miniter.project.detectSceneBoundaries
+import org.mlm.miniter.project.luminanceHistogram
+import org.mlm.miniter.project.sceneSampleTimestamps
 import org.mlm.miniter.project.SilentRun
 import org.mlm.miniter.project.silentRunsToLocal
 import org.mlm.miniter.project.smoothAutoReframeSamples
@@ -147,6 +152,7 @@ data class ProjectUiState(
     val stabilizeRunning: Boolean = false,
     val maskTrackRunning: Boolean = false,
     val removeSilenceRunning: Boolean = false,
+    val sceneDetectRunning: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val undoLabel: String? = null,
@@ -1968,6 +1974,7 @@ class ProjectViewModel(
         if (_state.value.removeSilenceRunning ||
             _state.value.autoReframeRunning ||
             _state.value.stabilizeRunning ||
+            _state.value.sceneDetectRunning ||
             _state.value.maskTrackRunning
         ) return
         val clip = findRustClip(clipId) ?: return
@@ -2101,6 +2108,136 @@ class ProjectViewModel(
                 _state.update { it.copy(removeSilenceRunning = false) }
             }
         }
+    }
+
+    fun detectScenes(clipId: String) {
+        val uiState = _state.value
+        if (uiState.sceneDetectRunning ||
+            uiState.autoReframeRunning ||
+            uiState.stabilizeRunning ||
+            uiState.maskTrackRunning ||
+            uiState.removeSilenceRunning
+        ) return
+        val clip = findRustClip(clipId) ?: return
+        val video = clip.kind as? RustVideoClipKind
+        if (video == null) {
+            snackbarManager.showError("Detect scenes needs a video clip")
+            return
+        }
+        if (video.sourcePath.isBlank()) {
+            snackbarManager.showError("Detect scenes needs a clip with a source file")
+            return
+        }
+        if (clip.keyframes.keyframes.any { it.param == KeyframeParams.SPEED }) {
+            snackbarManager.showError("Detect scenes is unavailable on speed-ramped clips")
+            return
+        }
+        if (!clip.speed.isFinite() || clip.speed <= 0.0) {
+            snackbarManager.showError("Detect scenes needs a clip with a valid speed")
+            return
+        }
+        if (clip.timelineDurationUs <= 0L || clip.sourceEndUs <= clip.sourceStartUs) {
+            snackbarManager.showError("Detect scenes needs a clip with a valid source range")
+            return
+        }
+
+        _state.update { it.copy(sceneDetectRunning = true) }
+        viewModelScope.launch {
+            try {
+                val samples = gatherSceneSamples(clip, video)
+                if (samples.size < SCENE_MIN_FRAMES) {
+                    snackbarManager.showError("Detect scenes found too few frames to analyse")
+                    return@launch
+                }
+                val boundaries = detectSceneBoundaries(samples)
+                if (boundaries.isEmpty()) {
+                    snackbarManager.showError("Detect scenes found no shot boundaries")
+                    return@launch
+                }
+                val current = findRustClip(clipId)
+                if (current == null ||
+                    current.timelineStartUs != clip.timelineStartUs ||
+                    current.timelineDurationUs != clip.timelineDurationUs ||
+                    current.sourceStartUs != clip.sourceStartUs ||
+                    current.sourceEndUs != clip.sourceEndUs
+                ) {
+                    snackbarManager.showError("The clip changed during analysis; run Detect scenes again")
+                    return@launch
+                }
+                val clipStartUs = current.timelineStartUs
+                val clipEndUs = clipStartUs + current.timelineDurationUs
+                val cuts = boundaries
+                    .map { clipStartUs + it.localOffsetUs }
+                    .filter { it > clipStartUs && it < clipEndUs }
+                    .distinct()
+                    .sortedDescending()
+                if (cuts.isEmpty()) {
+                    snackbarManager.showError("Detect scenes found no shot boundaries")
+                    return@launch
+                }
+                var failed = false
+                fun send(command: String): Boolean {
+                    if (failed) return false
+                    if (!dispatchCoalescing(command, "Detect scenes")) {
+                        failed = true
+                        return false
+                    }
+                    return true
+                }
+                beginContinuousEdit("Detect scenes")
+                try {
+                    for (cutUs in cuts) {
+                        if (!send(rustStore.commands.splitClip(clipId, cutUs, randomUuid()))) break
+                    }
+                    if (!failed) {
+                        val count = cuts.size
+                        snackbarManager.show("Detected $count scene ${if (count == 1) "cut" else "cuts"}")
+                    }
+                } finally {
+                    if (failed) cancelContinuousEdit() else commitContinuousEdit()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                snackbarManager.showError("Detect scenes failed: ${e.message}")
+            } finally {
+                _state.update { it.copy(sceneDetectRunning = false) }
+            }
+        }
+    }
+
+    private suspend fun gatherSceneSamples(
+        clip: RustClipSnapshot,
+        video: RustVideoClipKind,
+    ): List<SceneSample> {
+        val startMs = clip.sourceStartUs / 1000L
+        val timestamps = sceneSampleTimestamps(clip.sourceStartUs, clip.sourceEndUs)
+        if (timestamps.isEmpty()) return emptyList()
+
+        val samples = mutableListOf<SceneSample>()
+        val grabber = PlatformFrameGrabber()
+        try {
+            grabber.open(video.sourcePath)
+            for (sampleMs in timestamps) {
+                val frame = grabber.grabFrame(
+                    timestampMs = sampleMs,
+                    filters = emptyList(),
+                    masks = emptyList(),
+                    opacity = 1f,
+                    width = 160,
+                    height = 0,
+                ) ?: continue
+                val signature = withContext(Dispatchers.Default) { luminanceHistogram(frame) }
+                val sourceOffsetUs = (sampleMs - startMs) * 1000L
+                samples += SceneSample(
+                    localOffsetUs = autoReframeLocalOffset(clip, sourceOffsetUs),
+                    signature = signature,
+                )
+            }
+        } finally {
+            grabber.release()
+        }
+        return samples
     }
 
     fun setClipVolume(clipId: String, volume: Float) {
@@ -2308,7 +2445,7 @@ class ProjectViewModel(
     }
 
     fun autoReframeClip(clipId: String) {
-        if (_state.value.autoReframeRunning || _state.value.maskTrackRunning) return
+        if (_state.value.autoReframeRunning || _state.value.sceneDetectRunning || _state.value.maskTrackRunning) return
         val snapshot = rustStore.snapshot.value ?: return
         val clip = findRustClip(clipId) ?: return
         val video = clip.kind as? RustVideoClipKind
@@ -2446,7 +2583,7 @@ class ProjectViewModel(
     }
 
     fun stabilizeClip(clipId: String) {
-        if (_state.value.stabilizeRunning || _state.value.autoReframeRunning || _state.value.maskTrackRunning) return
+        if (_state.value.stabilizeRunning || _state.value.autoReframeRunning || _state.value.sceneDetectRunning || _state.value.maskTrackRunning) return
         val clip = findRustClip(clipId) ?: return
         val video = clip.kind as? RustVideoClipKind
         if (video == null) {
@@ -2583,7 +2720,7 @@ class ProjectViewModel(
 
     fun trackMask(clipId: String) {
         val uiState = _state.value
-        if (uiState.maskTrackRunning || uiState.autoReframeRunning || uiState.stabilizeRunning || uiState.removeSilenceRunning) return
+        if (uiState.maskTrackRunning || uiState.autoReframeRunning || uiState.stabilizeRunning || uiState.removeSilenceRunning || uiState.sceneDetectRunning) return
         val snapshot = rustStore.snapshot.value ?: return
         val clip = findRustClip(clipId) ?: return
         val video = clip.kind as? RustVideoClipKind
