@@ -1,8 +1,9 @@
 //! Mux H.264/AV1 video and Opus audio into MP4 or Matroska using muxfin.
 
+use crate::frame::MatrixCoeffs;
 use muxfin::api::{
-    AudioCodec, Muxer as InnerMuxer, MuxerBuilder, MuxerError as InnerMuxError, SubtitleCodec,
-    VideoCodec,
+    AudioCodec, ColourInfo, Muxer as InnerMuxer, MuxerBuilder, MuxerError as InnerMuxError,
+    SubtitleCodec, VideoCodec,
 };
 use muxfin::codec::ass::AssEvent;
 use muxfin::time::SubtitleCue;
@@ -58,6 +59,26 @@ pub struct SubtitleTrackConfigOut {
     pub ass_codec_private: Option<Vec<u8>>,
 }
 
+/// Container colour matching the matrix the frames are converted with.
+///
+/// The bitstream VUI carries the same signal (range and matrix at least);
+/// `colr` covers players that only read the container.
+pub fn cicp_colour(matrix: MatrixCoeffs) -> ColourInfo {
+    let (primaries, transfer, matrix) = match matrix {
+        MatrixCoeffs::Bt601 => (6, 6, 6),
+        MatrixCoeffs::Bt709 => (1, 1, 1),
+        MatrixCoeffs::Bt2020Ncl => (9, 14, 9),
+        MatrixCoeffs::Bt2020Cl => (9, 14, 10),
+        MatrixCoeffs::Identity => (1, 13, 0),
+    };
+    ColourInfo {
+        primaries,
+        transfer,
+        matrix,
+        full_range: false,
+    }
+}
+
 impl SubtitleTrackConfigOut {
     pub fn mov_text(language: Option<String>) -> Self {
         Self {
@@ -84,6 +105,7 @@ impl<W: Write> Mp4Muxer<W> {
         audio: Option<OpusTrackConfigOut>,
         subtitle: Option<SubtitleTrackConfigOut>,
         video_codec: VideoTrackCodecOut,
+        matrix: MatrixCoeffs,
     ) -> Result<Self, MuxError> {
         if matches!(container, ContainerFormat::Mov) {
             return Err(MuxError::MovUnsupported);
@@ -94,7 +116,9 @@ impl<W: Write> Mp4Muxer<W> {
             VideoTrackCodecOut::Av1 => VideoCodec::Av1,
         };
 
-        let mut builder = MuxerBuilder::new(output).video(video_codec, width, height, fps);
+        let mut builder = MuxerBuilder::new(output)
+            .video(video_codec, width, height, fps)
+            .video_colour(cicp_colour(matrix));
 
         if let Some(audio) = audio {
             builder = builder
@@ -203,6 +227,7 @@ impl<W: Write> MkvMuxer<W> {
         audio: Option<OpusTrackConfigOut>,
         subtitle: Option<SubtitleTrackConfigOut>,
         video_codec: VideoTrackCodecOut,
+        matrix: MatrixCoeffs,
     ) -> Result<Self, MuxError> {
         use muxfin::api::ContainerFormat as MuxContainer;
 
@@ -213,6 +238,7 @@ impl<W: Write> MkvMuxer<W> {
 
         let mut builder = MuxerBuilder::new(output)
             .video(video_codec, width, height, fps)
+            .video_colour(cicp_colour(matrix))
             .with_container(if matroska {
                 MuxContainer::Matroska
             } else {

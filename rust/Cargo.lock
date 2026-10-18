@@ -2168,9 +2168,9 @@ dependencies = [
 
 [[package]]
 name = "muxfin"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a913ff9bea137015095bc7f5ebcf35840b1d0db99432578fd51aa48875a11e57"
+checksum = "cdbbb22e87d6d6b277dc252ca3ea3419df73d35e9641e1d5e9eea01295046df4"
 dependencies = [
  "bytes",
  "mkv-element",

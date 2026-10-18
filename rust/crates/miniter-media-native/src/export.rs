@@ -825,6 +825,7 @@ where
     on_progress(5);
 
     let effort = project.export_profile.encode_effort;
+    let matrix = sniff_source_matrix(project);
     let mut encoder = if project.export_profile.hardware_acceleration {
         match HwEncodeSession::new(
             width,
@@ -832,7 +833,7 @@ where
             video_bitrate_bps(bitrate_kbps),
             fps as f32,
             "video/avc",
-            sniff_source_matrix(project),
+            matrix,
         ) {
             Ok(hw) => AnyEncoder::Hw(hw),
             Err(e) => {
@@ -935,6 +936,7 @@ where
                 audio_track,
                 subtitle_track.clone(),
                 VideoTrackCodecOut::H264,
+                matrix,
             )?);
         } else {
             staged.push(sample);
@@ -1056,6 +1058,7 @@ where
     on_progress(5);
 
     let effort = project.export_profile.encode_effort;
+    let matrix = sniff_source_matrix(project);
     let mut encoder = if project.export_profile.hardware_acceleration {
         match HwEncodeSession::new(
             width,
@@ -1063,7 +1066,7 @@ where
             video_bitrate_bps(bitrate_kbps),
             fps as f32,
             "video/avc",
-            sniff_source_matrix(project),
+            matrix,
         ) {
             Ok(hw) => AnyEncoder::Hw(hw),
             Err(e) => {
@@ -1154,6 +1157,7 @@ where
                 audio_track,
                 subtitle_track.clone(),
                 VideoTrackCodecOut::H264,
+                matrix,
             )?);
         } else {
             staged.push(sample);
@@ -1581,7 +1585,9 @@ where
     if project.export_profile.hardware_acceleration {
         // AV1 export always uses the software encoder in this build, so a
         // hardware request is always a fallback.
-        log::warn!("AV1 export uses the software encoder; hardware AV1 encoding is not implemented");
+        log::warn!(
+            "AV1 export uses the software encoder; hardware AV1 encoding is not implemented"
+        );
         HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
     }
 
@@ -1622,6 +1628,7 @@ where
                 audio_track,
                 subtitle_track.clone(),
                 VideoTrackCodecOut::Av1,
+                matrix,
             )?);
         }
         Av1Container::Mkv | Av1Container::WebM => {
@@ -1636,6 +1643,7 @@ where
                 audio_track,
                 subtitle_track.clone(),
                 VideoTrackCodecOut::Av1,
+                matrix,
             )?);
         }
     }

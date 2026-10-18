@@ -591,6 +591,7 @@ fn export_h264_bytes(
     on_progress(1);
     on_progress(5);
     let effort = project.export_profile.encode_effort;
+    let matrix = sniff_source_matrix(project, registered_files);
     let mut encoder: AnyH264Encoder = if hw_requested {
         match HwEncodeSession::new(
             settings.width,
@@ -598,7 +599,7 @@ fn export_h264_bytes(
             video_bitrate_bps(bitrate_kbps),
             settings.fps as f32,
             "video/avc",
-            sniff_source_matrix(project, registered_files),
+            matrix,
         ) {
             Ok(hw) => AnyH264Encoder::Hw(hw),
             Err(e) => {
@@ -790,6 +791,7 @@ fn export_h264_bytes(
                     audio_track,
                     subtitle_track,
                     VideoTrackCodecOut::H264,
+                    matrix,
                 )
                 .map_err(|e| format!("MKV muxer init failed: {e}"))?,
             )
@@ -806,6 +808,7 @@ fn export_h264_bytes(
                     audio_track,
                     subtitle_track,
                     VideoTrackCodecOut::H264,
+                    matrix,
                 )
                 .map_err(|e| format!("MP4 muxer init failed: {e}"))?,
             )
@@ -965,12 +968,13 @@ fn export_av1_mp4_bytes(
     on_progress(1);
     on_progress(5);
 
+    let matrix = sniff_source_matrix(project, registered_files);
     let mut encoder = Av1EncodeSession::new(
         settings.width,
         settings.height,
         settings.fps,
         bitrate_kbps,
-        sniff_source_matrix(project, registered_files),
+        matrix,
         project.export_profile.encode_effort,
     )
     .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
@@ -987,6 +991,7 @@ fn export_av1_mp4_bytes(
         audio_track,
         subtitle_track,
         VideoTrackCodecOut::Av1,
+        matrix,
     )
     .map_err(|e| format!("MP4 muxer init failed: {e}"))?;
 
@@ -1100,12 +1105,13 @@ fn export_av1_mkv_bytes(
     on_progress(1);
     on_progress(5);
 
+    let matrix = sniff_source_matrix(project, registered_files);
     let mut encoder = Av1EncodeSession::new(
         settings.width,
         settings.height,
         settings.fps,
         bitrate_kbps,
-        sniff_source_matrix(project, registered_files),
+        matrix,
         project.export_profile.encode_effort,
     )
     .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
@@ -1120,6 +1126,7 @@ fn export_av1_mkv_bytes(
         audio_track,
         subtitle_track,
         VideoTrackCodecOut::Av1,
+        matrix,
     )
     .map_err(|e| format!("MKV muxer init failed: {e}"))?;
 
@@ -1208,12 +1215,13 @@ fn export_av1_ivf_bytes(
     decode_cache.default_height = settings.height;
     on_progress(1);
 
+    let matrix = sniff_source_matrix(project, registered_files);
     let mut encoder = Av1EncodeSession::new(
         settings.width,
         settings.height,
         settings.fps,
         bitrate_kbps,
-        sniff_source_matrix(project, registered_files),
+        matrix,
         project.export_profile.encode_effort,
     )
     .map_err(|e| format!("AV1 encoder init failed: {e}"))?;
@@ -2287,6 +2295,7 @@ impl WasmExportChunker {
                     audio_track,
                     subtitle_track,
                     video_codec,
+                    self.source_matrix,
                 )
                 .map_err(|e| format!("MP4 muxer init failed: {e}"))?;
 
@@ -2361,6 +2370,7 @@ impl WasmExportChunker {
                     audio_track,
                     subtitle_track,
                     video_codec,
+                    self.source_matrix,
                 )
                 .map_err(|e| format!("MKV muxer init failed: {e}"))?;
 

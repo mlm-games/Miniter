@@ -270,6 +270,7 @@ pub fn generate_proxy(
                     None,
                     None,
                     VideoTrackCodecOut::H264,
+                    frame.color_info.matrix,
                 )?);
             }
 

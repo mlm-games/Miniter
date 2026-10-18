@@ -377,6 +377,7 @@ fn encode_and_mux(input_path: &str, hw: bool, _n: u32) -> Result<(), Box<dyn std
             None,
             None,
             VideoTrackCodecOut::H264,
+            MatrixCoeffs::Bt709,
         )?;
 
         for (pts_us, data, keyframe) in &encoded_packets {
