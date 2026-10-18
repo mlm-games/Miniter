@@ -22,11 +22,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustEasing
+import org.mlm.miniter.editor.model.RustEllipseMaskShape
 import org.mlm.miniter.editor.model.RustKeyframe
+import org.mlm.miniter.editor.model.RustMaskEffect
+import org.mlm.miniter.editor.model.RustRectangleMaskShape
+import org.mlm.miniter.editor.model.RustShapeMaskSource
 import org.mlm.miniter.editor.model.RustTextClipKind
+import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.editor.model.videoFilters
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.ParamDef
+import org.mlm.miniter.project.maskParamTarget
 import org.mlm.miniter.project.paramDefOrUnknown
 
 private val easingOptions = listOf(
@@ -68,6 +74,12 @@ fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
         KeyframeParams.TEXT_POSITION_Y -> (clip.kind as? RustTextClipKind)?.style?.positionY ?: 0.9f
         KeyframeParams.TEXT_FONT_SIZE -> (clip.kind as? RustTextClipKind)?.style?.fontSize ?: 24f
         else -> {
+            val maskTarget = maskParamTarget(paramKey)
+            if (maskTarget != null) {
+                val video = clip.kind as? RustVideoClipKind ?: return 0f
+                val mask = video.masks.getOrNull(maskTarget.first) ?: return 0f
+                return maskParamValue(mask, maskTarget.second) ?: 0f
+            }
             if (paramKey.startsWith("filter.")) {
                 val parts = paramKey.split(".")
                 if (parts.size >= 3) {
@@ -82,6 +94,28 @@ fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
                 } else 0f
             } else 0f
         }
+    }
+}
+
+private fun maskParamValue(mask: RustMaskEffect, name: String): Float? {
+    val transform = mask.transform
+    val source = mask.source as? RustShapeMaskSource
+    val shape = source?.shape
+    return when (name) {
+        "feather" -> source?.feather
+        "scale" -> transform.scale
+        "translate_x" -> transform.translateX
+        "translate_y" -> transform.translateY
+        "rotate" -> transform.rotate
+        "shape.left" -> (shape as? RustRectangleMaskShape)?.left
+        "shape.top" -> (shape as? RustRectangleMaskShape)?.top
+        "shape.right" -> (shape as? RustRectangleMaskShape)?.right
+        "shape.bottom" -> (shape as? RustRectangleMaskShape)?.bottom
+        "shape.center_x" -> (shape as? RustEllipseMaskShape)?.centerX
+        "shape.center_y" -> (shape as? RustEllipseMaskShape)?.centerY
+        "shape.radius_x" -> (shape as? RustEllipseMaskShape)?.radiusX
+        "shape.radius_y" -> (shape as? RustEllipseMaskShape)?.radiusY
+        else -> null
     }
 }
 

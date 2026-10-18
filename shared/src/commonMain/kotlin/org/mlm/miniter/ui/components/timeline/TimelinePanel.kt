@@ -56,7 +56,7 @@ import org.mlm.miniter.engine.THUMBNAIL_BUCKET_US
 import org.mlm.miniter.engine.ThumbnailKey
 import org.mlm.miniter.engine.thumbnailKey
 import org.mlm.miniter.engine.toImageBitmap
-import org.mlm.miniter.project.ALL_PARAMS_BY_KEY
+import org.mlm.miniter.project.paramDefOrUnknown
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
@@ -1032,7 +1032,6 @@ private fun isTrimmableClip(clip: RustClipSnapshot): Boolean =
         || clip.kind is RustAdjustmentClipKind
 
 private fun resolveParamColor(param: String): Color {
-    ALL_PARAMS_BY_KEY[param]?.let { return it.color }
     if (param.startsWith("filter.")) return Color(0xFFEF5350)
-    return Color.Gray
+    return paramDefOrUnknown(param).color
 }

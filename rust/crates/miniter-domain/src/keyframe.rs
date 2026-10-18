@@ -27,6 +27,10 @@ pub mod param {
     pub const MASK_SHAPE_CENTER_Y: &str = "mask.shape.center_y";
     pub const MASK_SHAPE_RADIUS_X: &str = "mask.shape.radius_x";
     pub const MASK_SHAPE_RADIUS_Y: &str = "mask.shape.radius_y";
+
+    pub fn mask_param(index: usize, name: &str) -> String {
+        format!("mask.{index}.{name}")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

@@ -461,6 +461,7 @@ class ProjectViewModel(
                 sourceDurationMs = info.durationMs
 
                 rustStore.create(name)
+                clearClipboard()
                 val videoTrackId = if (hasVideo) ensureTrack(RustTrackKind.Video, "Video 1") else null
                 val audioTrackId = if (hasAudio) ensureTrack(RustTrackKind.Audio, "Audio 1") else null
 
@@ -568,6 +569,7 @@ class ProjectViewModel(
                 }
 
                 val snapshot = rustStore.openProjectJson(projectJson)
+                clearClipboard()
 
                 val missingFiles = snapshot.timeline.tracks
                     .flatMap { it.clips }
@@ -842,6 +844,7 @@ class ProjectViewModel(
             _state.update { it.copy(isLoading = true) }
             try {
                 rustStore.create(name)
+                clearClipboard()
                 val currentProfile = rustStore.snapshot.value?.exportProfile
                 if (currentProfile != null) {
                     try {
@@ -2009,7 +2012,7 @@ class ProjectViewModel(
             val track = snapshot.timeline.tracks.firstOrNull {
                 it.id == (overrideTrackId ?: entry.trackId)
             } ?: run {
-                snackbarManager.showError("Cannot paste: the clipboard track no longer exists")
+                clearClipboard()
                 return
             }
             if (track.locked) {
@@ -2061,6 +2064,11 @@ class ProjectViewModel(
         }
         _hasClipboard.value = true
         return true
+    }
+
+    private fun clearClipboard() {
+        clipboard = emptyList()
+        _hasClipboard.value = false
     }
 
     private fun dispatchPlannedClips(label: String, plan: List<PlannedClip>) {
@@ -3066,7 +3074,7 @@ class ProjectViewModel(
         return stepMs
     }
 
-    fun trackMask(clipId: String) {
+    fun trackMask(clipId: String, maskIndex: Int) {
         val uiState = _state.value
         if (uiState.maskTrackRunning || uiState.autoReframeRunning || uiState.stabilizeRunning || uiState.removeSilenceRunning || uiState.sceneDetectRunning) return
         val snapshot = rustStore.snapshot.value ?: return
@@ -3076,12 +3084,9 @@ class ProjectViewModel(
             snackbarManager.showError("Tracking needs a video clip")
             return
         }
-        if (video.masks.isEmpty()) {
+        val mask = video.masks.getOrNull(maskIndex)
+        if (mask == null) {
             snackbarManager.showError("Tracking needs a mask on this clip")
-            return
-        }
-        if (video.masks.size > 1) {
-            snackbarManager.showError("Tracking needs a single mask: the mask keyframes move every mask on this clip")
             return
         }
         if (!video.fps.isFinite() || video.fps <= 0.0 || video.width <= 0 || video.height <= 0) {
@@ -3100,7 +3105,7 @@ class ProjectViewModel(
             snackbarManager.showError("Tracking does not support speed keyframes")
             return
         }
-        val bounds = maskShapeBounds(video.masks.first())
+        val bounds = maskShapeBounds(mask)
         if (bounds == null) {
             snackbarManager.showError("Tracking needs a mask with a visible extent")
             return
@@ -3144,17 +3149,15 @@ class ProjectViewModel(
                     snackbarManager.showError("Tracking needs a video clip")
                     return@launch
                 }
-                if (currentVideo.masks.isEmpty()) {
+                val currentMask = currentVideo.masks.getOrNull(maskIndex)
+                if (currentMask == null) {
                     snackbarManager.showError("Tracking needs a mask on this clip")
-                    return@launch
-                }
-                if (currentVideo.masks.size > 1) {
-                    snackbarManager.showError("Tracking needs a single mask: the mask keyframes move every mask on this clip")
                     return@launch
                 }
                 val bake = motionTrackingKeyframes(
                     samples = analysis.motionSamples(),
-                    mask = currentVideo.masks.first(),
+                    mask = currentMask,
+                    maskIndex = maskIndex,
                     videoWidth = currentVideo.width,
                     videoHeight = currentVideo.height,
                     canvasWidth = canvasWidth,

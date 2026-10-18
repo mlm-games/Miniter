@@ -132,6 +132,7 @@ fun maskRegionInVideoFrame(
 fun motionTrackingKeyframes(
     samples: List<MotionTrackSample>,
     mask: RustMaskEffect,
+    maskIndex: Int,
     videoWidth: Int,
     videoHeight: Int,
     canvasWidth: Int,
@@ -179,11 +180,15 @@ fun motionTrackingKeyframes(
 
     val bakeRotate = maxAngle >= MOTION_TRACK_ROTATE_THRESHOLD_DEGREES
     val bakeScale = maxScaleDeviation >= MOTION_TRACK_SCALE_THRESHOLD
+    val translateXParam = KeyframeParams.maskParam(maskIndex, "translate_x")
+    val translateYParam = KeyframeParams.maskParam(maskIndex, "translate_y")
+    val rotateParam = KeyframeParams.maskParam(maskIndex, "rotate")
+    val scaleParam = KeyframeParams.maskParam(maskIndex, "scale")
     val params = ArrayList<String>(4)
-    params += KeyframeParams.MASK_TRANSLATE_X
-    params += KeyframeParams.MASK_TRANSLATE_Y
-    if (bakeRotate) params += KeyframeParams.MASK_ROTATE
-    if (bakeScale) params += KeyframeParams.MASK_SCALE
+    params += translateXParam
+    params += translateYParam
+    if (bakeRotate) params += rotateParam
+    if (bakeScale) params += scaleParam
 
     val keyframes = ArrayList<RustKeyframe>(samples.size * params.size)
     var lastOffsetUs = Long.MIN_VALUE
@@ -212,20 +217,20 @@ fun motionTrackingKeyframes(
         val scale = baseScale * sigma
         if (!scale.isFinite() || !angle.isFinite() || !translateX.isFinite() || !translateY.isFinite()) continue
         keyframes += RustKeyframe(
-            KeyframeParams.MASK_TRANSLATE_X,
+            translateXParam,
             sample.localOffsetUs,
             translateX.toFloat(),
             RustEasing.Linear,
         )
         keyframes += RustKeyframe(
-            KeyframeParams.MASK_TRANSLATE_Y,
+            translateYParam,
             sample.localOffsetUs,
             translateY.toFloat(),
             RustEasing.Linear,
         )
         if (bakeRotate) {
             keyframes += RustKeyframe(
-                KeyframeParams.MASK_ROTATE,
+                rotateParam,
                 sample.localOffsetUs,
                 angle.toFloat(),
                 RustEasing.Linear,
@@ -233,7 +238,7 @@ fun motionTrackingKeyframes(
         }
         if (bakeScale) {
             keyframes += RustKeyframe(
-                KeyframeParams.MASK_SCALE,
+                scaleParam,
                 sample.localOffsetUs,
                 scale.toFloat(),
                 RustEasing.Linear,

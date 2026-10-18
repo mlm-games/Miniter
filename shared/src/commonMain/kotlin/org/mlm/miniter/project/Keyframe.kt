@@ -174,6 +174,20 @@ object KeyframeParams {
     fun maskParam(index: Int, name: String) = "mask.$index.$name"
 }
 
+fun maskParamTarget(param: String): Pair<Int, String>? {
+    val rest = param.removePrefix("mask.")
+    if (rest == param || rest.isEmpty()) return null
+    val dot = rest.indexOf('.')
+    if (dot > 0) {
+        val index = rest.take(dot).toIntOrNull()
+        if (index != null) {
+            val name = rest.substring(dot + 1)
+            return if (name.isEmpty()) null else index to name
+        }
+    }
+    return 0 to rest
+}
+
 data class ParamDef(
     val key: String,
     val displayName: String,
@@ -190,20 +204,25 @@ private fun fmtDeg(v: Float) = "${v.toInt()}°"
 private fun fmt2d(v: Float) = "${(v * 100).toInt() / 100f}"
 
 val MASK_PARAM_DEFS: Map<String, ParamDef> = listOf(
-    ParamDef("feather", "Feather", 0f..0.2f, default = 0f, format = ::fmtPct, color = Color(0xFFE040FB)),
+    ParamDef("feather", "Feather", 0f..100f, default = 0f, format = { "${it.toInt()}px" }, color = Color(0xFFE040FB)),
     ParamDef("scale", "Scale", 0.1f..5f, default = 1f, 24, format = ::fmt1d, color = Color(0xFFE040FB)),
     ParamDef("translate_x", "Pan X", -1f..1f, default = 0f, format = ::fmtPct, color = Color(0xFFE040FB)),
     ParamDef("translate_y", "Pan Y", -1f..1f, default = 0f, format = ::fmtPct, color = Color(0xFFE040FB)),
     ParamDef("rotate", "Rotate", -180f..180f, default = 0f, format = ::fmtDeg, color = Color(0xFFE040FB)),
-    ParamDef("left", "Left", 0f..1f, default = 0.1f, format = ::fmtPct, color = Color(0xFFCE93D8)),
-    ParamDef("top", "Top", 0f..1f, default = 0.1f, format = ::fmtPct, color = Color(0xFFCE93D8)),
-    ParamDef("right", "Right", 0f..1f, default = 0.9f, format = ::fmtPct, color = Color(0xFFCE93D8)),
-    ParamDef("bottom", "Bottom", 0f..1f, default = 0.9f, format = ::fmtPct, color = Color(0xFFCE93D8)),
-    ParamDef("center_x", "Center X", 0f..1f, default = 0.5f, format = ::fmtPct, color = Color(0xFFCE93D8)),
-    ParamDef("center_y", "Center Y", 0f..1f, default = 0.5f, format = ::fmtPct, color = Color(0xFFCE93D8)),
-    ParamDef("radius_x", "Radius X", 0f..1f, default = 0.3f, format = ::fmtPct, color = Color(0xFFCE93D8)),
-    ParamDef("radius_y", "Radius Y", 0f..1f, default = 0.3f, format = ::fmtPct, color = Color(0xFFCE93D8)),
+    ParamDef("shape.left", "Left", 0f..1f, default = 0.1f, format = ::fmtPct, color = Color(0xFFCE93D8)),
+    ParamDef("shape.top", "Top", 0f..1f, default = 0.1f, format = ::fmtPct, color = Color(0xFFCE93D8)),
+    ParamDef("shape.right", "Right", 0f..1f, default = 0.9f, format = ::fmtPct, color = Color(0xFFCE93D8)),
+    ParamDef("shape.bottom", "Bottom", 0f..1f, default = 0.9f, format = ::fmtPct, color = Color(0xFFCE93D8)),
+    ParamDef("shape.center_x", "Center X", 0f..1f, default = 0.5f, format = ::fmtPct, color = Color(0xFFCE93D8)),
+    ParamDef("shape.center_y", "Center Y", 0f..1f, default = 0.5f, format = ::fmtPct, color = Color(0xFFCE93D8)),
+    ParamDef("shape.radius_x", "Radius X", 0f..1f, default = 0.3f, format = ::fmtPct, color = Color(0xFFCE93D8)),
+    ParamDef("shape.radius_y", "Radius Y", 0f..1f, default = 0.3f, format = ::fmtPct, color = Color(0xFFCE93D8)),
 ).associateBy { it.key }
+
+fun maskParamDef(param: String): ParamDef? {
+    val target = maskParamTarget(param) ?: return null
+    return MASK_PARAM_DEFS[target.second]?.copy(key = param)
+}
 
 val ALL_PARAMS: List<ParamDef> = listOf(
     ParamDef(KeyframeParams.OPACITY, "Opacity", 0f..1f, default = 1f, format = ::fmtPct, color = Color(0xFF5B8DEF)),
@@ -233,9 +252,9 @@ val ALL_PARAMS: List<ParamDef> = listOf(
 
 val ALL_PARAMS_BY_KEY: Map<String, ParamDef> = ALL_PARAMS.associateBy { it.key }
 
-fun defaultOf(key: String): Float = ALL_PARAMS_BY_KEY[key]?.default ?: 0f
+fun defaultOf(key: String): Float = ALL_PARAMS_BY_KEY[key]?.default ?: maskParamDef(key)?.default ?: 0f
 
-fun paramDefOrUnknown(key: String): ParamDef = ALL_PARAMS_BY_KEY[key] ?: ParamDef(
+fun paramDefOrUnknown(key: String): ParamDef = ALL_PARAMS_BY_KEY[key] ?: maskParamDef(key) ?: ParamDef(
     key = key,
     displayName = key,
     range = 0f..1f,

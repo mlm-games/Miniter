@@ -1,6 +1,7 @@
 package org.mlm.miniter.ui.components.properties
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -18,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -101,7 +103,6 @@ import org.mlm.miniter.project.speedCurvePresets
 import org.mlm.miniter.project.speedPresets
 import org.mlm.miniter.project.textAnimationPresetsFor
 import org.mlm.miniter.project.KeyframeParams
-import org.mlm.miniter.project.MASK_PARAM_DEFS
 import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.project.paramDefOrUnknown
 
@@ -147,7 +148,7 @@ fun PropertiesPanel(
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
     onSetSubtitleFont: (String, String?) -> Unit = { _, _ -> },
-    onTrackMask: (String) -> Unit = { _ -> },
+    onTrackMask: (String, Int) -> Unit = { _, _ -> },
     maskTrackRunning: Boolean = false,
     onAddMask: (String, RustMaskEffect) -> Unit = { _, _ -> },
     onRemoveMask: (String, Int) -> Unit = { _, _ -> },
@@ -318,7 +319,7 @@ private fun VideoClipProperties(
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
-    onTrackMask: (String) -> Unit = { _ -> },
+    onTrackMask: (String, Int) -> Unit = { _, _ -> },
     maskTrackRunning: Boolean = false,
     onAddMask: (String, RustMaskEffect) -> Unit = { _, _ -> },
     onRemoveMask: (String, Int) -> Unit = { _, _ -> },
@@ -567,12 +568,15 @@ private fun VideoClipProperties(
     Spacer(Modifier.height(4.dp))
     MasksSection(
         clipId = clip.id,
+        clip = clip,
+        clipOffsetUs = clipOffsetUs,
         masks = kind.masks,
         onAddMask = { mask -> onAddMask(clip.id, mask) },
         onRemoveMask = { index -> onRemoveMask(clip.id, index) },
         onUpdateMask = { index, mask -> onUpdateMask(clip.id, index, mask) },
         onSetMaskEnabled = { index, enabled -> onSetMaskEnabled(clip.id, index, enabled) },
-        onTrackMask = { onTrackMask(clip.id) },
+        onAddKeyframe = onAddKeyframe,
+        onTrackMask = { index -> onTrackMask(clip.id, index) },
         trackEnabled = trackEnabled,
     )
 
@@ -1004,11 +1008,14 @@ private fun AdjustmentClipProperties(
     Spacer(Modifier.height(4.dp))
     MasksSection(
         clipId = clip.id,
+        clip = clip,
+        clipOffsetUs = clipOffsetUs,
         masks = kind.masks,
         onAddMask = { mask -> onAddMask(clip.id, mask) },
         onRemoveMask = { index -> onRemoveMask(clip.id, index) },
         onUpdateMask = { index, mask -> onUpdateMask(clip.id, index, mask) },
         onSetMaskEnabled = { index, enabled -> onSetMaskEnabled(clip.id, index, enabled) },
+        onAddKeyframe = onAddKeyframe,
         onTrackMask = {},
         trackEnabled = false,
     )
@@ -1947,24 +1954,35 @@ private fun fmtDeg(v: Float) = "${v.toInt()}°"
 @Composable
 private fun MasksSection(
     clipId: String,
+    clip: RustClipSnapshot,
+    clipOffsetUs: Long,
     masks: List<RustMaskEffect>,
     onAddMask: (RustMaskEffect) -> Unit,
     onRemoveMask: (Int) -> Unit,
     onUpdateMask: (Int, RustMaskEffect) -> Unit,
     onSetMaskEnabled: (Int, Boolean) -> Unit,
-    onTrackMask: () -> Unit,
+    onAddKeyframe: (String, RustKeyframe) -> Unit,
+    onTrackMask: (Int) -> Unit,
     trackEnabled: Boolean,
 ) {
+    var selectedIndex by remember(clipId) { mutableIntStateOf(0) }
+    val selectedMaskIndex = selectedIndex.coerceIn(0, (masks.size - 1).coerceAtLeast(0))
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         masks.forEachIndexed { index, mask ->
             MaskChipRow(
                 index = index,
                 mask = mask,
+                selected = index == selectedMaskIndex,
+                onSelect = { selectedIndex = index },
                 onRemove = { onRemoveMask(index) },
                 onToggleEnabled = { enabled -> onSetMaskEnabled(index, enabled) },
             )
             MaskEditor(
+                index = index,
                 mask = mask,
+                clip = clip,
+                clipOffsetUs = clipOffsetUs,
+                onAddKeyframe = onAddKeyframe,
                 onUpdate = { updated -> onUpdateMask(index, updated) },
             )
         }
@@ -1985,6 +2003,7 @@ private fun MasksSection(
                                 source = RustShapeMaskSource(RustRectangleMaskShape(0.1f, 0.1f, 0.9f, 0.9f), feather = 0f, invert = false),
                                 mode = RustMaskMode.Add,
                             ))
+                            selectedIndex = masks.size
                             expanded = false
                         },
                     )
@@ -1996,6 +2015,7 @@ private fun MasksSection(
                                 source = RustShapeMaskSource(RustEllipseMaskShape(0.5f, 0.5f, 0.3f, 0.3f), feather = 0f, invert = false),
                                 mode = RustMaskMode.Add,
                             ))
+                            selectedIndex = masks.size
                             expanded = false
                         },
                     )
@@ -2007,13 +2027,14 @@ private fun MasksSection(
                                 source = RustShapeMaskSource(defaultPathMaskShape(), feather = 0f, invert = false),
                                 mode = RustMaskMode.Add,
                             ))
+                            selectedIndex = masks.size
                             expanded = false
                         },
                     )
                 }
             }
             TextButton(
-                onClick = onTrackMask,
+                onClick = { onTrackMask(selectedMaskIndex) },
                 enabled = trackEnabled,
             ) {
                 Text("Track")
@@ -2026,11 +2047,19 @@ private fun MasksSection(
 private fun MaskChipRow(
     index: Int,
     mask: RustMaskEffect,
+    selected: Boolean,
+    onSelect: () -> Unit,
     onRemove: () -> Unit,
     onToggleEnabled: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 40.dp)
+            .clip(MaterialTheme.shapes.small)
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+            .clickable(onClick = onSelect)
+            .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2039,7 +2068,7 @@ private fun MaskChipRow(
             onCheckedChange = onToggleEnabled,
         )
         Text(
-            maskLabel(mask),
+            "${index + 1}. ${maskLabel(mask)}",
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.weight(1f),
         )
@@ -2068,7 +2097,11 @@ private fun maskLabel(mask: RustMaskEffect): String = when (val s = mask.source)
 
 @Composable
 private fun MaskEditor(
+    index: Int,
     mask: RustMaskEffect,
+    clip: RustClipSnapshot,
+    clipOffsetUs: Long,
+    onAddKeyframe: (String, RustKeyframe) -> Unit,
     onUpdate: (RustMaskEffect) -> Unit,
 ) {
     Surface(
@@ -2081,6 +2114,10 @@ private fun MaskEditor(
             if (src != null) {
                 ShapeTypeEditor(
                     shape = src.shape,
+                    maskIndex = index,
+                    clip = clip,
+                    clipOffsetUs = clipOffsetUs,
+                    onAddKeyframe = onAddKeyframe,
                     onShapeChange = { newShape ->
                         onUpdate(mask.copy(source = src.copy(shape = newShape)))
                     },
@@ -2091,10 +2128,22 @@ private fun MaskEditor(
 
             val t = mask.transform
             Text("Transform", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
-            MaskSlider("Scale", t.scale, 0.1f..5f, 24, ::fmt1d) { onUpdate(mask.copy(transform = t.copy(scale = it))) }
-            MaskSlider("Pan X", t.translateX, -1f..1f, format = ::fmtPct) { onUpdate(mask.copy(transform = t.copy(translateX = it))) }
-            MaskSlider("Pan Y", t.translateY, -1f..1f, format = ::fmtPct) { onUpdate(mask.copy(transform = t.copy(translateY = it))) }
-            MaskSlider("Rotate", t.rotate, -180f..180f, format = ::fmtDeg) { onUpdate(mask.copy(transform = t.copy(rotate = it))) }
+            MaskSlider(
+                "Scale", t.scale, 0.1f..5f, 24, ::fmt1d,
+                trailing = { KeyframeToggle(KeyframeParams.maskParam(index, "scale"), clip, clipOffsetUs, onAddKeyframe) },
+            ) { onUpdate(mask.copy(transform = t.copy(scale = it))) }
+            MaskSlider(
+                "Pan X", t.translateX, -1f..1f, format = ::fmtPct,
+                trailing = { KeyframeToggle(KeyframeParams.maskParam(index, "translate_x"), clip, clipOffsetUs, onAddKeyframe) },
+            ) { onUpdate(mask.copy(transform = t.copy(translateX = it))) }
+            MaskSlider(
+                "Pan Y", t.translateY, -1f..1f, format = ::fmtPct,
+                trailing = { KeyframeToggle(KeyframeParams.maskParam(index, "translate_y"), clip, clipOffsetUs, onAddKeyframe) },
+            ) { onUpdate(mask.copy(transform = t.copy(translateY = it))) }
+            MaskSlider(
+                "Rotate", t.rotate, -180f..180f, format = ::fmtDeg,
+                trailing = { KeyframeToggle(KeyframeParams.maskParam(index, "rotate"), clip, clipOffsetUs, onAddKeyframe) },
+            ) { onUpdate(mask.copy(transform = t.copy(rotate = it))) }
 
             Spacer(Modifier.height(8.dp))
 
@@ -2142,6 +2191,7 @@ private fun MaskEditor(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Feather", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                KeyframeToggle(KeyframeParams.maskParam(index, "feather"), clip, clipOffsetUs, onAddKeyframe)
                 Text("${src?.feather?.toInt() ?: 0}px", style = MaterialTheme.typography.labelSmall)
             }
             var featherLocal by remember(src?.feather ?: 0f) { mutableFloatStateOf(src?.feather ?: 0f) }
@@ -2179,6 +2229,10 @@ private fun MaskEditor(
 @Composable
 private fun ShapeTypeEditor(
     shape: org.mlm.miniter.editor.model.RustMaskShape,
+    maskIndex: Int,
+    clip: RustClipSnapshot,
+    clipOffsetUs: Long,
+    onAddKeyframe: (String, RustKeyframe) -> Unit,
     onShapeChange: (org.mlm.miniter.editor.model.RustMaskShape) -> Unit,
 ) {
     Text("Shape", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
@@ -2208,16 +2262,16 @@ private fun ShapeTypeEditor(
 
     when (shape) {
         is RustRectangleMaskShape -> {
-            MaskSlider("Left", shape.left, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(left = it)) }
-            MaskSlider("Top", shape.top, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(top = it)) }
-            MaskSlider("Right", shape.right, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(right = it)) }
-            MaskSlider("Bottom", shape.bottom, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(bottom = it)) }
+            MaskSlider("Left", shape.left, 0f..1f, format = ::fmtPct, trailing = { KeyframeToggle(KeyframeParams.maskParam(maskIndex, "shape.left"), clip, clipOffsetUs, onAddKeyframe) }) { onShapeChange(shape.copy(left = it)) }
+            MaskSlider("Top", shape.top, 0f..1f, format = ::fmtPct, trailing = { KeyframeToggle(KeyframeParams.maskParam(maskIndex, "shape.top"), clip, clipOffsetUs, onAddKeyframe) }) { onShapeChange(shape.copy(top = it)) }
+            MaskSlider("Right", shape.right, 0f..1f, format = ::fmtPct, trailing = { KeyframeToggle(KeyframeParams.maskParam(maskIndex, "shape.right"), clip, clipOffsetUs, onAddKeyframe) }) { onShapeChange(shape.copy(right = it)) }
+            MaskSlider("Bottom", shape.bottom, 0f..1f, format = ::fmtPct, trailing = { KeyframeToggle(KeyframeParams.maskParam(maskIndex, "shape.bottom"), clip, clipOffsetUs, onAddKeyframe) }) { onShapeChange(shape.copy(bottom = it)) }
         }
         is RustEllipseMaskShape -> {
-            MaskSlider("Center X", shape.centerX, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(centerX = it)) }
-            MaskSlider("Center Y", shape.centerY, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(centerY = it)) }
-            MaskSlider("Radius X", shape.radiusX, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(radiusX = it)) }
-            MaskSlider("Radius Y", shape.radiusY, 0f..1f, format = ::fmtPct) { onShapeChange(shape.copy(radiusY = it)) }
+            MaskSlider("Center X", shape.centerX, 0f..1f, format = ::fmtPct, trailing = { KeyframeToggle(KeyframeParams.maskParam(maskIndex, "shape.center_x"), clip, clipOffsetUs, onAddKeyframe) }) { onShapeChange(shape.copy(centerX = it)) }
+            MaskSlider("Center Y", shape.centerY, 0f..1f, format = ::fmtPct, trailing = { KeyframeToggle(KeyframeParams.maskParam(maskIndex, "shape.center_y"), clip, clipOffsetUs, onAddKeyframe) }) { onShapeChange(shape.copy(centerY = it)) }
+            MaskSlider("Radius X", shape.radiusX, 0f..1f, format = ::fmtPct, trailing = { KeyframeToggle(KeyframeParams.maskParam(maskIndex, "shape.radius_x"), clip, clipOffsetUs, onAddKeyframe) }) { onShapeChange(shape.copy(radiusX = it)) }
+            MaskSlider("Radius Y", shape.radiusY, 0f..1f, format = ::fmtPct, trailing = { KeyframeToggle(KeyframeParams.maskParam(maskIndex, "shape.radius_y"), clip, clipOffsetUs, onAddKeyframe) }) { onShapeChange(shape.copy(radiusY = it)) }
         }
         is RustPathMaskShape -> PathMaskEditor(shape, onShapeChange)
     }
@@ -2302,6 +2356,7 @@ private fun MaskSlider(
     range: ClosedFloatingPointRange<Float>,
     steps: Int = 0,
     format: (Float) -> String = { formatFixed(it, 2) },
+    trailing: @Composable (() -> Unit)? = null,
     onValueChangeFinished: (Float) -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2310,6 +2365,7 @@ private fun MaskSlider(
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.weight(1f),
         )
+        trailing?.invoke()
     }
     var local by remember(value) { mutableFloatStateOf(value) }
     Slider(

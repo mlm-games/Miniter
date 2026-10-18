@@ -400,7 +400,7 @@ fun ProjectScreen(
                 onRemoveKeyframe = vm::removeKeyframe,
                 onUpdateKeyframe = vm::updateKeyframe,
                 onSetSubtitleFont = vm::setSubtitleFont,
-                onTrackMask = vm::trackMask,
+                onTrackMask = { clipId, index -> vm.trackMask(clipId, index) },
                 maskTrackRunning = maskTrackRunning,
                 onAddMask = vm::addMask,
                 onRemoveMask = vm::removeMask,

@@ -63,7 +63,7 @@ fun PropertiesBottomSheet(
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
     onSetSubtitleFont: (String, String?) -> Unit = { _, _ -> },
-    onTrackMask: (String) -> Unit = { _ -> },
+    onTrackMask: (String, Int) -> Unit = { _, _ -> },
     maskTrackRunning: Boolean = false,
     onAddMask: (String, RustMaskEffect) -> Unit = { _, _ -> },
     onRemoveMask: (String, Int) -> Unit = { _, _ -> },

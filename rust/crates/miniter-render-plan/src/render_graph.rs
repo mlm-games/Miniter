@@ -121,10 +121,11 @@ fn adjustment_node(
     let masks: Vec<MaskEffect> = adjustment
         .masks
         .iter()
-        .filter(|m| m.enabled)
-        .map(|m| {
+        .enumerate()
+        .filter(|(_, m)| m.enabled)
+        .map(|(index, m)| {
             let mut mask = m.clone();
-            apply_mask_transform_keyframes(&mut mask, &clip.keyframes, local_offset);
+            apply_mask_transform_keyframes(&mut mask, &clip.keyframes, index, local_offset);
             mask
         })
         .collect();
@@ -153,20 +154,37 @@ pub fn node_blend_mode(node: &RenderNode) -> BlendMode {
     }
 }
 
+fn mask_keyframe(
+    curve: &KeyframeCurve,
+    index: usize,
+    name: &str,
+    legacy: &str,
+    local_time: MediaDuration,
+) -> Option<f32> {
+    if let Some(value) = curve.evaluate(&param::mask_param(index, name), local_time) {
+        return Some(value);
+    }
+    if index == 0 {
+        return curve.evaluate(legacy, local_time);
+    }
+    None
+}
+
 fn apply_mask_transform_keyframes(
     mask: &mut MaskEffect,
     curve: &KeyframeCurve,
+    index: usize,
     local_time: MediaDuration,
 ) {
-    if let Some(feather) = curve.evaluate(param::MASK_FEATHER, local_time)
+    if let Some(feather) = mask_keyframe(curve, index, "feather", param::MASK_FEATHER, local_time)
         && let MaskSource::Shape { feather: f, .. } = &mut mask.source
     {
         *f = feather.max(0.0);
     }
-    let scale = curve.evaluate(param::MASK_SCALE, local_time);
-    let tx = curve.evaluate(param::MASK_TRANSLATE_X, local_time);
-    let ty = curve.evaluate(param::MASK_TRANSLATE_Y, local_time);
-    let rotate = curve.evaluate(param::MASK_ROTATE, local_time);
+    let scale = mask_keyframe(curve, index, "scale", param::MASK_SCALE, local_time);
+    let tx = mask_keyframe(curve, index, "translate_x", param::MASK_TRANSLATE_X, local_time);
+    let ty = mask_keyframe(curve, index, "translate_y", param::MASK_TRANSLATE_Y, local_time);
+    let rotate = mask_keyframe(curve, index, "rotate", param::MASK_ROTATE, local_time);
 
     if let Some(v) = scale {
         mask.transform.scale = v;
@@ -182,14 +200,40 @@ fn apply_mask_transform_keyframes(
     }
 
     if let MaskSource::Shape { shape, .. } = &mut mask.source {
-        let left = curve.evaluate(param::MASK_SHAPE_LEFT, local_time);
-        let top = curve.evaluate(param::MASK_SHAPE_TOP, local_time);
-        let right = curve.evaluate(param::MASK_SHAPE_RIGHT, local_time);
-        let bottom = curve.evaluate(param::MASK_SHAPE_BOTTOM, local_time);
-        let cx = curve.evaluate(param::MASK_SHAPE_CENTER_X, local_time);
-        let cy = curve.evaluate(param::MASK_SHAPE_CENTER_Y, local_time);
-        let rx = curve.evaluate(param::MASK_SHAPE_RADIUS_X, local_time);
-        let ry = curve.evaluate(param::MASK_SHAPE_RADIUS_Y, local_time);
+        let left = mask_keyframe(curve, index, "shape.left", param::MASK_SHAPE_LEFT, local_time);
+        let top = mask_keyframe(curve, index, "shape.top", param::MASK_SHAPE_TOP, local_time);
+        let right =
+            mask_keyframe(curve, index, "shape.right", param::MASK_SHAPE_RIGHT, local_time);
+        let bottom =
+            mask_keyframe(curve, index, "shape.bottom", param::MASK_SHAPE_BOTTOM, local_time);
+        let cx = mask_keyframe(
+            curve,
+            index,
+            "shape.center_x",
+            param::MASK_SHAPE_CENTER_X,
+            local_time,
+        );
+        let cy = mask_keyframe(
+            curve,
+            index,
+            "shape.center_y",
+            param::MASK_SHAPE_CENTER_Y,
+            local_time,
+        );
+        let rx = mask_keyframe(
+            curve,
+            index,
+            "shape.radius_x",
+            param::MASK_SHAPE_RADIUS_X,
+            local_time,
+        );
+        let ry = mask_keyframe(
+            curve,
+            index,
+            "shape.radius_y",
+            param::MASK_SHAPE_RADIUS_Y,
+            local_time,
+        );
 
         match shape {
             MaskShape::Rectangle {
@@ -478,10 +522,11 @@ fn node_for_clip(
             let active_masks: Vec<MaskEffect> = v
                 .masks
                 .iter()
-                .filter(|m| m.enabled)
-                .map(|m| {
+                .enumerate()
+                .filter(|(_, m)| m.enabled)
+                .map(|(index, m)| {
                     let mut mask = m.clone();
-                    apply_mask_transform_keyframes(&mut mask, &clip.keyframes, local_offset);
+                    apply_mask_transform_keyframes(&mut mask, &clip.keyframes, index, local_offset);
                     mask
                 })
                 .collect();
