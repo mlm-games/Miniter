@@ -29,7 +29,7 @@ pub mod param {
     pub const MASK_SHAPE_RADIUS_Y: &str = "mask.shape.radius_y";
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 #[derive(Default)]
 pub enum Easing {
@@ -38,6 +38,32 @@ pub enum Easing {
     EaseIn,
     EaseOut,
     EaseInOut,
+    Bezier {
+        #[serde(default = "default_bezier_x1")]
+        x1: f32,
+        #[serde(default = "default_bezier_y1")]
+        y1: f32,
+        #[serde(default = "default_bezier_x2")]
+        x2: f32,
+        #[serde(default = "default_bezier_y2")]
+        y2: f32,
+    },
+}
+
+fn default_bezier_x1() -> f32 {
+    0.42
+}
+
+fn default_bezier_y1() -> f32 {
+    0.0
+}
+
+fn default_bezier_x2() -> f32 {
+    0.58
+}
+
+fn default_bezier_y2() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,12 +175,39 @@ pub fn ease_in_out(t: f32) -> f32 {
     }
 }
 
+const BEZIER_SOLVE_ITERATIONS: u32 = 40;
+
+fn bezier_axis(t: f32, c1: f32, c2: f32) -> f32 {
+    let u = 1.0 - t;
+    3.0 * u * u * t * c1 + 3.0 * u * t * t * c2 + t * t * t
+}
+
+pub fn ease_bezier(t: f32, x1: f32, y1: f32, x2: f32, y2: f32) -> f32 {
+    let target = t.clamp(0.0, 1.0);
+    let cx1 = x1.clamp(0.0, 1.0);
+    let cx2 = x2.clamp(0.0, 1.0);
+    let mut lo = 0.0f32;
+    let mut hi = 1.0f32;
+    let mut step = 0;
+    while step < BEZIER_SOLVE_ITERATIONS {
+        let mid = (lo + hi) * 0.5;
+        if bezier_axis(mid, cx1, cx2) < target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+        step += 1;
+    }
+    bezier_axis((lo + hi) * 0.5, y1, y2)
+}
+
 fn apply_easing(easing: Easing, t: f32) -> f32 {
     match easing {
         Easing::Linear => t,
         Easing::EaseIn => ease_in(t),
         Easing::EaseOut => ease_out(t),
         Easing::EaseInOut => ease_in_out(t),
+        Easing::Bezier { x1, y1, x2, y2 } => ease_bezier(t, x1, y1, x2, y2),
     }
 }
 

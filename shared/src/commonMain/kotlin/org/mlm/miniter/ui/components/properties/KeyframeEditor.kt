@@ -2,7 +2,9 @@ package org.mlm.miniter.ui.components.properties
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -13,6 +15,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.mlm.miniter.editor.model.RustClipSnapshot
@@ -24,12 +29,21 @@ import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.ParamDef
 import org.mlm.miniter.project.paramDefOrUnknown
 
-private val easingLabels = mapOf(
-    RustEasing.Linear to "Linear",
-    RustEasing.EaseIn to "Ease In",
-    RustEasing.EaseOut to "Ease Out",
-    RustEasing.EaseInOut to "Ease In Out",
+private val easingOptions = listOf(
+    RustEasing.Linear,
+    RustEasing.EaseIn,
+    RustEasing.EaseOut,
+    RustEasing.EaseInOut,
+    RustEasing.Bezier(0.42f, 0f, 0.58f, 1f),
 )
+
+private fun easingLabel(easing: RustEasing): String = when (easing) {
+    RustEasing.Linear -> "Linear"
+    RustEasing.EaseIn -> "Ease In"
+    RustEasing.EaseOut -> "Ease Out"
+    RustEasing.EaseInOut -> "Ease In Out"
+    is RustEasing.Bezier -> "Bezier"
+}
 
 private fun paramDefFor(param: String): ParamDef {
     if (param.startsWith("filter.")) {
@@ -286,7 +300,7 @@ private fun KeyframeRow(
             )
             Spacer(Modifier.weight(1f))
             Text(
-                easingLabels[keyframe.easing] ?: "Linear",
+                easingLabel(keyframe.easing),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -343,18 +357,137 @@ private fun KeyframeEditorForm(
 
         Text("Easing", style = MaterialTheme.typography.labelSmall)
         Spacer(Modifier.height(2.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            RustEasing.entries.forEach { easing ->
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
+            easingOptions.forEach { easing ->
                 FilterChip(
-                    selected = editingKf.easing == easing,
+                    selected = editingKf.easing == easing ||
+                        (easing is RustEasing.Bezier && editingKf.easing is RustEasing.Bezier),
                     onClick = {
-                        editingKf = editingKf.copy(easing = easing)
+                        val current = editingKf.easing
+                        val next = if (easing is RustEasing.Bezier && current is RustEasing.Bezier) current else easing
+                        editingKf = editingKf.copy(easing = next)
                         onUpdate(editingKf)
                     },
-                    label = { Text(easingLabels[easing] ?: easing.name, style = MaterialTheme.typography.labelSmall) },
+                    label = { Text(easingLabel(easing), style = MaterialTheme.typography.labelSmall) },
                     modifier = Modifier.height(28.dp),
                 )
             }
         }
+
+        val easing = editingKf.easing
+        if (easing is RustEasing.Bezier) {
+            Spacer(Modifier.height(6.dp))
+            BezierEasingEditor(
+                easing = easing,
+                onChange = { updated -> editingKf = editingKf.copy(easing = updated) },
+                onCommit = { onUpdate(editingKf) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun BezierEasingEditor(
+    easing: RustEasing.Bezier,
+    onChange: (RustEasing.Bezier) -> Unit,
+    onCommit: () -> Unit,
+) {
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BezierCurvePreview(
+                x1 = easing.x1,
+                y1 = easing.y1,
+                x2 = easing.x2,
+                y2 = easing.y2,
+                modifier = Modifier.size(76.dp),
+            )
+            Column(Modifier.weight(1f)) {
+                BezierSlider("x1", easing.x1, onChange = { onChange(easing.copy(x1 = it)) }, onCommit = onCommit)
+                BezierSlider("y1", easing.y1, onChange = { onChange(easing.copy(y1 = it)) }, onCommit = onCommit)
+                BezierSlider("x2", easing.x2, onChange = { onChange(easing.copy(x2 = it)) }, onCommit = onCommit)
+                BezierSlider("y2", easing.y2, onChange = { onChange(easing.copy(y2 = it)) }, onCommit = onCommit)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(
+                onClick = {
+                    onChange(RustEasing.Bezier(0.42f, 0f, 0.58f, 1f))
+                    onCommit()
+                },
+            ) {
+                Text("Ease In Out", style = MaterialTheme.typography.labelSmall)
+            }
+            TextButton(
+                onClick = {
+                    onChange(RustEasing.Bezier(0f, 0f, 0.58f, 1f))
+                    onCommit()
+                },
+            ) {
+                Text("Ease Out", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BezierSlider(
+    label: String,
+    value: Float,
+    onChange: (Float) -> Unit,
+    onCommit: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(18.dp))
+        Slider(
+            value = value.coerceIn(0f, 1f),
+            onValueChange = onChange,
+            onValueChangeFinished = onCommit,
+            valueRange = 0f..1f,
+            modifier = Modifier.weight(1f).height(22.dp),
+        )
+        Text(
+            formatFixed(value, 2),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(30.dp),
+        )
+    }
+}
+
+@Composable
+private fun BezierCurvePreview(
+    x1: Float,
+    y1: Float,
+    x2: Float,
+    y2: Float,
+    modifier: Modifier = Modifier,
+) {
+    val curveColor = MaterialTheme.colorScheme.primary
+    val handleColor = MaterialTheme.colorScheme.tertiary
+    val frameColor = MaterialTheme.colorScheme.outlineVariant
+    Canvas(modifier = modifier) {
+        val pad = 6f
+        val w = size.width - pad * 2f
+        val h = size.height - pad * 2f
+        fun px(x: Float) = pad + x.coerceIn(0f, 1f) * w
+        fun py(y: Float) = pad + (1f - y.coerceIn(0f, 1f)) * h
+        drawRect(frameColor, topLeft = Offset(px(0f), py(1f)), size = Size(w, h), style = Stroke(1f))
+        val path = Path().apply {
+            moveTo(px(0f), py(0f))
+            cubicTo(px(x1), py(y1), px(x2), py(y2), px(1f), py(1f))
+        }
+        drawPath(path, curveColor, style = Stroke(width = 2f))
+        drawLine(handleColor, Offset(px(0f), py(0f)), Offset(px(x1), py(y1)), strokeWidth = 1f)
+        drawLine(handleColor, Offset(px(1f), py(1f)), Offset(px(x2), py(y2)), strokeWidth = 1f)
+        drawCircle(handleColor, radius = 3f, center = Offset(px(x1), py(y1)))
+        drawCircle(handleColor, radius = 3f, center = Offset(px(x2), py(y2)))
+        drawCircle(curveColor, radius = 3f, center = Offset(px(0f), py(0f)))
+        drawCircle(curveColor, radius = 3f, center = Offset(px(1f), py(1f)))
     }
 }

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
+import org.mlm.miniter.editor.model.RustEasingSerializer
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
@@ -326,7 +327,7 @@ class RustCommandJson(
         put("param", JsonPrimitive(kf.param))
         put("offset", JsonPrimitive(kf.offset))
         put("value", JsonPrimitive(kf.value))
-        put("easing", JsonPrimitive(kf.easing.name))
+        put("easing", json.encodeToJsonElement(RustEasingSerializer, kf.easing))
     }
 
     private fun wrap(

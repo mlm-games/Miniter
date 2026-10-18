@@ -18,6 +18,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
@@ -72,12 +73,61 @@ data class RustKeyframe(
     val easing: RustEasing = RustEasing.Linear,
 )
 
-@Serializable
-enum class RustEasing {
-    Linear,
-    EaseIn,
-    EaseOut,
-    EaseInOut,
+@Serializable(with = RustEasingSerializer::class)
+sealed interface RustEasing {
+    data object Linear : RustEasing
+    data object EaseIn : RustEasing
+    data object EaseOut : RustEasing
+    data object EaseInOut : RustEasing
+    data class Bezier(val x1: Float, val y1: Float, val x2: Float, val y2: Float) : RustEasing
+}
+
+object RustEasingSerializer : KSerializer<RustEasing> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("RustEasing")
+
+    override fun serialize(encoder: Encoder, value: RustEasing) {
+        val jsonEncoder = encoder as? JsonEncoder
+            ?: throw SerializationException("RustEasing must be encoded to JSON")
+        jsonEncoder.encodeJsonElement(
+            when (value) {
+                RustEasing.Linear -> JsonPrimitive("Linear")
+                RustEasing.EaseIn -> JsonPrimitive("EaseIn")
+                RustEasing.EaseOut -> JsonPrimitive("EaseOut")
+                RustEasing.EaseInOut -> JsonPrimitive("EaseInOut")
+                is RustEasing.Bezier -> buildJsonObject {
+                    putJsonObject("Bezier") {
+                        put("x1", JsonPrimitive(value.x1))
+                        put("y1", JsonPrimitive(value.y1))
+                        put("x2", JsonPrimitive(value.x2))
+                        put("y2", JsonPrimitive(value.y2))
+                    }
+                }
+            }
+        )
+    }
+
+    override fun deserialize(decoder: Decoder): RustEasing {
+        val jsonDecoder = decoder as? JsonDecoder
+            ?: throw SerializationException("RustEasing must be decoded from JSON")
+        val element = jsonDecoder.decodeJsonElement()
+        if (element is JsonPrimitive) {
+            return when (element.content) {
+                "Linear" -> RustEasing.Linear
+                "EaseIn" -> RustEasing.EaseIn
+                "EaseOut" -> RustEasing.EaseOut
+                "EaseInOut" -> RustEasing.EaseInOut
+                else -> throw SerializationException("Unknown easing: ${element.content}")
+            }
+        }
+        val bezier = (element as? JsonObject)?.get("Bezier") as? JsonObject
+            ?: throw SerializationException("Unknown easing: $element")
+        return RustEasing.Bezier(
+            x1 = bezier["x1"]?.jsonPrimitive?.floatOrNull ?: 0.42f,
+            y1 = bezier["y1"]?.jsonPrimitive?.floatOrNull ?: 0f,
+            x2 = bezier["x2"]?.jsonPrimitive?.floatOrNull ?: 0.58f,
+            y2 = bezier["y2"]?.jsonPrimitive?.floatOrNull ?: 1f,
+        )
+    }
 }
 
 @Serializable
@@ -113,6 +163,29 @@ private fun applyEasing(easing: RustEasing, t: Float): Float = when (easing) {
     RustEasing.EaseIn -> t * t * t
     RustEasing.EaseOut -> 1f - (1f - t) * (1f - t) * (1f - t)
     RustEasing.EaseInOut -> if (t < 0.5f) 4f * t * t * t else 1f - (-2f * t + 2f) * (-2f * t + 2f) * (-2f * t + 2f) / 2f
+    is RustEasing.Bezier -> cubicBezierEase(t, easing.x1, easing.y1, easing.x2, easing.y2)
+}
+
+internal const val BEZIER_SOLVE_ITERATIONS = 40
+
+private fun bezierAxis(t: Float, c1: Float, c2: Float): Float {
+    val u = 1f - t
+    return 3f * u * u * t * c1 + 3f * u * t * t * c2 + t * t * t
+}
+
+internal fun cubicBezierEase(t: Float, x1: Float, y1: Float, x2: Float, y2: Float): Float {
+    val target = t.coerceIn(0f, 1f)
+    val cx1 = x1.coerceIn(0f, 1f)
+    val cx2 = x2.coerceIn(0f, 1f)
+    var lo = 0f
+    var hi = 1f
+    var step = 0
+    while (step < BEZIER_SOLVE_ITERATIONS) {
+        val mid = (lo + hi) * 0.5f
+        if (bezierAxis(mid, cx1, cx2) < target) lo = mid else hi = mid
+        step += 1
+    }
+    return bezierAxis((lo + hi) * 0.5f, y1, y2)
 }
 
 @Serializable

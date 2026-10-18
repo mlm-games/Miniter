@@ -17,7 +17,7 @@ pub use filter::{
     VideoFilter,
 };
 pub use keyframe::{
-    Easing, Keyframe, KeyframeCurve, ease_in, ease_in_out, ease_linear, ease_out, param,
+    Easing, Keyframe, KeyframeCurve, ease_bezier, ease_in, ease_in_out, ease_linear, ease_out, param,
 };
 pub use mask::{
     BlendMode, MaskComposition, MaskEffect, MaskMode, MaskOperation, MaskPoint, MaskShape,

@@ -2,7 +2,23 @@ package org.mlm.miniter.project
 
 import androidx.compose.animation.core.*
 import androidx.compose.ui.graphics.Color
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.floatOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
+import org.mlm.miniter.editor.model.cubicBezierEase
 
 @Serializable
 data class Keyframe(
@@ -12,8 +28,62 @@ data class Keyframe(
     val easing: Easing = Easing.Linear
 )
 
-@Serializable
-enum class Easing { Linear, EaseIn, EaseOut, EaseInOut }
+@Serializable(with = EasingSerializer::class)
+sealed interface Easing {
+    data object Linear : Easing
+    data object EaseIn : Easing
+    data object EaseOut : Easing
+    data object EaseInOut : Easing
+    data class Bezier(val x1: Float, val y1: Float, val x2: Float, val y2: Float) : Easing
+}
+
+object EasingSerializer : KSerializer<Easing> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("Easing")
+
+    override fun serialize(encoder: Encoder, value: Easing) {
+        val jsonEncoder = encoder as? JsonEncoder
+            ?: throw SerializationException("Easing must be encoded to JSON")
+        jsonEncoder.encodeJsonElement(
+            when (value) {
+                Easing.Linear -> JsonPrimitive("Linear")
+                Easing.EaseIn -> JsonPrimitive("EaseIn")
+                Easing.EaseOut -> JsonPrimitive("EaseOut")
+                Easing.EaseInOut -> JsonPrimitive("EaseInOut")
+                is Easing.Bezier -> buildJsonObject {
+                    putJsonObject("Bezier") {
+                        put("x1", JsonPrimitive(value.x1))
+                        put("y1", JsonPrimitive(value.y1))
+                        put("x2", JsonPrimitive(value.x2))
+                        put("y2", JsonPrimitive(value.y2))
+                    }
+                }
+            }
+        )
+    }
+
+    override fun deserialize(decoder: Decoder): Easing {
+        val jsonDecoder = decoder as? JsonDecoder
+            ?: throw SerializationException("Easing must be decoded from JSON")
+        val element = jsonDecoder.decodeJsonElement()
+        if (element is JsonPrimitive) {
+            return when (element.content) {
+                "Linear" -> Easing.Linear
+                "EaseIn" -> Easing.EaseIn
+                "EaseOut" -> Easing.EaseOut
+                "EaseInOut" -> Easing.EaseInOut
+                else -> throw SerializationException("Unknown easing: ${element.content}")
+            }
+        }
+        val bezier = (element as? JsonObject)?.get("Bezier") as? JsonObject
+            ?: throw SerializationException("Unknown easing: $element")
+        return Easing.Bezier(
+            x1 = bezier["x1"]?.jsonPrimitive?.floatOrNull ?: 0.42f,
+            y1 = bezier["y1"]?.jsonPrimitive?.floatOrNull ?: 0f,
+            x2 = bezier["x2"]?.jsonPrimitive?.floatOrNull ?: 0.58f,
+            y2 = bezier["y2"]?.jsonPrimitive?.floatOrNull ?: 1f,
+        )
+    }
+}
 
 @Serializable
 data class KeyframeCurve(
@@ -48,11 +118,17 @@ data class KeyframeCurve(
 
         return keyframes {
             relevant.forEach { kf ->
-                kf.value at kf.offsetMs.toInt() using when (kf.easing) {
+                kf.value at kf.offsetMs.toInt() using when (val easing = kf.easing) {
                     Easing.Linear -> LinearEasing
                     Easing.EaseIn -> CubicBezierEasing(0.42f, 0f, 1f, 1f)
                     Easing.EaseOut -> CubicBezierEasing(0f, 0f, 0.58f, 1f)
                     Easing.EaseInOut -> CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
+                    is Easing.Bezier -> CubicBezierEasing(
+                        easing.x1.coerceIn(0f, 1f),
+                        easing.y1,
+                        easing.x2.coerceIn(0f, 1f),
+                        easing.y2,
+                    )
                 }
             }
             durationMillis = durationMs.toInt()
@@ -65,6 +141,7 @@ private fun applyEasing(easing: Easing, t: Float): Float = when (easing) {
     Easing.EaseIn -> t * t * t
     Easing.EaseOut -> 1f - (1f - t) * (1f - t) * (1f - t)
     Easing.EaseInOut -> if (t < 0.5f) 4f * t * t * t else 1f - (-2f * t + 2f) * (-2f * t + 2f) * (-2f * t + 2f) / 2f
+    is Easing.Bezier -> cubicBezierEase(t, easing.x1, easing.y1, easing.x2, easing.y2)
 }
 
 object KeyframeParams {
