@@ -7,9 +7,7 @@ use miniter_domain::ease_in_out;
 use miniter_domain::export::SubtitleMode;
 use miniter_domain::filter::{VideoEffect, VideoFilter};
 use miniter_domain::keyframe::KeyframeCurve;
-use miniter_domain::mask::{
-    BlendMode, MaskComposition, MaskEffect, MaskOperation, MaskShape, MaskSource, MaskTransform,
-};
+use miniter_domain::mask::{BlendMode, MaskEffect, MaskShape, MaskSource};
 use miniter_domain::param;
 use miniter_domain::text_overlay::{TextOverlay, TextStyle};
 use miniter_domain::time::{MediaDuration, Timestamp};
@@ -47,10 +45,7 @@ pub enum RenderNode {
     Stack(Vec<RenderNode>),
     Masked {
         source: Box<RenderNode>,
-        mask_source: MaskSource,
-        operation: MaskOperation,
-        composition: MaskComposition,
-        transform: MaskTransform,
+        masks: Vec<MaskEffect>,
     },
 }
 
@@ -422,20 +417,21 @@ fn node_for_clip(
                 blend_mode: clip.blend_mode,
             };
 
-            let active_masks: Vec<&MaskEffect> = v.masks.iter().filter(|m| m.enabled).collect();
-            if !active_masks.is_empty() {
-                for mask_effect in active_masks {
-                    let mut mask = mask_effect.clone();
+            let active_masks: Vec<MaskEffect> = v
+                .masks
+                .iter()
+                .filter(|m| m.enabled)
+                .map(|m| {
+                    let mut mask = m.clone();
                     apply_mask_transform_keyframes(&mut mask, &clip.keyframes, local_offset);
-
-                    base_node = RenderNode::Masked {
-                        source: Box::new(base_node),
-                        mask_source: mask.source,
-                        operation: mask.operation,
-                        composition: mask.composition,
-                        transform: mask.transform,
-                    };
-                }
+                    mask
+                })
+                .collect();
+            if !active_masks.is_empty() {
+                base_node = RenderNode::Masked {
+                    source: Box::new(base_node),
+                    masks: active_masks,
+                };
             }
 
             if let Some(ref trans) = clip.transition_in

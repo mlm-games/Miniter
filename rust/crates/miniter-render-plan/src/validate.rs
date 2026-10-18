@@ -94,25 +94,22 @@ fn validate_node(node: &RenderNode, t: Timestamp, out: &mut Vec<PlanViolation>) 
                 validate_node(child, t, out);
             }
         }
-        RenderNode::Masked {
-            source,
-            mask_source,
-            transform,
-            ..
-        } => {
+        RenderNode::Masked { source, masks } => {
             validate_node(source, t, out);
-            check_mask(t, mask_source, transform, out);
+            for mask in masks {
+                check_mask(t, mask, out);
+            }
         }
     }
 }
 
 fn check_mask(
     t: Timestamp,
-    source: &miniter_domain::mask::MaskSource,
-    transform: &miniter_domain::mask::MaskTransform,
+    mask: &miniter_domain::mask::MaskEffect,
     out: &mut Vec<PlanViolation>,
 ) {
-    use miniter_domain::mask::{MaskShape, MaskSource};
+    use miniter_domain::mask::MaskShape;
+    use miniter_domain::mask::MaskSource;
     let mut check = |name: &str, v: f32| {
         if !v.is_finite() {
             out.push(PlanViolation::NonFiniteMaskParam {
@@ -121,11 +118,13 @@ fn check_mask(
             });
         }
     };
-    check("mask.scale", transform.scale);
-    check("mask.translate_x", transform.translate_x);
-    check("mask.translate_y", transform.translate_y);
-    check("mask.rotate", transform.rotate);
-    if let MaskSource::Shape { shape, feather, .. } = source {
+    check("mask.scale", mask.transform.scale);
+    check("mask.translate_x", mask.transform.translate_x);
+    check("mask.translate_y", mask.transform.translate_y);
+    check("mask.rotate", mask.transform.rotate);
+    check("mask.expansion", mask.expansion);
+    check("mask.opacity", mask.opacity);
+    if let MaskSource::Shape { shape, feather, .. } = &mask.source {
         check("mask.feather", *feather);
         match shape {
             MaskShape::Rectangle {
@@ -149,6 +148,16 @@ fn check_mask(
                 check("mask.shape.center_y", *center_y);
                 check("mask.shape.radius_x", *radius_x);
                 check("mask.shape.radius_y", *radius_y);
+            }
+            MaskShape::Path { vertices, .. } => {
+                for vertex in vertices {
+                    check("mask.shape.p.x", vertex.p.x);
+                    check("mask.shape.p.y", vertex.p.y);
+                    check("mask.shape.t_in.x", vertex.t_in.x);
+                    check("mask.shape.t_in.y", vertex.t_in.y);
+                    check("mask.shape.t_out.x", vertex.t_out.x);
+                    check("mask.shape.t_out.y", vertex.t_out.y);
+                }
             }
             _ => {}
         }

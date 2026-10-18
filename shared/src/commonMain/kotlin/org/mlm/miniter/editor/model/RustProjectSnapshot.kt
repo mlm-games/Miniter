@@ -518,6 +518,21 @@ enum class RustBlendMode {
 sealed interface RustMaskShape
 
 @Serializable
+data class RustMaskPoint(
+    val x: Float = 0f,
+    val y: Float = 0f,
+)
+
+@Serializable
+data class RustMaskVertex(
+    val p: RustMaskPoint = RustMaskPoint(),
+    @SerialName("t_in")
+    val tIn: RustMaskPoint = RustMaskPoint(),
+    @SerialName("t_out")
+    val tOut: RustMaskPoint = RustMaskPoint(),
+)
+
+@Serializable
 @SerialName("Rectangle")
 data class RustRectangleMaskShape(
     val left: Float,
@@ -537,6 +552,13 @@ data class RustEllipseMaskShape(
     val radiusX: Float,
     @SerialName("radius_y")
     val radiusY: Float,
+) : RustMaskShape
+
+@Serializable
+@SerialName("Path")
+data class RustPathMaskShape(
+    val vertices: List<RustMaskVertex> = emptyList(),
+    val closed: Boolean = true,
 ) : RustMaskShape
 
 @Serializable
@@ -567,6 +589,16 @@ enum class RustMaskComposition {
 }
 
 @Serializable
+enum class RustMaskMode {
+    Add,
+    Subtract,
+    Intersect,
+    Lighten,
+    Darken,
+    Difference,
+}
+
+@Serializable
 data class RustMaskTransform(
     val scale: Float,
     @SerialName("translate_x")
@@ -585,6 +617,9 @@ data class RustMaskEffect(
     @SerialName("composition")
     val composition: RustMaskComposition = RustMaskComposition.Replace,
     val transform: RustMaskTransform = RustMaskTransform(1f, 0f, 0f, 0f),
+    val mode: RustMaskMode = RustMaskMode.Add,
+    val expansion: Float = 0f,
+    val opacity: Float = 1f,
 )
 
 @Serializable

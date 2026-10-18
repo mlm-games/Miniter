@@ -20,7 +20,8 @@ pub use keyframe::{
     Easing, Keyframe, KeyframeCurve, ease_in, ease_in_out, ease_linear, ease_out, param,
 };
 pub use mask::{
-    BlendMode, MaskComposition, MaskEffect, MaskOperation, MaskShape, MaskSource, MaskTransform,
+    BlendMode, MaskComposition, MaskEffect, MaskMode, MaskOperation, MaskPoint, MaskShape,
+    MaskSource, MaskTransform, MaskVertex,
 };
 pub use project::{Project, ProjectId, ProjectMeta};
 pub use text_overlay::{TextAlignment, TextOverlay, TextStyle};

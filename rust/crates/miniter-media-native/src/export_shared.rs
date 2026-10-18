@@ -6,7 +6,8 @@ use fontdue::{Font, FontSettings};
 use miniter_audio::util;
 use miniter_domain::filter::{BlurKind, MosaicKind, VideoFilter};
 use miniter_domain::mask::{
-    BlendMode, MaskComposition, MaskEffect, MaskOperation, MaskShape, MaskSource, MaskTransform,
+    BlendMode, MaskEffect, MaskOperation, MaskPoint, MaskShape, MaskSource, MaskTransform,
+    MaskVertex,
 };
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use miniter_domain::transition::TransitionKind;
@@ -588,28 +589,34 @@ pub fn apply_masks_to_frame(pixels: &mut [u8], width: u32, height: u32, masks: &
     if pixels.len() != w.saturating_mul(h).saturating_mul(4) {
         return;
     }
-    for mask in masks.iter().filter(|m| m.enabled) {
-        let MaskSource::Shape {
-            shape,
-            feather,
-            invert,
-        } = &mask.source
-        else {
-            continue;
-        };
-        let mut mask_rgba = render_mask_shape(shape, &mask.transform, w, h);
-        if *feather > 0.0 {
-            feather_mask(&mut mask_rgba, w, h, *feather);
+    let active: Vec<(&MaskEffect, &MaskShape, f32, bool)> = masks
+        .iter()
+        .filter(|m| m.enabled)
+        .filter_map(|mask| {
+            let MaskSource::Shape {
+                shape,
+                feather,
+                invert,
+            } = &mask.source
+            else {
+                return None;
+            };
+            Some((mask, shape, *feather, *invert))
+        })
+        .collect();
+    let Some(first) = active.first() else {
+        return;
+    };
+    let mut coverage = vec![first.0.mode.start(); w * h];
+    for (mask, shape, feather, invert) in active {
+        let values = mask_values(mask, shape, feather, invert, w, h);
+        for (acc, value) in coverage.iter_mut().zip(values) {
+            *acc = mask.mode.combine(*acc, value).clamp(0.0, 1.0);
         }
-        if *invert {
-            for px in mask_rgba.as_chunks_mut::<4>().0 {
-                px[0] = 255 - px[0];
-                px[1] = 255 - px[1];
-                px[2] = 255 - px[2];
-                px[3] = 255 - px[3];
-            }
-        }
-        apply_mask_to_alpha(pixels, &mask_rgba, mask.operation, mask.composition);
+    }
+    for (px, value) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(coverage) {
+        let alpha = px[3] as f32 / 255.0;
+        px[3] = ((alpha * value).clamp(0.0, 1.0) * 255.0).round() as u8;
     }
 }
 
@@ -661,44 +668,302 @@ mod mask_frame_tests {
     }
 }
 
-pub(crate) fn apply_mask_to_alpha(
-    pixels: &mut [u8],
-    mask: &[u8],
-    operation: MaskOperation,
-    composition: MaskComposition,
-) {
-    for (p, m) in pixels
-        .as_chunks_mut::<4>()
-        .0
-        .iter_mut()
-        .zip(mask.chunks_exact(4))
-    {
-        let mask_value = match operation {
-            MaskOperation::Alpha => m[3] as f32 / 255.0,
-            MaskOperation::Luma => {
-                let r = m[0] as f32 / 255.0;
-                let g = m[1] as f32 / 255.0;
-                let b = m[2] as f32 / 255.0;
-                0.299 * r + 0.587 * g + 0.114 * b
+pub(crate) const FLATTEN_TOLERANCE: f64 = 0.05;
+
+fn mask_operation_value(operation: MaskOperation, pixel: &[u8]) -> f32 {
+    match operation {
+        MaskOperation::Alpha => pixel[3] as f32 / 255.0,
+        MaskOperation::Luma => {
+            let r = pixel[0] as f32 / 255.0;
+            let g = pixel[1] as f32 / 255.0;
+            let b = pixel[2] as f32 / 255.0;
+            0.299 * r + 0.587 * g + 0.114 * b
+        }
+        MaskOperation::InvertAlpha => 1.0 - pixel[3] as f32 / 255.0,
+        MaskOperation::InvertLuma => {
+            let r = pixel[0] as f32 / 255.0;
+            let g = pixel[1] as f32 / 255.0;
+            let b = pixel[2] as f32 / 255.0;
+            1.0 - (0.299 * r + 0.587 * g + 0.114 * b)
+        }
+        _ => pixel[3] as f32 / 255.0,
+    }
+}
+
+fn mask_values(
+    mask: &MaskEffect,
+    shape: &MaskShape,
+    feather: f32,
+    invert: bool,
+    width: usize,
+    height: usize,
+) -> Vec<f32> {
+    let opacity = if mask.opacity.is_finite() {
+        mask.opacity.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let feather = if feather.is_finite() {
+        feather.max(0.0)
+    } else {
+        0.0
+    };
+    if let MaskShape::Path { vertices, closed } = shape {
+        let mut values = render_path_mask(
+            vertices,
+            *closed,
+            &mask.transform,
+            mask.expansion,
+            feather,
+            width,
+            height,
+        );
+        if invert {
+            for value in &mut values {
+                *value = 1.0 - *value;
             }
-            MaskOperation::InvertAlpha => 1.0 - m[3] as f32 / 255.0,
-            MaskOperation::InvertLuma => {
-                let r = m[0] as f32 / 255.0;
-                let g = m[1] as f32 / 255.0;
-                let b = m[2] as f32 / 255.0;
-                1.0 - (0.299 * r + 0.587 * g + 0.114 * b)
+        }
+        return values
+            .into_iter()
+            .map(|value| {
+                let value = match mask.operation {
+                    MaskOperation::InvertAlpha | MaskOperation::InvertLuma => 1.0 - value,
+                    _ => value,
+                };
+                value * opacity
+            })
+            .collect();
+    }
+    let mut rgba = render_mask_shape(shape, &mask.transform, width, height);
+    if feather > 0.0 {
+        feather_mask(&mut rgba, width, height, feather);
+    }
+    if invert {
+        for px in rgba.as_chunks_mut::<4>().0 {
+            px[0] = 255 - px[0];
+            px[1] = 255 - px[1];
+            px[2] = 255 - px[2];
+            px[3] = 255 - px[3];
+        }
+    }
+    rgba.chunks_exact(4)
+        .map(|pixel| mask_operation_value(mask.operation, pixel) * opacity)
+        .collect()
+}
+
+fn render_path_mask(
+    vertices: &[MaskVertex],
+    closed: bool,
+    transform: &MaskTransform,
+    expansion: f32,
+    feather: f32,
+    width: usize,
+    height: usize,
+) -> Vec<f32> {
+    let mut out = vec![0.0f32; width.saturating_mul(height)];
+    if width == 0 || height == 0 {
+        return out;
+    }
+    let expansion = if expansion.is_finite() {
+        expansion
+    } else {
+        0.0
+    };
+    let feather = if feather.is_finite() {
+        feather.max(0.0)
+    } else {
+        0.0
+    };
+    let points = flatten_mask_path(vertices, closed, transform, width, height);
+    let band = expansion.abs() + feather.max(1.0) * 0.5 + 1.0;
+    for (y, row) in out.chunks_exact_mut(width).enumerate() {
+        mask_row(&points, y, band, expansion, feather, row);
+    }
+    out
+}
+
+fn flatten_mask_path(
+    vertices: &[MaskVertex],
+    closed: bool,
+    transform: &MaskTransform,
+    width: usize,
+    height: usize,
+) -> Vec<[f32; 2]> {
+    let n = vertices.len();
+    if n == 0 || width == 0 || height == 0 {
+        return Vec::new();
+    }
+    if vertices.iter().any(|v| {
+        !v.p.x.is_finite()
+            || !v.p.y.is_finite()
+            || !v.t_in.x.is_finite()
+            || !v.t_in.y.is_finite()
+            || !v.t_out.x.is_finite()
+            || !v.t_out.y.is_finite()
+    }) {
+        return Vec::new();
+    }
+    let scale = if transform.scale.is_finite() {
+        transform.scale as f64
+    } else {
+        1.0
+    };
+    let tx = if transform.translate_x.is_finite() {
+        transform.translate_x as f64
+    } else {
+        0.0
+    };
+    let ty = if transform.translate_y.is_finite() {
+        transform.translate_y as f64
+    } else {
+        0.0
+    };
+    let rotate = if transform.rotate.is_finite() {
+        transform.rotate as f64
+    } else {
+        0.0
+    };
+    let (sin_r, cos_r) = rotate.to_radians().sin_cos();
+    let count = n as f64;
+    let cx = vertices.iter().map(|v| v.p.x as f64).sum::<f64>() / count;
+    let cy = vertices.iter().map(|v| v.p.y as f64).sum::<f64>() / count;
+    let wf = width as f64;
+    let hf = height as f64;
+    let point = |p: MaskPoint| {
+        let nx = cx + (p.x as f64 - cx) * scale + tx;
+        let ny = cy + (p.y as f64 - cy) * scale + ty;
+        let rx = (nx - 0.5) * cos_r - (ny - 0.5) * sin_r + 0.5;
+        let ry = (nx - 0.5) * sin_r + (ny - 0.5) * cos_r + 0.5;
+        [rx * wf, ry * hf]
+    };
+    let tangent = |t: MaskPoint| {
+        let x = t.x as f64 * scale;
+        let y = t.y as f64 * scale;
+        [(x * cos_r - y * sin_r) * wf, (x * sin_r + y * cos_r) * hf]
+    };
+    let points: Vec<[f64; 2]> = vertices.iter().map(|v| point(v.p)).collect();
+    let t_in: Vec<[f64; 2]> = vertices.iter().map(|v| tangent(v.t_in)).collect();
+    let t_out: Vec<[f64; 2]> = vertices.iter().map(|v| tangent(v.t_out)).collect();
+    let mut segments: Vec<([f64; 2], [f64; 2], [f64; 2], [f64; 2])> = Vec::with_capacity(n);
+    if n >= 2 {
+        let count = if closed { n } else { n - 1 };
+        for i in 0..count {
+            let j = (i + 1) % n;
+            let p0 = points[i];
+            let p3 = points[j];
+            segments.push((
+                p0,
+                [p0[0] + t_out[i][0], p0[1] + t_out[i][1]],
+                [p3[0] + t_in[j][0], p3[1] + t_in[j][1]],
+                p3,
+            ));
+        }
+        if !closed {
+            let p0 = points[n - 1];
+            let p3 = points[0];
+            segments.push((
+                p0,
+                [p0[0] + t_out[n - 1][0], p0[1] + t_out[n - 1][1]],
+                [p3[0] + t_in[0][0], p3[1] + t_in[0][1]],
+                p3,
+            ));
+        }
+    }
+    let mut out = Vec::new();
+    out.push([points[0][0] as f32, points[0][1] as f32]);
+    let tol = FLATTEN_TOLERANCE.max(1e-4);
+    let last = segments.len().saturating_sub(1);
+    for (i, (p0, c1, c2, p3)) in segments.iter().enumerate() {
+        let straight = {
+            let d1 = ((c1[0] - p0[0]).powi(2) + (c1[1] - p0[1]).powi(2)).sqrt();
+            let d2 = ((c2[0] - p3[0]).powi(2) + (c2[1] - p3[1]).powi(2)).sqrt();
+            d1 < 1e-12 && d2 < 1e-12
+        };
+        if !straight {
+            let d1 = (p0[0] - 2.0 * c1[0] + c2[0]).hypot(p0[1] - 2.0 * c1[1] + c2[1]);
+            let d2 = (c1[0] - 2.0 * c2[0] + p3[0]).hypot(c1[1] - 2.0 * c2[1] + p3[1]);
+            let m = d1.max(d2);
+            let steps = (((0.75 * m / tol).sqrt()).ceil() as usize).clamp(1, 256);
+            for k in 1..steps {
+                let t = k as f64 / steps as f64;
+                let u = 1.0 - t;
+                let x = p0[0] * (u * u * u)
+                    + c1[0] * (3.0 * u * u * t)
+                    + c2[0] * (3.0 * u * t * t)
+                    + p3[0] * (t * t * t);
+                let y = p0[1] * (u * u * u)
+                    + c1[1] * (3.0 * u * u * t)
+                    + c2[1] * (3.0 * u * t * t)
+                    + p3[1] * (t * t * t);
+                out.push([x as f32, y as f32]);
             }
-            _ => m[3] as f32 / 255.0,
-        };
-        let current_alpha = p[3] as f32 / 255.0;
-        let new_alpha = match composition {
-            MaskComposition::Replace => current_alpha * mask_value,
-            MaskComposition::Union => current_alpha.max(mask_value),
-            MaskComposition::Intersect => current_alpha.min(mask_value),
-            MaskComposition::Subtract => (current_alpha - mask_value).max(0.0),
-            _ => current_alpha * mask_value,
-        };
-        p[3] = (new_alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        if i != last {
+            out.push([p3[0] as f32, p3[1] as f32]);
+        }
+    }
+    out
+}
+
+fn falloff(s: f32, feather: f32) -> f32 {
+    let w = feather.max(1.0);
+    let u = (s / w + 0.5).clamp(0.0, 1.0);
+    let smooth = u * u * (3.0 - 2.0 * u);
+    u + (smooth - u) * feather.min(1.0)
+}
+
+fn seg_dist2(px: f32, py: f32, a: [f32; 2], b: [f32; 2]) -> f32 {
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let (qx, qy) = (px - a[0], py - a[1]);
+    let l2 = dx * dx + dy * dy;
+    let t = if l2 > 0.0 {
+        ((qx * dx + qy * dy) / l2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let (ex, ey) = (qx - dx * t, qy - dy * t);
+    ex * ex + ey * ey
+}
+
+fn mask_row(points: &[[f32; 2]], y: usize, band: f32, expansion: f32, feather: f32, out: &mut [f32]) {
+    let n = points.len();
+    let py = y as f32 + 0.5;
+    if n < 3 {
+        out.fill(falloff(-band + expansion, feather));
+        return;
+    }
+    let mut cross: Vec<(f32, i32)> = Vec::new();
+    let mut near: Vec<([f32; 2], [f32; 2], f32, f32)> = Vec::new();
+    for i in 0..n {
+        let a = points[i];
+        let c = points[(i + 1) % n];
+        if (a[1] <= py) != (c[1] <= py) {
+            let t = (py - a[1]) / (c[1] - a[1]);
+            cross.push((a[0] + (c[0] - a[0]) * t, if c[1] > a[1] { 1 } else { -1 }));
+        }
+        if py >= a[1].min(c[1]) - band && py <= a[1].max(c[1]) + band {
+            near.push((a, c, a[0].min(c[0]) - band, a[0].max(c[0]) + band));
+        }
+    }
+    cross.sort_by(|p, q| p.0.total_cmp(&q.0));
+    let mut ci = 0;
+    let mut wind = 0;
+    let b2 = band * band;
+    for (x, value) in out.iter_mut().enumerate() {
+        let px = x as f32 + 0.5;
+        while ci < cross.len() && cross[ci].0 < px {
+            wind += cross[ci].1;
+            ci += 1;
+        }
+        let inside = wind != 0;
+        let mut d2 = b2;
+        for (a, c, x0, x1) in &near {
+            if px >= *x0 && px <= *x1 {
+                d2 = d2.min(seg_dist2(px, py, *a, *c));
+            }
+        }
+        let d = d2.sqrt();
+        *value = falloff(if inside { d } else { -d } + expansion, feather);
     }
 }
 

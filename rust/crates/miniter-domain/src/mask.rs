@@ -31,6 +31,27 @@ pub enum BlendMode {
     Glow,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct MaskPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl MaskPoint {
+    fn is_zero(&self) -> bool {
+        self.x == 0.0 && self.y == 0.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct MaskVertex {
+    pub p: MaskPoint,
+    #[serde(default, skip_serializing_if = "MaskPoint::is_zero")]
+    pub t_in: MaskPoint,
+    #[serde(default, skip_serializing_if = "MaskPoint::is_zero")]
+    pub t_out: MaskPoint,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[non_exhaustive]
@@ -47,6 +68,16 @@ pub enum MaskShape {
         radius_x: f32,
         radius_y: f32,
     },
+    Path {
+        #[serde(default)]
+        vertices: Vec<MaskVertex>,
+        #[serde(default = "default_closed")]
+        closed: bool,
+    },
+}
+
+fn default_closed() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +140,39 @@ impl Default for MaskTransform {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+#[derive(Default)]
+pub enum MaskMode {
+    #[default]
+    Add,
+    Subtract,
+    Intersect,
+    Lighten,
+    Darken,
+    Difference,
+}
+
+impl MaskMode {
+    pub fn combine(self, a: f32, m: f32) -> f32 {
+        match self {
+            MaskMode::Add => a + m - a * m,
+            MaskMode::Subtract => a * (1.0 - m),
+            MaskMode::Intersect => a * m,
+            MaskMode::Lighten => a.max(m),
+            MaskMode::Darken => a.min(m),
+            MaskMode::Difference => a + m - 2.0 * a * m,
+        }
+    }
+
+    pub fn start(self) -> f32 {
+        match self {
+            MaskMode::Subtract | MaskMode::Intersect | MaskMode::Darken => 1.0,
+            MaskMode::Add | MaskMode::Lighten | MaskMode::Difference => 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaskEffect {
     #[serde(default = "default_enabled")]
@@ -120,10 +184,20 @@ pub struct MaskEffect {
     pub composition: MaskComposition,
     #[serde(default)]
     pub transform: MaskTransform,
+    #[serde(default)]
+    pub mode: MaskMode,
+    #[serde(default)]
+    pub expansion: f32,
+    #[serde(default = "default_mask_opacity")]
+    pub opacity: f32,
 }
 
 fn default_enabled() -> bool {
     true
+}
+
+fn default_mask_opacity() -> f32 {
+    1.0
 }
 
 impl MaskEffect {
@@ -138,6 +212,9 @@ impl MaskEffect {
             operation: MaskOperation::Alpha,
             composition: MaskComposition::Replace,
             transform: MaskTransform::default(),
+            mode: MaskMode::Add,
+            expansion: 0.0,
+            opacity: 1.0,
         }
     }
 }

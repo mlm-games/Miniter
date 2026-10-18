@@ -1784,6 +1784,27 @@ private fun MaskOverlay(
 
     fun shapeBounds(mask: RustMaskEffect): Rect? {
         val shape = (mask.source as? RustShapeMaskSource)?.shape ?: return null
+        val t = mask.transform
+        val scale = t.scale.coerceAtLeast(0.001f)
+        if (shape is RustPathMaskShape) {
+            if (shape.vertices.isEmpty()) return null
+            val count = shape.vertices.size.toFloat()
+            val cx0 = shape.vertices.sumOf { it.p.x.toDouble() }.toFloat() / count
+            val cy0 = shape.vertices.sumOf { it.p.y.toDouble() }.toFloat() / count
+            var minX = Float.MAX_VALUE
+            var minY = Float.MAX_VALUE
+            var maxX = -Float.MAX_VALUE
+            var maxY = -Float.MAX_VALUE
+            for (vertex in shape.vertices) {
+                val x = cx0 + (vertex.p.x - cx0) * scale + t.translateX
+                val y = cy0 + (vertex.p.y - cy0) * scale + t.translateY
+                minX = minX.coerceAtMost(x)
+                minY = minY.coerceAtMost(y)
+                maxX = maxX.coerceAtLeast(x)
+                maxY = maxY.coerceAtLeast(y)
+            }
+            return Rect(minX, minY, maxX, maxY)
+        }
         val halfW: Float
         val halfH: Float
         val cx: Float
@@ -1801,9 +1822,8 @@ private fun MaskOverlay(
                 halfW = shape.radiusX
                 halfH = shape.radiusY
             }
+            is RustPathMaskShape -> return null
         }
-        val t = mask.transform
-        val scale = t.scale.coerceAtLeast(0.001f)
         val ncx = cx + t.translateX
         val ncy = cy + t.translateY
         val nhw = halfW * scale
@@ -1900,6 +1920,32 @@ private fun MaskOverlay(
                 )
                 rotate(mask.transform.rotate, pivot = pivot) {
                     when (shape) {
+                        is RustPathMaskShape -> {
+                            val vertices = shape.vertices
+                            if (vertices.size >= 2) {
+                                val scale = mask.transform.scale.coerceAtLeast(0.001f)
+                                val count = vertices.size.toFloat()
+                                val cx0 = vertices.sumOf { it.p.x.toDouble() }.toFloat() / count
+                                val cy0 = vertices.sumOf { it.p.y.toDouble() }.toFloat() / count
+                                val points = vertices.map { vertex ->
+                                    val nx = cx0 + (vertex.p.x - cx0) * scale + mask.transform.translateX
+                                    val ny = cy0 + (vertex.p.y - cy0) * scale + mask.transform.translateY
+                                    Offset(
+                                        contentArea.left + nx * size.width,
+                                        contentArea.top + ny * size.height,
+                                    )
+                                }
+                                val segments = if (shape.closed) points.size else points.size - 1
+                                for (i in 0 until segments) {
+                                    drawLine(
+                                        color = outline,
+                                        start = points[i],
+                                        end = points[(i + 1) % points.size],
+                                        strokeWidth = lineWidth,
+                                    )
+                                }
+                            }
+                        }
                         is RustEllipseMaskShape -> drawOval(
                             color = outline,
                             topLeft = Offset(cx - hw, cy - hh),
