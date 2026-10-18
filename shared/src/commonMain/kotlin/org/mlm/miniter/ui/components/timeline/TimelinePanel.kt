@@ -21,8 +21,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
@@ -34,8 +36,11 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.distinctUntilChanged
 import org.mlm.miniter.editor.model.RustAdjustmentClipKind
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustClipSnapshot
@@ -46,10 +51,17 @@ import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTrackSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.editor.model.videoFilters
+import org.mlm.miniter.engine.ImageData
+import org.mlm.miniter.engine.THUMBNAIL_BUCKET_US
+import org.mlm.miniter.engine.ThumbnailKey
+import org.mlm.miniter.engine.thumbnailKey
+import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.project.ALL_PARAMS_BY_KEY
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.round
+import kotlin.math.roundToInt
 
 private val TRACK_HEIGHT = 52.dp
 private val TRACK_HEADER_WIDTH = 48.dp
@@ -57,6 +69,8 @@ private val RULER_HEIGHT = 28.dp
 private val TRIM_HANDLE_WIDTH = 12.dp
 private val PLAYHEAD_HEAD_SIZE = 10.dp
 private val ADD_TRACK_ROW_HEIGHT = 36.dp
+private val FILMSTRIP_FRAME_WIDTH = 56.dp
+private const val MAX_FILMSTRIP_FRAMES = 6
 private const val MIN_TIMELINE_DURATION_MS = 30_000L
 private const val TIMELINE_PADDING_MS = 5000L
 
@@ -124,6 +138,8 @@ fun TimelinePanel(
     onCloseGap: (String) -> Unit = {},
     waveforms: Map<String, List<Float>> = emptyMap(),
     onNeedWaveform: (String) -> Unit = {},
+    thumbnails: Map<ThumbnailKey, ImageData?> = emptyMap(),
+    onNeedThumbnail: (ThumbnailKey) -> Unit = {},
 ) {
     if (snapshot == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -218,6 +234,8 @@ fun TimelinePanel(
                     onCloseGap = onCloseGap,
                     waveforms = waveforms,
                     onNeedWaveform = onNeedWaveform,
+                    thumbnails = thumbnails,
+                    onNeedThumbnail = onNeedThumbnail,
                 )
                 HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
             }
@@ -354,8 +372,23 @@ private fun TrackRow(
     onCloseGap: (String) -> Unit = {},
     waveforms: Map<String, List<Float>> = emptyMap(),
     onNeedWaveform: (String) -> Unit = {},
+    thumbnails: Map<ThumbnailKey, ImageData?> = emptyMap(),
+    onNeedThumbnail: (ThumbnailKey) -> Unit = {},
 ) {
     val density = LocalDensity.current
+
+    val visibleStartMs = remember(scrollState, dpPerMs, timelineDurationMs, density) {
+        derivedStateOf { xToMs(scrollState.value / density.density, dpPerMs, timelineDurationMs) }
+    }
+    val visibleEndMs = remember(scrollState, dpPerMs, timelineDurationMs, density) {
+        derivedStateOf {
+            xToMs(
+                (scrollState.value + scrollState.viewportSize) / density.density,
+                dpPerMs,
+                timelineDurationMs,
+            )
+        }
+    }
 
     Row(modifier = Modifier.fillMaxWidth().height(TRACK_HEIGHT)) {
         TrackHeader(track, canRemove, onToggleMute, onToggleLock, onRemoveTrack,
@@ -424,6 +457,10 @@ private fun TrackRow(
                                 ?: (clip.kind as? RustVideoClipKind)?.sourcePath
                         ].orEmpty(),
                         onNeedWaveform = onNeedWaveform,
+                        thumbnails = thumbnails,
+                        onNeedThumbnail = onNeedThumbnail,
+                        visibleStartMs = visibleStartMs,
+                        visibleEndMs = visibleEndMs,
                         trackId = track.id,
                         sameTypeIndex = sameTypeIndex,
                         sameTypeTrackIds = sameTypeUnlocked,
@@ -487,6 +524,10 @@ private fun ClipBlock(
     onCloseGap: () -> Unit = {},
     waveform: List<Float> = emptyList(),
     onNeedWaveform: (String) -> Unit = {},
+    thumbnails: Map<ThumbnailKey, ImageData?> = emptyMap(),
+    onNeedThumbnail: (ThumbnailKey) -> Unit = {},
+    visibleStartMs: State<Long>,
+    visibleEndMs: State<Long>,
     trackId: String,
     sameTypeIndex: Int,
     sameTypeTrackIds: List<String>,
@@ -535,13 +576,79 @@ private fun ClipBlock(
     val tapSelectionMode = remember { mutableStateOf(ClipSelectionMode.Replace) }
 
     val waveformSourcePath = (clip.kind as? RustAudioClipKind)?.sourcePath
-        ?: (clip.kind as? RustVideoClipKind)?.sourcePath
     LaunchedEffect(waveformSourcePath) {
-        if (waveformSourcePath != null &&
-            (trackKind == RustTrackKind.Audio || trackKind == RustTrackKind.Video)
-        ) {
+        if (waveformSourcePath != null && trackKind == RustTrackKind.Audio) {
             onNeedWaveform(waveformSourcePath)
         }
+    }
+
+    val videoSourcePath = (clip.kind as? RustVideoClipKind)?.sourcePath
+    val filmstripCount = if (videoSourcePath != null && trackKind == RustTrackKind.Video) {
+        filmstripFrameCount(widthDp)
+    } else {
+        0
+    }
+    val filmstripKeys = remember(
+        videoSourcePath, clip.sourceStartUs, clip.sourceEndUs,
+        clip.sourceTotalDurationUs, filmstripCount,
+    ) {
+        if (videoSourcePath == null || filmstripCount <= 0) {
+            emptyList()
+        } else {
+            val range = clipSourceRange(clip)
+            filmstripTimestamps(range.first, range.last, filmstripCount)
+                .map { thumbnailKey(videoSourcePath, it) }
+        }
+    }
+    val filmstripPresent = filmstripKeys.map { thumbnails.containsKey(it) }
+    LaunchedEffect(filmstripKeys, filmstripPresent, visibleStartMs, visibleEndMs) {
+        if (filmstripKeys.isEmpty()) return@LaunchedEffect
+        snapshotFlow {
+            val visibleStart = visibleStartMs.value
+            val visibleEnd = visibleEndMs.value
+            val clipStart = currentStartMs
+            val clipEnd = currentStartMs + currentDurationMs
+            clipEnd > visibleStart && clipStart < visibleEnd
+        }
+            .distinctUntilChanged()
+            .collect { visible ->
+                if (!visible) return@collect
+                for (index in filmstripKeys.indices) {
+                    if (!filmstripPresent[index]) onNeedThumbnail(filmstripKeys[index])
+                }
+            }
+    }
+    val filmstripFrames = remember(
+        thumbnails, videoSourcePath, clip.sourceStartUs,
+        clip.sourceEndUs, clip.sourceTotalDurationUs, filmstripCount,
+    ) {
+        if (videoSourcePath == null || filmstripCount <= 0) {
+            emptyList()
+        } else {
+            val range = clipSourceRange(clip)
+            val firstBucketUs = range.first / THUMBNAIL_BUCKET_US * THUMBNAIL_BUCKET_US
+            val cached = thumbnails.entries
+                .filter { (key, image) ->
+                    image != null && key.sourcePath == videoSourcePath &&
+                        key.timestampBucketUs in firstBucketUs..range.last
+                }
+                .sortedBy { it.key.timestampBucketUs }
+                .mapNotNull { it.value }
+            sampleFilmstripFrames(cached, filmstripCount).let { sampled ->
+                if (sampled.size == filmstripCount) {
+                    sampled
+                } else {
+                    MutableList<ImageData?>(filmstripCount) { null }.also { slots ->
+                        for (index in sampled.indices) {
+                            slots[index * filmstripCount / sampled.size] = sampled[index]
+                        }
+                    }
+                }
+            }
+        }
+    }
+    val filmstripBitmaps = remember(filmstripFrames) {
+        filmstripFrames.map { it?.toImageBitmap() }
     }
 
     Box(modifier = modifier.width(widthDp)) {
@@ -617,12 +724,39 @@ private fun ClipBlock(
             tonalElevation = if (isSelected) 4.dp else 1.dp,
         ) {
             Box(Modifier.fillMaxSize()) {
+                if (filmstripBitmaps.any { it != null }) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        if (size.width <= 0f || size.height <= 0f) return@Canvas
+                        val slotWidth = size.width / filmstripBitmaps.size
+                        filmstripBitmaps.forEachIndexed { index, bitmap ->
+                            if (bitmap == null) return@forEachIndexed
+                            val scale = size.height / bitmap.height.coerceAtLeast(1)
+                            val drawWidth = bitmap.width * scale
+                            val left = index * slotWidth
+                            clipRect(left, 0f, left + slotWidth, size.height) {
+                                drawImage(
+                                    image = bitmap,
+                                    dstOffset = IntOffset(
+                                        (left + (slotWidth - drawWidth) / 2f).roundToInt(),
+                                        0,
+                                    ),
+                                    dstSize = IntSize(drawWidth.roundToInt(), size.height.roundToInt()),
+                                    alpha = if (isMuted) 0.5f else 1f,
+                                )
+                            }
+                        }
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                0f to bgColor.copy(alpha = 0.8f),
+                                0.45f to bgColor.copy(alpha = 0f),
+                            ),
+                        )
+                    }
+                }
                 val visibleWaveform = remember(waveform, clip.sourceStartUs, clip.sourceEndUs, clip.sourceTotalDurationUs) {
                     sliceWaveformForClip(waveform, clip.sourceStartUs, clip.sourceEndUs, clip.sourceTotalDurationUs)
                 }
-                if (visibleWaveform.isNotEmpty() &&
-                    (trackKind == RustTrackKind.Audio || trackKind == RustTrackKind.Video)
-                ) {
+                if (visibleWaveform.isNotEmpty() && trackKind == RustTrackKind.Audio) {
                     val barColor = onContainerColor.copy(alpha = 0.45f)
                     Canvas(
                         modifier = Modifier.fillMaxSize()
@@ -813,6 +947,35 @@ private fun sliceWaveformForClip(
     val toIdx = ((end.toDouble() / totalDurationUs) * n).toInt().coerceIn(fromIdx + 1, n)
     if (fromIdx == 0 && toIdx == n) return full
     return full.subList(fromIdx, toIdx)
+}
+
+private fun filmstripFrameCount(widthDp: Dp): Int =
+    ceil(widthDp.value / FILMSTRIP_FRAME_WIDTH.value).toInt().coerceIn(1, MAX_FILMSTRIP_FRAMES)
+
+private fun clipSourceRange(clip: RustClipSnapshot): LongRange {
+    val total = clip.sourceTotalDurationUs
+    val start = if (total > 0L) clip.sourceStartUs.coerceIn(0L, total)
+    else clip.sourceStartUs.coerceAtLeast(0L)
+    val end = if (total > 0L) clip.sourceEndUs.coerceIn(start, total)
+    else clip.sourceEndUs.coerceAtLeast(start)
+    return start..end
+}
+
+private fun filmstripTimestamps(sourceStartUs: Long, sourceEndUs: Long, count: Int): List<Long> {
+    if (count <= 0) return emptyList()
+    val start = sourceStartUs.coerceAtLeast(0L)
+    if (sourceEndUs <= start) return listOf(start)
+    val span = sourceEndUs - start
+    return List(count) { index ->
+        start + (span.toDouble() * (index + 0.5) / count).toLong()
+    }
+}
+
+private fun sampleFilmstripFrames(frames: List<ImageData>, count: Int): List<ImageData> {
+    if (count <= 0) return emptyList()
+    if (frames.size <= count) return frames
+    if (count == 1) return listOf(frames[frames.size / 2])
+    return List(count) { index -> frames[index * (frames.size - 1) / (count - 1)] }
 }
 
 private fun clipDurationMs(clip: RustClipSnapshot): Long = clip.timelineDurationUs / 1000L

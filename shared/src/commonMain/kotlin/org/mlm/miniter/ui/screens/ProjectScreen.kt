@@ -336,6 +336,8 @@ fun ProjectScreen(
                 onCloseGap = vm::closeGapOnTrack,
                 waveforms = vm.waveforms.collectAsState().value,
                 onNeedWaveform = vm::requestWaveform,
+                thumbnails = vm.timelineThumbnails.collectAsState().value,
+                onNeedThumbnail = vm::requestTimelineThumbnail,
             )
         }
     }

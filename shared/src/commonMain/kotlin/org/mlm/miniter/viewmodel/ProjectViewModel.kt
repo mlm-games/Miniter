@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.mlm.miniter.editor.RustDispatchException
@@ -73,6 +74,8 @@ import org.mlm.miniter.editor.model.videoFilters
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.PlatformVideoEngine
+import org.mlm.miniter.engine.ThumbnailKey
+import org.mlm.miniter.engine.ThumbnailResult
 import org.mlm.miniter.engine.isActive
 import org.mlm.miniter.engine.ScrubProxy
 import org.mlm.miniter.engine.VideoInfo
@@ -202,6 +205,9 @@ class ProjectViewModel(
         private const val MIN_SAMPLE_RATE = 44_100
         private const val MIN_TRIM_DURATION_US = 100_000L
         private const val SNAP_THRESHOLD_BASE = 200
+        private const val MAX_TIMELINE_THUMBNAILS = 256
+        private const val TIMELINE_THUMBNAIL_WIDTH = 160
+        private const val TIMELINE_THUMBNAIL_HEIGHT = 90
     }
 
     private var hardwareAccelerationEnabled: Boolean = true
@@ -224,6 +230,10 @@ class ProjectViewModel(
         // Nothing will clear the flag now that the job is cancelled, and the
         // next project may have no video clip to trigger a fresh load.
         _state.update { it.copy(isLoadingThumbnails = false) }
+        timelineThumbnailGeneration += 1
+        timelineThumbnailInFlight.clear()
+        timelineThumbnailLru.clear()
+        _timelineThumbnails.value = emptyMap()
         ScrubProxy.cancel()
         cancelExport()
     }
@@ -231,6 +241,13 @@ class ProjectViewModel(
     private val _waveforms = MutableStateFlow<Map<String, List<Float>>>(emptyMap())
     val waveforms: StateFlow<Map<String, List<Float>>> = _waveforms
     private val waveformInFlight = mutableSetOf<String>()
+
+    private val _timelineThumbnails = MutableStateFlow<Map<ThumbnailKey, ImageData?>>(emptyMap())
+    val timelineThumbnails: StateFlow<Map<ThumbnailKey, ImageData?>> = _timelineThumbnails
+    private val timelineThumbnailLru = LinkedHashMap<ThumbnailKey, ImageData?>()
+    private val timelineThumbnailInFlight = mutableSetOf<ThumbnailKey>()
+    private val timelineThumbnailMutex = Mutex()
+    private var timelineThumbnailGeneration = 0L
 
     private val _beats = MutableStateFlow<Map<String, BeatTrack>>(emptyMap())
     val beats: StateFlow<Map<String, BeatTrack>> = _beats
@@ -268,6 +285,52 @@ class ProjectViewModel(
             }
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    fun requestTimelineThumbnail(key: ThumbnailKey) {
+        if (key.sourcePath.isBlank()) return
+        if (timelineThumbnailLru.containsKey(key)) {
+            val cached = timelineThumbnailLru.remove(key)
+            timelineThumbnailLru[key] = cached
+            return
+        }
+        if (!timelineThumbnailInFlight.add(key)) return
+        val generation = timelineThumbnailGeneration
+        viewModelScope.launch {
+            try {
+                val result = timelineThumbnailMutex.withLock {
+                    engine.extractSingleThumbnail(
+                        path = key.sourcePath,
+                        timestampMs = key.timestampBucketUs / 1000L,
+                        width = TIMELINE_THUMBNAIL_WIDTH,
+                        height = TIMELINE_THUMBNAIL_HEIGHT,
+                        hardwareAcceleration = hardwareAccelerationEnabled,
+                    )
+                }
+                if (generation != timelineThumbnailGeneration) return@launch
+                val image = (result as? ThumbnailResult.Success)?.image
+                timelineThumbnailLru.remove(key)
+                timelineThumbnailLru[key] = image
+                while (timelineThumbnailLru.size > MAX_TIMELINE_THUMBNAILS) {
+                    val eldest = timelineThumbnailLru.keys.firstOrNull() ?: break
+                    timelineThumbnailLru.remove(eldest)
+                }
+                _timelineThumbnails.value = timelineThumbnailLru.toMap()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (generation != timelineThumbnailGeneration) return@launch
+                timelineThumbnailLru.remove(key)
+                timelineThumbnailLru[key] = null
+                while (timelineThumbnailLru.size > MAX_TIMELINE_THUMBNAILS) {
+                    val eldest = timelineThumbnailLru.keys.firstOrNull() ?: break
+                    timelineThumbnailLru.remove(eldest)
+                }
+                _timelineThumbnails.value = timelineThumbnailLru.toMap()
+            } finally {
+                timelineThumbnailInFlight.remove(key)
+            }
         }
     }
 
