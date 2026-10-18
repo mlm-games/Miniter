@@ -18,7 +18,7 @@ web-time.workspace = true
 
 image.workspace = true
 
-muxfin = "0.5"
+muxfin = "0.6"
 
 rusty_h264-encoder = { version = "0.16", default-features = false, features = ["libm"] }
 rusty_h264-common = { version = "0.16", default-features = false }

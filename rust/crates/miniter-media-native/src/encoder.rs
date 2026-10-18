@@ -48,7 +48,9 @@ pub struct VideoEncodeSession {
     /// future config change (a `Skipped` output must map back to its input
     /// PTS instead of inheriting a later frame's).
     pending_pts: std::collections::VecDeque<i64>,
-    sps_patched: bool,
+    /// Matrix the VUI was written with; every patched SPS reuses it so all
+    /// copies in the stream stay byte-identical.
+    patch_matrix: Option<MatrixCoeffs>,
 }
 
 impl VideoEncodeSession {
@@ -89,7 +91,7 @@ impl VideoEncodeSession {
             height,
             frame_index: 0,
             pending_pts: std::collections::VecDeque::new(),
-            sps_patched: false,
+            patch_matrix: None,
         })
     }
 
@@ -112,13 +114,14 @@ impl VideoEncodeSession {
         if bytes.is_empty() {
             return Ok(EncodedVideoOutput::Skipped);
         }
-        let bytes = self.patch_first_sps(bytes, frame.color_info.matrix);
+        let keyframe = is_idr_access_unit(&bytes);
+        let bytes = if keyframe {
+            self.patch_sps(bytes, frame.color_info.matrix)
+        } else {
+            bytes
+        };
         let pts = self.pending_pts.pop_front().unwrap_or(frame.pts_us);
-        Ok(EncodedVideoOutput::Sample {
-            is_keyframe: is_idr_access_unit(&bytes),
-            bytes,
-            pts_us: pts,
-        })
+        Ok(EncodedVideoOutput::Sample { is_keyframe: keyframe, bytes, pts_us: pts })
     }
 
     /// Drain any lookahead tail in decode order. Empty with the current
@@ -126,10 +129,15 @@ impl VideoEncodeSession {
     pub fn finish(&mut self) -> Vec<EncodedVideoOutput> {
         let mut out = Vec::new();
         for bytes in [self.encoder.flush()].into_iter().filter(|b| !b.is_empty()) {
-            let bytes = self.patch_first_sps(bytes, MatrixCoeffs::Bt709);
+            let keyframe = is_idr_access_unit(&bytes);
+            let bytes = if keyframe {
+                self.patch_sps(bytes, MatrixCoeffs::Bt709)
+            } else {
+                bytes
+            };
             let pts = self.pending_pts.pop_front().unwrap_or(0);
             out.push(EncodedVideoOutput::Sample {
-                is_keyframe: is_idr_access_unit(&bytes),
+                is_keyframe: keyframe,
                 bytes,
                 pts_us: pts,
             });
@@ -145,21 +153,18 @@ impl VideoEncodeSession {
     }
 
     /// The software encoder writes no VUI, leaving the stream at the decoder
-    /// default for range and coefficients; attach the colour signal to the
-    /// first SPS so players need not infer it.
-    fn patch_first_sps(&mut self, bytes: Vec<u8>, matrix: MatrixCoeffs) -> Vec<u8> {
-        if self.sps_patched || bytes.is_empty() {
-            return bytes;
-        }
+    /// default for range and coefficients. Every keyframe repeats the SPS, so
+    /// each copy is patched with the signal first chosen: a later keyframe
+    /// carrying a different SPS reads as a mid-track configuration change to
+    /// muxers and is rejected.
+    fn patch_sps(&mut self, bytes: Vec<u8>, matrix: MatrixCoeffs) -> Vec<u8> {
+        let matrix = *self.patch_matrix.get_or_insert(matrix);
         let signal = nuxodecs::codec::h264::ColorSignal {
             full_range: false,
             matrix_coefficients: matrix_coefficients(matrix),
         };
         match nuxodecs::codec::h264::set_sps_colour(&bytes, signal) {
-            Some(patched) => {
-                self.sps_patched = true;
-                patched
-            }
+            Some(patched) => patched,
             None => bytes,
         }
     }
