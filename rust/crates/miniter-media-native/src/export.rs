@@ -23,7 +23,7 @@ use miniter_domain::clip::ClipId;
 use miniter_domain::clip::ClipKind;
 use miniter_domain::ease_in_out;
 use miniter_domain::export::{ExportFormat, SubtitleMode};
-use miniter_domain::mask::{BlendMode, MaskSource};
+use miniter_domain::mask::BlendMode;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay, TextStyle};
 use miniter_domain::time::Timestamp;
 use miniter_domain::track::TrackKind;
@@ -1505,13 +1505,7 @@ fn render_node(
             }
         }
 
-        RenderNode::Masked {
-            source,
-            mask_source,
-            operation,
-            composition,
-            transform,
-        } => {
+        RenderNode::Masked { source, masks } => {
             let mut pixels = render_node(
                 source,
                 width,
@@ -1519,31 +1513,7 @@ fn render_node(
                 decode_cache,
                 first_decoded_video_pts_us,
             )?;
-
-            let mask_rgba = match mask_source {
-                MaskSource::Shape {
-                    shape,
-                    feather,
-                    invert,
-                } => {
-                    let mut mask = render_mask_shape(shape, transform, width, height);
-                    if *feather > 0.0 {
-                        feather_mask(&mut mask, width, height, *feather);
-                    }
-                    if *invert {
-                        for px in mask.as_chunks_mut::<4>().0 {
-                            px[0] = 255 - px[0];
-                            px[1] = 255 - px[1];
-                            px[2] = 255 - px[2];
-                            px[3] = 255 - px[3];
-                        }
-                    }
-                    mask
-                }
-                _ => transparent_rgba(width, height),
-            };
-
-            apply_mask_to_alpha(&mut pixels, &mask_rgba, *operation, *composition);
+            apply_masks_to_frame(&mut pixels, width as u32, height as u32, masks);
             Ok(pixels)
         }
     }
@@ -1608,18 +1578,10 @@ where
 
     let matrix = sniff_source_matrix(project);
 
-    if project.export_profile.hardware_acceleration
-        && HwEncodeSession::new(
-            width,
-            height,
-            video_bitrate_bps(bitrate_kbps),
-            fps as f32,
-            "video/av01",
-            matrix,
-        )
-        .is_err()
-    {
-        log::warn!("HW AV1 encoder not available, falling back to software");
+    if project.export_profile.hardware_acceleration {
+        // AV1 export always uses the software encoder in this build, so a
+        // hardware request is always a fallback.
+        log::warn!("AV1 export uses the software encoder; hardware AV1 encoding is not implemented");
         HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
     }
 
