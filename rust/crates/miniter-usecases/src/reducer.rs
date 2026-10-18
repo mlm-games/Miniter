@@ -1313,6 +1313,20 @@ fn timeline_duration_for_clip(
     Ok(duration)
 }
 
+pub fn timeline_duration_for_speed_keyframes(
+    clip: &Clip,
+    speed_keyframes: &[Keyframe],
+    source_start: MediaDuration,
+    source_end: MediaDuration,
+) -> Result<MediaDuration, ApplyError> {
+    let mut probe = clip.clone();
+    probe.keyframes = KeyframeCurve::default();
+    for keyframe in speed_keyframes {
+        probe.keyframes.insert_sorted(keyframe.clone());
+    }
+    timeline_duration_for_clip(&probe, source_start, source_end)
+}
+
 fn timeline_duration_from_source_bounds(
     speed: f64,
     source_start: MediaDuration,

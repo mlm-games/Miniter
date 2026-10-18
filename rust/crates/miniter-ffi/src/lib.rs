@@ -1,3 +1,5 @@
+use miniter_domain::clip::ClipId;
+use miniter_domain::keyframe::Keyframe;
 use miniter_domain::project::Project;
 use miniter_usecases::commands::EditCommand;
 use miniter_usecases::reducer::{self, EditorState};
@@ -347,6 +349,35 @@ mod native_ffi {
                 rgba,
                 pts_us: timestamp_us.max(0),
             })
+        }
+
+        pub fn predicted_speed_curve_duration_us(
+            &self,
+            clip_id: String,
+            keyframes_json: String,
+        ) -> Result<i64, MiniterError> {
+            let keyframes: Vec<Keyframe> = serde_json::from_str(&keyframes_json)
+                .map_err(|e| MiniterError::Parse { detail: e.to_string() })?;
+            let id = uuid::Uuid::parse_str(clip_id.trim())
+                .map_err(|e| MiniterError::Parse { detail: e.to_string() })?;
+            let state = self.0.0.lock().map_err(|_| MiniterError::LockPoisoned)?;
+            let clip_id = ClipId(id);
+            let clip = state
+                .project
+                .timeline
+                .track_of_clip(clip_id)
+                .and_then(|track| track.clip_by_id(clip_id))
+                .ok_or_else(|| MiniterError::Apply {
+                    detail: format!("clip {} not found", clip_id.0),
+                })?;
+            let duration = reducer::timeline_duration_for_speed_keyframes(
+                clip,
+                &keyframes,
+                clip.source_start,
+                clip.source_end,
+            )
+            .map_err(|e| MiniterError::Apply { detail: e.to_string() })?;
+            Ok(duration.as_micros())
         }
 
         pub fn duration_us(&self) -> i64 {
@@ -958,6 +989,34 @@ mod web_ffi {
             };
             serde_json::to_string(&frame)
                 .map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))
+        }
+
+        #[wasm_bindgen(js_name = predictedSpeedCurveDurationUs)]
+        pub fn predicted_speed_curve_duration_us(
+            &self,
+            clip_id: String,
+            keyframes_json: String,
+        ) -> Result<f64, JsValue> {
+            let keyframes: Vec<Keyframe> = serde_json::from_str(&keyframes_json)
+                .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))?;
+            let id = uuid::Uuid::parse_str(clip_id.trim())
+                .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))?;
+            let state = self.0.0.lock().map_err(|_| JsValue::from_str("Lock poisoned"))?;
+            let clip_id = ClipId(id);
+            let clip = state
+                .project
+                .timeline
+                .track_of_clip(clip_id)
+                .and_then(|track| track.clip_by_id(clip_id))
+                .ok_or_else(|| JsValue::from_str(&format!("Clip {} not found", clip_id.0)))?;
+            let duration = reducer::timeline_duration_for_speed_keyframes(
+                clip,
+                &keyframes,
+                clip.source_start,
+                clip.source_end,
+            )
+            .map_err(|e| JsValue::from_str(&format!("Apply error: {e}")))?;
+            Ok(duration.as_micros() as f64)
         }
 
         #[wasm_bindgen(js_name = durationUs)]

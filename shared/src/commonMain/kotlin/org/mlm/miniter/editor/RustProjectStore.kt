@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
@@ -163,6 +164,15 @@ class RustProjectStore(
     }
 
     fun durationUs(): Long = repository.currentOrNull()?.durationUs() ?: 0L
+
+    fun predictedSpeedCurveDurationUs(clipId: String, keyframes: List<RustKeyframe>): Long? {
+        val keyframesJson = wireJson.encodeToString(keyframes)
+        return try {
+            repository.currentOrNull()?.predictedSpeedCurveDurationUs(clipId, keyframesJson)
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     fun renderPlanAtPlayhead(width: Int, height: Int): String? {
         return repository.currentOrNull()?.renderPlanAtPlayhead(width, height)

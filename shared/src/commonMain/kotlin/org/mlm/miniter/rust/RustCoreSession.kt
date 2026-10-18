@@ -49,6 +49,7 @@ expect class RustCoreSession {
     fun renderPlanAtPlayhead(width: Int, height: Int): String
     fun validateRenderPlanAtPlayhead(width: Int, height: Int): String
     fun durationUs(): Long
+    fun predictedSpeedCurveDurationUs(clipId: String, keyframesJson: String): Long
 
     companion object {
         fun fromJson(json: String): RustCoreSession

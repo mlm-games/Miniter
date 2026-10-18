@@ -124,6 +124,9 @@ actual class RustCoreSession private constructor(
 
     actual fun durationUs(): Long = handle.durationUs().toLong()
 
+    actual fun predictedSpeedCurveDurationUs(clipId: String, keyframesJson: String): Long =
+        handle.predictedSpeedCurveDurationUs(clipId, keyframesJson).toLong()
+
     actual companion object {
         @OptIn(ExperimentalEncodingApi::class)
         fun registerFile(path: String, bytes: ByteArray, extension: String?) {

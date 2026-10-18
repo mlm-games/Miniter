@@ -79,6 +79,9 @@ actual class RustCoreSession private constructor(
 
     actual fun durationUs(): Long = handle.durationUs()
 
+    actual fun predictedSpeedCurveDurationUs(clipId: String, keyframesJson: String): Long =
+        handle.predictedSpeedCurveDurationUs(clipId, keyframesJson)
+
     actual companion object {
         actual fun fromJson(json: String): RustCoreSession =
             RustCoreSession(NativeEditorHandle.fromJson(json))

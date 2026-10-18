@@ -18,6 +18,7 @@ miniter-media-native.workspace = true
 serde.workspace = true
 uniffi.workspace = true
 serde_json.workspace = true
+uuid.workspace = true
 log.workspace = true
 thiserror.workspace = true
 image.workspace = true

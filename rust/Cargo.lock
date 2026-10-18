@@ -2051,6 +2051,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "uniffi",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

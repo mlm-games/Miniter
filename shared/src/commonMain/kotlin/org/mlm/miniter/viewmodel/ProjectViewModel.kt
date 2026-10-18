@@ -224,6 +224,8 @@ class ProjectViewModel(
         private const val TIMELINE_THUMBNAIL_WIDTH = 160
         private const val TIMELINE_THUMBNAIL_HEIGHT = 90
         private const val TRANSITION_ADJACENCY_EPSILON_US = 2_000L
+        private const val SPEED_CURVE_MAX_ITERATIONS = 4
+        private const val SPEED_CURVE_TOLERANCE_US = 2_000L
     }
 
     private var hardwareAccelerationEnabled: Boolean = true
@@ -3479,41 +3481,119 @@ class ProjectViewModel(
         } else if (clip.timelineDurationUs <= 0L) {
             return
         }
+        val clipEndUs = clip.timelineStartUs + clip.timelineDurationUs
+        var shiftUs = 0L
+        if (preset != null) {
+            val predictedUs = predictSpeedCurveDurationUs(clipId, preset, clip.timelineDurationUs)
+            if (predictedUs == null) {
+                snackbarManager.showError("Could not measure the speed curve")
+                return
+            }
+            shiftUs = predictedUs - clip.timelineDurationUs
+            if (shiftUs > 0L && straddlesRippleBoundary(clipId, clipEndUs)) {
+                snackbarManager.showError("Another track has a clip across the clip end")
+                return
+            }
+        }
         beginContinuousEdit("Speed curve")
+        var failed = false
         try {
-            removeSpeedKeyframes(clipId)
-            if (preset != null) {
-                var durationUs = clip.timelineDurationUs
-                writeSpeedKeyframes(clipId, preset, durationUs)
-                var iterations = 0
-                while (iterations < 4) {
-                    val nextDurationUs = findRustClip(clipId)?.timelineDurationUs ?: break
-                    if (abs(nextDurationUs - durationUs) <= 2000L) break
-                    removeSpeedKeyframes(clipId)
-                    durationUs = nextDurationUs
-                    writeSpeedKeyframes(clipId, preset, durationUs)
-                    iterations++
-                }
+            if (!removeSpeedKeyframes(clipId)) {
+                failed = true
+            } else if (preset != null && shiftUs > 0L && !rippleFrom(clipId, clipEndUs, shiftUs)) {
+                failed = true
+            } else if (preset != null && !writeSpeedCurveFixedPoint(clipId, preset, clip.timelineDurationUs)) {
+                failed = true
             }
         } finally {
-            commitContinuousEdit()
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
         }
     }
 
-    private fun writeSpeedKeyframes(clipId: String, preset: SpeedCurvePreset, durationUs: Long) {
+    private fun predictSpeedCurveDurationUs(
+        clipId: String,
+        preset: SpeedCurvePreset,
+        durationUs: Long,
+    ): Long? {
+        var baseUs = durationUs
+        var predictedUs =
+            rustStore.predictedSpeedCurveDurationUs(clipId, preset.keyframesFor(baseUs)) ?: return null
+        var longestUs = predictedUs
+        var iterations = 0
+        while (iterations < SPEED_CURVE_MAX_ITERATIONS && abs(predictedUs - baseUs) > SPEED_CURVE_TOLERANCE_US) {
+            baseUs = predictedUs
+            predictedUs =
+                rustStore.predictedSpeedCurveDurationUs(clipId, preset.keyframesFor(baseUs)) ?: return null
+            if (predictedUs > longestUs) longestUs = predictedUs
+            iterations++
+        }
+        return longestUs
+    }
+
+    private fun writeSpeedCurveFixedPoint(
+        clipId: String,
+        preset: SpeedCurvePreset,
+        durationUs: Long,
+    ): Boolean {
+        var baseUs = durationUs
+        if (!writeSpeedKeyframes(clipId, preset, baseUs)) return false
+        var iterations = 0
+        while (iterations < SPEED_CURVE_MAX_ITERATIONS) {
+            val nextDurationUs = findRustClip(clipId)?.timelineDurationUs ?: break
+            if (abs(nextDurationUs - baseUs) <= SPEED_CURVE_TOLERANCE_US) break
+            if (!removeSpeedKeyframes(clipId)) return false
+            baseUs = nextDurationUs
+            if (!writeSpeedKeyframes(clipId, preset, baseUs)) return false
+            iterations++
+        }
+        return true
+    }
+
+    private fun straddlesRippleBoundary(clipId: String, boundaryUs: Long): Boolean {
+        val tracks = rustStore.snapshot.value?.timeline?.tracks ?: return false
+        val track = tracks.firstOrNull { candidate -> candidate.clips.any { it.id == clipId } } ?: return false
+        return tracks.any { other ->
+            other.id != track.id && other.clips.any { clip ->
+                clip.timelineStartUs < boundaryUs &&
+                    clip.timelineStartUs + clip.timelineDurationUs > boundaryUs
+            }
+        }
+    }
+
+    private fun rippleFrom(clipId: String, boundaryUs: Long, shiftUs: Long): Boolean {
+        val tracks = rustStore.snapshot.value?.timeline?.tracks ?: return false
+        for (track in tracks) {
+            val following = track.clips
+                .filter { it.id != clipId && it.timelineStartUs >= boundaryUs }
+                .sortedByDescending { it.timelineStartUs }
+            for (later in following) {
+                val moved = dispatchCoalescing(
+                    rustStore.commands.moveClip(later.id, track.id, later.timelineStartUs + shiftUs),
+                    "Speed curve",
+                )
+                if (!moved) return false
+            }
+        }
+        return true
+    }
+
+    private fun writeSpeedKeyframes(clipId: String, preset: SpeedCurvePreset, durationUs: Long): Boolean {
         for (keyframe in preset.keyframesFor(durationUs)) {
-            dispatchCoalescing(rustStore.commands.addKeyframe(clipId, keyframe), "Speed curve")
+            if (!dispatchCoalescing(rustStore.commands.addKeyframe(clipId, keyframe), "Speed curve")) {
+                return false
+            }
         }
+        return true
     }
 
-    private fun removeSpeedKeyframes(clipId: String) {
-        val clip = findRustClip(clipId) ?: return
-        clip.keyframes.keyframes
+    private fun removeSpeedKeyframes(clipId: String): Boolean {
+        val clip = findRustClip(clipId) ?: return true
+        return clip.keyframes.keyframes
             .withIndex()
             .filter { it.value.param == KeyframeParams.SPEED }
             .map { it.index }
             .sortedDescending()
-            .forEach { index ->
+            .all { index ->
                 dispatchCoalescing(rustStore.commands.removeKeyframe(clipId, index), "Speed curve")
             }
     }
