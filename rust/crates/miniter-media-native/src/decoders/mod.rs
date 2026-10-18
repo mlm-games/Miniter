@@ -102,15 +102,18 @@ pub fn create_backend(
                     // software backend is made on demand and the samples since the last
                     // restart point are replayed through it.
                     let make_sw = move || create_software_backend(fourcc, width, height);
+                    crate::hw_stats::note_decode_session();
                     return Ok(Box::new(hybrid::HybridBackend::new(
                         Box::new(dec),
                         Box::new(make_sw),
                     )));
                 }
+                crate::hw_stats::note_decode_declined();
                 crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
             }
             Err(e) => {
                 log::warn!("HW decoder init failed, falling back to SW: {e:?}");
+                crate::hw_stats::note_decode_declined();
                 crate::HARDWARE_FALLBACK_OCCURRED.store(true, Ordering::SeqCst);
             }
         }

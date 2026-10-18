@@ -7,6 +7,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import org.mlm.miniter.ffi.hardwareStats
 
 private val COMMON_CODECS = listOf("video/avc", "video/hevc", "video/vp8", "video/vp9", "video/av01")
 
@@ -59,3 +60,6 @@ actual fun getSupportedHwCodecs(): List<String> {
         emptyList()
     }
 }
+
+actual fun getHardwareStats(): String =
+    runCatching { hardwareStats() }.getOrDefault("")

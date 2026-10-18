@@ -27,3 +27,6 @@ expect fun isHardwareDecoderGuaranteed(): Boolean
 expect fun getHardwareDecoderStatus(): String
 
 expect fun getSupportedHwCodecs(): List<String>
+
+/** Hardware video counters so far (frames/sessions/declines/fallbacks); empty when none. */
+expect fun getHardwareStats(): String

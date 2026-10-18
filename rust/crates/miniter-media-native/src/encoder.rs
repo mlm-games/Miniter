@@ -7,7 +7,7 @@
 //! backend behavior change can never silently drop a frame).
 
 use crate::export_shared::video_bitrate_bps;
-use crate::frame::RgbaFrame;
+use crate::frame::{MatrixCoeffs, RgbaFrame};
 use crate::yuv::rgba_to_yuv420;
 
 #[derive(Debug, thiserror::Error)]
@@ -48,6 +48,7 @@ pub struct VideoEncodeSession {
     /// future config change (a `Skipped` output must map back to its input
     /// PTS instead of inheriting a later frame's).
     pending_pts: std::collections::VecDeque<i64>,
+    sps_patched: bool,
 }
 
 impl VideoEncodeSession {
@@ -88,6 +89,7 @@ impl VideoEncodeSession {
             height,
             frame_index: 0,
             pending_pts: std::collections::VecDeque::new(),
+            sps_patched: false,
         })
     }
 
@@ -110,6 +112,7 @@ impl VideoEncodeSession {
         if bytes.is_empty() {
             return Ok(EncodedVideoOutput::Skipped);
         }
+        let bytes = self.patch_first_sps(bytes, frame.color_info.matrix);
         let pts = self.pending_pts.pop_front().unwrap_or(frame.pts_us);
         Ok(EncodedVideoOutput::Sample {
             is_keyframe: is_idr_access_unit(&bytes),
@@ -123,6 +126,7 @@ impl VideoEncodeSession {
     pub fn finish(&mut self) -> Vec<EncodedVideoOutput> {
         let mut out = Vec::new();
         for bytes in [self.encoder.flush()].into_iter().filter(|b| !b.is_empty()) {
+            let bytes = self.patch_first_sps(bytes, MatrixCoeffs::Bt709);
             let pts = self.pending_pts.pop_front().unwrap_or(0);
             out.push(EncodedVideoOutput::Sample {
                 is_keyframe: is_idr_access_unit(&bytes),
@@ -140,6 +144,26 @@ impl VideoEncodeSession {
         self.height
     }
 
+    /// The software encoder writes no VUI, leaving the stream at the decoder
+    /// default for range and coefficients; attach the colour signal to the
+    /// first SPS so players need not infer it.
+    fn patch_first_sps(&mut self, bytes: Vec<u8>, matrix: MatrixCoeffs) -> Vec<u8> {
+        if self.sps_patched || bytes.is_empty() {
+            return bytes;
+        }
+        let signal = nuxodecs::codec::h264::ColorSignal {
+            full_range: false,
+            matrix_coefficients: matrix_coefficients(matrix),
+        };
+        match nuxodecs::codec::h264::set_sps_colour(&bytes, signal) {
+            Some(patched) => {
+                self.sps_patched = true;
+                patched
+            }
+            None => bytes,
+        }
+    }
+
     fn to_planes(&self, frame: &RgbaFrame) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), EncodeError> {
         Ok(rgba_to_yuv420(
             &frame.data,
@@ -147,6 +171,18 @@ impl VideoEncodeSession {
             self.height as usize,
             frame.color_info.matrix,
         ))
+    }
+}
+
+/// ITU-T H.273 `matrix_coefficients` for the matrix the input was converted
+/// with.
+fn matrix_coefficients(matrix: MatrixCoeffs) -> u8 {
+    match matrix {
+        MatrixCoeffs::Bt601 => 6,    // SMPTE 170M
+        MatrixCoeffs::Bt709 => 1,    // BT.709
+        MatrixCoeffs::Bt2020Ncl => 9,  // BT.2020 non-constant luminance
+        MatrixCoeffs::Bt2020Cl => 10, // BT.2020 constant luminance
+        MatrixCoeffs::Identity => 0, // identity
     }
 }
 

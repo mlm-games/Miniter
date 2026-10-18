@@ -653,6 +653,16 @@ mod native_ffi {
             .unwrap_or_default()
     }
 
+    /// Hardware video counters so far: frames/sessions the platform decoder and
+    /// encoder handled, streams it declined, and mid-stream fallbacks. Empty
+    /// before anything ran on hardware.
+    #[uniffi::export]
+    pub fn hardware_stats() -> String {
+        miniter_media_native::hw_stats::stats()
+            .summary()
+            .unwrap_or_default()
+    }
+
     #[uniffi::export]
     pub fn export_progress() -> u32 {
         EXPORT_PROGRESS.load(Ordering::SeqCst)

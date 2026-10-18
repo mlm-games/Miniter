@@ -2078,6 +2078,7 @@ dependencies = [
  "miniter-domain",
  "miniter-render-plan",
  "muxfin",
+ "nuxodecs",
  "oporus",
  "palette",
  "rav1e",

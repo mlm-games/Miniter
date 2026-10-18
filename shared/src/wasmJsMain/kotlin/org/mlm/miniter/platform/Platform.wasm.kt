@@ -34,3 +34,5 @@ actual fun getHardwareDecoderStatus(): String {
 actual fun getSupportedHwCodecs(): List<String> {
     return supportedHwCodecs
 }
+
+actual fun getHardwareStats(): String = ""

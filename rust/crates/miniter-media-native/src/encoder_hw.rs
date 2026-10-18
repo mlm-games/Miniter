@@ -153,6 +153,7 @@ mod hw {
             } else {
                 0
             };
+            crate::hw_stats::note_encode_session();
             Ok(Self {
                 input,
                 output,
@@ -330,6 +331,7 @@ mod hw {
                 self.input
                     .encode(video_frame, None)
                     .map_err(|e| EncodeError::Backend(format!("HwEncoder encode: {e:?}")))?;
+                crate::hw_stats::note_encode_frame();
 
                 use baabaabaabaabababbababbaa::VideoEncoderOutput;
                 let pkt = self

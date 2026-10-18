@@ -114,6 +114,7 @@ import org.mlm.miniter.engine.isActive
 import org.mlm.miniter.engine.isTerminal
 import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.platform.getHardwareDecoderStatus
+import org.mlm.miniter.platform.getHardwareStats
 import org.mlm.miniter.platform.getSupportedHwCodecs
 import org.mlm.miniter.platform.isHardwareAccelerationAvailable
 import org.mlm.miniter.platform.isProjectExportSupported
@@ -139,6 +140,7 @@ private data class HwCapabilityInfo(
     val available: Boolean,
     val statusText: String,
     val codecs: List<String>,
+    val stats: String = "",
 )
 
 @Composable
@@ -255,6 +257,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                     "Not available on this device"
                 },
                 codecs = getSupportedHwCodecs(),
+                stats = runCatching { getHardwareStats() }.getOrDefault(""),
             )
         }
     }
@@ -720,6 +723,13 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 color = if (hwInfo.available) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (hwInfo.stats.isNotEmpty()) {
+                                Text(
+                                    hwInfo.stats,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             if (hwInfo.codecs.isNotEmpty()) {
                                 Text(
                                     hwInfo.codecs.joinToString(", "),

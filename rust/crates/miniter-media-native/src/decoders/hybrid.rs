@@ -158,10 +158,14 @@ impl VideoDecoderBackend for HybridBackend {
             Ok(frame) => {
                 if let Some(f) = &frame {
                     self.note_emitted(f);
+                    crate::hw_stats::note_decode_frame();
                 }
                 Ok(frame)
             }
-            Err(e) => self.fall_back(e),
+            Err(e) => {
+                crate::hw_stats::note_decode_fallback();
+                self.fall_back(e)
+            }
         }
     }
 
@@ -179,6 +183,7 @@ impl VideoDecoderBackend for HybridBackend {
             Ok(frame) => {
                 if let Some(f) = &frame {
                     self.note_emitted(f);
+                    crate::hw_stats::note_decode_frame();
                 }
                 Ok(frame)
             }

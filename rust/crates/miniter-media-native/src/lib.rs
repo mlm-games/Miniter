@@ -45,6 +45,7 @@ pub mod export;
 pub mod export_shared;
 pub mod filters;
 pub mod frame;
+pub mod hw_stats;
 pub mod image_cache;
 pub mod mux;
 pub mod probe;
