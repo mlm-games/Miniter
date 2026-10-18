@@ -29,6 +29,15 @@ data class RustProjectSnapshot(
     val timeline: RustTimelineSnapshot,
     @SerialName("export_profile")
     val exportProfile: RustExportProfileSnapshot,
+    val markers: List<RustMarkerSnapshot> = emptyList(),
+)
+
+@Serializable
+data class RustMarkerSnapshot(
+    val id: String,
+    val time: Long,
+    val label: String? = null,
+    val color: String? = null,
 )
 
 @Serializable

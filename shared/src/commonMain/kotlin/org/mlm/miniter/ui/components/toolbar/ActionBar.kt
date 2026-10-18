@@ -37,6 +37,9 @@ fun ActionBar(
     detectScenesRunning: Boolean = false,
     autoKeyframeEnabled: Boolean = false,
     onToggleAutoKeyframe: () -> Unit = {},
+    markersCount: Int = 0,
+    markersPanelOpen: Boolean = false,
+    onToggleMarkersPanel: () -> Unit = {},
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -158,6 +161,13 @@ fun ActionBar(
                     }
                 }
             }
+
+            ActionChip(
+                icon = Icons.Default.Bookmarks,
+                label = if (markersCount > 0) "Markers ($markersCount)" else "Markers",
+                onClick = onToggleMarkersPanel,
+                highlighted = markersPanelOpen,
+            )
         }
     }
 }
@@ -227,11 +237,18 @@ private fun ActionChip(
     onClick: () -> Unit,
     isDestructive: Boolean = false,
     enabled: Boolean = true,
+    highlighted: Boolean = false,
 ) {
     val colors = if (isDestructive) {
         AssistChipDefaults.assistChipColors(
             labelColor = MaterialTheme.colorScheme.error,
             leadingIconContentColor = MaterialTheme.colorScheme.error,
+        )
+    } else if (highlighted) {
+        AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            leadingIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         )
     } else {
         AssistChipDefaults.assistChipColors()

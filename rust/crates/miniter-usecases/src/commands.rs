@@ -2,6 +2,7 @@ use miniter_domain::Keyframe;
 use miniter_domain::clip::{Clip, ClipId};
 use miniter_domain::export::ExportProfile;
 use miniter_domain::filter::{AudioFilter, VideoEffect};
+use miniter_domain::marker::{Marker, MarkerId};
 use miniter_domain::mask::{BlendMode, MaskEffect};
 use miniter_domain::text_overlay::TextStyle;
 use miniter_domain::time::{MediaDuration, Timestamp};
@@ -223,6 +224,28 @@ pub enum EditCommand {
         clip_id: ClipId,
         index: usize,
         enabled: bool,
+    },
+    AddMarker {
+        marker: Marker,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    RemoveMarker {
+        marker_id: MarkerId,
+    },
+    MoveMarker {
+        marker_id: MarkerId,
+        new_time: Timestamp,
+    },
+    RelabelMarker {
+        marker_id: MarkerId,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    SetMarkerColor {
+        marker_id: MarkerId,
+        #[serde(default)]
+        color: Option<String>,
     },
     Batch {
         label: String,

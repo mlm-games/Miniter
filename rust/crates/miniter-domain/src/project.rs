@@ -1,4 +1,6 @@
 use crate::export::ExportProfile;
+use crate::marker::{Marker, MarkerId};
+use crate::time::Timestamp;
 use crate::timeline::Timeline;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -32,6 +34,8 @@ pub struct Project {
     pub meta: ProjectMeta,
     pub timeline: Timeline,
     pub export_profile: ExportProfile,
+    #[serde(default)]
+    pub markers: Vec<Marker>,
 }
 
 impl Project {
@@ -50,7 +54,36 @@ impl Project {
             },
             timeline: Timeline::with_defaults(),
             export_profile: ExportProfile::default(),
+            markers: Vec::new(),
         }
+    }
+
+    pub fn marker(&self, id: MarkerId) -> Option<&Marker> {
+        self.markers.iter().find(|marker| marker.id == id)
+    }
+
+    pub fn marker_mut(&mut self, id: MarkerId) -> Option<&mut Marker> {
+        self.markers.iter_mut().find(|marker| marker.id == id)
+    }
+
+    pub fn marker_insert_index(&self, time: Timestamp) -> usize {
+        self.markers.partition_point(|marker| marker.time <= time)
+    }
+
+    pub fn insert_marker(&mut self, marker: Marker, index: Option<usize>) {
+        let at = index
+            .unwrap_or_else(|| self.marker_insert_index(marker.time))
+            .min(self.markers.len());
+        self.markers.insert(at, marker);
+    }
+
+    pub fn remove_marker(&mut self, id: MarkerId) -> Option<(usize, Marker)> {
+        let index = self.markers.iter().position(|marker| marker.id == id)?;
+        Some((index, self.markers.remove(index)))
+    }
+
+    pub fn sort_markers(&mut self) {
+        self.markers.sort_by_key(|marker| marker.time);
     }
 
     pub fn normalize(mut self) -> Self {
@@ -59,6 +92,8 @@ impl Project {
                 clip.normalize_source_bounds_in_place();
             }
         }
+        self.markers.retain(|marker| marker.time.as_micros() >= 0);
+        self.sort_markers();
         self
     }
 

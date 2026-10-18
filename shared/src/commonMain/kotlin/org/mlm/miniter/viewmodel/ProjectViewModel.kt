@@ -51,6 +51,7 @@ import org.mlm.miniter.editor.model.RustReverseAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustReverseVideoFilterSnapshot
 import org.mlm.miniter.editor.model.RustRotateFilterSnapshot
 import org.mlm.miniter.editor.model.RustLutFilterSnapshot
+import org.mlm.miniter.editor.model.RustMarkerSnapshot
 import org.mlm.miniter.editor.model.RustMosaicFilterSnapshot
 import org.mlm.miniter.editor.model.RustSaturationFilterSnapshot
 import org.mlm.miniter.editor.model.RustVignetteFilterSnapshot
@@ -2553,6 +2554,55 @@ class ProjectViewModel(
         }
     }
 
+    fun addMarkerAtPlayhead() {
+        addMarker(_state.value.playheadMs)
+    }
+
+    fun addMarker(timeMs: Long): String? {
+        val marker = RustMarkerSnapshot(
+            id = randomUuid(),
+            time = timeMs.coerceAtLeast(0L).msToUs,
+        )
+        return if (applyMarkerEdit("Add marker", rustStore.commands.addMarker(marker))) {
+            marker.id
+        } else {
+            null
+        }
+    }
+
+    fun removeMarker(markerId: String) {
+        applyMarkerEdit("Remove marker", rustStore.commands.removeMarker(markerId))
+    }
+
+    fun moveMarker(markerId: String, timeMs: Long) {
+        applyMarkerEdit(
+            "Move marker",
+            rustStore.commands.moveMarker(markerId, timeMs.coerceAtLeast(0L).msToUs),
+        )
+    }
+
+    fun relabelMarker(markerId: String, label: String) {
+        applyMarkerEdit(
+            "Label marker",
+            rustStore.commands.relabelMarker(markerId, label.trim().ifEmpty { null }),
+        )
+    }
+
+    fun setMarkerColor(markerId: String, color: String?) {
+        applyMarkerEdit("Marker color", rustStore.commands.setMarkerColor(markerId, color))
+    }
+
+    private fun applyMarkerEdit(label: String, commandJson: String): Boolean {
+        beginContinuousEdit(label)
+        var failed = false
+        try {
+            if (!dispatchCoalescing(commandJson, label)) failed = true
+        } finally {
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
+        return !failed
+    }
+
     fun removeSilence(clipId: String) {
         if (_state.value.removeSilenceRunning ||
             _state.value.autoReframeRunning ||
@@ -3927,6 +3977,15 @@ class ProjectViewModel(
             if (dbe < minDist) {
                 nearest = beatMs
                 minDist = dbe
+            }
+        }
+
+        for (marker in snapshot.markers) {
+            val markerMs = marker.time.usToMs
+            val dm = kotlin.math.abs(ms - markerMs)
+            if (dm < minDist) {
+                nearest = markerMs
+                minDist = dm
             }
         }
 

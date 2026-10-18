@@ -26,8 +26,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -36,6 +38,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -44,6 +47,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import org.mlm.miniter.editor.model.RustAdjustmentClipKind
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustClipSnapshot
+import org.mlm.miniter.editor.model.RustMarkerSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
@@ -56,6 +60,7 @@ import org.mlm.miniter.engine.THUMBNAIL_BUCKET_US
 import org.mlm.miniter.engine.ThumbnailKey
 import org.mlm.miniter.engine.thumbnailKey
 import org.mlm.miniter.engine.toImageBitmap
+import org.mlm.miniter.platform.usToMs
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.paramDefOrUnknown
 import kotlin.math.abs
@@ -74,6 +79,7 @@ private val FILMSTRIP_FRAME_WIDTH = 56.dp
 private const val MAX_FILMSTRIP_FRAMES = 6
 private const val MIN_TIMELINE_DURATION_MS = 30_000L
 private const val TIMELINE_PADDING_MS = 5000L
+private const val MARKER_HIT_TOLERANCE_DP = 6f
 
 enum class ClipSelectionMode { Replace, Toggle, Extend }
 
@@ -114,6 +120,10 @@ fun TimelinePanel(
     selectedClipIds: Set<String>,
     snapIndicatorMs: Long?,
     beatMarkersMs: List<Long> = emptyList(),
+    markers: List<RustMarkerSnapshot> = emptyList(),
+    onMarkerAdd: (Long) -> Unit = {},
+    onMarkerRemove: (String) -> Unit = {},
+    modifier: Modifier = Modifier,
     onPlayheadChange: (Long) -> Unit,
     onClipSelected: (String?, ClipSelectionMode) -> Unit,
     onBeginEdit: () -> Unit,
@@ -186,16 +196,20 @@ fun TimelinePanel(
     val playheadColor = MaterialTheme.colorScheme.error
     val snapLineColor = Color.Cyan
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize()) {
         TimelineRuler(
             timelineDurationMs = timelineDurationMs,
             dpPerMs = dpPerMs,
             playheadMs = playheadMs,
             scrollState = horizontalScrollState,
             beatMarkersMs = beatMarkersMs,
+            markers = markers,
             onTap = { tapDp ->
                 onPlayheadChange(xToMs(tapDp, dpPerMs, timelineDurationMs))
             },
+            onSeek = onPlayheadChange,
+            onMarkerAdd = onMarkerAdd,
+            onMarkerRemove = onMarkerRemove,
         )
 
         HorizontalDivider(thickness = 0.5.dp)
@@ -266,14 +280,24 @@ private fun TimelineRuler(
     playheadMs: Long,
     scrollState: ScrollState,
     beatMarkersMs: List<Long>,
+    markers: List<RustMarkerSnapshot>,
     onTap: (tapDp: Float) -> Unit,
+    onSeek: (Long) -> Unit,
+    onMarkerAdd: (Long) -> Unit,
+    onMarkerRemove: (String) -> Unit,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val rulerTextColor = MaterialTheme.colorScheme.onSurfaceVariant
     val rulerLineColor = MaterialTheme.colorScheme.outlineVariant
     val playheadColor = MaterialTheme.colorScheme.error
     val beatMarkerColor = MaterialTheme.colorScheme.tertiary
+    val markerColor = MaterialTheme.colorScheme.secondary
     val density = LocalDensity.current
+    val currentMarkers by rememberUpdatedState(markers)
+
+    var menuTimeMs by remember { mutableStateOf<Long?>(null) }
+    var menuMarkerId by remember { mutableStateOf<String?>(null) }
+    var menuXDp by remember { mutableStateOf(0f) }
 
     Row(modifier = Modifier.fillMaxWidth().height(RULER_HEIGHT)) {
         Box(
@@ -286,67 +310,163 @@ private fun TimelineRuler(
                 modifier = Modifier.padding(end = 8.dp))
         }
         VerticalDivider(thickness = 0.5.dp)
-        Box(
-            Modifier.weight(1f).fillMaxHeight().clipToBounds()
-                .horizontalScroll(scrollState)
-        ) {
-            // The gesture lives on the content, not the scroll container, so a
-            // drag on the ruler scrubs instead of panning: the ruler is the
-            // scrubber, the track area still pans.
-            Canvas(
-                Modifier.width(cappedTimelineWidthDp(timelineDurationMs, dpPerMs).dp)
-                    .fillMaxHeight()
-                    .pointerInput(dpPerMs) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            onTap(down.position.x / density.density)
-                            drag(down.id) { change ->
-                                onTap(change.position.x / density.density)
-                                change.consume()
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            Box(
+                Modifier.fillMaxSize().clipToBounds()
+                    .horizontalScroll(scrollState)
+            ) {
+                Canvas(
+                    Modifier.width(cappedTimelineWidthDp(timelineDurationMs, dpPerMs).dp)
+                        .fillMaxHeight()
+                        .pointerInput(dpPerMs) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                if (currentEvent.buttons.isSecondaryPressed) return@awaitEachGesture
+                                val downDp = down.position.x / density.density
+                                val hit = markerAt(downDp, currentMarkers, dpPerMs, timelineDurationMs)
+                                if (hit != null) {
+                                    onSeek(hit.time.usToMs)
+                                    return@awaitEachGesture
+                                }
+                                onTap(downDp)
+                                drag(down.id) { change ->
+                                    onTap(change.position.x / density.density)
+                                    change.consume()
+                                }
                             }
                         }
+                        .pointerInput(dpPerMs) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    if (event.type == PointerEventType.Press &&
+                                        event.buttons.isSecondaryPressed
+                                    ) {
+                                        val change = event.changes.first()
+                                        val contentDp = change.position.x / density.density
+                                        menuXDp = (change.position.x - scrollState.value) / density.density
+                                        menuTimeMs = xToMs(contentDp, dpPerMs, timelineDurationMs)
+                                        menuMarkerId = markerAt(
+                                            contentDp,
+                                            currentMarkers,
+                                            dpPerMs,
+                                            timelineDurationMs,
+                                        )?.id
+                                        change.consume()
+                                    }
+                                }
+                            }
+                        }
+                ) {
+                    val h = size.height
+                    val majorMs = when {
+                        dpPerMs >= 0.5f -> 1_000L; dpPerMs >= 0.2f -> 2_000L
+                        dpPerMs >= 0.1f -> 5_000L; dpPerMs >= 0.05f -> 10_000L
+                        else -> 30_000L
                     }
+                    val minorMs = majorMs / 5
+                    val visibleMs = visibleDurationMs(timelineDurationMs, dpPerMs)
+                    var ms = 0L
+                    while (ms <= visibleMs) {
+                        val x = ms * dpPerMs * density.density
+                        if (ms % majorMs == 0L) {
+                            drawLine(rulerLineColor, Offset(x, h * 0.4f), Offset(x, h), 1.5f)
+                            val result = textMeasurer.measure(
+                                formatRulerTime(ms),
+                                TextStyle(fontSize = 10.sp, color = rulerTextColor)
+                            )
+                            drawText(result, topLeft = Offset(x + 3f, 2f))
+                        } else {
+                            drawLine(rulerLineColor.copy(0.4f), Offset(x, h * 0.7f), Offset(x, h), 0.5f)
+                        }
+                        ms += minorMs
+                    }
+                    val beatTop = h * 0.55f
+                    val beatBottom = h * 0.8f
+                    for (beatMs in beatMarkersMs) {
+                        val bx = msToX(beatMs, dpPerMs, timelineDurationMs) * density.density
+                        if (bx < 0f || bx > size.width) continue
+                        drawLine(beatMarkerColor, Offset(bx, beatTop), Offset(bx, beatBottom), 1f)
+                    }
+                    for (marker in markers) {
+                        val mx = msToX(marker.time.usToMs, dpPerMs, timelineDurationMs) * density.density
+                        if (mx < 0f || mx > size.width) continue
+                        drawLine(markerColor, Offset(mx, h * 0.3f), Offset(mx, h), 1.5f)
+                        val flag = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(mx - 4f, 0f)
+                            lineTo(mx + 4f, 0f)
+                            lineTo(mx + 4f, h * 0.24f)
+                            lineTo(mx, h * 0.3f)
+                            lineTo(mx - 4f, h * 0.24f)
+                            close()
+                        }
+                        drawPath(flag, markerColor)
+                    }
+                    val phX = msToX(playheadMs, dpPerMs, timelineDurationMs) * density.density
+                    val hs = PLAYHEAD_HEAD_SIZE.toPx()
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(phX - hs / 2, 0f); lineTo(phX + hs / 2, 0f); lineTo(phX, hs); close()
+                    }
+                    drawPath(path, playheadColor)
+                    drawLine(playheadColor, Offset(phX, hs), Offset(phX, h), 2f)
+                }
+            }
+
+            val menuMs = menuTimeMs
+            DropdownMenu(
+                expanded = menuMs != null,
+                onDismissRequest = { menuTimeMs = null; menuMarkerId = null },
+                offset = DpOffset(menuXDp.dp, RULER_HEIGHT),
             ) {
-                val h = size.height
-                val majorMs = when {
-                    dpPerMs >= 0.5f -> 1_000L; dpPerMs >= 0.2f -> 2_000L
-                    dpPerMs >= 0.1f -> 5_000L; dpPerMs >= 0.05f -> 10_000L
-                    else -> 30_000L
+                DropdownMenuItem(
+                    text = { Text("Add marker at ${formatRulerTime(menuMs ?: 0L)}") },
+                    leadingIcon = { Icon(Icons.Default.BookmarkAdd, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        menuMs?.let { onMarkerAdd(it) }
+                        menuTimeMs = null
+                        menuMarkerId = null
+                    },
+                )
+                val markerId = menuMarkerId
+                if (markerId != null) {
+                    DropdownMenuItem(
+                        text = { Text("Remove marker") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Delete, null,
+                                Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            onMarkerRemove(markerId)
+                            menuTimeMs = null
+                            menuMarkerId = null
+                        },
+                    )
                 }
-                val minorMs = majorMs / 5
-                val visibleMs = visibleDurationMs(timelineDurationMs, dpPerMs)
-                var ms = 0L
-                while (ms <= visibleMs) {
-                    val x = ms * dpPerMs * density.density
-                    if (ms % majorMs == 0L) {
-                        drawLine(rulerLineColor, Offset(x, h * 0.4f), Offset(x, h), 1.5f)
-                        val result = textMeasurer.measure(
-                            formatRulerTime(ms),
-                            TextStyle(fontSize = 10.sp, color = rulerTextColor)
-                        )
-                        drawText(result, topLeft = Offset(x + 3f, 2f))
-                    } else {
-                        drawLine(rulerLineColor.copy(0.4f), Offset(x, h * 0.7f), Offset(x, h), 0.5f)
-                    }
-                    ms += minorMs
-                }
-                val beatTop = h * 0.55f
-                val beatBottom = h * 0.8f
-                for (beatMs in beatMarkersMs) {
-                    val bx = msToX(beatMs, dpPerMs, timelineDurationMs) * density.density
-                    if (bx < 0f || bx > size.width) continue
-                    drawLine(beatMarkerColor, Offset(bx, beatTop), Offset(bx, beatBottom), 1f)
-                }
-                val phX = msToX(playheadMs, dpPerMs, timelineDurationMs) * density.density
-                val hs = PLAYHEAD_HEAD_SIZE.toPx()
-                val path = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(phX - hs / 2, 0f); lineTo(phX + hs / 2, 0f); lineTo(phX, hs); close()
-                }
-                drawPath(path, playheadColor)
-                drawLine(playheadColor, Offset(phX, hs), Offset(phX, h), 2f)
             }
         }
     }
+}
+
+private fun markerAt(
+    xDp: Float,
+    markers: List<RustMarkerSnapshot>,
+    dpPerMs: Float,
+    timelineDurationMs: Long,
+): RustMarkerSnapshot? {
+    var best: RustMarkerSnapshot? = null
+    var bestDist = MARKER_HIT_TOLERANCE_DP
+    for (marker in markers) {
+        val x = msToX(marker.time.usToMs, dpPerMs, timelineDurationMs)
+        val dist = kotlin.math.abs(x - xDp)
+        if (dist <= bestDist) {
+            best = marker
+            bestDist = dist
+        }
+    }
+    return best
 }
 
 @Composable

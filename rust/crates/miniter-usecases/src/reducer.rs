@@ -4,6 +4,7 @@ use crate::selection::Selection;
 use miniter_domain::clip::{Clip, ClipId, ClipKind};
 use miniter_domain::filter::{AudioFilter, VideoEffect};
 use miniter_domain::keyframe::{Keyframe, KeyframeCurve, param};
+use miniter_domain::marker::MarkerId;
 use miniter_domain::project::Project;
 use miniter_domain::time::{MediaDuration, Timestamp, scale_us_round, unscale_us_round};
 use miniter_domain::track::{Track, TrackId};
@@ -710,6 +711,65 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
                 clip_id,
                 index: restored,
                 keyframe: old,
+            })
+        }
+
+        EditCommand::AddMarker { mut marker, index } => {
+            marker.time = marker.time.clamp_non_negative();
+            let marker_id = marker.id;
+            state.project.insert_marker(marker, index);
+            Ok(EditCommand::RemoveMarker { marker_id })
+        }
+
+        EditCommand::RemoveMarker { marker_id } => {
+            let (index, marker) = state
+                .project
+                .remove_marker(marker_id)
+                .ok_or(ApplyError::MarkerNotFound(marker_id))?;
+            Ok(EditCommand::AddMarker {
+                marker,
+                index: Some(index),
+            })
+        }
+
+        EditCommand::MoveMarker {
+            marker_id,
+            new_time,
+        } => {
+            let marker = state
+                .project
+                .marker_mut(marker_id)
+                .ok_or(ApplyError::MarkerNotFound(marker_id))?;
+            let old_time = marker.time;
+            marker.time = new_time.clamp_non_negative();
+            state.project.sort_markers();
+            Ok(EditCommand::MoveMarker {
+                marker_id,
+                new_time: old_time,
+            })
+        }
+
+        EditCommand::RelabelMarker { marker_id, label } => {
+            let marker = state
+                .project
+                .marker_mut(marker_id)
+                .ok_or(ApplyError::MarkerNotFound(marker_id))?;
+            let old_label = std::mem::replace(&mut marker.label, label);
+            Ok(EditCommand::RelabelMarker {
+                marker_id,
+                label: old_label,
+            })
+        }
+
+        EditCommand::SetMarkerColor { marker_id, color } => {
+            let marker = state
+                .project
+                .marker_mut(marker_id)
+                .ok_or(ApplyError::MarkerNotFound(marker_id))?;
+            let old_color = std::mem::replace(&mut marker.color, color);
+            Ok(EditCommand::SetMarkerColor {
+                marker_id,
+                color: old_color,
             })
         }
 
@@ -1688,6 +1748,9 @@ pub enum ApplyError {
 
     #[error("Clip not found: {0:?}")]
     ClipNotFound(ClipId),
+
+    #[error("Marker not found: {0:?}")]
+    MarkerNotFound(MarkerId),
 
     #[error("Track is locked: {0:?}")]
     TrackLocked(miniter_domain::track::TrackId),

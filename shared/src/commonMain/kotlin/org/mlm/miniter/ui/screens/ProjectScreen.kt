@@ -43,6 +43,7 @@ import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.components.preview.EditorVideoPreview
 import org.mlm.miniter.ui.components.properties.PropertiesBottomSheet
 import org.mlm.miniter.ui.components.timeline.ClipSelectionMode
+import org.mlm.miniter.ui.components.timeline.MarkersPanel
 import org.mlm.miniter.ui.components.timeline.TimelinePanel
 import org.mlm.miniter.ui.components.toolbar.ActionBar
 import org.mlm.miniter.ui.components.toolbar.CompactTopBar
@@ -86,6 +87,8 @@ fun ProjectScreen(
     var showExitConfirm by remember { mutableStateOf(false) }
     var showPropertiesSheet by remember { mutableStateOf(false) }
     var autoKeyframeEnabled by remember { mutableStateOf(false) }
+    var markersPanelOpen by remember { mutableStateOf(false) }
+    var markerLabelFocused by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val scope = rememberCoroutineScope()
@@ -137,7 +140,7 @@ fun ProjectScreen(
             .focusRequester(editorFocusRequester)
             .onFocusChanged { if (!it.hasFocus) editorFocusRequester.requestFocus() }
             .focusable()
-            .onKeyEvent { vm.handleEditorShortcut(it, snapshot) },
+            .onKeyEvent { if (markerLabelFocused) false else vm.handleEditorShortcut(it, snapshot) },
     ) {
 
         CompactTopBar(
@@ -292,6 +295,9 @@ fun ProjectScreen(
             detectScenesRunning = sceneDetectRunning,
             autoKeyframeEnabled = autoKeyframeEnabled,
             onToggleAutoKeyframe = { autoKeyframeEnabled = !autoKeyframeEnabled },
+            markersCount = snapshot?.markers?.size ?: 0,
+            markersPanelOpen = markersPanelOpen,
+            onToggleMarkersPanel = { markersPanelOpen = !markersPanelOpen },
         )
 
         HorizontalDivider(thickness = 0.5.dp)
@@ -302,55 +308,74 @@ fun ProjectScreen(
                 .weight(0.35f),
             color = MaterialTheme.colorScheme.surfaceContainer,
         ) {
-            TimelinePanel(
-                snapshot = snapshot,
-                playheadMs = playheadMs,
-                zoomLevel = zoomLevel,
-                isPlaying = isPlaying,
-                selectedClipIds = selectedClipIds,
-                snapIndicatorMs = snapIndicatorMs,
-                beatMarkersMs = vm.beatMarkersMs.collectAsState().value,
-                onPlayheadChange = vm::seekTo,
-                onClipSelected = { clipId, mode ->
-                    when (mode) {
-                        ClipSelectionMode.Replace -> vm.selectClip(clipId)
-                        ClipSelectionMode.Toggle -> if (clipId == null) vm.clearClipSelection() else vm.toggleClipSelection(clipId)
-                        ClipSelectionMode.Extend -> if (clipId == null) vm.clearClipSelection() else vm.extendClipSelection(clipId)
-                    }
-                },
-                onBeginEdit = vm::beginEdit,
-                onClipMoveAbsolute = vm::moveClipAbsolute,
-                onClipMoveToTrack = vm::moveClipToTrack,
-                onCommitEdit = vm::commitEdit,
-                onCancelEdit = vm::cancelEdit,
-                onClipTrimStartAbsolute = vm::trimClipStartAbsolute,
-                onClipTrimEndAbsolute = vm::trimClipEndAbsolute,
-                onToggleMute = vm::toggleTrackMute,
-                onToggleLock = vm::toggleTrackLock,
-                onAddTrack = vm::addTrack,
-                onRemoveTrack = vm::removeTrack,
-                onSnapPosition = { ms, excludeIds -> vm.snapPosition(ms, excludeIds) },
-                onClearSnap = vm::clearSnapIndicator,
-                onSplitClip = vm::splitClipAtPlayhead,
-                onJoinClip = vm::joinClipWithNext,
-                onDuplicateClip = vm::duplicateClip,
-                onCopyClip = vm::copyClip,
-                onCutClip = vm::cutClip,
-                onPaste = vm::pasteClips,
-                canPaste = hasClipboard,
-                onDeleteClip = vm::removeClip,
-                onRippleDeleteClip = vm::rippleDeleteClip,
-                onToggleClipMute = vm::toggleClipMute,
-                onSplitAll = vm::splitAllAtPlayhead,
-                onCloseGap = vm::closeGapOnTrack,
-                onSlipClip = vm::slipClip,
-                onSlideClip = vm::slideClip,
-                onRollClip = vm::rollClip,
-                waveforms = vm.waveforms.collectAsState().value,
-                onNeedWaveform = vm::requestWaveform,
-                thumbnails = vm.timelineThumbnails.collectAsState().value,
-                onNeedThumbnail = vm::requestTimelineThumbnail,
-            )
+            Row(Modifier.fillMaxSize()) {
+                TimelinePanel(
+                    snapshot = snapshot,
+                    playheadMs = playheadMs,
+                    zoomLevel = zoomLevel,
+                    isPlaying = isPlaying,
+                    selectedClipIds = selectedClipIds,
+                    snapIndicatorMs = snapIndicatorMs,
+                    beatMarkersMs = vm.beatMarkersMs.collectAsState().value,
+                    markers = snapshot?.markers.orEmpty(),
+                    onMarkerAdd = { vm.addMarker(it) },
+                    onMarkerRemove = vm::removeMarker,
+                    modifier = Modifier.weight(1f),
+                    onPlayheadChange = vm::seekTo,
+                    onClipSelected = { clipId, mode ->
+                        when (mode) {
+                            ClipSelectionMode.Replace -> vm.selectClip(clipId)
+                            ClipSelectionMode.Toggle -> if (clipId == null) vm.clearClipSelection() else vm.toggleClipSelection(clipId)
+                            ClipSelectionMode.Extend -> if (clipId == null) vm.clearClipSelection() else vm.extendClipSelection(clipId)
+                        }
+                    },
+                    onBeginEdit = vm::beginEdit,
+                    onClipMoveAbsolute = vm::moveClipAbsolute,
+                    onClipMoveToTrack = vm::moveClipToTrack,
+                    onCommitEdit = vm::commitEdit,
+                    onCancelEdit = vm::cancelEdit,
+                    onClipTrimStartAbsolute = vm::trimClipStartAbsolute,
+                    onClipTrimEndAbsolute = vm::trimClipEndAbsolute,
+                    onToggleMute = vm::toggleTrackMute,
+                    onToggleLock = vm::toggleTrackLock,
+                    onAddTrack = vm::addTrack,
+                    onRemoveTrack = vm::removeTrack,
+                    onSnapPosition = { ms, excludeIds -> vm.snapPosition(ms, excludeIds) },
+                    onClearSnap = vm::clearSnapIndicator,
+                    onSplitClip = vm::splitClipAtPlayhead,
+                    onJoinClip = vm::joinClipWithNext,
+                    onDuplicateClip = vm::duplicateClip,
+                    onCopyClip = vm::copyClip,
+                    onCutClip = vm::cutClip,
+                    onPaste = vm::pasteClips,
+                    canPaste = hasClipboard,
+                    onDeleteClip = vm::removeClip,
+                    onRippleDeleteClip = vm::rippleDeleteClip,
+                    onToggleClipMute = vm::toggleClipMute,
+                    onSplitAll = vm::splitAllAtPlayhead,
+                    onCloseGap = vm::closeGapOnTrack,
+                    onSlipClip = vm::slipClip,
+                    onSlideClip = vm::slideClip,
+                    onRollClip = vm::rollClip,
+                    waveforms = vm.waveforms.collectAsState().value,
+                    onNeedWaveform = vm::requestWaveform,
+                    thumbnails = vm.timelineThumbnails.collectAsState().value,
+                    onNeedThumbnail = vm::requestTimelineThumbnail,
+                )
+
+                if (markersPanelOpen) {
+                    VerticalDivider(thickness = 0.5.dp)
+                    MarkersPanel(
+                        markers = snapshot?.markers.orEmpty(),
+                        onSeek = vm::seekTo,
+                        onAddAtPlayhead = vm::addMarkerAtPlayhead,
+                        onDelete = vm::removeMarker,
+                        onRelabel = vm::relabelMarker,
+                        onLabelFocusChanged = { markerLabelFocused = it },
+                        modifier = Modifier.width(228.dp).fillMaxHeight(),
+                    )
+                }
+            }
         }
     }
 

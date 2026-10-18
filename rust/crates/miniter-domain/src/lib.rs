@@ -2,6 +2,7 @@ pub mod clip;
 pub mod export;
 pub mod filter;
 pub mod keyframe;
+pub mod marker;
 pub mod mask;
 pub mod project;
 pub mod text_overlay;
@@ -19,6 +20,7 @@ pub use filter::{
 pub use keyframe::{
     Easing, Keyframe, KeyframeCurve, ease_bezier, ease_in, ease_in_out, ease_linear, ease_out, param,
 };
+pub use marker::{Marker, MarkerId};
 pub use mask::{
     BlendMode, MaskComposition, MaskEffect, MaskMode, MaskOperation, MaskPoint, MaskShape,
     MaskSource, MaskTransform, MaskVertex,

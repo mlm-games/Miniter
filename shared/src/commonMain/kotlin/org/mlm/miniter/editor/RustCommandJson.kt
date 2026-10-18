@@ -17,6 +17,7 @@ import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustEasingSerializer
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
 import org.mlm.miniter.editor.model.RustKeyframe
+import org.mlm.miniter.editor.model.RustMarkerSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTextStyleSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
@@ -304,6 +305,42 @@ class RustCommandJson(
             put("clip_id", uuid(clipId))
             put("index", JsonPrimitive(index))
             put("enabled", JsonPrimitive(enabled))
+        }
+
+    fun addMarker(marker: RustMarkerSnapshot): String =
+        wrap("AddMarker") {
+            put("marker", json.encodeToJsonElement(RustMarkerSnapshot.serializer(), marker))
+        }
+
+    fun removeMarker(markerId: String): String =
+        wrap("RemoveMarker") {
+            put("marker_id", uuid(markerId))
+        }
+
+    fun moveMarker(markerId: String, newTimeUs: Long): String =
+        wrap("MoveMarker") {
+            put("marker_id", uuid(markerId))
+            put("new_time", JsonPrimitive(newTimeUs))
+        }
+
+    fun relabelMarker(markerId: String, label: String?): String =
+        wrap("RelabelMarker") {
+            put("marker_id", uuid(markerId))
+            if (label != null) {
+                put("label", JsonPrimitive(label))
+            } else {
+                put("label", JsonNull)
+            }
+        }
+
+    fun setMarkerColor(markerId: String, color: String?): String =
+        wrap("SetMarkerColor") {
+            put("marker_id", uuid(markerId))
+            if (color != null) {
+                put("color", JsonPrimitive(color))
+            } else {
+                put("color", JsonNull)
+            }
         }
 
     fun addKeyframe(clipId: String, keyframe: RustKeyframe): String =
