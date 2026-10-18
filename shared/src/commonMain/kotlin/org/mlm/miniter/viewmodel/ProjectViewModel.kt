@@ -93,6 +93,8 @@ import org.mlm.miniter.rust.BeatTrack
 import org.mlm.miniter.rust.RustCoreSession
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.util.toArgbHex
+import kotlin.math.floor
+import kotlin.math.roundToLong
 import kotlin.time.Clock
 
 data class ImportProgress(
@@ -1765,6 +1767,116 @@ class ProjectViewModel(
             rustStore.commands.setClipSpeed(clipId, speed.toDouble()),
             "Speed",
         )
+    }
+
+    fun freezeFrame(clipId: String, durationSeconds: Float) {
+        if (!durationSeconds.isFinite() || durationSeconds < 1f || durationSeconds > 5f) return
+        val snapshot = rustStore.snapshot.value ?: return
+        val track = snapshot.timeline.tracks.firstOrNull { t -> t.clips.any { it.id == clipId } } ?: return
+        val clip = track.clips.firstOrNull { it.id == clipId } ?: return
+        val video = clip.kind as? RustVideoClipKind ?: return
+        val fps = video.fps
+        val speed = clip.speed
+        val playheadUs = _state.value.playheadMs.msToUs
+        val clipEndUs = clip.timelineStartUs + clip.timelineDurationUs
+        if (!fps.isFinite() || fps <= 0.0) {
+            snackbarManager.showError("Freeze needs a clip with a valid frame rate")
+            return
+        }
+        if (!speed.isFinite() || speed <= 0.0) {
+            snackbarManager.showError("Freeze needs a clip with a valid speed")
+            return
+        }
+        if (clip.keyframes.keyframes.any { it.param == KeyframeParams.SPEED }) {
+            snackbarManager.showError("Freeze is unavailable on speed-ramped clips")
+            return
+        }
+        if (playheadUs < clip.timelineStartUs || playheadUs >= clipEndUs) {
+            snackbarManager.showError("Place the playhead inside the clip to freeze a frame")
+            return
+        }
+        val holdUs = (durationSeconds.toDouble() * 1_000_000.0).roundToLong()
+        val frameUs = (1_000_000.0 / fps).roundToLong().coerceAtLeast(1L)
+        val frameTimelineUs = floor(frameUs.toDouble() / speed).roundToLong().coerceAtLeast(1L)
+        if (holdUs <= frameTimelineUs) {
+            snackbarManager.showError("The hold must be longer than one frame")
+            return
+        }
+
+        beginContinuousEdit("Freeze")
+        var failed = false
+        try {
+            fun send(command: String): Boolean {
+                if (failed) return false
+                if (!dispatchCoalescing(command, "Freeze")) {
+                    failed = true
+                    return false
+                }
+                return true
+            }
+
+            var freezeId = clipId
+            if (playheadUs > clip.timelineStartUs) {
+                val rightId = randomUuid()
+                if (!send(rustStore.commands.splitClip(clipId, playheadUs, rightId))) return
+                freezeId = rightId
+            }
+            val afterFirstSplit = findRustClip(freezeId)
+            if (afterFirstSplit == null) {
+                failed = true
+                return
+            }
+            val pieceEndUs = afterFirstSplit.timelineStartUs + afterFirstSplit.timelineDurationUs
+            val frameEndUs = afterFirstSplit.timelineStartUs + frameTimelineUs
+            if (frameEndUs < pieceEndUs) {
+                if (!send(rustStore.commands.splitClip(freezeId, frameEndUs, randomUuid()))) return
+            }
+            val freeze = findRustClip(freezeId)
+            if (freeze == null) {
+                failed = true
+                return
+            }
+            val shiftUs = holdUs - freeze.timelineDurationUs
+            if (shiftUs <= 0L) {
+                failed = true
+                return
+            }
+            val latestTrack = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { it.id == track.id }
+            if (latestTrack == null) {
+                failed = true
+                return
+            }
+            val freezeEndUs = freeze.timelineStartUs + freeze.timelineDurationUs
+            val following = latestTrack.clips
+                .filter { it.id != freezeId && it.timelineStartUs >= freezeEndUs }
+                .sortedByDescending { it.timelineStartUs }
+            for (later in following) {
+                val newStartUs = later.timelineStartUs + shiftUs
+                if (!send(rustStore.commands.moveClip(later.id, latestTrack.id, newStartUs))) return
+            }
+            val beforeTrim = findRustClip(freezeId)
+            if (beforeTrim == null) {
+                failed = true
+                return
+            }
+            val trimDurationUs = minOf(beforeTrim.timelineDurationUs, frameTimelineUs)
+            if (!send(rustStore.commands.trimClipEnd(freezeId, trimDurationUs))) return
+            val trimmed = findRustClip(freezeId)
+            if (trimmed == null) {
+                failed = true
+                return
+            }
+            val heldSourceUs = (trimmed.sourceEndUs - trimmed.sourceStartUs).coerceAtLeast(1L)
+            val freezeSpeed = heldSourceUs.toDouble() / holdUs.toDouble()
+            if (!send(rustStore.commands.setClipSpeed(freezeId, freezeSpeed))) return
+            val result = findRustClip(freezeId)
+            if (result == null || result.timelineDurationUs != holdUs) {
+                failed = true
+                snackbarManager.showError("Could not apply the freeze duration")
+            }
+        } finally {
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
     }
 
     fun setClipVolume(clipId: String, volume: Float) {

@@ -126,6 +126,7 @@ fun PropertiesPanel(
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
     onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
+    onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
     onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
     onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
@@ -193,6 +194,7 @@ fun PropertiesPanel(
                 onSetBlendMode = onSetBlendMode,
                 onApplyKenBurns = onApplyKenBurns,
                 onFitToCanvas = onFitToCanvas,
+                onFreezeFrame = onFreezeFrame,
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
@@ -264,6 +266,7 @@ private fun VideoClipProperties(
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },
     onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
+    onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
@@ -280,6 +283,12 @@ private fun VideoClipProperties(
     val clipOpacity = clip.opacity
     val clipTransition = clip.transitionIn
     val clipFilters = kind.filters
+    var showFreezeDialog by remember(clip.id) { mutableStateOf(false) }
+    var freezeSeconds by remember(clip.id) { mutableFloatStateOf(2f) }
+    val playheadUs = playheadMs * 1000L
+    val freezeEnabled = kind.fps.isFinite() && kind.fps > 0.0 &&
+        playheadUs >= clip.timelineStartUs &&
+        playheadUs < clip.timelineStartUs + clip.timelineDurationUs
 
     val lutScope = rememberCoroutineScope()
     var lutTarget by remember { mutableStateOf<Pair<Int, RustLutFilterSnapshot>?>(null) }
@@ -427,6 +436,47 @@ private fun VideoClipProperties(
         TextButton(onClick = { onFitToCanvas(clip.id, true) }) {
             Text("Fill")
         }
+        TextButton(
+            onClick = { showFreezeDialog = true },
+            enabled = freezeEnabled,
+        ) {
+            Text("Freeze")
+        }
+    }
+    if (showFreezeDialog) {
+        AlertDialog(
+            onDismissRequest = { showFreezeDialog = false },
+            title = { Text("Freeze frame") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Hold the frame at the playhead for:")
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        (1..5).forEach { seconds ->
+                            FilterChip(
+                                selected = freezeSeconds == seconds.toFloat(),
+                                onClick = { freezeSeconds = seconds.toFloat() },
+                                label = { Text("${seconds}s") },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showFreezeDialog = false
+                        onFreezeFrame(clip.id, freezeSeconds)
+                    },
+                ) {
+                    Text("Freeze")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFreezeDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 
     Spacer(Modifier.height(16.dp))
