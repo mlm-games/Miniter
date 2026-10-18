@@ -658,6 +658,9 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
         }
 
         EditCommand::AddKeyframe { clip_id, keyframe } => {
+            if keyframe.param == param::SPEED {
+                return apply_add_speed_keyframe(state, clip_id, keyframe);
+            }
             let clip = find_clip_mut(state, clip_id)?;
             // `insert_sorted` overwrites an existing keyframe at the same
             // (param, offset) instead of duplicating it. If one was replaced,
@@ -684,6 +687,16 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
         }
 
         EditCommand::RemoveKeyframe { clip_id, index } => {
+            let removes_speed = {
+                let clip = find_clip_mut(state, clip_id)?;
+                clip.keyframes
+                    .keyframes
+                    .get(index)
+                    .is_some_and(|keyframe| keyframe.param == param::SPEED)
+            };
+            if removes_speed {
+                return apply_remove_speed_keyframe(state, clip_id, index);
+            }
             let clip = find_clip_mut(state, clip_id)?;
             if index >= clip.keyframes.keyframes.len() {
                 return Err(ApplyError::IndexOutOfBounds);
@@ -700,6 +713,18 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             index,
             keyframe,
         } => {
+            let touches_speed = {
+                let clip = find_clip_mut(state, clip_id)?;
+                keyframe.param == param::SPEED
+                    || clip
+                        .keyframes
+                        .keyframes
+                        .get(index)
+                        .is_some_and(|current| current.param == param::SPEED)
+            };
+            if touches_speed {
+                return apply_update_speed_keyframe(state, clip_id, index, keyframe);
+            }
             let clip = find_clip_mut(state, clip_id)?;
             if index >= clip.keyframes.keyframes.len() {
                 return Err(ApplyError::IndexOutOfBounds);
@@ -1326,6 +1351,106 @@ fn timeline_duration_from_source_bounds(
     let duration = MediaDuration::from_micros(unscale_us_round(source_us, speed));
     ensure_positive_duration(duration)?;
     Ok(duration)
+}
+
+fn find_keyframe_clip_location(
+    state: &EditorState,
+    clip_id: ClipId,
+) -> Result<(usize, usize), ApplyError> {
+    let (track_idx, clip_idx) = find_clip_location(state, clip_id)?;
+    let track = &state.project.timeline.tracks[track_idx];
+    if track.locked {
+        return Err(ApplyError::TrackLocked(track.id));
+    }
+    Ok((track_idx, clip_idx))
+}
+
+fn commit_speed_keyframe_update(
+    state: &mut EditorState,
+    track_idx: usize,
+    clip_idx: usize,
+    mut updated: Clip,
+) -> Result<(), ApplyError> {
+    let duration = timeline_duration_for_clip(&updated, updated.source_start, updated.source_end)?;
+    updated.timeline_duration = duration;
+    state.project.timeline.tracks[track_idx]
+        .can_insert_clip(&updated, Some(updated.id))
+        .map_err(ApplyError::Overlap)?;
+    state.project.timeline.tracks[track_idx].clips[clip_idx] = updated;
+    Ok(())
+}
+
+fn apply_add_speed_keyframe(
+    state: &mut EditorState,
+    clip_id: ClipId,
+    keyframe: Keyframe,
+) -> Result<EditCommand, ApplyError> {
+    let (track_idx, clip_idx) = find_keyframe_clip_location(state, clip_id)?;
+    let mut updated = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
+    let replaced = updated
+        .keyframes
+        .keyframes
+        .iter()
+        .position(|k| k.param == keyframe.param && k.offset == keyframe.offset)
+        .map(|i| updated.keyframes.keyframes[i].clone());
+    let idx = updated.keyframes.insert_sorted(keyframe);
+    commit_speed_keyframe_update(state, track_idx, clip_idx, updated)?;
+    Ok(match replaced {
+        Some(previous) => EditCommand::UpdateKeyframe {
+            clip_id,
+            index: idx,
+            keyframe: previous,
+        },
+        None => EditCommand::RemoveKeyframe {
+            clip_id,
+            index: idx,
+        },
+    })
+}
+
+fn apply_remove_speed_keyframe(
+    state: &mut EditorState,
+    clip_id: ClipId,
+    index: usize,
+) -> Result<EditCommand, ApplyError> {
+    let (track_idx, clip_idx) = find_keyframe_clip_location(state, clip_id)?;
+    let mut updated = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
+    if index >= updated.keyframes.keyframes.len() {
+        return Err(ApplyError::IndexOutOfBounds);
+    }
+    let removed = updated.keyframes.keyframes.remove(index);
+    commit_speed_keyframe_update(state, track_idx, clip_idx, updated)?;
+    Ok(EditCommand::AddKeyframe {
+        clip_id,
+        keyframe: removed,
+    })
+}
+
+fn apply_update_speed_keyframe(
+    state: &mut EditorState,
+    clip_id: ClipId,
+    index: usize,
+    keyframe: Keyframe,
+) -> Result<EditCommand, ApplyError> {
+    let (track_idx, clip_idx) = find_keyframe_clip_location(state, clip_id)?;
+    let mut updated = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
+    if index >= updated.keyframes.keyframes.len() {
+        return Err(ApplyError::IndexOutOfBounds);
+    }
+    let old = std::mem::replace(&mut updated.keyframes.keyframes[index], keyframe.clone());
+    updated.keyframes.sort_by_offset();
+    let restored = updated
+        .keyframes
+        .keyframes
+        .iter()
+        .position(|k| k.param == keyframe.param && k.offset == keyframe.offset)
+        .unwrap_or(index);
+    commit_speed_keyframe_update(state, track_idx, clip_idx, updated)?;
+    Ok(EditCommand::UpdateKeyframe {
+        clip_id,
+        index: restored,
+        keyframe: old,
+    })
 }
 
 fn previous_clip_end_before(track: &Track, clip_id: ClipId, start: Timestamp) -> Option<Timestamp> {
