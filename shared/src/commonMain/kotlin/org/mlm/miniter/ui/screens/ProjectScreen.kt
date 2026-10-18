@@ -60,6 +60,7 @@ fun ProjectScreen(
     val isDirty = uiState.isDirty
     val autoReframeRunning = uiState.autoReframeRunning
     val stabilizeRunning = uiState.stabilizeRunning
+    val maskTrackRunning = uiState.maskTrackRunning
     val removeSilenceRunning = uiState.removeSilenceRunning
 
     var showExitConfirm by remember { mutableStateOf(false) }
@@ -346,6 +347,8 @@ fun ProjectScreen(
                 onRemoveKeyframe = vm::removeKeyframe,
                 onUpdateKeyframe = vm::updateKeyframe,
                 onSetSubtitleFont = vm::setSubtitleFont,
+                onTrackMask = vm::trackMask,
+                maskTrackRunning = maskTrackRunning,
                 onAddMask = vm::addMask,
                 onRemoveMask = vm::removeMask,
                 onUpdateMask = vm::updateMask,

@@ -91,6 +91,12 @@ import org.mlm.miniter.project.STABILIZE_MAX_SAMPLES
 import org.mlm.miniter.project.STABILIZE_SAMPLE_STEP_MS
 import org.mlm.miniter.project.SpeedCurvePreset
 import org.mlm.miniter.project.StabilizerAnalysis
+import org.mlm.miniter.project.MOTION_TRACK_MAX_SAMPLES
+import org.mlm.miniter.project.MOTION_TRACK_SAMPLE_STEP_MS
+import org.mlm.miniter.project.MotionTrackerAnalysis
+import org.mlm.miniter.project.maskRegionInVideoFrame
+import org.mlm.miniter.project.maskShapeBounds
+import org.mlm.miniter.project.motionTrackingKeyframes
 import org.mlm.miniter.project.TextAnimationBase
 import org.mlm.miniter.project.TextAnimationPreset
 import org.mlm.miniter.project.autoReframeKeyframes
@@ -137,6 +143,7 @@ data class ProjectUiState(
     val isLoadingThumbnails: Boolean = false,
     val autoReframeRunning: Boolean = false,
     val stabilizeRunning: Boolean = false,
+    val maskTrackRunning: Boolean = false,
     val removeSilenceRunning: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -1912,7 +1919,11 @@ class ProjectViewModel(
     }
 
     fun removeSilence(clipId: String) {
-        if (_state.value.removeSilenceRunning || _state.value.autoReframeRunning || _state.value.stabilizeRunning) return
+        if (_state.value.removeSilenceRunning ||
+            _state.value.autoReframeRunning ||
+            _state.value.stabilizeRunning ||
+            _state.value.maskTrackRunning
+        ) return
         val clip = findRustClip(clipId) ?: return
         val video = clip.kind as? RustVideoClipKind
         if (video == null) {
@@ -2251,7 +2262,7 @@ class ProjectViewModel(
     }
 
     fun autoReframeClip(clipId: String) {
-        if (_state.value.autoReframeRunning) return
+        if (_state.value.autoReframeRunning || _state.value.maskTrackRunning) return
         val snapshot = rustStore.snapshot.value ?: return
         val clip = findRustClip(clipId) ?: return
         val video = clip.kind as? RustVideoClipKind
@@ -2389,7 +2400,7 @@ class ProjectViewModel(
     }
 
     fun stabilizeClip(clipId: String) {
-        if (_state.value.stabilizeRunning || _state.value.autoReframeRunning) return
+        if (_state.value.stabilizeRunning || _state.value.autoReframeRunning || _state.value.maskTrackRunning) return
         val clip = findRustClip(clipId) ?: return
         val video = clip.kind as? RustVideoClipKind
         if (video == null) {
@@ -2522,6 +2533,173 @@ class ProjectViewModel(
             grabber.release()
         }
         return stepMs
+    }
+
+    fun trackMask(clipId: String) {
+        val uiState = _state.value
+        if (uiState.maskTrackRunning || uiState.autoReframeRunning || uiState.stabilizeRunning || uiState.removeSilenceRunning) return
+        val snapshot = rustStore.snapshot.value ?: return
+        val clip = findRustClip(clipId) ?: return
+        val video = clip.kind as? RustVideoClipKind
+        if (video == null) {
+            snackbarManager.showError("Tracking needs a video clip")
+            return
+        }
+        if (video.masks.isEmpty()) {
+            snackbarManager.showError("Tracking needs a mask on this clip")
+            return
+        }
+        if (video.masks.size > 1) {
+            snackbarManager.showError("Tracking needs a single mask: the mask keyframes move every mask on this clip")
+            return
+        }
+        if (!video.fps.isFinite() || video.fps <= 0.0 || video.width <= 0 || video.height <= 0) {
+            snackbarManager.showError("Tracking needs a clip with valid frame rate and dimensions")
+            return
+        }
+        if (video.sourcePath.isBlank()) {
+            snackbarManager.showError("Tracking needs a clip with a source file")
+            return
+        }
+        if (clip.timelineDurationUs <= 0L || clip.sourceEndUs <= clip.sourceStartUs) {
+            snackbarManager.showError("Tracking needs a clip with a valid source range")
+            return
+        }
+        if (clip.keyframes.keyframes.any { it.param == KeyframeParams.SPEED }) {
+            snackbarManager.showError("Tracking does not support speed keyframes")
+            return
+        }
+        val bounds = maskShapeBounds(video.masks.first())
+        if (bounds == null) {
+            snackbarManager.showError("Tracking needs a mask with a visible extent")
+            return
+        }
+        val source = snapshot.timeline.tracks
+            .flatMap { it.clips }
+            .mapNotNull { it.kind as? RustVideoClipKind }
+            .firstOrNull { it.width > 0 && it.height > 0 }
+            ?: video
+        val (canvasWidth, canvasHeight) = snapshot.exportProfile.resolution.pixelSize(source.width, source.height)
+        if (canvasWidth <= 0 || canvasHeight <= 0) {
+            snackbarManager.showError("Tracking needs a valid export resolution")
+            return
+        }
+        val region = maskRegionInVideoFrame(bounds, canvasWidth, canvasHeight, video.width, video.height)
+        if (region == null) {
+            snackbarManager.showError("Tracking could not map the mask onto the video frame")
+            return
+        }
+
+        _state.update { it.copy(maskTrackRunning = true) }
+        viewModelScope.launch {
+            try {
+                val analysis = MotionTrackerAnalysis(region)
+                gatherMotionTrackerFrames(clip, video, analysis)
+                if (analysis.frameCount < 3 || analysis.trackedSteps < 2) {
+                    snackbarManager.showError("Tracking needs at least 3 frames with trackable motion in the mask region")
+                    return@launch
+                }
+                val current = findRustClip(clipId)
+                if (current == null ||
+                    current.timelineDurationUs != clip.timelineDurationUs ||
+                    current.sourceStartUs != clip.sourceStartUs ||
+                    current.sourceEndUs != clip.sourceEndUs
+                ) {
+                    snackbarManager.showError("The clip changed during analysis; run Track again")
+                    return@launch
+                }
+                val currentVideo = current.kind as? RustVideoClipKind
+                if (currentVideo == null) {
+                    snackbarManager.showError("Tracking needs a video clip")
+                    return@launch
+                }
+                if (currentVideo.masks.isEmpty()) {
+                    snackbarManager.showError("Tracking needs a mask on this clip")
+                    return@launch
+                }
+                if (currentVideo.masks.size > 1) {
+                    snackbarManager.showError("Tracking needs a single mask: the mask keyframes move every mask on this clip")
+                    return@launch
+                }
+                val bake = motionTrackingKeyframes(
+                    samples = analysis.motionSamples(),
+                    mask = currentVideo.masks.first(),
+                    videoWidth = currentVideo.width,
+                    videoHeight = currentVideo.height,
+                    canvasWidth = canvasWidth,
+                    canvasHeight = canvasHeight,
+                )
+                if (bake == null) {
+                    snackbarManager.showError("Tracking found no usable motion")
+                    return@launch
+                }
+                beginContinuousEdit("Motion tracking")
+                try {
+                    current.keyframes.keyframes
+                        .withIndex()
+                        .filter { it.value.param in bake.params }
+                        .map { it.index }
+                        .sortedDescending()
+                        .forEach { index ->
+                            dispatchCoalescing(rustStore.commands.removeKeyframe(clipId, index), "Motion tracking")
+                        }
+                    for (keyframe in bake.keyframes) {
+                        dispatchCoalescing(rustStore.commands.addKeyframe(clipId, keyframe), "Motion tracking")
+                    }
+                } finally {
+                    commitContinuousEdit()
+                }
+                snackbarManager.show("Tracking applied")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                snackbarManager.showError("Tracking failed: ${e.message}")
+            } finally {
+                _state.update { it.copy(maskTrackRunning = false) }
+            }
+        }
+    }
+
+    private suspend fun gatherMotionTrackerFrames(
+        clip: RustClipSnapshot,
+        video: RustVideoClipKind,
+        analysis: MotionTrackerAnalysis,
+    ) {
+        val startMs = clip.sourceStartUs / 1000L
+        val endMs = clip.sourceEndUs / 1000L
+        if (endMs < startMs) return
+        val spanMs = endMs - startMs
+        val stepMs = maxOf(MOTION_TRACK_SAMPLE_STEP_MS, spanMs / MOTION_TRACK_MAX_SAMPLES + 1L)
+        val timestamps = mutableListOf<Long>()
+        var timestampMs = startMs
+        while (timestampMs <= endMs) {
+            timestamps += timestampMs
+            if (endMs - timestampMs < stepMs) break
+            timestampMs += stepMs
+        }
+        if (timestamps.last() < endMs) timestamps += endMs
+
+        val grabber = PlatformFrameGrabber()
+        try {
+            grabber.open(video.sourcePath)
+            for (sampleMs in timestamps) {
+                val frame = grabber.grabFrame(
+                    timestampMs = sampleMs,
+                    filters = emptyList(),
+                    masks = emptyList(),
+                    opacity = 1f,
+                    width = 320,
+                    height = 0,
+                ) ?: continue
+                val sourceOffsetUs = (sampleMs - startMs) * 1000L
+                val localOffsetUs = autoReframeLocalOffset(clip, sourceOffsetUs)
+                withContext(Dispatchers.Default) {
+                    analysis.addFrame(frame, localOffsetUs, video.width, video.height)
+                }
+            }
+        } finally {
+            grabber.release()
+        }
     }
 
     fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {

@@ -145,6 +145,8 @@ fun PropertiesPanel(
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
     onSetSubtitleFont: (String, String?) -> Unit = { _, _ -> },
+    onTrackMask: (String) -> Unit = { _ -> },
+    maskTrackRunning: Boolean = false,
     onAddMask: (String, RustMaskEffect) -> Unit = { _, _ -> },
     onRemoveMask: (String, Int) -> Unit = { _, _ -> },
     onUpdateMask: (String, Int, RustMaskEffect) -> Unit = { _, _, _ -> },
@@ -214,6 +216,8 @@ fun PropertiesPanel(
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
+                onTrackMask = onTrackMask,
+                maskTrackRunning = maskTrackRunning,
                 onAddMask = onAddMask,
                 onRemoveMask = onRemoveMask,
                 onUpdateMask = onUpdateMask,
@@ -293,6 +297,8 @@ private fun VideoClipProperties(
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
+    onTrackMask: (String) -> Unit = { _ -> },
+    maskTrackRunning: Boolean = false,
     onAddMask: (String, RustMaskEffect) -> Unit = { _, _ -> },
     onRemoveMask: (String, Int) -> Unit = { _, _ -> },
     onUpdateMask: (String, Int, RustMaskEffect) -> Unit = { _, _, _ -> },
@@ -312,6 +318,7 @@ private fun VideoClipProperties(
     val freezeEnabled = kind.fps.isFinite() && kind.fps > 0.0 &&
         playheadUs >= clip.timelineStartUs &&
         playheadUs < clip.timelineStartUs + clip.timelineDurationUs
+    val trackEnabled = !maskTrackRunning && !autoReframeRunning && !stabilizeRunning && !removeSilenceRunning
 
     val lutScope = rememberCoroutineScope()
     var lutTarget by remember { mutableStateOf<Pair<Int, RustLutFilterSnapshot>?>(null) }
@@ -485,19 +492,19 @@ private fun VideoClipProperties(
         }
         TextButton(
             onClick = { onAutoReframe(clip.id) },
-            enabled = !autoReframeRunning && !stabilizeRunning && !removeSilenceRunning,
+            enabled = !autoReframeRunning && !stabilizeRunning && !removeSilenceRunning && !maskTrackRunning,
         ) {
             Text("Auto reframe")
         }
         TextButton(
             onClick = { onStabilize(clip.id) },
-            enabled = !stabilizeRunning && !autoReframeRunning && !removeSilenceRunning,
+            enabled = !stabilizeRunning && !autoReframeRunning && !removeSilenceRunning && !maskTrackRunning,
         ) {
             Text("Stabilize")
         }
         TextButton(
             onClick = { onRemoveSilence(clip.id) },
-            enabled = !removeSilenceRunning && !autoReframeRunning && !stabilizeRunning,
+            enabled = !removeSilenceRunning && !autoReframeRunning && !stabilizeRunning && !maskTrackRunning,
         ) {
             Text("Remove silence")
         }
@@ -824,6 +831,8 @@ private fun VideoClipProperties(
         onRemoveMask = { index -> onRemoveMask(clip.id, index) },
         onUpdateMask = { index, mask -> onUpdateMask(clip.id, index, mask) },
         onSetMaskEnabled = { index, enabled -> onSetMaskEnabled(clip.id, index, enabled) },
+        onTrackMask = { onTrackMask(clip.id) },
+        trackEnabled = trackEnabled,
     )
 
     KeyframeSection(
@@ -1777,6 +1786,8 @@ private fun MasksSection(
     onRemoveMask: (Int) -> Unit,
     onUpdateMask: (Int, RustMaskEffect) -> Unit,
     onSetMaskEnabled: (Int, Boolean) -> Unit,
+    onTrackMask: () -> Unit,
+    trackEnabled: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         masks.forEachIndexed { index, mask ->
@@ -1793,45 +1804,53 @@ private fun MasksSection(
         }
 
         var expanded by remember { mutableStateOf(false) }
-        Box {
-            AssistChip(
-                onClick = { expanded = true },
-                label = { Text("+ Add Mask") },
-            )
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                DropdownMenuItem(
-                    text = { Text("Rectangle Shape") },
-                    onClick = {
-                        onAddMask(RustMaskEffect(
-                            enabled = true,
-                            source = RustShapeMaskSource(RustRectangleMaskShape(0.1f, 0.1f, 0.9f, 0.9f), feather = 0f, invert = false),
-                            mode = RustMaskMode.Add,
-                        ))
-                        expanded = false
-                    },
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box {
+                AssistChip(
+                    onClick = { expanded = true },
+                    label = { Text("+ Add Mask") },
                 )
-                DropdownMenuItem(
-                    text = { Text("Ellipse Shape") },
-                    onClick = {
-                        onAddMask(RustMaskEffect(
-                            enabled = true,
-                            source = RustShapeMaskSource(RustEllipseMaskShape(0.5f, 0.5f, 0.3f, 0.3f), feather = 0f, invert = false),
-                            mode = RustMaskMode.Add,
-                        ))
-                        expanded = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Path Shape") },
-                    onClick = {
-                        onAddMask(RustMaskEffect(
-                            enabled = true,
-                            source = RustShapeMaskSource(defaultPathMaskShape(), feather = 0f, invert = false),
-                            mode = RustMaskMode.Add,
-                        ))
-                        expanded = false
-                    },
-                )
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Rectangle Shape") },
+                        onClick = {
+                            onAddMask(RustMaskEffect(
+                                enabled = true,
+                                source = RustShapeMaskSource(RustRectangleMaskShape(0.1f, 0.1f, 0.9f, 0.9f), feather = 0f, invert = false),
+                                mode = RustMaskMode.Add,
+                            ))
+                            expanded = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Ellipse Shape") },
+                        onClick = {
+                            onAddMask(RustMaskEffect(
+                                enabled = true,
+                                source = RustShapeMaskSource(RustEllipseMaskShape(0.5f, 0.5f, 0.3f, 0.3f), feather = 0f, invert = false),
+                                mode = RustMaskMode.Add,
+                            ))
+                            expanded = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Path Shape") },
+                        onClick = {
+                            onAddMask(RustMaskEffect(
+                                enabled = true,
+                                source = RustShapeMaskSource(defaultPathMaskShape(), feather = 0f, invert = false),
+                                mode = RustMaskMode.Add,
+                            ))
+                            expanded = false
+                        },
+                    )
+                }
+            }
+            TextButton(
+                onClick = onTrackMask,
+                enabled = trackEnabled,
+            ) {
+                Text("Track")
             }
         }
     }
