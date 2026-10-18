@@ -484,8 +484,8 @@ pub(crate) fn render_mask_shape(
             let nhw = (nr - nl) * transform.scale / 2.0;
             let nhh = (nb - nt) * transform.scale / 2.0;
 
-            let tcx = ncx + transform.translate_x;
-            let tcy = ncy + transform.translate_y;
+            let tcx = (ncx - 0.5) * transform.scale + 0.5 + transform.translate_x;
+            let tcy = (ncy - 0.5) * transform.scale + 0.5 + transform.translate_y;
 
             let corners = [
                 (tcx - nhw, tcy - nhh),
@@ -824,14 +824,11 @@ fn flatten_mask_path(
         0.0
     };
     let (sin_r, cos_r) = rotate.to_radians().sin_cos();
-    let count = n as f64;
-    let cx = vertices.iter().map(|v| v.p.x as f64).sum::<f64>() / count;
-    let cy = vertices.iter().map(|v| v.p.y as f64).sum::<f64>() / count;
     let wf = width as f64;
     let hf = height as f64;
     let point = |p: MaskPoint| {
-        let nx = cx + (p.x as f64 - cx) * scale + tx;
-        let ny = cy + (p.y as f64 - cy) * scale + ty;
+        let nx = (p.x as f64 - 0.5) * scale + 0.5 + tx;
+        let ny = (p.y as f64 - 0.5) * scale + 0.5 + ty;
         let rx = (nx - 0.5) * cos_r - (ny - 0.5) * sin_r + 0.5;
         let ry = (nx - 0.5) * sin_r + (ny - 0.5) * cos_r + 0.5;
         [rx * wf, ry * hf]
