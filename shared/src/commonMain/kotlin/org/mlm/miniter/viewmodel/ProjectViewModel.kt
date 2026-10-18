@@ -98,8 +98,11 @@ import org.mlm.miniter.project.autoReframeLocalOffset
 import org.mlm.miniter.project.keyframesFor
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
+import org.mlm.miniter.project.detectSilentSourceRuns
 import org.mlm.miniter.project.pixelSize
 import org.mlm.miniter.project.saliencyCentroid
+import org.mlm.miniter.project.SilentRun
+import org.mlm.miniter.project.silentRunsToLocal
 import org.mlm.miniter.project.smoothAutoReframeSamples
 import org.mlm.miniter.rust.BeatTrack
 import org.mlm.miniter.rust.RustCoreSession
@@ -134,6 +137,7 @@ data class ProjectUiState(
     val isLoadingThumbnails: Boolean = false,
     val autoReframeRunning: Boolean = false,
     val stabilizeRunning: Boolean = false,
+    val removeSilenceRunning: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val undoLabel: String? = null,
@@ -1904,6 +1908,141 @@ class ProjectViewModel(
             }
         } finally {
             if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
+    }
+
+    fun removeSilence(clipId: String) {
+        if (_state.value.removeSilenceRunning || _state.value.autoReframeRunning || _state.value.stabilizeRunning) return
+        val clip = findRustClip(clipId) ?: return
+        val video = clip.kind as? RustVideoClipKind
+        if (video == null) {
+            snackbarManager.showError("Remove silence needs a video clip")
+            return
+        }
+        if (video.sourcePath.isBlank()) {
+            snackbarManager.showError("Remove silence needs a clip with a source file")
+            return
+        }
+        if (clip.keyframes.keyframes.any { it.param == KeyframeParams.SPEED }) {
+            snackbarManager.showError("Remove silence is unavailable on speed-ramped clips")
+            return
+        }
+        if (video.filters.any { it.enabled && it.filter is RustReverseVideoFilterSnapshot }) {
+            snackbarManager.showError("Remove silence is unavailable on reversed clips")
+            return
+        }
+        if (!clip.speed.isFinite() || clip.speed <= 0.0) {
+            snackbarManager.showError("Remove silence needs a clip with a valid speed")
+            return
+        }
+        if (clip.timelineDurationUs <= 0L || clip.sourceEndUs <= clip.sourceStartUs) {
+            snackbarManager.showError("Remove silence needs a clip with a valid source range")
+            return
+        }
+
+        _state.update { it.copy(removeSilenceRunning = true) }
+        viewModelScope.launch {
+            try {
+                val beatTrack = withContext(Dispatchers.Default) {
+                    RustCoreSession.detectBeats(video.sourcePath)
+                }
+                val sourceRuns = detectSilentSourceRuns(
+                    windowEnergy = beatTrack.windowEnergy,
+                    windowMs = beatTrack.windowMs,
+                    sourceStartUs = clip.sourceStartUs,
+                    sourceEndUs = clip.sourceEndUs,
+                )
+                if (sourceRuns.isEmpty()) {
+                    snackbarManager.showError("Remove silence found no silence long enough to remove")
+                    return@launch
+                }
+                val current = findRustClip(clipId)
+                if (current == null ||
+                    current.timelineStartUs != clip.timelineStartUs ||
+                    current.timelineDurationUs != clip.timelineDurationUs ||
+                    current.sourceStartUs != clip.sourceStartUs ||
+                    current.sourceEndUs != clip.sourceEndUs
+                ) {
+                    snackbarManager.showError("The clip changed during analysis; run Remove silence again")
+                    return@launch
+                }
+                val localRuns = silentRunsToLocal(current, sourceRuns)
+                if (localRuns.isEmpty()) {
+                    snackbarManager.showError("Remove silence found no silence long enough to remove")
+                    return@launch
+                }
+                val track = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { t ->
+                    t.clips.any { it.id == clipId }
+                }
+                if (track == null) {
+                    snackbarManager.showError("The clip changed during analysis; run Remove silence again")
+                    return@launch
+                }
+                val clipStartUs = current.timelineStartUs
+                var failed = false
+                fun send(command: String): Boolean {
+                    if (failed) return false
+                    if (!dispatchCoalescing(command, "Remove silence")) {
+                        failed = true
+                        return false
+                    }
+                    return true
+                }
+                fun applyRun(run: SilentRun): Boolean {
+                    val spanStartUs = clipStartUs + run.startUs
+                    val spanEndUs = clipStartUs + run.endUs
+                    val shiftUs = spanEndUs - spanStartUs
+                    if (!send(rustStore.commands.splitClip(clipId, spanEndUs, randomUuid()))) return false
+                    val silentId = randomUuid()
+                    if (!send(rustStore.commands.splitClip(clipId, spanStartUs, silentId))) return false
+                    if (!send(rustStore.commands.removeClip(silentId))) return false
+                    val latestTracks = rustStore.snapshot.value?.timeline?.tracks
+                    if (latestTracks == null) {
+                        failed = true
+                        return false
+                    }
+                    val straddling = latestTracks.any { other ->
+                        other.id != track.id && other.clips.any { c ->
+                            c.timelineStartUs < spanEndUs &&
+                                c.timelineStartUs + c.timelineDurationUs > spanStartUs
+                        }
+                    }
+                    if (straddling) {
+                        failed = true
+                        snackbarManager.showError("Another track has a clip across the silence")
+                        return false
+                    }
+                    for (rippleTrack in latestTracks) {
+                        val following = rippleTrack.clips
+                            .filter { it.timelineStartUs >= spanStartUs }
+                            .sortedBy { it.timelineStartUs }
+                        for (later in following) {
+                            if (!send(rustStore.commands.moveClip(later.id, rippleTrack.id, later.timelineStartUs - shiftUs))) {
+                                return false
+                            }
+                        }
+                    }
+                    return true
+                }
+                beginContinuousEdit("Remove silence")
+                try {
+                    for (run in localRuns.sortedByDescending { it.startUs }) {
+                        if (!applyRun(run)) break
+                    }
+                    if (!failed) {
+                        val gaps = localRuns.size
+                        snackbarManager.show("Removed $gaps silence ${if (gaps == 1) "gap" else "gaps"}")
+                    }
+                } finally {
+                    if (failed) cancelContinuousEdit() else commitContinuousEdit()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                snackbarManager.showError("Remove silence failed: ${e.message}")
+            } finally {
+                _state.update { it.copy(removeSilenceRunning = false) }
+            }
         }
     }
 

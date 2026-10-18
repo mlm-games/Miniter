@@ -60,6 +60,7 @@ fun ProjectScreen(
     val isDirty = uiState.isDirty
     val autoReframeRunning = uiState.autoReframeRunning
     val stabilizeRunning = uiState.stabilizeRunning
+    val removeSilenceRunning = uiState.removeSilenceRunning
 
     var showExitConfirm by remember { mutableStateOf(false) }
     var showPropertiesSheet by remember { mutableStateOf(false) }
@@ -331,6 +332,8 @@ fun ProjectScreen(
                 onStabilize = vm::stabilizeClip,
                 stabilizeRunning = stabilizeRunning,
                 onFreezeFrame = vm::freezeFrame,
+                onRemoveSilence = vm::removeSilence,
+                removeSilenceRunning = removeSilenceRunning,
                 onApplyTextAnimation = vm::applyTextAnimation,
                 onReplaceFilter = vm::replaceFilter,
                 onSetTextTransitionIn = vm::setTextTransitionIn,

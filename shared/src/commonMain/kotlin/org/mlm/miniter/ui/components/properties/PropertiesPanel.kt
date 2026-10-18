@@ -134,6 +134,8 @@ fun PropertiesPanel(
     onStabilize: (String) -> Unit = { _ -> },
     stabilizeRunning: Boolean = false,
     onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
+    onRemoveSilence: (String) -> Unit = { _ -> },
+    removeSilenceRunning: Boolean = false,
     onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
     onRemoveAudioFilter: (String, Int) -> Unit = { _, _ -> },
@@ -207,6 +209,8 @@ fun PropertiesPanel(
                 onStabilize = onStabilize,
                 stabilizeRunning = stabilizeRunning,
                 onFreezeFrame = onFreezeFrame,
+                onRemoveSilence = onRemoveSilence,
+                removeSilenceRunning = removeSilenceRunning,
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
                 onUpdateKeyframe = onUpdateKeyframe,
@@ -284,6 +288,8 @@ private fun VideoClipProperties(
     onStabilize: (String) -> Unit = { _ -> },
     stabilizeRunning: Boolean = false,
     onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
+    onRemoveSilence: (String) -> Unit = { _ -> },
+    removeSilenceRunning: Boolean = false,
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
     onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
@@ -479,15 +485,21 @@ private fun VideoClipProperties(
         }
         TextButton(
             onClick = { onAutoReframe(clip.id) },
-            enabled = !autoReframeRunning && !stabilizeRunning,
+            enabled = !autoReframeRunning && !stabilizeRunning && !removeSilenceRunning,
         ) {
             Text("Auto reframe")
         }
         TextButton(
             onClick = { onStabilize(clip.id) },
-            enabled = !stabilizeRunning && !autoReframeRunning,
+            enabled = !stabilizeRunning && !autoReframeRunning && !removeSilenceRunning,
         ) {
             Text("Stabilize")
+        }
+        TextButton(
+            onClick = { onRemoveSilence(clip.id) },
+            enabled = !removeSilenceRunning && !autoReframeRunning && !stabilizeRunning,
+        ) {
+            Text("Remove silence")
         }
         TextButton(
             onClick = { showFreezeDialog = true },
