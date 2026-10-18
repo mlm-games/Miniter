@@ -280,6 +280,25 @@ private fun previewLayer(
     }
 }
 
+private fun adjustmentFiltersAbove(
+    snapshot: RustProjectSnapshot?,
+    playheadUs: Long,
+    trackIndex: Int,
+): List<RustVideoFilterSnapshot> {
+    if (snapshot == null) return emptyList()
+    val collected = mutableListOf<RustVideoFilterSnapshot>()
+    snapshot.timeline.tracks.forEachIndexed { index, track ->
+        if (index <= trackIndex || track.muted) return@forEachIndexed
+        track.clips.forEach { clip ->
+            if (playheadUs < clip.timelineStartUs || playheadUs >= clip.endUs) return@forEach
+            if (clip.muted) return@forEach
+            val adjustment = clip.kind as? RustAdjustmentClipKind ?: return@forEach
+            adjustment.filters.filter { it.enabled }.forEach { collected += it.filter }
+        }
+    }
+    return collected
+}
+
 /// A layer outside any transition keeps its own blend mode; the exporter
 /// composites both ends of a transition with plain source-over instead.
 private fun plainPreviewLayer(
@@ -569,6 +588,11 @@ fun EditorVideoPreview(
     val primaryVolume = if (primaryVideo?.muted == true) 0f
         else primaryVideo?.volume ?: defaultOf(KeyframeParams.VOLUME)
     val primaryFilters = primaryVideo?.filters ?: emptyList()
+    val primaryAdjustmentFilters = if (primaryVideo != null) {
+        adjustmentFiltersAbove(snapshot, playheadMs * 1000L, primaryVideo.trackIndex)
+    } else {
+        emptyList()
+    }
     // Disabled masks stay out of the wire payload entirely.
     val primaryMasks = remember(primaryVideo?.masks) {
         primaryVideo?.masks?.filter { it.enabled }.orEmpty()
@@ -755,7 +779,7 @@ fun EditorVideoPreview(
         playerState.volume = primaryVolume.coerceIn(0f, 1f)
     }
 
-    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, primaryMasks, primaryEffectiveOpacity, cropEditing) {
+    LaunchedEffect(playheadMs, isPlaying, grabberReady, playerReady, fullFileDurationMs, primaryFilters, primaryAdjustmentFilters, primaryMasks, primaryEffectiveOpacity, cropEditing) {
         if (isPlaying) return@LaunchedEffect
         if (primaryVideo == null || primaryVideoPath == null) return@LaunchedEffect
 
@@ -769,9 +793,9 @@ fun EditorVideoPreview(
             .filter { it.enabled }
             .map { it.filter }
             .filter { it !is RustTransformFilterSnapshot }
-            .filter { !(cropEditing && it is RustCropFilterSnapshot) }
+            .filter { !(cropEditing && it is RustCropFilterSnapshot) } + primaryAdjustmentFilters
 
-        if (grabberReady && (primaryFilters.any { it.enabled } || primaryEffectiveOpacity < 1f)) {
+        if (grabberReady && (primaryFilters.any { it.enabled } || primaryAdjustmentFilters.isNotEmpty() || primaryEffectiveOpacity < 1f)) {
             try {
                 scrubbedFrame = frameGrabber.grabFrame(
                     timestampMs = sourceTimeMs,
@@ -1266,6 +1290,11 @@ fun EditorVideoPreview(
                                             BackgroundVideoFrame(
                                                 sourcePath = layerVideo.sourcePath,
                                                 sourceTimeMs = layerSourceTime,
+                                                filters = adjustmentFiltersAbove(
+                                                    snapshot,
+                                                    playheadMs * 1000L,
+                                                    layerVideo.trackIndex,
+                                                ),
                                                 masks = layerVideo.masks.filter { it.enabled },
                                                 opacity = 1f,
                                                 onFrameLoaded = { frame ->
@@ -1927,6 +1956,7 @@ private fun MaskOverlay(
 private fun BackgroundVideoFrame(
     sourcePath: String,
     sourceTimeMs: Long,
+    filters: List<RustVideoFilterSnapshot>,
     masks: List<RustMaskEffect>,
     opacity: Float,
     onFrameLoaded: (ImageData) -> Unit,
@@ -1941,14 +1971,14 @@ private fun BackgroundVideoFrame(
         } catch (_: Throwable) {}
     }
     var lastDecodedMs by remember(sourcePath) { mutableLongStateOf(Long.MIN_VALUE) }
-    LaunchedEffect(sourcePath, sourceTimeMs, masks) {
+    LaunchedEffect(sourcePath, sourceTimeMs, filters, masks) {
         if (lastDecodedMs != Long.MIN_VALUE &&
             kotlin.math.abs(sourceTimeMs - lastDecodedMs) <= 100L
         ) return@LaunchedEffect
         try {
             val frame = ownGrabber.grabFrame(
                 timestampMs = sourceTimeMs.coerceAtLeast(0L),
-                filters = emptyList(),
+                filters = filters,
                 masks = masks,
                 opacity = opacity,
                 width = 0,

@@ -280,31 +280,26 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             index,
         } => {
             let clip = find_clip_mut(state, clip_id)?;
-            match &mut clip.kind {
-                ClipKind::Video(v) => {
-                    let filter_pos = index.unwrap_or(v.filters.len()).min(v.filters.len());
-                    if let Some(key) = VideoEffect::singleton_key(&filter.filter)
-                        && let Some(idx) = v
-                            .filters
-                            .iter()
-                            .position(|fx| VideoEffect::singleton_key(&fx.filter) == Some(key))
-                    {
-                        let old = std::mem::replace(&mut v.filters[idx], filter);
-                        return Ok(EditCommand::UpdateVideoFilter {
-                            clip_id,
-                            index: idx,
-                            filter: old,
-                        });
-                    }
-                    v.filters.insert(filter_pos, filter);
-                    let idx = filter_pos;
-                    Ok(EditCommand::RemoveVideoFilter {
-                        clip_id,
-                        index: idx,
-                    })
-                }
-                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            let filters = video_filters_mut(&mut clip.kind, clip_id)?;
+            let filter_pos = index.unwrap_or(filters.len()).min(filters.len());
+            if let Some(key) = VideoEffect::singleton_key(&filter.filter)
+                && let Some(idx) = filters
+                    .iter()
+                    .position(|fx| VideoEffect::singleton_key(&fx.filter) == Some(key))
+            {
+                let old = std::mem::replace(&mut filters[idx], filter);
+                return Ok(EditCommand::UpdateVideoFilter {
+                    clip_id,
+                    index: idx,
+                    filter: old,
+                });
             }
+            filters.insert(filter_pos, filter);
+            let idx = filter_pos;
+            Ok(EditCommand::RemoveVideoFilter {
+                clip_id,
+                index: idx,
+            })
         }
 
         EditCommand::UpdateVideoFilter {
@@ -313,38 +308,30 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             filter,
         } => {
             let clip = find_clip_mut(state, clip_id)?;
-            match &mut clip.kind {
-                ClipKind::Video(v) => {
-                    if index >= v.filters.len() {
-                        return Err(ApplyError::IndexOutOfBounds);
-                    }
-                    let old = std::mem::replace(&mut v.filters[index], filter);
-                    Ok(EditCommand::UpdateVideoFilter {
-                        clip_id,
-                        index,
-                        filter: old,
-                    })
-                }
-                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            let filters = video_filters_mut(&mut clip.kind, clip_id)?;
+            if index >= filters.len() {
+                return Err(ApplyError::IndexOutOfBounds);
             }
+            let old = std::mem::replace(&mut filters[index], filter);
+            Ok(EditCommand::UpdateVideoFilter {
+                clip_id,
+                index,
+                filter: old,
+            })
         }
 
         EditCommand::RemoveVideoFilter { clip_id, index } => {
             let clip = find_clip_mut(state, clip_id)?;
-            match &mut clip.kind {
-                ClipKind::Video(v) => {
-                    if index >= v.filters.len() {
-                        return Err(ApplyError::IndexOutOfBounds);
-                    }
-                    let removed = v.filters.remove(index);
-                    Ok(EditCommand::AddVideoFilter {
-                        clip_id,
-                        filter: removed,
-                        index: Some(index),
-                    })
-                }
-                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            let filters = video_filters_mut(&mut clip.kind, clip_id)?;
+            if index >= filters.len() {
+                return Err(ApplyError::IndexOutOfBounds);
             }
+            let removed = filters.remove(index);
+            Ok(EditCommand::AddVideoFilter {
+                clip_id,
+                filter: removed,
+                index: Some(index),
+            })
         }
 
         EditCommand::AddMask {
@@ -353,17 +340,13 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             index,
         } => {
             let clip = find_clip_mut(state, clip_id)?;
-            match &mut clip.kind {
-                ClipKind::Video(v) => {
-                    let mask_pos = index.unwrap_or(v.masks.len()).min(v.masks.len());
-                    v.masks.insert(mask_pos, mask);
-                    Ok(EditCommand::RemoveMask {
-                        clip_id,
-                        index: mask_pos,
-                    })
-                }
-                _ => Err(ApplyError::WrongClipKind(clip_id)),
-            }
+            let masks = video_masks_mut(&mut clip.kind, clip_id)?;
+            let mask_pos = index.unwrap_or(masks.len()).min(masks.len());
+            masks.insert(mask_pos, mask);
+            Ok(EditCommand::RemoveMask {
+                clip_id,
+                index: mask_pos,
+            })
         }
 
         EditCommand::UpdateMask {
@@ -372,38 +355,30 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             mask,
         } => {
             let clip = find_clip_mut(state, clip_id)?;
-            match &mut clip.kind {
-                ClipKind::Video(v) => {
-                    if index >= v.masks.len() {
-                        return Err(ApplyError::IndexOutOfBounds);
-                    }
-                    let old = std::mem::replace(&mut v.masks[index], mask);
-                    Ok(EditCommand::UpdateMask {
-                        clip_id,
-                        index,
-                        mask: old,
-                    })
-                }
-                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            let masks = video_masks_mut(&mut clip.kind, clip_id)?;
+            if index >= masks.len() {
+                return Err(ApplyError::IndexOutOfBounds);
             }
+            let old = std::mem::replace(&mut masks[index], mask);
+            Ok(EditCommand::UpdateMask {
+                clip_id,
+                index,
+                mask: old,
+            })
         }
 
         EditCommand::RemoveMask { clip_id, index } => {
             let clip = find_clip_mut(state, clip_id)?;
-            match &mut clip.kind {
-                ClipKind::Video(v) => {
-                    if index >= v.masks.len() {
-                        return Err(ApplyError::IndexOutOfBounds);
-                    }
-                    let removed = v.masks.remove(index);
-                    Ok(EditCommand::AddMask {
-                        clip_id,
-                        mask: removed,
-                        index: Some(index),
-                    })
-                }
-                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            let masks = video_masks_mut(&mut clip.kind, clip_id)?;
+            if index >= masks.len() {
+                return Err(ApplyError::IndexOutOfBounds);
             }
+            let removed = masks.remove(index);
+            Ok(EditCommand::AddMask {
+                clip_id,
+                mask: removed,
+                index: Some(index),
+            })
         }
 
         EditCommand::SetMaskEnabled {
@@ -412,21 +387,17 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             enabled,
         } => {
             let clip = find_clip_mut(state, clip_id)?;
-            match &mut clip.kind {
-                ClipKind::Video(v) => {
-                    if index >= v.masks.len() {
-                        return Err(ApplyError::IndexOutOfBounds);
-                    }
-                    let old = v.masks[index].enabled;
-                    v.masks[index].enabled = enabled;
-                    Ok(EditCommand::SetMaskEnabled {
-                        clip_id,
-                        index,
-                        enabled: old,
-                    })
-                }
-                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            let masks = video_masks_mut(&mut clip.kind, clip_id)?;
+            if index >= masks.len() {
+                return Err(ApplyError::IndexOutOfBounds);
             }
+            let old = masks[index].enabled;
+            masks[index].enabled = enabled;
+            Ok(EditCommand::SetMaskEnabled {
+                clip_id,
+                index,
+                enabled: old,
+            })
         }
 
         EditCommand::SetVideoFilterEnabled {
@@ -435,43 +406,35 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             enabled,
         } => {
             let clip = find_clip_mut(state, clip_id)?;
-            match &mut clip.kind {
-                ClipKind::Video(v) => {
-                    if index >= v.filters.len() {
-                        return Err(ApplyError::IndexOutOfBounds);
-                    }
-                    let old = v.filters[index].enabled;
-                    v.filters[index].enabled = enabled;
-                    Ok(EditCommand::SetVideoFilterEnabled {
-                        clip_id,
-                        index,
-                        enabled: old,
-                    })
-                }
-                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            let filters = video_filters_mut(&mut clip.kind, clip_id)?;
+            if index >= filters.len() {
+                return Err(ApplyError::IndexOutOfBounds);
             }
+            let old = filters[index].enabled;
+            filters[index].enabled = enabled;
+            Ok(EditCommand::SetVideoFilterEnabled {
+                clip_id,
+                index,
+                enabled: old,
+            })
         }
 
         EditCommand::MoveVideoFilter { clip_id, from, to } => {
             let clip = find_clip_mut(state, clip_id)?;
-            match &mut clip.kind {
-                ClipKind::Video(v) => {
-                    if from >= v.filters.len() || to >= v.filters.len() {
-                        return Err(ApplyError::IndexOutOfBounds);
-                    }
-                    if from == to {
-                        return Ok(EditCommand::MoveVideoFilter { clip_id, from, to });
-                    }
-                    let moved = v.filters.remove(from);
-                    v.filters.insert(to, moved);
-                    Ok(EditCommand::MoveVideoFilter {
-                        clip_id,
-                        from: to,
-                        to: from,
-                    })
-                }
-                _ => Err(ApplyError::WrongClipKind(clip_id)),
+            let filters = video_filters_mut(&mut clip.kind, clip_id)?;
+            if from >= filters.len() || to >= filters.len() {
+                return Err(ApplyError::IndexOutOfBounds);
             }
+            if from == to {
+                return Ok(EditCommand::MoveVideoFilter { clip_id, from, to });
+            }
+            let moved = filters.remove(from);
+            filters.insert(to, moved);
+            Ok(EditCommand::MoveVideoFilter {
+                clip_id,
+                from: to,
+                to: from,
+            })
         }
 
         EditCommand::AddAudioFilter {
@@ -917,7 +880,10 @@ fn apply_trim_clip_start(
         timeline_duration_for_clip(&updated, updated.source_start, updated.source_end)?;
     updated.timeline_duration = new_duration;
     ensure_positive_duration(updated.timeline_duration)?;
-    if !matches!(original.kind, ClipKind::Text(_) | ClipKind::Subtitle(_)) {
+    if !matches!(
+        original.kind,
+        ClipKind::Text(_) | ClipKind::Subtitle(_) | ClipKind::Adjustment(_)
+    ) {
         ensure_clip_source_bounds(&updated)?;
     }
 
@@ -948,7 +914,7 @@ fn apply_trim_clip_end(
     let original = state.project.timeline.tracks[track_idx].clips[clip_idx].clone();
 
     let max_duration = match &original.kind {
-        ClipKind::Text(_) | ClipKind::Subtitle(_) => new_duration,
+        ClipKind::Text(_) | ClipKind::Subtitle(_) | ClipKind::Adjustment(_) => new_duration,
         _ => {
             if original.source_total_duration.as_micros() <= original.source_start.as_micros() {
                 new_duration
@@ -983,7 +949,10 @@ fn apply_trim_clip_end(
     updated.timeline_duration = clamped_duration;
     updated.source_end = new_source_end;
 
-    if !matches!(original.kind, ClipKind::Text(_) | ClipKind::Subtitle(_)) {
+    if !matches!(
+        original.kind,
+        ClipKind::Text(_) | ClipKind::Subtitle(_) | ClipKind::Adjustment(_)
+    ) {
         ensure_clip_source_bounds(&updated)?;
     }
 
@@ -1037,8 +1006,13 @@ fn apply_split_clip(
     right.transition_in = None;
     right.keyframes = rebase_keyframes(&original.keyframes, left_dur.as_micros());
 
-    ensure_clip_source_bounds(&left)?;
-    ensure_clip_source_bounds(&right)?;
+    if !matches!(
+        original.kind,
+        ClipKind::Text(_) | ClipKind::Subtitle(_) | ClipKind::Adjustment(_)
+    ) {
+        ensure_clip_source_bounds(&left)?;
+        ensure_clip_source_bounds(&right)?;
+    }
 
     let track = &state.project.timeline.tracks[track_idx];
     track
@@ -1590,6 +1564,28 @@ fn audio_filters_mut(
     match kind {
         ClipKind::Video(v) => Ok(&mut v.audio_filters),
         ClipKind::Audio(a) => Ok(&mut a.filters),
+        _ => Err(ApplyError::WrongClipKind(clip_id)),
+    }
+}
+
+fn video_filters_mut(
+    kind: &mut ClipKind,
+    clip_id: ClipId,
+) -> Result<&mut Vec<VideoEffect>, ApplyError> {
+    match kind {
+        ClipKind::Video(v) => Ok(&mut v.filters),
+        ClipKind::Adjustment(a) => Ok(&mut a.filters),
+        _ => Err(ApplyError::WrongClipKind(clip_id)),
+    }
+}
+
+fn video_masks_mut(
+    kind: &mut ClipKind,
+    clip_id: ClipId,
+) -> Result<&mut Vec<miniter_domain::mask::MaskEffect>, ApplyError> {
+    match kind {
+        ClipKind::Video(v) => Ok(&mut v.masks),
+        ClipKind::Adjustment(a) => Ok(&mut a.masks),
         _ => Err(ApplyError::WrongClipKind(clip_id)),
     }
 }

@@ -32,6 +32,7 @@ impl TrackKind {
     pub fn accepts_clip_kind(&self, kind: &ClipKind) -> bool {
         match (self, kind) {
             (TrackKind::Video, ClipKind::Video(_)) => true,
+            (TrackKind::Video, ClipKind::Adjustment(_)) => true,
             (TrackKind::Audio, ClipKind::Audio(_)) => true,
             (TrackKind::Text, ClipKind::Text(_)) => true,
             (TrackKind::Subtitle, ClipKind::Subtitle(_)) => true,

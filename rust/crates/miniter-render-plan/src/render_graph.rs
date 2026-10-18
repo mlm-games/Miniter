@@ -47,6 +47,11 @@ pub enum RenderNode {
         source: Box<RenderNode>,
         masks: Vec<MaskEffect>,
     },
+    Adjustment {
+        source: Box<RenderNode>,
+        filters: Vec<VideoFilter>,
+        masks: Vec<MaskEffect>,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -70,9 +75,16 @@ pub fn plan_frame(
         if track.muted {
             continue;
         }
-        if let Some(clip) = track.clip_at(t)
-            && let Some(node) = node_for_clip(clip, t, track, subtitle_mode, timeline)
-        {
+        let Some(clip) = track.clip_at(t) else {
+            continue;
+        };
+        if let ClipKind::Adjustment(adjustment) = &clip.kind {
+            if let Some(node) = adjustment_node(clip, adjustment, t, &mut layers) {
+                layers.push(node);
+            }
+            continue;
+        }
+        if let Some(node) = node_for_clip(clip, t, track, subtitle_mode, timeline) {
             layers.push(node);
         }
     }
@@ -89,6 +101,49 @@ pub fn plan_frame(
         height,
         root,
     }
+}
+
+fn adjustment_node(
+    clip: &Clip,
+    adjustment: &miniter_domain::clip::AdjustmentClip,
+    t: Timestamp,
+    lower: &mut Vec<RenderNode>,
+) -> Option<RenderNode> {
+    if clip.muted || lower.is_empty() {
+        return None;
+    }
+
+    let local_offset = t - clip.timeline_start;
+    let mut filters = active_filters(&adjustment.filters);
+    apply_transform_keyframes(&mut filters, &clip.keyframes, local_offset);
+    apply_filter_param_keyframes(&mut filters, &adjustment.filters, &clip.keyframes, local_offset);
+
+    let masks: Vec<MaskEffect> = adjustment
+        .masks
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| {
+            let mut mask = m.clone();
+            apply_mask_transform_keyframes(&mut mask, &clip.keyframes, local_offset);
+            mask
+        })
+        .collect();
+
+    if filters.is_empty() {
+        return None;
+    }
+
+    let source = if lower.len() == 1 {
+        lower.remove(0)
+    } else {
+        RenderNode::Stack(std::mem::take(lower))
+    };
+
+    Some(RenderNode::Adjustment {
+        source: Box::new(source),
+        filters,
+        masks,
+    })
 }
 
 pub fn node_blend_mode(node: &RenderNode) -> BlendMode {
@@ -719,6 +774,9 @@ fn scale_node_opacity(node: &mut RenderNode, factor: f32) {
             }
         }
         RenderNode::Masked { source, .. } => {
+            scale_node_opacity(source, factor);
+        }
+        RenderNode::Adjustment { source, .. } => {
             scale_node_opacity(source, factor);
         }
     }

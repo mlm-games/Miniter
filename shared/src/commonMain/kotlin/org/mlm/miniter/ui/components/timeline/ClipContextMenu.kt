@@ -3,6 +3,8 @@ package org.mlm.miniter.ui.components.timeline
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MergeType
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -11,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import miniter.shared.generated.resources.Res
 import miniter.shared.generated.resources.common_delete
 import org.jetbrains.compose.resources.stringResource
+import org.mlm.miniter.editor.model.RustAdjustmentClipKind
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
@@ -64,12 +67,28 @@ fun ClipContextMenu(
             enabled = !isLocked,
         )
 
+        val isAdjustment = clip.kind is RustAdjustmentClipKind
+        val toggleLabel = when {
+            isAdjustment && clip.muted -> "Enable clip"
+            isAdjustment -> "Disable clip"
+            clip.muted -> "Unmute clip"
+            else -> "Mute clip"
+        }
+        val toggleIcon = when {
+            isAdjustment && clip.muted -> Icons.Default.Visibility
+            isAdjustment -> Icons.Default.VisibilityOff
+            clip.muted -> Icons.AutoMirrored.Filled.VolumeUp
+            else -> Icons.AutoMirrored.Filled.VolumeOff
+        }
         DropdownMenuItem(
-            text = { Text(if (clip.muted) "Unmute clip" else "Mute clip") },
-            leadingIcon = { Icon(if (clip.muted) Icons.Default.VolumeUp else Icons.Default.VolumeOff, null, Modifier.size(18.dp)) },
+            text = { Text(toggleLabel) },
+            leadingIcon = { Icon(toggleIcon, null, Modifier.size(18.dp)) },
             onClick = { onToggleMute(); onDismiss() },
-            // Muting only makes sense for clips that can carry audio.
-            enabled = !isLocked && (clip.kind is RustAudioClipKind || clip.kind is RustVideoClipKind),
+            enabled = !isLocked && (
+                clip.kind is RustAudioClipKind ||
+                    clip.kind is RustVideoClipKind ||
+                    isAdjustment
+                ),
         )
 
         DropdownMenuItem(

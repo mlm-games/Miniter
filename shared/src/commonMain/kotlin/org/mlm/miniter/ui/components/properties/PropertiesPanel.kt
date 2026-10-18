@@ -34,6 +34,7 @@ import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.engine.CubeLutKind
 import org.mlm.miniter.engine.parseCubeLut
+import org.mlm.miniter.editor.model.RustAdjustmentClipKind
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
@@ -262,6 +263,25 @@ fun PropertiesPanel(
                 onUpdateKeyframe = onUpdateKeyframe,
                 onSetSubtitleFont = onSetSubtitleFont,
             )
+            is RustAdjustmentClipKind -> AdjustmentClipProperties(
+                clip = clip,
+                kind = kind,
+                playheadMs = playheadMs,
+                onAddFilter = onAddFilter,
+                onRemoveFilter = onRemoveFilter,
+                onApplyFilterToAll = onApplyFilterToAll,
+                onUpdateFilterParams = onUpdateFilterParams,
+                onReplaceFilter = onReplaceFilter,
+                onToggleFilterEnabled = onToggleFilterEnabled,
+                onMoveFilter = onMoveFilter,
+                onAddMask = onAddMask,
+                onRemoveMask = onRemoveMask,
+                onUpdateMask = onUpdateMask,
+                onSetMaskEnabled = onSetMaskEnabled,
+                onAddKeyframe = onAddKeyframe,
+                onRemoveKeyframe = onRemoveKeyframe,
+                onUpdateKeyframe = onUpdateKeyframe,
+            )
         }
     }
 }
@@ -320,35 +340,6 @@ private fun VideoClipProperties(
         playheadUs >= clip.timelineStartUs &&
         playheadUs < clip.timelineStartUs + clip.timelineDurationUs
     val trackEnabled = !maskTrackRunning && !autoReframeRunning && !stabilizeRunning && !removeSilenceRunning
-
-    val lutScope = rememberCoroutineScope()
-    var lutTarget by remember { mutableStateOf<Pair<Int, RustLutFilterSnapshot>?>(null) }
-    var lutPickError by remember(clip.id) { mutableStateOf<String?>(null) }
-    val lutPicker = rememberFilePickerLauncher(
-        type = FileKitType.File(extensions = SupportedFormats.lutExtensions),
-    ) { file: PlatformFile? ->
-        file?.let { picked ->
-            lutScope.launch {
-                val path = try {
-                    PlatformFileSystem.stageForNativeAccess(picked.platformPath())
-                } catch (error: Exception) {
-                    Napier.e("LUT file could not be staged", error)
-                    lutPickError = "Could not use LUT: ${error.message}"
-                    return@launch
-                }
-                lutPickError = null
-                val target = lutTarget
-                if (target == null) {
-                    onAddFilter(
-                        clip.id,
-                        RustVideoEffectSnapshot(filter = RustLutFilterSnapshot(path = path), enabled = true),
-                    )
-                } else {
-                    onReplaceFilter(clip.id, target.first, target.second.copy(path = path))
-                }
-            }
-        }
-    }
 
     Text(fileName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(4.dp))
@@ -557,270 +548,19 @@ private fun VideoClipProperties(
     Text("Filters", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(4.dp))
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        clipFilters.forEachIndexed { index, effect ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                FilterChip(
-                    selected = effect.enabled,
-                    onClick = { onToggleFilterEnabled(clip.id, index, !effect.enabled) },
-                    label = { Text(effect.displayName()) },
-                )
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { onApplyFilterToAll(clip.id, index) }) {
-                    Icon(
-                        Icons.Default.DoneAll,
-                        contentDescription = "Apply to all clips",
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-                IconButton(
-                    onClick = { onMoveFilter(clip.id, index, index - 1) },
-                    enabled = index > 0,
-                ) {
-                    Icon(Icons.Default.KeyboardArrowUp, null)
-                }
-                IconButton(
-                    onClick = { onMoveFilter(clip.id, index, index + 1) },
-                    enabled = index < clipFilters.lastIndex,
-                ) {
-                    Icon(Icons.Default.KeyboardArrowDown, null)
-                }
-                IconButton(onClick = { onRemoveFilter(clip.id, index) }) {
-                    Icon(Icons.Default.Close, null)
-                }
-            }
-        }
-    }
-
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        AssistChip(
-            onClick = { expanded = true },
-            label = { Text("+ Add Filter") },
-        )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            defaultVideoFilters().forEach { filter ->
-                DropdownMenuItem(
-                    text = { Text(filter.displayName()) },
-                    onClick = {
-                        onAddFilter(clip.id, RustVideoEffectSnapshot(filter = filter, enabled = true))
-                        expanded = false
-                    },
-                )
-            }
-            DropdownMenuItem(
-                text = { Text("LUT") },
-                onClick = {
-                    lutTarget = null
-                    expanded = false
-                    lutPicker.launch()
-                },
-            )
-        }
-    }
-
-    lutPickError?.let { message ->
-        Spacer(Modifier.height(4.dp))
-        Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-    }
-
-    clipFilters.forEachIndexed { index, effect ->
-        val filter = effect.filter
-        val def = filterDefByType(filter) ?: return@forEachIndexed
-        def.properties.forEach { prop ->
-            val animParamKey = KeyframeParams.filterParam(index, prop.keyframeSuffix)
-            val currentVal = readFilterProperty(filter, prop.paramKey)
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${prop.displayName}: ${prop.format(currentVal)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.weight(1f),
-                )
-                KeyframeToggle(animParamKey, clip, clipOffsetUs, onAddKeyframe)
-            }
-            var paramVal by remember(filter, prop.paramKey) { mutableFloatStateOf(currentVal) }
-            Slider(
-                value = paramVal,
-                onValueChange = { paramVal = it },
-                onValueChangeFinished = {
-                    onUpdateFilterParams(clip.id, index, mapOf(prop.paramKey to paramVal))
-                },
-                valueRange = prop.range,
-                steps = prop.steps,
-            )
-        }
-    }
-
-    clipFilters.forEachIndexed { index, effect ->
-        val flip = effect.filter as? RustFlipFilterSnapshot ?: return@forEachIndexed
-        Spacer(Modifier.height(8.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FilterChip(
-                selected = flip.horizontal,
-                onClick = {
-                    onUpdateFilterParams(
-                        clip.id, index,
-                        mapOf("horizontal" to if (flip.horizontal) 0f else 1f),
-                    )
-                },
-                label = { Text("Flip H") },
-            )
-            FilterChip(
-                selected = flip.vertical,
-                onClick = {
-                    onUpdateFilterParams(
-                        clip.id, index,
-                        mapOf("vertical" to if (flip.vertical) 0f else 1f),
-                    )
-                },
-                label = { Text("Flip V") },
-            )
-        }
-    }
-
-    clipFilters.forEachIndexed { index, effect ->
-        val chroma = effect.filter as? RustChromaKeyFilterSnapshot ?: return@forEachIndexed
-        Spacer(Modifier.height(8.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            chromaKeyPresets.forEach { preset ->
-                FilterChip(
-                    selected = chroma.keyColor.equals(preset.color, ignoreCase = true),
-                    onClick = { onReplaceFilter(clip.id, index, chroma.copy(keyColor = preset.color)) },
-                    label = { Text(preset.label) },
-                )
-            }
-        }
-    }
-
-    clipFilters.forEachIndexed { index, effect ->
-        val mosaic = effect.filter as? RustMosaicFilterSnapshot ?: return@forEachIndexed
-        Spacer(Modifier.height(8.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            mosaicKindOptions.forEach { (kind, label) ->
-                FilterChip(
-                    selected = mosaic.kind == kind,
-                    onClick = { onReplaceFilter(clip.id, index, mosaic.copy(kind = kind)) },
-                    label = { Text(label) },
-                )
-            }
-        }
-    }
-
-    clipFilters.forEachIndexed { index, effect ->
-        val duotone = effect.filter as? RustDuotoneFilterSnapshot ?: return@forEachIndexed
-        Spacer(Modifier.height(8.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            duotonePresets.forEach { preset ->
-                FilterChip(
-                    selected = duotone.dark.equals(preset.dark, ignoreCase = true) &&
-                        duotone.light.equals(preset.light, ignoreCase = true),
-                    onClick = {
-                        onReplaceFilter(
-                            clip.id, index,
-                            duotone.copy(dark = preset.dark, light = preset.light),
-                        )
-                    },
-                    label = { Text(preset.label) },
-                )
-            }
-        }
-    }
-
-    clipFilters.forEachIndexed { index, effect ->
-        val blur = effect.filter as? RustBlurFilterSnapshot ?: return@forEachIndexed
-        Spacer(Modifier.height(8.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            blurKindOptions.forEach { (kind, label) ->
-                FilterChip(
-                    selected = blur.kind == kind,
-                    onClick = { onReplaceFilter(clip.id, index, blur.copy(kind = kind)) },
-                    label = { Text(label) },
-                )
-            }
-        }
-    }
-
-    clipFilters.forEachIndexed { index, effect ->
-        val lut = effect.filter as? RustLutFilterSnapshot ?: return@forEachIndexed
-        Spacer(Modifier.height(8.dp))
-        var lutInfo by remember(lut.path) { mutableStateOf<String?>(null) }
-        var lutError by remember(lut.path) { mutableStateOf<String?>(null) }
-        LaunchedEffect(lut.path) {
-            lutInfo = null
-            lutError = null
-            if (lut.path.isEmpty()) return@LaunchedEffect
-            val parsed = try {
-                parseCubeLut(PlatformFileSystem.readText(lut.path))
-            } catch (error: Exception) {
-                Result.failure(error)
-            }
-            parsed
-                .onSuccess {
-                    lutInfo = if (it.kind == CubeLutKind.ThreeD) "Size: 3D ${it.size}³" else "Size: 1D ${it.size}"
-                }
-                .onFailure { lutError = it.message ?: "Invalid LUT file" }
-        }
-
-        val lutFileName = lut.path.takeIf { it.isNotEmpty() }
-            ?.substringAfterLast("/")
-            ?.substringAfterLast("\\")
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("LUT file", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                lutFileName ?: "None",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (lutFileName != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (lutFileName != null) {
-                IconButton(
-                    onClick = { onReplaceFilter(clip.id, index, lut.copy(path = "")) },
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(Icons.Filled.Close, contentDescription = "Remove LUT file", modifier = Modifier.size(16.dp))
-                }
-            }
-            Spacer(Modifier.width(4.dp))
-            OutlinedButton(
-                onClick = {
-                    lutTarget = index to lut
-                    lutPicker.launch()
-                },
-                modifier = Modifier.height(32.dp),
-            ) {
-                Text(if (lutFileName != null) "Change" else "Select", style = MaterialTheme.typography.labelSmall)
-            }
-        }
-
-        lutInfo?.let { info ->
-            Spacer(Modifier.height(4.dp))
-            Text(info, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        lutError?.let { message ->
-            Spacer(Modifier.height(4.dp))
-            Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-        }
-    }
+    VideoFilterStack(
+        clip = clip,
+        filters = clipFilters,
+        clipOffsetUs = clipOffsetUs,
+        onAddFilter = onAddFilter,
+        onRemoveFilter = onRemoveFilter,
+        onApplyFilterToAll = onApplyFilterToAll,
+        onUpdateFilterParams = onUpdateFilterParams,
+        onReplaceFilter = onReplaceFilter,
+        onToggleFilterEnabled = onToggleFilterEnabled,
+        onMoveFilter = onMoveFilter,
+        onAddKeyframe = onAddKeyframe,
+    )
 
     Spacer(Modifier.height(16.dp))
     Text("Masks", style = MaterialTheme.typography.labelMedium)
@@ -890,6 +630,402 @@ private fun VideoClipProperties(
         }
     }
 }
+
+@Composable
+private fun VideoFilterStack(
+    clip: RustClipSnapshot,
+    filters: List<RustVideoEffectSnapshot>,
+    clipOffsetUs: Long,
+    onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
+    onRemoveFilter: (String, Int) -> Unit,
+    onApplyFilterToAll: (String, Int) -> Unit,
+    onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
+    onReplaceFilter: (String, Int, RustVideoFilterSnapshot) -> Unit,
+    onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
+    onMoveFilter: (String, Int, Int) -> Unit,
+    onAddKeyframe: (String, RustKeyframe) -> Unit,
+    addableFilters: List<RustVideoFilterSnapshot> = defaultVideoFilters(),
+) {
+    val lutScope = rememberCoroutineScope()
+    var lutTarget by remember { mutableStateOf<Pair<Int, RustLutFilterSnapshot>?>(null) }
+    var lutPickError by remember(clip.id) { mutableStateOf<String?>(null) }
+    val lutPicker = rememberFilePickerLauncher(
+        type = FileKitType.File(extensions = SupportedFormats.lutExtensions),
+    ) { file: PlatformFile? ->
+        file?.let { picked ->
+            lutScope.launch {
+                val path = try {
+                    PlatformFileSystem.stageForNativeAccess(picked.platformPath())
+                } catch (error: Exception) {
+                    Napier.e("LUT file could not be staged", error)
+                    lutPickError = "Could not use LUT: ${error.message}"
+                    return@launch
+                }
+                lutPickError = null
+                val target = lutTarget
+                if (target == null) {
+                    onAddFilter(
+                        clip.id,
+                        RustVideoEffectSnapshot(filter = RustLutFilterSnapshot(path = path), enabled = true),
+                    )
+                } else {
+                    onReplaceFilter(clip.id, target.first, target.second.copy(path = path))
+                }
+            }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        filters.forEachIndexed { index, effect ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                FilterChip(
+                    selected = effect.enabled,
+                    onClick = { onToggleFilterEnabled(clip.id, index, !effect.enabled) },
+                    label = { Text(effect.displayName()) },
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { onApplyFilterToAll(clip.id, index) }) {
+                    Icon(
+                        Icons.Default.DoneAll,
+                        contentDescription = "Apply to all clips",
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                IconButton(
+                    onClick = { onMoveFilter(clip.id, index, index - 1) },
+                    enabled = index > 0,
+                ) {
+                    Icon(Icons.Default.KeyboardArrowUp, null)
+                }
+                IconButton(
+                    onClick = { onMoveFilter(clip.id, index, index + 1) },
+                    enabled = index < filters.lastIndex,
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, null)
+                }
+                IconButton(onClick = { onRemoveFilter(clip.id, index) }) {
+                    Icon(Icons.Default.Close, null)
+                }
+            }
+        }
+    }
+
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        AssistChip(
+            onClick = { expanded = true },
+            label = { Text("+ Add Filter") },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            addableFilters.forEach { filter ->
+                DropdownMenuItem(
+                    text = { Text(filter.displayName()) },
+                    onClick = {
+                        onAddFilter(clip.id, RustVideoEffectSnapshot(filter = filter, enabled = true))
+                        expanded = false
+                    },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("LUT") },
+                onClick = {
+                    lutTarget = null
+                    expanded = false
+                    lutPicker.launch()
+                },
+            )
+        }
+    }
+
+    lutPickError?.let { message ->
+        Spacer(Modifier.height(4.dp))
+        Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+    }
+
+    filters.forEachIndexed { index, effect ->
+        val filter = effect.filter
+        val def = filterDefByType(filter) ?: return@forEachIndexed
+        def.properties.forEach { prop ->
+            val animParamKey = KeyframeParams.filterParam(index, prop.keyframeSuffix)
+            val currentVal = readFilterProperty(filter, prop.paramKey)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${prop.displayName}: ${prop.format(currentVal)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                KeyframeToggle(animParamKey, clip, clipOffsetUs, onAddKeyframe)
+            }
+            var paramVal by remember(filter, prop.paramKey) { mutableFloatStateOf(currentVal) }
+            Slider(
+                value = paramVal,
+                onValueChange = { paramVal = it },
+                onValueChangeFinished = {
+                    onUpdateFilterParams(clip.id, index, mapOf(prop.paramKey to paramVal))
+                },
+                valueRange = prop.range,
+                steps = prop.steps,
+            )
+        }
+    }
+
+    filters.forEachIndexed { index, effect ->
+        val flip = effect.filter as? RustFlipFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilterChip(
+                selected = flip.horizontal,
+                onClick = {
+                    onUpdateFilterParams(
+                        clip.id, index,
+                        mapOf("horizontal" to if (flip.horizontal) 0f else 1f),
+                    )
+                },
+                label = { Text("Flip H") },
+            )
+            FilterChip(
+                selected = flip.vertical,
+                onClick = {
+                    onUpdateFilterParams(
+                        clip.id, index,
+                        mapOf("vertical" to if (flip.vertical) 0f else 1f),
+                    )
+                },
+                label = { Text("Flip V") },
+            )
+        }
+    }
+
+    filters.forEachIndexed { index, effect ->
+        val chroma = effect.filter as? RustChromaKeyFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            chromaKeyPresets.forEach { preset ->
+                FilterChip(
+                    selected = chroma.keyColor.equals(preset.color, ignoreCase = true),
+                    onClick = { onReplaceFilter(clip.id, index, chroma.copy(keyColor = preset.color)) },
+                    label = { Text(preset.label) },
+                )
+            }
+        }
+    }
+
+    filters.forEachIndexed { index, effect ->
+        val mosaic = effect.filter as? RustMosaicFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            mosaicKindOptions.forEach { (kind, label) ->
+                FilterChip(
+                    selected = mosaic.kind == kind,
+                    onClick = { onReplaceFilter(clip.id, index, mosaic.copy(kind = kind)) },
+                    label = { Text(label) },
+                )
+            }
+        }
+    }
+
+    filters.forEachIndexed { index, effect ->
+        val duotone = effect.filter as? RustDuotoneFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            duotonePresets.forEach { preset ->
+                FilterChip(
+                    selected = duotone.dark.equals(preset.dark, ignoreCase = true) &&
+                        duotone.light.equals(preset.light, ignoreCase = true),
+                    onClick = {
+                        onReplaceFilter(
+                            clip.id, index,
+                            duotone.copy(dark = preset.dark, light = preset.light),
+                        )
+                    },
+                    label = { Text(preset.label) },
+                )
+            }
+        }
+    }
+
+    filters.forEachIndexed { index, effect ->
+        val blur = effect.filter as? RustBlurFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            blurKindOptions.forEach { (kind, label) ->
+                FilterChip(
+                    selected = blur.kind == kind,
+                    onClick = { onReplaceFilter(clip.id, index, blur.copy(kind = kind)) },
+                    label = { Text(label) },
+                )
+            }
+        }
+    }
+
+    filters.forEachIndexed { index, effect ->
+        val lut = effect.filter as? RustLutFilterSnapshot ?: return@forEachIndexed
+        Spacer(Modifier.height(8.dp))
+        var lutInfo by remember(lut.path) { mutableStateOf<String?>(null) }
+        var lutError by remember(lut.path) { mutableStateOf<String?>(null) }
+        LaunchedEffect(lut.path) {
+            lutInfo = null
+            lutError = null
+            if (lut.path.isEmpty()) return@LaunchedEffect
+            val parsed = try {
+                parseCubeLut(PlatformFileSystem.readText(lut.path))
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+            parsed
+                .onSuccess {
+                    lutInfo = if (it.kind == CubeLutKind.ThreeD) "Size: 3D ${it.size}³" else "Size: 1D ${it.size}"
+                }
+                .onFailure { lutError = it.message ?: "Invalid LUT file" }
+        }
+
+        val lutFileName = lut.path.takeIf { it.isNotEmpty() }
+            ?.substringAfterLast("/")
+            ?.substringAfterLast("\\")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("LUT file", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                lutFileName ?: "None",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (lutFileName != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (lutFileName != null) {
+                IconButton(
+                    onClick = { onReplaceFilter(clip.id, index, lut.copy(path = "")) },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Remove LUT file", modifier = Modifier.size(16.dp))
+                }
+            }
+            Spacer(Modifier.width(4.dp))
+            OutlinedButton(
+                onClick = {
+                    lutTarget = index to lut
+                    lutPicker.launch()
+                },
+                modifier = Modifier.height(32.dp),
+            ) {
+                Text(if (lutFileName != null) "Change" else "Select", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+
+        lutInfo?.let { info ->
+            Spacer(Modifier.height(4.dp))
+            Text(info, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        lutError?.let { message ->
+            Spacer(Modifier.height(4.dp))
+            Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+@Composable
+private fun AdjustmentClipProperties(
+    clip: RustClipSnapshot,
+    kind: RustAdjustmentClipKind,
+    playheadMs: Long = 0L,
+    onAddFilter: (String, RustVideoEffectSnapshot) -> Unit,
+    onRemoveFilter: (String, Int) -> Unit,
+    onApplyFilterToAll: (String, Int) -> Unit = { _, _ -> },
+    onUpdateFilterParams: (String, Int, Map<String, Float>) -> Unit,
+    onReplaceFilter: (String, Int, RustVideoFilterSnapshot) -> Unit = { _, _, _ -> },
+    onToggleFilterEnabled: (String, Int, Boolean) -> Unit,
+    onMoveFilter: (String, Int, Int) -> Unit,
+    onAddMask: (String, RustMaskEffect) -> Unit = { _, _ -> },
+    onRemoveMask: (String, Int) -> Unit = { _, _ -> },
+    onUpdateMask: (String, Int, RustMaskEffect) -> Unit = { _, _, _ -> },
+    onSetMaskEnabled: (String, Int, Boolean) -> Unit = { _, _, _ -> },
+    onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
+    onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
+    onUpdateKeyframe: (String, Int, RustKeyframe) -> Unit = { _, _, _ -> },
+) {
+    val clipOffsetUs = (playheadMs * 1000L - clip.timelineStartUs).coerceIn(0L, clip.timelineDurationUs)
+
+    Text("Adjustment layer", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        "Duration: ${clip.timelineDurationUs / 1_000_000}s | Applies to every track below",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (clip.muted) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Disabled",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+
+    Spacer(Modifier.height(16.dp))
+
+    Text("Filters", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+
+    VideoFilterStack(
+        clip = clip,
+        filters = kind.filters,
+        clipOffsetUs = clipOffsetUs,
+        onAddFilter = onAddFilter,
+        onRemoveFilter = onRemoveFilter,
+        onApplyFilterToAll = onApplyFilterToAll,
+        onUpdateFilterParams = onUpdateFilterParams,
+        onReplaceFilter = onReplaceFilter,
+        onToggleFilterEnabled = onToggleFilterEnabled,
+        onMoveFilter = onMoveFilter,
+        onAddKeyframe = onAddKeyframe,
+        addableFilters = adjustmentLayerFilters(),
+    )
+
+    Spacer(Modifier.height(16.dp))
+    Text("Masks", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    MasksSection(
+        clipId = clip.id,
+        masks = kind.masks,
+        onAddMask = { mask -> onAddMask(clip.id, mask) },
+        onRemoveMask = { index -> onRemoveMask(clip.id, index) },
+        onUpdateMask = { index, mask -> onUpdateMask(clip.id, index, mask) },
+        onSetMaskEnabled = { index, enabled -> onSetMaskEnabled(clip.id, index, enabled) },
+        onTrackMask = {},
+        trackEnabled = false,
+    )
+
+    KeyframeSection(
+        clip = clip,
+        playheadMs = playheadMs,
+        onAddKeyframe = onAddKeyframe,
+        onRemoveKeyframe = onRemoveKeyframe,
+        onUpdateKeyframe = onUpdateKeyframe,
+    )
+}
+
+private fun adjustmentLayerFilters(): List<RustVideoFilterSnapshot> =
+    defaultVideoFilters().filterNot {
+        it is RustReverseVideoFilterSnapshot || it is RustCanvasBackgroundFilterSnapshot
+    }
 
 @Composable
 private fun AudioClipProperties(

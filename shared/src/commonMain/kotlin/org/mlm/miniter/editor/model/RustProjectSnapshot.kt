@@ -271,6 +271,20 @@ data class RustSubtitleClipKind(
 ) : RustClipKindPayload
 
 @Serializable
+@SerialName("Adjustment")
+data class RustAdjustmentClipKind(
+    val filters: List<RustVideoEffectSnapshot> = emptyList(),
+    val masks: List<RustMaskEffect> = emptyList(),
+) : RustClipKindPayload
+
+val RustClipSnapshot.videoFilters: List<RustVideoEffectSnapshot>
+    get() = when (val payload = kind) {
+        is RustVideoClipKind -> payload.filters
+        is RustAdjustmentClipKind -> payload.filters
+        else -> emptyList()
+    }
+
+@Serializable
 data class RustTextStyleSnapshot(
     @SerialName("font_family")
     val fontFamily: String = "sans-serif",

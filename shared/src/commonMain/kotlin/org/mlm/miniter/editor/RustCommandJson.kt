@@ -30,10 +30,13 @@ class RustCommandJson(
         return json.encodeToString(project)
     }
 
-    fun addTrack(kind: RustTrackKind, name: String): String =
+    fun addTrack(kind: RustTrackKind, name: String, trackId: String? = null): String =
         wrap("AddTrack") {
             put("kind", JsonPrimitive(kind.name))
             put("name", JsonPrimitive(name))
+            if (trackId != null) {
+                put("track_id", uuid(trackId))
+            }
         }
 
     fun removeTrack(trackId: String): String =

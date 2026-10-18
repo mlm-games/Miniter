@@ -36,6 +36,7 @@ pub enum ClipKind {
     Audio(AudioClip),
     Text(TextOverlay),
     Subtitle(SubtitleClip),
+    Adjustment(AdjustmentClip),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,4 +248,12 @@ pub struct SubtitleClip {
     pub source_path: String,
     #[serde(default)]
     pub font_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AdjustmentClip {
+    #[serde(default)]
+    pub filters: Vec<VideoEffect>,
+    #[serde(default)]
+    pub masks: Vec<MaskEffect>,
 }

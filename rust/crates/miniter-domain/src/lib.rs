@@ -10,7 +10,7 @@ pub mod timeline;
 pub mod track;
 pub mod transition;
 
-pub use clip::{AudioClip, Clip, ClipId, ClipKind, SubtitleClip, VideoClip};
+pub use clip::{AdjustmentClip, AudioClip, Clip, ClipId, ClipKind, SubtitleClip, VideoClip};
 pub use export::{ExportFormat, ExportProfile, ExportResolution, SubtitleMode};
 pub use filter::{
     AudioFilter, BlurKind, CanvasBackgroundMode, EqPreset, MosaicKind, ReverbPreset, VideoEffect,

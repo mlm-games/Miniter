@@ -1520,6 +1520,22 @@ fn render_node(
             apply_masks_to_frame(&mut pixels, width as u32, height as u32, masks);
             Ok(pixels)
         }
+
+        RenderNode::Adjustment {
+            source,
+            filters,
+            masks,
+        } => {
+            let mut base =
+                render_node(source, width, height, decode_cache, first_decoded_video_pts_us)?;
+            let mut effect = base.clone();
+            apply_video_filters(&mut effect, width, height, filters);
+            if !masks.is_empty() {
+                apply_masks_to_frame(&mut effect, width as u32, height as u32, masks);
+            }
+            alpha_over(&mut base, &effect);
+            Ok(base)
+        }
     }
 }
 

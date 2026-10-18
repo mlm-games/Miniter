@@ -24,7 +24,7 @@ import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustTextClipKind
-import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.videoFilters
 import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.ParamDef
 import org.mlm.miniter.project.paramDefOrUnknown
@@ -77,8 +77,7 @@ fun currentValueForParam(clip: RustClipSnapshot, paramKey: String): Float {
                         .flatMap { it.properties }
                         .firstOrNull { it.keyframeSuffix == suffix }
                         ?.paramKey ?: return 0f
-                    val kind = clip.kind as? RustVideoClipKind ?: return 0f
-                    val filter = kind.filters.getOrNull(idx)?.filter ?: return 0f
+                    val filter = clip.videoFilters.getOrNull(idx)?.filter ?: return 0f
                     readFilterProperty(filter, paramKeyMapped)
                 } else 0f
             } else 0f

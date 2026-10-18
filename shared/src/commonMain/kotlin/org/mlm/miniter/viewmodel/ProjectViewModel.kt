@@ -23,6 +23,7 @@ import kotlinx.serialization.json.Json
 import org.mlm.miniter.editor.RustDispatchException
 import org.mlm.miniter.editor.RustProjectStore
 import org.mlm.miniter.nav.MAX_EXTRA_IMPORT_PATHS
+import org.mlm.miniter.editor.model.RustAdjustmentClipKind
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustBlendMode
 import org.mlm.miniter.editor.model.RustBlurFilterSnapshot
@@ -68,6 +69,7 @@ import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.overlapsRange
+import org.mlm.miniter.editor.model.videoFilters
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.engine.PlatformVideoEngine
@@ -187,6 +189,7 @@ class ProjectViewModel(
 
     companion object {
         private const val DEFAULT_TEXT_CLIP_DURATION_US = 3_000_000L
+        private const val DEFAULT_ADJUSTMENT_CLIP_DURATION_US = 3_000_000L
         private const val DEFAULT_IMAGE_CLIP_DURATION_US = 5_000_000L
         private const val DEFAULT_SUBTITLE_DURATION_MS = 60_000L
         private const val MIN_SAMPLE_RATE = 44_100
@@ -488,6 +491,7 @@ class ProjectViewModel(
                             is RustAudioClipKind -> kind.sourcePath
                             is RustTextClipKind -> null
                             is RustSubtitleClipKind -> kind.sourcePath
+                            is RustAdjustmentClipKind -> null
                         }
                     }
                     .distinct()
@@ -875,6 +879,48 @@ class ProjectViewModel(
             )
         } catch (e: Exception) {
             handleError("Failed to add text: ${e.message}")
+        }
+    }
+
+    fun addAdjustmentLayer() {
+        try {
+            val trackId = randomUuid()
+            val adjustmentCount = rustStore.snapshot.value?.timeline?.tracks
+                ?.count { track -> track.clips.any { it.kind is RustAdjustmentClipKind } } ?: 0
+            val playheadUs = _state.value.playheadMs.msToUs
+            val clipId = randomUuid()
+            val clip = RustClipSnapshot(
+                id = clipId,
+                timelineStartUs = playheadUs,
+                timelineDurationUs = DEFAULT_ADJUSTMENT_CLIP_DURATION_US,
+                sourceStartUs = 0L,
+                sourceEndUs = DEFAULT_ADJUSTMENT_CLIP_DURATION_US,
+                sourceTotalDurationUs = DEFAULT_ADJUSTMENT_CLIP_DURATION_US,
+                speed = 1.0,
+                volume = 1.0f,
+                opacity = 1.0f,
+                muted = false,
+                transitionIn = null,
+                transitionOut = null,
+                kind = RustAdjustmentClipKind(),
+            )
+            dispatchAndSync(
+                rustStore.commands.batch(
+                    "Add adjustment layer",
+                    listOf(
+                        rustStore.commands.addTrack(
+                            RustTrackKind.Video,
+                            "Adjustment ${adjustmentCount + 1}",
+                            trackId,
+                        ),
+                        rustStore.commands.addClip(trackId, clip),
+                    ),
+                ),
+                selectedTrackId = trackId,
+                selectedClipId = clipId,
+            )
+        } catch (e: Exception) {
+            handleError("Failed to add adjustment layer: ${e.message}")
         }
     }
 
@@ -2703,8 +2749,8 @@ class ProjectViewModel(
     }
 
     fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {
-        val video = findRustClip(clipId)?.kind as? RustVideoClipKind ?: return
-        val current = video.filters.getOrNull(filterIndex) ?: return
+        val filters = findRustClip(clipId)?.videoFilters ?: return
+        val current = filters.getOrNull(filterIndex) ?: return
         val updatedFilter = when (val filter = current.filter) {
             is RustBrightnessFilterSnapshot -> RustBrightnessFilterSnapshot(newParams["value"] ?: filter.value)
             is RustContrastFilterSnapshot -> RustContrastFilterSnapshot(newParams["value"] ?: filter.value)
@@ -2787,8 +2833,8 @@ class ProjectViewModel(
     }
 
     fun replaceFilter(clipId: String, filterIndex: Int, filter: RustVideoFilterSnapshot) {
-        val video = findRustClip(clipId)?.kind as? RustVideoClipKind ?: return
-        val current = video.filters.getOrNull(filterIndex) ?: return
+        val filters = findRustClip(clipId)?.videoFilters ?: return
+        val current = filters.getOrNull(filterIndex) ?: return
         dispatchAndSync(
             rustStore.commands.updateVideoFilter(
                 clipId = clipId,
@@ -2835,8 +2881,7 @@ class ProjectViewModel(
         val snapshot = rustStore.snapshot.value ?: return
         val clips = snapshot.timeline.tracks.flatMap { it.clips }
         val source = clips.firstOrNull { it.id == sourceClipId } ?: return
-        val kind = source.kind as? RustVideoClipKind ?: return
-        val effect = kind.filters.getOrNull(filterIndex) ?: return
+        val effect = source.videoFilters.getOrNull(filterIndex) ?: return
         val targets = clips.filter { it.id != sourceClipId && it.kind is RustVideoClipKind }
         if (targets.isEmpty()) return
 

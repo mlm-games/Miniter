@@ -100,6 +100,16 @@ fn validate_node(node: &RenderNode, t: Timestamp, out: &mut Vec<PlanViolation>) 
                 check_mask(t, mask, out);
             }
         }
+        RenderNode::Adjustment {
+            source,
+            filters: _,
+            masks,
+        } => {
+            validate_node(source, t, out);
+            for mask in masks {
+                check_mask(t, mask, out);
+            }
+        }
     }
 }
 

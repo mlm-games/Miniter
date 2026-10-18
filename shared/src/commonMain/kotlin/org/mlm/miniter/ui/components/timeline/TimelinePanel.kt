@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.mlm.miniter.editor.model.RustAdjustmentClipKind
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
@@ -40,6 +41,7 @@ import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTrackSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.videoFilters
 import org.mlm.miniter.project.ALL_PARAMS_BY_KEY
 import kotlin.math.abs
 import kotlin.math.max
@@ -514,6 +516,7 @@ private fun ClipBlock(
         is RustAudioClipKind -> kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
         is RustTextClipKind -> "T: ${kind.text}"
         is RustSubtitleClipKind -> kind.sourcePath.substringAfterLast("/").substringAfterLast("\\")
+        is RustAdjustmentClipKind -> "Adjustment"
     }
 
     val canSplit = isTrimmableClip(clip) &&
@@ -633,7 +636,7 @@ private fun ClipBlock(
                 Text(clipLabel, style = MaterialTheme.typography.labelSmall, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, color = onContainerColor,
                     modifier = Modifier.weight(1f))
-                val videoFilters = (clip.kind as? RustVideoClipKind)?.filters.orEmpty()
+                val videoFilters = clip.videoFilters
                 if (videoFilters.isNotEmpty()) {
                     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.size(14.dp)) {
@@ -818,6 +821,7 @@ private fun snapshotTimelineDurationMs(snapshot: RustProjectSnapshot): Long {
 private fun isTrimmableClip(clip: RustClipSnapshot): Boolean =
     clip.kind is RustVideoClipKind || clip.kind is RustAudioClipKind
         || clip.kind is RustTextClipKind || clip.kind is RustSubtitleClipKind
+        || clip.kind is RustAdjustmentClipKind
 
 private fun resolveParamColor(param: String): Color {
     ALL_PARAMS_BY_KEY[param]?.let { return it.color }

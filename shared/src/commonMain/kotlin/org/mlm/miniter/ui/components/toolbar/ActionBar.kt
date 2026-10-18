@@ -20,6 +20,7 @@ fun ActionBar(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onAddText: () -> Unit,
+    onAddAdjustment: () -> Unit,
     onSplit: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
@@ -87,6 +88,11 @@ fun ActionBar(
                             icon = Icons.Default.TextFields,
                             label = "Text",
                             onClick = onAddText,
+                        )
+                        ActionChip(
+                            icon = Icons.Default.Layers,
+                            label = "Adjust",
+                            onClick = onAddAdjustment,
                         )
 
                         ActionChip(
