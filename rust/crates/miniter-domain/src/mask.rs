@@ -184,8 +184,8 @@ pub struct MaskEffect {
     pub composition: MaskComposition,
     #[serde(default)]
     pub transform: MaskTransform,
-    #[serde(default)]
-    pub mode: MaskMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<MaskMode>,
     #[serde(default)]
     pub expansion: f32,
     #[serde(default = "default_mask_opacity")]
@@ -212,7 +212,7 @@ impl MaskEffect {
             operation: MaskOperation::Alpha,
             composition: MaskComposition::Replace,
             transform: MaskTransform::default(),
-            mode: MaskMode::Add,
+            mode: Some(MaskMode::Add),
             expansion: 0.0,
             opacity: 1.0,
         }

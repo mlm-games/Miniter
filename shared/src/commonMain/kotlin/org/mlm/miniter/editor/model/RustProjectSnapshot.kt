@@ -617,7 +617,7 @@ data class RustMaskEffect(
     @SerialName("composition")
     val composition: RustMaskComposition = RustMaskComposition.Replace,
     val transform: RustMaskTransform = RustMaskTransform(1f, 0f, 0f, 0f),
-    val mode: RustMaskMode = RustMaskMode.Add,
+    val mode: RustMaskMode? = null,
     val expansion: Float = 0f,
     val opacity: Float = 1f,
 )

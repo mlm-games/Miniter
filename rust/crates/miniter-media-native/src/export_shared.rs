@@ -6,8 +6,8 @@ use fontdue::{Font, FontSettings};
 use miniter_audio::util;
 use miniter_domain::filter::{BlurKind, MosaicKind, VideoFilter};
 use miniter_domain::mask::{
-    BlendMode, MaskEffect, MaskOperation, MaskPoint, MaskShape, MaskSource, MaskTransform,
-    MaskVertex,
+    BlendMode, MaskComposition, MaskEffect, MaskMode, MaskOperation, MaskPoint, MaskShape,
+    MaskSource, MaskTransform, MaskVertex,
 };
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
 use miniter_domain::transition::TransitionKind;
@@ -621,19 +621,47 @@ pub fn apply_masks_to_frame(pixels: &mut [u8], width: u32, height: u32, masks: &
             Some((mask, shape, *feather, *invert))
         })
         .collect();
-    let Some(first) = active.first() else {
+    if active.is_empty() {
+        return;
+    }
+    let modes: Option<Vec<MaskMode>> = active.iter().map(|(mask, ..)| mask.mode).collect();
+    let Some(modes) = modes else {
+        apply_legacy_masks(pixels, w, h, &active);
         return;
     };
-    let mut coverage = vec![first.0.mode.start(); w * h];
-    for (mask, shape, feather, invert) in active {
+    let start = modes.first().map_or(0.0, |mode| mode.start());
+    let mut coverage = vec![start; w * h];
+    for ((mask, shape, feather, invert), mode) in active.into_iter().zip(modes) {
         let values = mask_values(mask, shape, feather, invert, w, h);
         for (acc, value) in coverage.iter_mut().zip(values) {
-            *acc = mask.mode.combine(*acc, value).clamp(0.0, 1.0);
+            *acc = mode.combine(*acc, value).clamp(0.0, 1.0);
         }
     }
     for (px, value) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(coverage) {
         let alpha = px[3] as f32 / 255.0;
         px[3] = ((alpha * value).clamp(0.0, 1.0) * 255.0).round() as u8;
+    }
+}
+
+fn apply_legacy_masks(
+    pixels: &mut [u8],
+    width: usize,
+    height: usize,
+    masks: &[(&MaskEffect, &MaskShape, f32, bool)],
+) {
+    for (mask, shape, feather, invert) in masks {
+        let values = mask_values(mask, shape, *feather, *invert, width, height);
+        for (px, value) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(values) {
+            let current = px[3] as f32 / 255.0;
+            let new_alpha = match mask.composition {
+                MaskComposition::Replace => current * value,
+                MaskComposition::Union => current.max(value),
+                MaskComposition::Intersect => current.min(value),
+                MaskComposition::Subtract => (current - value).max(0.0),
+                _ => current * value,
+            };
+            px[3] = (new_alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
     }
 }
 

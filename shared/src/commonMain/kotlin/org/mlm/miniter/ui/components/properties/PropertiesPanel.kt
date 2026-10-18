@@ -1793,6 +1793,7 @@ private fun MasksSection(
                         onAddMask(RustMaskEffect(
                             enabled = true,
                             source = RustShapeMaskSource(RustRectangleMaskShape(0.1f, 0.1f, 0.9f, 0.9f), feather = 0f, invert = false),
+                            mode = RustMaskMode.Add,
                         ))
                         expanded = false
                     },
@@ -1803,6 +1804,7 @@ private fun MasksSection(
                         onAddMask(RustMaskEffect(
                             enabled = true,
                             source = RustShapeMaskSource(RustEllipseMaskShape(0.5f, 0.5f, 0.3f, 0.3f), feather = 0f, invert = false),
+                            mode = RustMaskMode.Add,
                         ))
                         expanded = false
                     },
@@ -1813,6 +1815,7 @@ private fun MasksSection(
                         onAddMask(RustMaskEffect(
                             enabled = true,
                             source = RustShapeMaskSource(defaultPathMaskShape(), feather = 0f, invert = false),
+                            mode = RustMaskMode.Add,
                         ))
                         expanded = false
                     },
@@ -1913,7 +1916,7 @@ private fun MaskEditor(
 
             Spacer(Modifier.height(8.dp))
 
-            Text("Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            Text(if (mask.mode == null) "Mode (legacy)" else "Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
