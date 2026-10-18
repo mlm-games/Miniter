@@ -137,6 +137,17 @@ data class ImportProgress(
     val fraction: Float? = null,
 )
 
+private data class ClipboardEntry(
+    val trackId: String,
+    val clip: RustClipSnapshot,
+    val offsetUs: Long,
+)
+
+private data class PlannedClip(
+    val track: RustTrackSnapshot,
+    val clip: RustClipSnapshot,
+)
+
 data class ProjectUiState(
     val snapshot: RustProjectSnapshot? = null,
     val projectPath: String? = null,
@@ -176,6 +187,10 @@ class ProjectViewModel(
     private val _state = MutableStateFlow(ProjectUiState())
     val state: StateFlow<ProjectUiState> = _state
 
+    private val _hasClipboard = MutableStateFlow(false)
+    val hasClipboard: StateFlow<Boolean> = _hasClipboard
+    private var clipboard: List<ClipboardEntry> = emptyList()
+
     val exportProgress = engine.exportProgress
 
     val playheadMs: StateFlow<Long> = _state.map { it.playheadMs }
@@ -208,6 +223,7 @@ class ProjectViewModel(
         private const val MAX_TIMELINE_THUMBNAILS = 256
         private const val TIMELINE_THUMBNAIL_WIDTH = 160
         private const val TIMELINE_THUMBNAIL_HEIGHT = 90
+        private const val TRANSITION_ADJACENCY_EPSILON_US = 2_000L
     }
 
     private var hardwareAccelerationEnabled: Boolean = true
@@ -996,9 +1012,10 @@ class ProjectViewModel(
 
     fun deleteSelectedClip() {
         val snapshot = rustStore.snapshot.value ?: return
-        val clipIds = snapshot.timeline.tracks
-            .flatMap { track -> track.clips.map { it.id } }
-            .filter { it in _state.value.selectedClipIds }
+        deleteClipIds(orderedClipIds(snapshot, _state.value.selectedClipIds))
+    }
+
+    private fun deleteClipIds(clipIds: List<String>) {
         if (clipIds.isEmpty()) return
         beginContinuousEdit("Delete")
         var failed = false
@@ -1909,24 +1926,228 @@ class ProjectViewModel(
         }
     }
 
-    fun duplicateClip(clipId: String) {
-        val track = rustStore.snapshot.value
-            ?.timeline
-            ?.tracks
-            ?.firstOrNull { t -> t.clips.any { it.id == clipId } }
-            ?: return
-
-        val endUs = track.clips.maxOfOrNull { it.timelineStartUs + it.timelineDurationUs } ?: 0L
-
-        dispatchAndSync(
-            rustStore.commands.duplicateClip(
-                sourceClipId = clipId,
-                newClipId = randomUuid(),
-                targetTrackId = track.id,
-                targetStartUs = endUs,
-            ),
-        )
+    fun duplicateSelectedClips() {
+        duplicateClips(_state.value.selectedClipIds)
     }
+
+    fun duplicateClip(clipId: String) {
+        duplicateClips(clipIdsForAction(clipId))
+    }
+
+    private fun duplicateClips(clipIds: Set<String>) {
+        if (clipIds.isEmpty()) return
+        val snapshot = rustStore.snapshot.value ?: return
+        val sources = snapshot.timeline.tracks.mapNotNull { track ->
+            val clips = track.clips.filter { it.id in clipIds }.sortedBy { it.timelineStartUs }
+            if (clips.isEmpty()) null else track to clips
+        }
+        if (sources.isEmpty()) return
+        val lockedTrack = sources.firstOrNull { (track, _) -> track.locked }?.first
+        if (lockedTrack != null) {
+            snackbarManager.showError("Cannot duplicate: '${lockedTrack.name}' is locked")
+            return
+        }
+        val plan = mutableListOf<PlannedClip>()
+        for ((track, clips) in sources) {
+            val occupied = track.clips.toMutableList()
+            for (clip in clips) {
+                val startUs = firstFreeStartUs(occupied, clip.endUs, clip.timelineDurationUs)
+                val copy = clip.copy(id = randomUuid(), timelineStartUs = startUs)
+                plan += PlannedClip(track, copy)
+                occupied += copy
+            }
+        }
+        dispatchPlannedClips("Duplicate", sanitizePlannedTransitions(snapshot, plan))
+    }
+
+    fun copySelectedClips() {
+        copyClips(null)
+    }
+
+    fun copyClip(clipId: String) {
+        copyClips(clipId)
+    }
+
+    private fun copyClips(explicitClipId: String?) {
+        setClipboard(clipIdsForAction(explicitClipId))
+    }
+
+    fun cutSelectedClips() {
+        cutClips(null)
+    }
+
+    fun cutClip(clipId: String) {
+        cutClips(clipId)
+    }
+
+    private fun cutClips(explicitClipId: String?) {
+        val ids = clipIdsForAction(explicitClipId)
+        if (ids.isEmpty()) return
+        val snapshot = rustStore.snapshot.value ?: return
+        val lockedTrack = snapshot.timeline.tracks.firstOrNull { track ->
+            track.locked && track.clips.any { it.id in ids }
+        }
+        if (lockedTrack != null) {
+            snackbarManager.showError("Cannot cut: '${lockedTrack.name}' is locked")
+            return
+        }
+        if (!setClipboard(ids)) return
+        deleteClipIds(orderedClipIds(snapshot, ids))
+    }
+
+    fun pasteClips() {
+        val entries = clipboard
+        if (entries.isEmpty()) return
+        val snapshot = rustStore.snapshot.value ?: return
+        val playheadUs = _state.value.playheadMs.msToUs
+        val singleSelectedTrackId = singleSelectedTrack(snapshot)?.id
+        val overrideTrackId = singleSelectedTrackId?.takeIf {
+            entries.map { entry -> entry.trackId }.distinct().size == 1
+        }
+        val plan = mutableListOf<PlannedClip>()
+        for (entry in entries) {
+            val track = snapshot.timeline.tracks.firstOrNull {
+                it.id == (overrideTrackId ?: entry.trackId)
+            } ?: run {
+                snackbarManager.showError("Cannot paste: the clipboard track no longer exists")
+                return
+            }
+            if (track.locked) {
+                snackbarManager.showError("Cannot paste: '${track.name}' is locked")
+                return
+            }
+            if (!trackAcceptsClip(track, entry.clip)) {
+                snackbarManager.showError("Cannot paste: '${track.name}' does not accept this clip")
+                return
+            }
+            val startUs = playheadUs + entry.offsetUs
+            if (startUs < 0L) {
+                snackbarManager.showError("Cannot paste before the timeline start")
+                return
+            }
+            val endUs = startUs + entry.clip.timelineDurationUs
+            if (track.clips.any { it.overlapsRange(startUs, endUs) }) {
+                snackbarManager.showError("Cannot paste: clips would overlap on '${track.name}'")
+                return
+            }
+            if (plan.any { it.track.id == track.id && it.clip.overlapsRange(startUs, endUs) }) {
+                snackbarManager.showError("Cannot paste: the clipboard clips would overlap")
+                return
+            }
+            plan += PlannedClip(track, entry.clip.copy(id = randomUuid(), timelineStartUs = startUs))
+        }
+        dispatchPlannedClips("Paste", sanitizePlannedTransitions(snapshot, plan))
+    }
+
+    private fun clipIdsForAction(explicitClipId: String?): Set<String> {
+        val selected = _state.value.selectedClipIds
+        return when {
+            explicitClipId == null -> selected
+            explicitClipId in selected -> selected
+            else -> setOf(explicitClipId)
+        }
+    }
+
+    private fun setClipboard(clipIds: Set<String>): Boolean {
+        if (clipIds.isEmpty()) return false
+        val snapshot = rustStore.snapshot.value ?: return false
+        val entries = snapshot.timeline.tracks.flatMap { track ->
+            track.clips.filter { it.id in clipIds }.map { track.id to it }
+        }
+        if (entries.isEmpty()) return false
+        val originUs = entries.minOf { (_, clip) -> clip.timelineStartUs }
+        clipboard = entries.map { (trackId, clip) ->
+            ClipboardEntry(trackId, clip, clip.timelineStartUs - originUs)
+        }
+        _hasClipboard.value = true
+        return true
+    }
+
+    private fun dispatchPlannedClips(label: String, plan: List<PlannedClip>) {
+        if (plan.isEmpty()) return
+        beginContinuousEdit(label)
+        var failed = false
+        try {
+            fun send(command: String): Boolean {
+                if (failed) return false
+                if (!dispatchCoalescing(command, label)) {
+                    failed = true
+                    return false
+                }
+                return true
+            }
+            for (planned in plan) {
+                if (!send(rustStore.commands.addClip(planned.track.id, planned.clip))) break
+            }
+        } finally {
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
+    }
+
+    private fun sanitizePlannedTransitions(
+        snapshot: RustProjectSnapshot,
+        planned: List<PlannedClip>,
+    ): List<PlannedClip> {
+        if (planned.isEmpty()) return planned
+        val plannedByTrack = planned.groupBy { it.track.id }
+        val clipsByTrack = snapshot.timeline.tracks.associate { track ->
+            track.id to (track.clips + plannedByTrack[track.id].orEmpty().map { it.clip })
+        }
+        return planned.map { plannedClip ->
+            val clip = plannedClip.clip
+            val startUs = clip.timelineStartUs
+            val endUs = startUs + clip.timelineDurationUs
+            val others = clipsByTrack[plannedClip.track.id].orEmpty().filter { it.id != clip.id }
+            val hasPrevious = others.any { other ->
+                abs(other.timelineStartUs + other.timelineDurationUs - startUs) <=
+                    TRANSITION_ADJACENCY_EPSILON_US
+            }
+            val hasNext = others.any { other ->
+                abs(other.timelineStartUs - endUs) <= TRANSITION_ADJACENCY_EPSILON_US
+            }
+            plannedClip.copy(
+                clip = clip.copy(
+                    transitionIn = clip.transitionIn.takeIf { hasPrevious },
+                    transitionOut = clip.transitionOut.takeIf { hasNext },
+                ),
+            )
+        }
+    }
+
+    private fun singleSelectedTrack(snapshot: RustProjectSnapshot): RustTrackSnapshot? {
+        val selected = _state.value.selectedClipIds
+        if (selected.size != 1) return null
+        return snapshot.timeline.tracks.firstOrNull { track -> track.clips.any { it.id in selected } }
+    }
+
+    private fun orderedClipIds(snapshot: RustProjectSnapshot, clipIds: Set<String>): List<String> =
+        snapshot.timeline.tracks.flatMap { track ->
+            track.clips.map { it.id }.filter { it in clipIds }
+        }
+
+    private fun firstFreeStartUs(
+        clips: List<RustClipSnapshot>,
+        requestedStartUs: Long,
+        durationUs: Long,
+    ): Long {
+        val duration = durationUs.coerceAtLeast(1L)
+        var candidate = requestedStartUs.coerceAtLeast(0L)
+        for (clip in clips.sortedBy { it.timelineStartUs }) {
+            val clipEndUs = clip.timelineStartUs + clip.timelineDurationUs
+            if (clipEndUs <= candidate) continue
+            if (clip.timelineStartUs >= candidate + duration) break
+            candidate = clipEndUs
+        }
+        return candidate
+    }
+
+    private fun trackAcceptsClip(track: RustTrackSnapshot, clip: RustClipSnapshot): Boolean =
+        when (clip.kind) {
+            is RustVideoClipKind, is RustAdjustmentClipKind -> track.kind == RustTrackKind.Video
+            is RustAudioClipKind -> track.kind == RustTrackKind.Audio
+            is RustTextClipKind -> track.kind == RustTrackKind.Text
+            is RustSubtitleClipKind -> track.kind == RustTrackKind.Subtitle
+        }
 
     fun splitClipAtPlayhead(clipId: String) {
         try {

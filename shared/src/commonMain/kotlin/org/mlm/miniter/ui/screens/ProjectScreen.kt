@@ -76,6 +76,7 @@ fun ProjectScreen(
     val canUndo = uiState.canUndo
     val canRedo = uiState.canRedo
     val isDirty = uiState.isDirty
+    val hasClipboard by vm.hasClipboard.collectAsState()
     val autoReframeRunning = uiState.autoReframeRunning
     val stabilizeRunning = uiState.stabilizeRunning
     val maskTrackRunning = uiState.maskTrackRunning
@@ -278,7 +279,11 @@ fun ProjectScreen(
             onAddText = { vm.addTextOverlay() },
             onAddAdjustment = { vm.addAdjustmentLayer() },
             onSplit = { selectedClipId?.let { vm.splitClipAtPlayhead(it) } },
-            onDuplicate = { selectedClipId?.let { vm.duplicateClip(it) } },
+            onDuplicate = { vm.duplicateSelectedClips() },
+            onCopy = { vm.copySelectedClips() },
+            onCut = { vm.cutSelectedClips() },
+            onPaste = { vm.pasteClips() },
+            canPaste = hasClipboard,
             onDelete = { vm.deleteSelectedClip() },
             onDeselect = { vm.clearClipSelection() },
             onSelectAll = { vm.selectAllClips() },
@@ -329,6 +334,10 @@ fun ProjectScreen(
                 onSplitClip = vm::splitClipAtPlayhead,
                 onJoinClip = vm::joinClipWithNext,
                 onDuplicateClip = vm::duplicateClip,
+                onCopyClip = vm::copyClip,
+                onCutClip = vm::cutClip,
+                onPaste = vm::pasteClips,
+                canPaste = hasClipboard,
                 onDeleteClip = vm::removeClip,
                 onRippleDeleteClip = vm::rippleDeleteClip,
                 onToggleClipMute = vm::toggleClipMute,
@@ -451,6 +460,22 @@ private fun ProjectViewModel.handleEditorShortcut(event: KeyEvent, snapshot: Rus
         }
         ctrlOrCmd && !event.isShiftPressed && event.key == Key.A -> {
             selectAllClips()
+            true
+        }
+        ctrlOrCmd && !event.isShiftPressed && event.key == Key.D -> {
+            duplicateSelectedClips()
+            true
+        }
+        ctrlOrCmd && !event.isShiftPressed && event.key == Key.C -> {
+            copySelectedClips()
+            true
+        }
+        ctrlOrCmd && !event.isShiftPressed && event.key == Key.X -> {
+            cutSelectedClips()
+            true
+        }
+        ctrlOrCmd && !event.isShiftPressed && event.key == Key.V -> {
+            pasteClips()
             true
         }
         !ctrlOrCmd && !event.isAltPressed && (event.key == Key.Delete || event.key == Key.Backspace) -> {

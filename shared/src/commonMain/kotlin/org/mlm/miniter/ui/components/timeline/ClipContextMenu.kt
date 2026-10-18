@@ -29,6 +29,10 @@ fun ClipContextMenu(
     onSplit: () -> Unit,
     onJoin: () -> Unit,
     onDuplicate: () -> Unit,
+    onCopy: () -> Unit = {},
+    onCut: () -> Unit = {},
+    onPaste: () -> Unit = {},
+    canPaste: Boolean = false,
     onDelete: () -> Unit,
     onSetAsPlayhead: () -> Unit,
     onRippleDelete: () -> Unit = {},
@@ -62,9 +66,29 @@ fun ClipContextMenu(
 
         DropdownMenuItem(
             text = { Text("Duplicate") },
-            leadingIcon = { Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp)) },
+            leadingIcon = { Icon(Icons.Default.ControlPointDuplicate, null, Modifier.size(18.dp)) },
             onClick = { onDuplicate(); onDismiss() },
             enabled = !isLocked,
+        )
+
+        DropdownMenuItem(
+            text = { Text("Copy") },
+            leadingIcon = { Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp)) },
+            onClick = { onCopy(); onDismiss() },
+        )
+
+        DropdownMenuItem(
+            text = { Text("Cut") },
+            leadingIcon = { Icon(Icons.Default.ContentCut, null, Modifier.size(18.dp)) },
+            onClick = { onCut(); onDismiss() },
+            enabled = !isLocked,
+        )
+
+        DropdownMenuItem(
+            text = { Text("Paste at playhead") },
+            leadingIcon = { Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp)) },
+            onClick = { onPaste(); onDismiss() },
+            enabled = canPaste,
         )
 
         val isAdjustment = clip.kind is RustAdjustmentClipKind

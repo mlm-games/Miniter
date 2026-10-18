@@ -25,6 +25,10 @@ fun ActionBar(
     onAddAdjustment: () -> Unit,
     onSplit: () -> Unit,
     onDuplicate: () -> Unit,
+    onCopy: () -> Unit = {},
+    onCut: () -> Unit = {},
+    onPaste: () -> Unit = {},
+    canPaste: Boolean = false,
     onDelete: () -> Unit,
     onDeselect: () -> Unit,
     onSelectAll: () -> Unit = {},
@@ -73,9 +77,25 @@ fun ActionBar(
                             enabled = !detectScenesRunning,
                         )
                         ActionChip(
-                            icon = Icons.Default.ContentCopy,
+                            icon = Icons.Default.ControlPointDuplicate,
                             label = "Duplicate",
                             onClick = onDuplicate,
+                        )
+                        ActionChip(
+                            icon = Icons.Default.ContentCopy,
+                            label = "Copy",
+                            onClick = onCopy,
+                        )
+                        ActionChip(
+                            icon = Icons.Default.ContentCut,
+                            label = "Cut",
+                            onClick = onCut,
+                        )
+                        ActionChip(
+                            icon = Icons.Default.ContentPaste,
+                            label = "Paste",
+                            onClick = onPaste,
+                            enabled = canPaste,
                         )
                         ActionChip(
                             icon = Icons.Default.Delete,
@@ -112,6 +132,12 @@ fun ActionBar(
                             icon = Icons.Default.Layers,
                             label = "Adjust",
                             onClick = onAddAdjustment,
+                        )
+                        ActionChip(
+                            icon = Icons.Default.ContentPaste,
+                            label = "Paste",
+                            onClick = onPaste,
+                            enabled = canPaste,
                         )
 
                         ActionChip(
