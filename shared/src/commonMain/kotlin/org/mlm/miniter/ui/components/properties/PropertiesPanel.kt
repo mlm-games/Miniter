@@ -131,6 +131,8 @@ fun PropertiesPanel(
     onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
     onAutoReframe: (String) -> Unit = { _ -> },
     autoReframeRunning: Boolean = false,
+    onStabilize: (String) -> Unit = { _ -> },
+    stabilizeRunning: Boolean = false,
     onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
     onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
     onAddAudioFilter: (String, RustAudioFilterSnapshot) -> Unit = { _, _ -> },
@@ -202,6 +204,8 @@ fun PropertiesPanel(
                 onFitToCanvas = onFitToCanvas,
                 onAutoReframe = onAutoReframe,
                 autoReframeRunning = autoReframeRunning,
+                onStabilize = onStabilize,
+                stabilizeRunning = stabilizeRunning,
                 onFreezeFrame = onFreezeFrame,
                 onAddKeyframe = onAddKeyframe,
                 onRemoveKeyframe = onRemoveKeyframe,
@@ -277,6 +281,8 @@ private fun VideoClipProperties(
     onFitToCanvas: (String, Boolean) -> Unit = { _, _ -> },
     onAutoReframe: (String) -> Unit = { _ -> },
     autoReframeRunning: Boolean = false,
+    onStabilize: (String) -> Unit = { _ -> },
+    stabilizeRunning: Boolean = false,
     onFreezeFrame: (String, Float) -> Unit = { _, _ -> },
     onAddKeyframe: (String, RustKeyframe) -> Unit = { _, _ -> },
     onRemoveKeyframe: (String, Int) -> Unit = { _, _ -> },
@@ -473,9 +479,15 @@ private fun VideoClipProperties(
         }
         TextButton(
             onClick = { onAutoReframe(clip.id) },
-            enabled = !autoReframeRunning,
+            enabled = !autoReframeRunning && !stabilizeRunning,
         ) {
             Text("Auto reframe")
+        }
+        TextButton(
+            onClick = { onStabilize(clip.id) },
+            enabled = !stabilizeRunning && !autoReframeRunning,
+        ) {
+            Text("Stabilize")
         }
         TextButton(
             onClick = { showFreezeDialog = true },

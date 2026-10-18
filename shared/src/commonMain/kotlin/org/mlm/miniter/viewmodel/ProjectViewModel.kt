@@ -87,7 +87,10 @@ import org.mlm.miniter.project.AUTO_REFRAME_SAMPLE_STEP_MS
 import org.mlm.miniter.project.AutoReframeSample
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.project.KenBurnsPreset
+import org.mlm.miniter.project.STABILIZE_MAX_SAMPLES
+import org.mlm.miniter.project.STABILIZE_SAMPLE_STEP_MS
 import org.mlm.miniter.project.SpeedCurvePreset
+import org.mlm.miniter.project.StabilizerAnalysis
 import org.mlm.miniter.project.TextAnimationBase
 import org.mlm.miniter.project.TextAnimationPreset
 import org.mlm.miniter.project.autoReframeKeyframes
@@ -130,6 +133,7 @@ data class ProjectUiState(
     val thumbnails: List<ImageData> = emptyList(),
     val isLoadingThumbnails: Boolean = false,
     val autoReframeRunning: Boolean = false,
+    val stabilizeRunning: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val undoLabel: String? = null,
@@ -2230,6 +2234,142 @@ class ProjectViewModel(
             grabber.release()
         }
         return samples
+    }
+
+    fun stabilizeClip(clipId: String) {
+        if (_state.value.stabilizeRunning || _state.value.autoReframeRunning) return
+        val clip = findRustClip(clipId) ?: return
+        val video = clip.kind as? RustVideoClipKind
+        if (video == null) {
+            snackbarManager.showError("Stabilize needs a video clip")
+            return
+        }
+        if (!video.fps.isFinite() || video.fps <= 0.0 || video.width <= 0 || video.height <= 0) {
+            snackbarManager.showError("Stabilize needs a clip with valid frame rate and dimensions")
+            return
+        }
+        if (video.sourcePath.isBlank()) {
+            snackbarManager.showError("Stabilize needs a clip with a source file")
+            return
+        }
+        if (clip.timelineDurationUs <= 0L || clip.sourceEndUs <= clip.sourceStartUs) {
+            snackbarManager.showError("Stabilize needs a clip with a valid source range")
+            return
+        }
+
+        _state.update { it.copy(stabilizeRunning = true) }
+        viewModelScope.launch {
+            try {
+                val analysis = StabilizerAnalysis()
+                val sampleStepMs = gatherStabilizerFrames(clip, video, analysis)
+                if (analysis.frameCount < 3 || analysis.trackedSteps < 2) {
+                    snackbarManager.showError("Stabilize needs at least 3 frames with trackable motion")
+                    return@launch
+                }
+                val current = findRustClip(clipId)
+                if (current == null ||
+                    current.timelineDurationUs != clip.timelineDurationUs ||
+                    current.sourceStartUs != clip.sourceStartUs ||
+                    current.sourceEndUs != clip.sourceEndUs
+                ) {
+                    snackbarManager.showError("The clip changed during analysis; run Stabilize again")
+                    return@launch
+                }
+                val currentVideo = current.kind as? RustVideoClipKind
+                if (currentVideo == null) {
+                    snackbarManager.showError("Stabilize needs a video clip")
+                    return@launch
+                }
+                val base = currentVideo.filters
+                    .firstOrNull { it.enabled && it.filter is RustTransformFilterSnapshot }
+                    ?.filter as? RustTransformFilterSnapshot
+                val keyframes = analysis.keyframes(
+                    sourceWidth = currentVideo.width,
+                    sourceHeight = currentVideo.height,
+                    baseScale = base?.scale ?: 1f,
+                    baseRotate = base?.rotate ?: 0f,
+                    baseTranslateX = base?.translateX ?: 0f,
+                    baseTranslateY = base?.translateY ?: 0f,
+                    sampleStepMs = sampleStepMs,
+                )
+                if (keyframes.isEmpty()) {
+                    snackbarManager.showError("Stabilize found no usable motion")
+                    return@launch
+                }
+                val stabilizeParams = listOf(
+                    KeyframeParams.TRANSFORM_SCALE,
+                    KeyframeParams.TRANSFORM_TRANSLATE_X,
+                    KeyframeParams.TRANSFORM_TRANSLATE_Y,
+                    KeyframeParams.TRANSFORM_ROTATE,
+                )
+                beginContinuousEdit("Stabilize")
+                try {
+                    current.keyframes.keyframes
+                        .withIndex()
+                        .filter { it.value.param in stabilizeParams }
+                        .map { it.index }
+                        .sortedDescending()
+                        .forEach { index ->
+                            dispatchCoalescing(rustStore.commands.removeKeyframe(clipId, index), "Stabilize")
+                        }
+                    for (keyframe in keyframes) {
+                        dispatchCoalescing(rustStore.commands.addKeyframe(clipId, keyframe), "Stabilize")
+                    }
+                } finally {
+                    commitContinuousEdit()
+                }
+                snackbarManager.show("Stabilize applied")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                snackbarManager.showError("Stabilize failed: ${e.message}")
+            } finally {
+                _state.update { it.copy(stabilizeRunning = false) }
+            }
+        }
+    }
+
+    private suspend fun gatherStabilizerFrames(
+        clip: RustClipSnapshot,
+        video: RustVideoClipKind,
+        analysis: StabilizerAnalysis,
+    ): Long {
+        val startMs = clip.sourceStartUs / 1000L
+        val endMs = clip.sourceEndUs / 1000L
+        if (endMs < startMs) return STABILIZE_SAMPLE_STEP_MS
+        val spanMs = endMs - startMs
+        val stepMs = maxOf(STABILIZE_SAMPLE_STEP_MS, spanMs / STABILIZE_MAX_SAMPLES + 1L)
+        val timestamps = mutableListOf<Long>()
+        var timestampMs = startMs
+        while (timestampMs <= endMs) {
+            timestamps += timestampMs
+            if (endMs - timestampMs < stepMs) break
+            timestampMs += stepMs
+        }
+        if (timestamps.last() < endMs) timestamps += endMs
+
+        val grabber = PlatformFrameGrabber()
+        try {
+            grabber.open(video.sourcePath)
+            for (sampleMs in timestamps) {
+                val frame = grabber.grabFrame(
+                    timestampMs = sampleMs,
+                    filters = emptyList(),
+                    masks = emptyList(),
+                    opacity = 1f,
+                    width = 320,
+                    height = 0,
+                ) ?: continue
+                val sourceOffsetUs = (sampleMs - startMs) * 1000L
+                val localOffsetUs = autoReframeLocalOffset(clip, sourceOffsetUs)
+                withContext(Dispatchers.Default) {
+                    analysis.addFrame(frame, localOffsetUs, video.width, video.height)
+                }
+            }
+        } finally {
+            grabber.release()
+        }
+        return stepMs
     }
 
     fun updateFilterParams(clipId: String, filterIndex: Int, newParams: Map<String, Float>) {
