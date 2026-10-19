@@ -1,4 +1,31 @@
+use crate::time::{TimeRange, Timestamp};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ExportRange {
+    #[serde(default)]
+    pub start: Option<Timestamp>,
+    #[serde(default)]
+    pub end: Option<Timestamp>,
+}
+
+impl ExportRange {
+    pub fn resolve(self, content_end: Timestamp) -> TimeRange {
+        let content_end = content_end.clamp_non_negative();
+        let start = self
+            .start
+            .unwrap_or(Timestamp::ZERO)
+            .clamp_non_negative()
+            .min(content_end);
+        let end = self
+            .end
+            .unwrap_or(content_end)
+            .clamp_non_negative()
+            .min(content_end)
+            .max(start);
+        TimeRange::new(start, end)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]

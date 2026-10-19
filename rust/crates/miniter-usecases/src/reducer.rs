@@ -816,6 +816,11 @@ pub fn apply(state: &mut EditorState, cmd: EditCommand) -> Result<EditCommand, A
             Ok(EditCommand::SetExportProfile { profile: old })
         }
 
+        EditCommand::SetExportRange { range } => {
+            let old = std::mem::replace(&mut state.project.export_range, range);
+            Ok(EditCommand::SetExportRange { range: old })
+        }
+
         EditCommand::RenameProject { new_name } => {
             let old = std::mem::replace(&mut state.project.meta.name, new_name);
             state.project.meta.modified_at = web_time::SystemTime::now()

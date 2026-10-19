@@ -39,6 +39,7 @@ import org.mlm.miniter.editor.model.RustHueFilterSnapshot
 import org.mlm.miniter.editor.model.RustEasing
 import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
+import org.mlm.miniter.editor.model.RustExportRangeSnapshot
 import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.editor.model.RustFadeInAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustFadeOutAudioFilterSnapshot
@@ -2700,6 +2701,53 @@ class ProjectViewModel(
         var failed = false
         try {
             if (!dispatchCoalescing(commandJson, label)) failed = true
+        } finally {
+            if (failed) cancelContinuousEdit() else commitContinuousEdit()
+        }
+        return !failed
+    }
+
+    fun setExportRangeIn(timeMs: Long = _state.value.playheadMs) {
+        val contentEndUs = rustStore.durationUs()
+        val inUs = timeMs.coerceAtLeast(0L).msToUs.coerceAtMost(contentEndUs)
+        val outUs = rustStore.snapshot.value?.exportRange?.endUs
+        if (outUs != null && inUs >= outUs) {
+            snackbarManager.showError("The in point must be before the out point")
+            return
+        }
+        if (outUs == null && inUs >= contentEndUs) {
+            snackbarManager.showError("Place the in point before the end of the timeline")
+            return
+        }
+        applyExportRange("Set in point", RustExportRangeSnapshot(startUs = inUs, endUs = outUs))
+    }
+
+    fun setExportRangeOut(timeMs: Long = _state.value.playheadMs) {
+        val contentEndUs = rustStore.durationUs()
+        val outUs = timeMs.coerceAtLeast(0L).msToUs.coerceAtMost(contentEndUs)
+        val inUs = rustStore.snapshot.value?.exportRange?.startUs
+        if (inUs != null && outUs <= inUs) {
+            snackbarManager.showError("The out point must be after the in point")
+            return
+        }
+        if (inUs == null && outUs <= 0L) {
+            snackbarManager.showError("Place the out point after the start of the timeline")
+            return
+        }
+        applyExportRange("Set out point", RustExportRangeSnapshot(startUs = inUs, endUs = outUs))
+    }
+
+    fun clearExportRange() {
+        applyExportRange("Clear in/out", null)
+    }
+
+    private fun applyExportRange(label: String, range: RustExportRangeSnapshot?): Boolean {
+        val normalized = range?.takeUnless { it.startUs == null && it.endUs == null }
+        if (rustStore.snapshot.value?.exportRange == normalized) return false
+        beginContinuousEdit(label)
+        var failed = false
+        try {
+            if (!dispatchCoalescing(rustStore.commands.setExportRange(normalized), label)) failed = true
         } finally {
             if (failed) cancelContinuousEdit() else commitContinuousEdit()
         }

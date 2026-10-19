@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FolderOpen
@@ -75,6 +76,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -108,6 +110,7 @@ import org.koin.compose.koinInject
 import org.mlm.miniter.editor.model.RustExportFormat
 import org.mlm.miniter.editor.model.RustSubtitleMode
 import org.mlm.miniter.editor.model.RustVideoClipKind
+import org.mlm.miniter.editor.model.resolvedUs
 import org.mlm.miniter.engine.ExportProgress
 import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.isActive
@@ -121,8 +124,10 @@ import org.mlm.miniter.platform.isProjectExportSupported
 import org.mlm.miniter.platform.openSaveFileDialog
 import org.mlm.miniter.platform.platformPath
 import org.mlm.miniter.platform.requiresExplicitExportPathSelection
+import org.mlm.miniter.platform.usToMs
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
+import org.mlm.miniter.ui.components.timeline.formatRulerTime
 import org.mlm.miniter.ui.screens.export.ExportDraft
 import org.mlm.miniter.ui.screens.export.ExportSectionCard
 import org.mlm.miniter.ui.screens.export.MutedLabel
@@ -173,6 +178,9 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         } ?: 0
     val hasSourceDimensions = sourceWidth > 0 && sourceHeight > 0
     val sourceResolutionText = if (hasSourceDimensions) "${sourceWidth}×${sourceHeight}" else "Unknown"
+    val contentEndUs = snapshot?.timeline?.tracks
+        ?.flatMap { it.clips }
+        ?.maxOfOrNull { it.timelineStartUs + it.timelineDurationUs } ?: 0L
 
     val draftKey = remember(snapshot?.id) { Any() }
     var format by remember(draftKey) { mutableStateOf(profileFormat) }
@@ -486,6 +494,32 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 label = { Text(fmt.label) },
                             )
                         }
+                    }
+                }
+
+                val exportRange = snapshot?.exportRange
+                if (exportRange != null) {
+                    ExportSectionCard(
+                        title = "Export range",
+                        icon = Icons.Default.ContentCut,
+                        trailing = {
+                            TextButton(
+                                onClick = { vm.clearExportRange() },
+                                enabled = !isExporting,
+                            ) {
+                                Text("Clear")
+                            }
+                        },
+                    ) {
+                        val (startUs, endUs) = exportRange.resolvedUs(contentEndUs)
+                        Text(
+                            "${formatRulerTime(startUs.usToMs)} to ${formatRulerTime(endUs.usToMs)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        MutedLabel(
+                            "Only this span is rendered. Duration ${formatRulerTime((endUs - startUs).usToMs)}.",
+                        )
                     }
                 }
 

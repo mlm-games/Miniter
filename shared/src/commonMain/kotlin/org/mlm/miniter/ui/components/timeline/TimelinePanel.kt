@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -47,6 +48,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import org.mlm.miniter.editor.model.RustAdjustmentClipKind
 import org.mlm.miniter.editor.model.RustAudioClipKind
 import org.mlm.miniter.editor.model.RustClipSnapshot
+import org.mlm.miniter.editor.model.RustExportRangeSnapshot
 import org.mlm.miniter.editor.model.RustMarkerSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustSubtitleClipKind
@@ -121,8 +123,12 @@ fun TimelinePanel(
     snapIndicatorMs: Long?,
     beatMarkersMs: List<Long> = emptyList(),
     markers: List<RustMarkerSnapshot> = emptyList(),
+    exportRange: RustExportRangeSnapshot? = null,
     onMarkerAdd: (Long) -> Unit = {},
     onMarkerRemove: (String) -> Unit = {},
+    onRangeSetIn: (Long) -> Unit = {},
+    onRangeSetOut: (Long) -> Unit = {},
+    onRangeClear: () -> Unit = {},
     modifier: Modifier = Modifier,
     onPlayheadChange: (Long) -> Unit,
     onClipSelected: (String?, ClipSelectionMode) -> Unit,
@@ -209,12 +215,17 @@ fun TimelinePanel(
             scrollState = horizontalScrollState,
             beatMarkersMs = beatMarkersMs,
             markers = markers,
+            exportRange = exportRange,
+            contentEndMs = snapshotTimelineDurationMs(snapshot),
             onTap = { tapDp ->
                 onPlayheadChange(xToMs(tapDp, dpPerMs, timelineDurationMs))
             },
             onSeek = onPlayheadChange,
             onMarkerAdd = onMarkerAdd,
             onMarkerRemove = onMarkerRemove,
+            onRangeSetIn = onRangeSetIn,
+            onRangeSetOut = onRangeSetOut,
+            onRangeClear = onRangeClear,
         )
 
         HorizontalDivider(thickness = 0.5.dp)
@@ -293,10 +304,15 @@ private fun TimelineRuler(
     scrollState: ScrollState,
     beatMarkersMs: List<Long>,
     markers: List<RustMarkerSnapshot>,
+    exportRange: RustExportRangeSnapshot?,
+    contentEndMs: Long,
     onTap: (tapDp: Float) -> Unit,
     onSeek: (Long) -> Unit,
     onMarkerAdd: (Long) -> Unit,
     onMarkerRemove: (String) -> Unit,
+    onRangeSetIn: (Long) -> Unit,
+    onRangeSetOut: (Long) -> Unit,
+    onRangeClear: () -> Unit,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val rulerTextColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -304,6 +320,7 @@ private fun TimelineRuler(
     val playheadColor = MaterialTheme.colorScheme.error
     val beatMarkerColor = MaterialTheme.colorScheme.tertiary
     val markerColor = MaterialTheme.colorScheme.secondary
+    val rangeColor = MaterialTheme.colorScheme.primary
     val density = LocalDensity.current
     val currentMarkers by rememberUpdatedState(markers)
 
@@ -378,6 +395,23 @@ private fun TimelineRuler(
                     }
                     val minorMs = majorMs / 5
                     val visibleMs = visibleDurationMs(timelineDurationMs, dpPerMs)
+                    val rangeSpan = exportRange?.let { range ->
+                        val startMs = (range.startUs?.usToMs ?: 0L).coerceAtLeast(0L)
+                        val endMs = (range.endUs?.usToMs ?: contentEndMs).coerceAtLeast(startMs)
+                        msToX(startMs, dpPerMs, timelineDurationMs) to
+                            msToX(endMs, dpPerMs, timelineDurationMs)
+                    }
+                    if (rangeSpan != null) {
+                        val startX = rangeSpan.first * density.density
+                        val endX = rangeSpan.second * density.density
+                        if (endX > startX) {
+                            drawRect(
+                                rangeColor.copy(alpha = 0.16f),
+                                Offset(startX, 0f),
+                                Size(endX - startX, h),
+                            )
+                        }
+                    }
                     var ms = 0L
                     while (ms <= visibleMs) {
                         val x = ms * dpPerMs * density.density
@@ -415,6 +449,24 @@ private fun TimelineRuler(
                         drawPath(flag, markerColor)
                     }
                     val phX = msToX(playheadMs, dpPerMs, timelineDurationMs) * density.density
+                    if (rangeSpan != null) {
+                        val startX = rangeSpan.first * density.density
+                        val endX = rangeSpan.second * density.density
+                        drawLine(rangeColor, Offset(startX, 0f), Offset(startX, h), 2.5f)
+                        drawLine(rangeColor, Offset(endX, 0f), Offset(endX, h), 2.5f)
+                        drawLine(rangeColor, Offset(startX, 0f), Offset(startX + 7f, 0f), 2.5f)
+                        drawLine(rangeColor, Offset(endX, 0f), Offset(endX - 7f, 0f), 2.5f)
+                        val inLabel = textMeasurer.measure(
+                            "I",
+                            TextStyle(fontSize = 9.sp, color = rangeColor),
+                        )
+                        drawText(inLabel, topLeft = Offset(startX + 3f, 2f))
+                        val outLabel = textMeasurer.measure(
+                            "O",
+                            TextStyle(fontSize = 9.sp, color = rangeColor),
+                        )
+                        drawText(outLabel, topLeft = Offset(endX - outLabel.size.width - 3f, 2f))
+                    }
                     val hs = PLAYHEAD_HEAD_SIZE.toPx()
                     val path = androidx.compose.ui.graphics.Path().apply {
                         moveTo(phX - hs / 2, 0f); lineTo(phX + hs / 2, 0f); lineTo(phX, hs); close()
@@ -452,6 +504,36 @@ private fun TimelineRuler(
                         },
                         onClick = {
                             onMarkerRemove(markerId)
+                            menuTimeMs = null
+                            menuMarkerId = null
+                        },
+                    )
+                }
+                val rangeTimeMs = menuMs
+                DropdownMenuItem(
+                    text = { Text("Set in point") },
+                    leadingIcon = { Icon(Icons.Default.FirstPage, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        rangeTimeMs?.let(onRangeSetIn)
+                        menuTimeMs = null
+                        menuMarkerId = null
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Set out point") },
+                    leadingIcon = { Icon(Icons.Default.LastPage, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        rangeTimeMs?.let(onRangeSetOut)
+                        menuTimeMs = null
+                        menuMarkerId = null
+                    },
+                )
+                if (exportRange != null) {
+                    DropdownMenuItem(
+                        text = { Text("Clear in/out") },
+                        leadingIcon = { Icon(Icons.Default.Close, null, Modifier.size(18.dp)) },
+                        onClick = {
+                            onRangeClear()
                             menuTimeMs = null
                             menuMarkerId = null
                         },

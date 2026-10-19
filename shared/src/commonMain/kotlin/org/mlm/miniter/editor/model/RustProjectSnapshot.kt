@@ -30,7 +30,23 @@ data class RustProjectSnapshot(
     @SerialName("export_profile")
     val exportProfile: RustExportProfileSnapshot,
     val markers: List<RustMarkerSnapshot> = emptyList(),
+    @SerialName("export_range")
+    val exportRange: RustExportRangeSnapshot? = null,
 )
+
+@Serializable
+data class RustExportRangeSnapshot(
+    @SerialName("start")
+    val startUs: Long? = null,
+    @SerialName("end")
+    val endUs: Long? = null,
+)
+
+fun RustExportRangeSnapshot.resolvedUs(timelineEndUs: Long): Pair<Long, Long> {
+    val start = (startUs ?: 0L).coerceIn(0L, timelineEndUs)
+    val end = (endUs ?: timelineEndUs).coerceIn(0L, timelineEndUs)
+    return start to end
+}
 
 @Serializable
 data class RustMarkerSnapshot(

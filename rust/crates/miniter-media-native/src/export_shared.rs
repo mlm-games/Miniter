@@ -3,6 +3,7 @@ use crate::mux::{MkvMuxer, Mp4Muxer, OpusTrackConfigOut};
 use fast_image_resize::images::{Image, ImageRef};
 use fast_image_resize::{PixelType, Resizer};
 use fontdue::{Font, FontSettings};
+use miniter_audio::mix::MixedAudio;
 use miniter_audio::util;
 use miniter_domain::filter::{BlurKind, MosaicKind, VideoFilter};
 use miniter_domain::mask::{
@@ -10,6 +11,7 @@ use miniter_domain::mask::{
     MaskSource, MaskTransform, MaskVertex,
 };
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay};
+use miniter_domain::time::TimeRange;
 use miniter_domain::transition::TransitionKind;
 use miniter_render_plan::transition_blend::wipe_coverage;
 use std::io::Write;
@@ -79,6 +81,29 @@ pub(crate) fn mix_config_for_profile(sample_rate: u32) -> miniter_audio::mix::Mi
         sample_rate: normalize_audio_sample_rate(sample_rate),
         channels: 2,
     }
+}
+
+pub(crate) fn mix_audio_in_range(mixed: MixedAudio, range: Option<TimeRange>) -> MixedAudio {
+    let Some(range) = range else {
+        return mixed;
+    };
+    let channels = mixed.channels.max(1) as usize;
+    let frames = mixed.samples.len() / channels;
+    let (first, last) = audio_sample_bounds(range, mixed.sample_rate);
+    let first = first.min(frames);
+    let last = last.clamp(first, frames);
+    MixedAudio {
+        sample_rate: mixed.sample_rate,
+        channels: mixed.channels,
+        samples: mixed.samples[first * channels..last * channels].to_vec(),
+    }
+}
+
+fn audio_sample_bounds(range: TimeRange, sample_rate: u32) -> (usize, usize) {
+    let rate = sample_rate.max(1) as i128;
+    let first = (range.start.as_micros().max(0) as i128 * rate) / 1_000_000;
+    let last = ((range.end.as_micros().max(0) as i128 * rate) + 999_999) / 1_000_000;
+    (first as usize, last as usize)
 }
 
 /// Write audio packets to an MP4 muxer.
@@ -185,6 +210,32 @@ pub(crate) fn write_soft_subtitle_samples_mkv<W: Write>(
         }
     }
     Ok(())
+}
+
+pub(crate) fn clip_subtitle_samples_to_range(
+    samples: Vec<SoftSubtitleSample>,
+    range: Option<TimeRange>,
+) -> Vec<SoftSubtitleSample> {
+    let Some(range) = range else {
+        return samples;
+    };
+    let range_start = range.start.as_micros();
+    let range_end = range.end.as_micros();
+    let mut clipped = Vec::with_capacity(samples.len());
+    for sample in samples {
+        let start = sample.start_us.max(range_start);
+        let end = (sample.start_us + sample.duration_us).min(range_end);
+        if end <= start {
+            continue;
+        }
+        clipped.push(SoftSubtitleSample {
+            start_us: start - range_start,
+            duration_us: end - start,
+            text: sample.text,
+            ass_event: sample.ass_event,
+        });
+    }
+    clipped
 }
 
 /// A soft subtitle cue mapped onto the export timeline.

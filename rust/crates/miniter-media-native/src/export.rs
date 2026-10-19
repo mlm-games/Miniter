@@ -25,7 +25,7 @@ use miniter_domain::ease_in_out;
 use miniter_domain::export::{ExportFormat, SubtitleMode};
 use miniter_domain::mask::BlendMode;
 use miniter_domain::text_overlay::{TextAlignment, TextOverlay, TextStyle};
-use miniter_domain::time::Timestamp;
+use miniter_domain::time::{TimeRange, Timestamp};
 use miniter_domain::track::TrackKind;
 use miniter_render_plan::compositor::{FramePlanIterator, first_video_dimensions};
 use miniter_render_plan::render_graph::{RenderNode, RenderPlan, plan_frame};
@@ -100,6 +100,10 @@ pub enum ExportError {
     Cancelled,
     #[error("Internal export state: {0}")]
     Internal(String),
+    #[error("Export range is empty")]
+    EmptyRange,
+    #[error("Export range contains no audio")]
+    NoAudioInRange,
     #[error("Unsupported export format")]
     UnsupportedFormat,
 }
@@ -122,6 +126,7 @@ where
     HARDWARE_FALLBACK_OCCURRED.store(false, Ordering::SeqCst);
     let settings = resolve_render_settings(project);
     let bitrate_kbps = project.export_profile.video_bitrate_kbps.max(500);
+    let range = export_range(project)?;
 
     if let Some(parent) = output_path.parent()
         && !parent.as_os_str().is_empty()
@@ -138,6 +143,7 @@ where
             settings.fps,
             bitrate_kbps,
             ContainerFormat::Mp4,
+            range,
             &is_cancelled,
             &on_progress,
         ),
@@ -149,6 +155,7 @@ where
             settings.fps,
             bitrate_kbps,
             ContainerFormat::Mov,
+            range,
             &is_cancelled,
             &on_progress,
         ),
@@ -160,6 +167,7 @@ where
             settings.fps,
             bitrate_kbps,
             Av1Container::Ivf,
+            range,
             &is_cancelled,
             &on_progress,
         ),
@@ -171,6 +179,7 @@ where
             settings.fps,
             bitrate_kbps,
             Av1Container::Mp4,
+            range,
             &is_cancelled,
             &on_progress,
         ),
@@ -182,6 +191,7 @@ where
             settings.fps,
             bitrate_kbps,
             Av1Container::Mkv,
+            range,
             &is_cancelled,
             &on_progress,
         ),
@@ -193,11 +203,14 @@ where
             settings.fps,
             bitrate_kbps,
             Av1Container::WebM,
+            range,
             &is_cancelled,
             &on_progress,
         ),
-        ExportFormat::Opus => export_opus_ogg(project, output_path, &is_cancelled, &on_progress),
-        ExportFormat::Flac => export_flac(project, output_path, &is_cancelled, &on_progress),
+        ExportFormat::Opus => {
+            export_opus_ogg(project, output_path, range, &is_cancelled, &on_progress)
+        }
+        ExportFormat::Flac => export_flac(project, output_path, range, &is_cancelled, &on_progress),
         ExportFormat::H264Mkv => export_h264_mkv(
             project,
             output_path,
@@ -205,6 +218,7 @@ where
             settings.height,
             settings.fps,
             bitrate_kbps,
+            range,
             &is_cancelled,
             &on_progress,
         ),
@@ -220,6 +234,48 @@ enum Av1Container {
     Mp4,
     Mkv,
     WebM,
+}
+
+fn export_range(project: &Project) -> Result<Option<TimeRange>, ExportError> {
+    let Some(range) = project.export_range else {
+        return Ok(None);
+    };
+    let resolved = range.resolve(project.timeline.duration_end());
+    if resolved.duration().is_zero() {
+        return Err(ExportError::EmptyRange);
+    }
+    Ok(Some(resolved))
+}
+
+fn frame_plan_iterator<'a>(
+    project: &'a Project,
+    width: u32,
+    height: u32,
+    fps: f64,
+    range: Option<TimeRange>,
+) -> FramePlanIterator<'a> {
+    let subtitle_mode = project.export_profile.subtitle_mode;
+    match range {
+        Some(range) => FramePlanIterator::with_range(
+            &project.timeline,
+            width,
+            height,
+            fps,
+            subtitle_mode,
+            range,
+        ),
+        None => FramePlanIterator::with_render_settings(
+            &project.timeline,
+            width,
+            height,
+            fps,
+            subtitle_mode,
+        ),
+    }
+}
+
+fn pts_origin_us(range: Option<TimeRange>) -> i64 {
+    range.map_or(0, |range| range.start.as_micros())
 }
 
 fn resolve_render_settings(project: &Project) -> RenderSettings {
@@ -775,10 +831,11 @@ impl AnyEncoder {
 /// config. Both halves are `None` when the project carries no audio samples.
 fn mix_and_encode_opus(
     project: &Project,
+    range: Option<TimeRange>,
 ) -> Result<(Option<crate::mux::OpusTrackConfigOut>, Option<EncodedOpus>), ExportError> {
     let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_project_audio(project, config)?;
+    let mixed = mix_audio_in_range(mix_project_audio(project, config)?, range);
     let audio_encoded = if !mixed.samples.is_empty() {
         let bitrate_bps = normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
             .saturating_mul(1000);
@@ -801,6 +858,7 @@ fn export_h264<F>(
     fps: f64,
     bitrate_kbps: u32,
     container: ContainerFormat,
+    range: Option<TimeRange>,
     is_cancelled: &F,
     on_progress: &dyn Fn(u32),
 ) -> Result<(), ExportError>
@@ -808,7 +866,7 @@ where
     F: Fn() -> bool,
 {
     let subtitle_samples = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
-        collect_soft_subtitle_samples(project, output_path)
+        clip_subtitle_samples_to_range(collect_soft_subtitle_samples(project, output_path), range)
     } else {
         Vec::new()
     };
@@ -821,7 +879,7 @@ where
     let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
-    let (audio_track, audio_encoded) = mix_and_encode_opus(project)?;
+    let (audio_track, audio_encoded) = mix_and_encode_opus(project, range)?;
     on_progress(5);
 
     let effort = project.export_profile.encode_effort;
@@ -858,13 +916,7 @@ where
         )?)
     };
 
-    let mut iter = FramePlanIterator::with_render_settings(
-        &project.timeline,
-        width,
-        height,
-        fps,
-        project.export_profile.subtitle_mode,
-    );
+    let mut iter = frame_plan_iterator(project, width, height, fps, range);
     let total_frames = iter.total_frames() as u32;
     let first_plan = iter.next().unwrap_or_else(|| {
         plan_frame(
@@ -890,6 +942,7 @@ where
         return Err(ExportError::Cancelled);
     }
 
+    let origin_us = pts_origin_us(range);
     let first_rgba =
         render_plan_to_rgba(&first_plan, &mut decode_cache, &first_decoded_video_pts_us)?;
     store_preview_frame(&first_rgba, width, height);
@@ -897,7 +950,7 @@ where
         width,
         height,
         data: first_rgba,
-        pts_us: first_plan.timestamp.as_micros(),
+        pts_us: first_plan.timestamp.as_micros() - origin_us,
         color_info: Default::default(),
     };
     let mut staged: Vec<(u64, Vec<u8>, bool)> = Vec::new();
@@ -979,7 +1032,7 @@ where
             width,
             height,
             data: rgba,
-            pts_us: plan.timestamp.as_micros(),
+            pts_us: plan.timestamp.as_micros() - origin_us,
             color_info: Default::default(),
         };
         match encoder.encode_frame(&frame) {
@@ -1035,6 +1088,7 @@ fn export_h264_mkv<F>(
     height: u32,
     fps: f64,
     bitrate_kbps: u32,
+    range: Option<TimeRange>,
     is_cancelled: &F,
     on_progress: &dyn Fn(u32),
 ) -> Result<(), ExportError>
@@ -1042,7 +1096,11 @@ where
     F: Fn() -> bool,
 {
     let payload = if project.export_profile.subtitle_mode == SubtitleMode::Soft {
-        collect_soft_subtitle_samples_mkv(project)
+        let payload = collect_soft_subtitle_samples_mkv(project);
+        SoftSubtitlePayload {
+            samples: clip_subtitle_samples_to_range(payload.samples, range),
+            track: payload.track,
+        }
     } else {
         SoftSubtitlePayload {
             samples: Vec::new(),
@@ -1054,7 +1112,7 @@ where
     let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
     let first_decoded_video_pts_us = AtomicI64::new(-1);
     on_progress(1);
-    let (audio_track, audio_encoded) = mix_and_encode_opus(project)?;
+    let (audio_track, audio_encoded) = mix_and_encode_opus(project, range)?;
     on_progress(5);
 
     let effort = project.export_profile.encode_effort;
@@ -1091,13 +1149,7 @@ where
         )?)
     };
 
-    let mut iter = FramePlanIterator::with_render_settings(
-        &project.timeline,
-        width,
-        height,
-        fps,
-        project.export_profile.subtitle_mode,
-    );
+    let mut iter = frame_plan_iterator(project, width, height, fps, range);
     let total_frames = iter.total_frames() as u32;
     let first_plan = iter.next().unwrap_or_else(|| {
         plan_frame(
@@ -1113,6 +1165,7 @@ where
         return Err(ExportError::Cancelled);
     }
 
+    let origin_us = pts_origin_us(range);
     let first_rgba =
         render_plan_to_rgba(&first_plan, &mut decode_cache, &first_decoded_video_pts_us)?;
     store_preview_frame(&first_rgba, width, height);
@@ -1120,7 +1173,7 @@ where
         width,
         height,
         data: first_rgba,
-        pts_us: first_plan.timestamp.as_micros(),
+        pts_us: first_plan.timestamp.as_micros() - origin_us,
         color_info: Default::default(),
     };
     let mut staged: Vec<(u64, Vec<u8>, bool)> = Vec::new();
@@ -1189,7 +1242,7 @@ where
             width,
             height,
             data: rgba,
-            pts_us: plan.timestamp.as_micros(),
+            pts_us: plan.timestamp.as_micros() - origin_us,
             color_info: Default::default(),
         };
         match encoder.encode_frame(&frame) {
@@ -1547,6 +1600,7 @@ fn export_av1<F>(
     fps: f64,
     bitrate_kbps: u32,
     container: Av1Container,
+    range: Option<TimeRange>,
     is_cancelled: &F,
     on_progress: &dyn Fn(u32),
 ) -> Result<(), ExportError>
@@ -1561,14 +1615,18 @@ where
                 && project.export_profile.subtitle_mode == SubtitleMode::Soft
             {
                 let payload = collect_soft_subtitle_samples_mkv(project);
-                (payload.samples, payload.track)
+                (
+                    clip_subtitle_samples_to_range(payload.samples, range),
+                    payload.track,
+                )
             } else {
                 (Vec::new(), None)
             }
         }
         _ => {
             if project.export_profile.subtitle_mode == SubtitleMode::Soft {
-                let samples = collect_soft_subtitle_samples(project, output_path);
+                let samples =
+                    clip_subtitle_samples_to_range(collect_soft_subtitle_samples(project, output_path), range);
                 let track = if samples.is_empty() {
                     None
                 } else {
@@ -1591,7 +1649,7 @@ where
     let (audio_track, audio_encoded) = match container {
         Av1Container::Ivf => (None, None),
         Av1Container::Mp4 | Av1Container::Mkv | Av1Container::WebM => {
-            let (audio_track, audio_encoded) = mix_and_encode_opus(project)?;
+            let (audio_track, audio_encoded) = mix_and_encode_opus(project, range)?;
             (audio_track, audio_encoded)
         }
     };
@@ -1664,13 +1722,7 @@ where
         }
     }
 
-    let mut iter = FramePlanIterator::with_render_settings(
-        &project.timeline,
-        width,
-        height,
-        fps,
-        project.export_profile.subtitle_mode,
-    );
+    let mut iter = frame_plan_iterator(project, width, height, fps, range);
     let total_frames = iter.total_frames() as u32;
     let first_plan = iter.next().unwrap_or_else(|| {
         plan_frame(
@@ -1682,6 +1734,7 @@ where
         )
     });
 
+    let origin_us = pts_origin_us(range);
     let mut frame_count: u32 = 0;
     let mut ivf_packet_count: u32 = 0;
     let mut seen_first_keyframe = false;
@@ -1696,7 +1749,7 @@ where
             width,
             height,
             data: rgba,
-            pts_us: plan.timestamp.as_micros(),
+            pts_us: plan.timestamp.as_micros() - origin_us,
             color_info: Default::default(),
         };
 
@@ -1858,6 +1911,7 @@ fn write_av1_packets_to_mux_mkv_gated<W: std::io::Write>(
 fn export_opus_ogg<F>(
     project: &Project,
     output_path: &Path,
+    range: Option<TimeRange>,
     is_cancelled: &F,
     on_progress: &dyn Fn(u32),
 ) -> Result<(), ExportError>
@@ -1868,9 +1922,13 @@ where
 
     on_progress(1);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_project_audio(project, config)?;
+    let mixed = mix_audio_in_range(mix_project_audio(project, config)?, range);
     if mixed.samples.is_empty() {
-        return Err(ExportError::UnsupportedFormat);
+        return Err(if range.is_some() {
+            ExportError::NoAudioInRange
+        } else {
+            ExportError::UnsupportedFormat
+        });
     }
     on_progress(10);
 
@@ -1918,6 +1976,7 @@ fn encode_opus(
 fn export_flac<F>(
     project: &Project,
     output_path: &Path,
+    range: Option<TimeRange>,
     is_cancelled: &F,
     on_progress: &dyn Fn(u32),
 ) -> Result<(), ExportError>
@@ -1928,9 +1987,13 @@ where
 
     on_progress(1);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_project_audio(project, config)?;
+    let mixed = mix_audio_in_range(mix_project_audio(project, config)?, range);
     if mixed.samples.is_empty() {
-        return Err(ExportError::UnsupportedFormat);
+        return Err(if range.is_some() {
+            ExportError::NoAudioInRange
+        } else {
+            ExportError::UnsupportedFormat
+        });
     }
     on_progress(10);
 

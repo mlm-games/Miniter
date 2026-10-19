@@ -318,8 +318,12 @@ fun ProjectScreen(
                     snapIndicatorMs = snapIndicatorMs,
                     beatMarkersMs = vm.beatMarkersMs.collectAsState().value,
                     markers = snapshot?.markers.orEmpty(),
+                    exportRange = snapshot?.exportRange,
                     onMarkerAdd = { vm.addMarker(it) },
                     onMarkerRemove = vm::removeMarker,
+                    onRangeSetIn = { vm.setExportRangeIn(it) },
+                    onRangeSetOut = { vm.setExportRangeOut(it) },
+                    onRangeClear = vm::clearExportRange,
                     modifier = Modifier.weight(1f),
                     onPlayheadChange = vm::seekTo,
                     onClipSelected = { clipId, mode ->
@@ -508,6 +512,10 @@ private fun ProjectViewModel.handleEditorShortcut(event: KeyEvent, snapshot: Rus
             cutSelectedClips()
             true
         }
+        ctrlOrCmd && event.isShiftPressed && event.key == Key.X -> {
+            clearExportRange()
+            true
+        }
         ctrlOrCmd && !event.isShiftPressed && event.key == Key.V -> {
             pasteClips()
             true
@@ -526,6 +534,14 @@ private fun ProjectViewModel.handleEditorShortcut(event: KeyEvent, snapshot: Rus
         }
         !ctrlOrCmd && !event.isAltPressed && event.key == Key.Escape -> {
             clearClipSelection()
+            true
+        }
+        !ctrlOrCmd && !event.isAltPressed && event.key == Key.I -> {
+            setExportRangeIn()
+            true
+        }
+        !ctrlOrCmd && !event.isAltPressed && event.key == Key.O -> {
+            setExportRangeOut()
             true
         }
         !ctrlOrCmd && !event.isAltPressed && (event.key == Key.Equals || event.key == Key.Plus) -> {

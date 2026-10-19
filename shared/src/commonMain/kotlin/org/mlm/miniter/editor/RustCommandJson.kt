@@ -16,6 +16,7 @@ import org.mlm.miniter.editor.model.RustAudioFilterSnapshot
 import org.mlm.miniter.editor.model.RustClipSnapshot
 import org.mlm.miniter.editor.model.RustEasingSerializer
 import org.mlm.miniter.editor.model.RustExportProfileSnapshot
+import org.mlm.miniter.editor.model.RustExportRangeSnapshot
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustMarkerSnapshot
 import org.mlm.miniter.editor.model.RustProjectSnapshot
@@ -285,6 +286,15 @@ class RustCommandJson(
     fun setExportProfile(profile: RustExportProfileSnapshot): String =
         wrap("SetExportProfile") {
             put("profile", json.encodeToJsonElement(RustExportProfileSnapshot.serializer(), profile))
+        }
+
+    fun setExportRange(range: RustExportRangeSnapshot?): String =
+        wrap("SetExportRange") {
+            if (range != null) {
+                put("range", json.encodeToJsonElement(RustExportRangeSnapshot.serializer(), range))
+            } else {
+                put("range", JsonNull)
+            }
         }
 
     fun setClipBlendMode(clipId: String, blendMode: String): String =

@@ -1,6 +1,6 @@
 use miniter_domain::Keyframe;
 use miniter_domain::clip::{Clip, ClipId};
-use miniter_domain::export::ExportProfile;
+use miniter_domain::export::{ExportProfile, ExportRange};
 use miniter_domain::filter::{AudioFilter, VideoEffect};
 use miniter_domain::marker::{Marker, MarkerId};
 use miniter_domain::mask::{BlendMode, MaskEffect};
@@ -193,6 +193,10 @@ pub enum EditCommand {
     },
     SetExportProfile {
         profile: ExportProfile,
+    },
+    SetExportRange {
+        #[serde(default)]
+        range: Option<ExportRange>,
     },
     RenameProject {
         new_name: String,

@@ -1,7 +1,7 @@
 use crate::render_graph::{RenderPlan, plan_frame};
 use miniter_domain::clip::ClipKind;
 use miniter_domain::export::{ExportProfile, SubtitleMode};
-use miniter_domain::time::Timestamp;
+use miniter_domain::time::{TimeRange, Timestamp};
 use miniter_domain::timeline::Timeline;
 
 pub struct FramePlanIterator<'a> {
@@ -13,6 +13,7 @@ pub struct FramePlanIterator<'a> {
     /// (`round(i * 1e6 / fps)`) instead of accumulating a truncated step, so
     /// long exports don't drift (240 accumulated 80µs per 10s at 24fps).
     fps: f64,
+    origin: Timestamp,
     current_frame: u64,
     total_frames: u64,
 }
@@ -25,13 +26,45 @@ impl<'a> FramePlanIterator<'a> {
         fps: f64,
         subtitle_mode: SubtitleMode,
     ) -> Self {
-        let fps = sanitize_fps(fps);
-        let end = timeline.duration_end().as_micros().max(0);
+        let end = timeline.duration_end().clamp_non_negative();
+        Self::with_span(
+            timeline,
+            width,
+            height,
+            fps,
+            subtitle_mode,
+            TimeRange::new(Timestamp::ZERO, end),
+        )
+    }
 
-        let total = if end == 0 {
+    pub fn with_range(
+        timeline: &'a Timeline,
+        width: u32,
+        height: u32,
+        fps: f64,
+        subtitle_mode: SubtitleMode,
+        range: TimeRange,
+    ) -> Self {
+        Self::with_span(timeline, width, height, fps, subtitle_mode, range)
+    }
+
+    fn with_span(
+        timeline: &'a Timeline,
+        width: u32,
+        height: u32,
+        fps: f64,
+        subtitle_mode: SubtitleMode,
+        span: TimeRange,
+    ) -> Self {
+        let fps = sanitize_fps(fps);
+        let origin = span.start.clamp_non_negative();
+        let end = span.end.clamp_non_negative().max(origin);
+        let span_us = (end - origin).as_micros() as f64;
+
+        let total = if span_us <= 0.0 {
             0
         } else {
-            (end as f64 * fps / 1_000_000.0).ceil().max(0.0) as u64
+            (span_us * fps / 1_000_000.0).ceil().max(0.0) as u64
         };
 
         Self {
@@ -40,6 +73,7 @@ impl<'a> FramePlanIterator<'a> {
             height,
             subtitle_mode,
             fps,
+            origin,
             current_frame: 0,
             total_frames: total,
         }
@@ -73,9 +107,8 @@ impl<'a> Iterator for FramePlanIterator<'a> {
         if self.current_frame >= self.total_frames {
             return None;
         }
-        let t = Timestamp::from_micros(
-            (self.current_frame as f64 * 1_000_000.0 / self.fps).round() as i64,
-        );
+        let offset = (self.current_frame as f64 * 1_000_000.0 / self.fps).round() as i64;
+        let t = Timestamp::from_micros(self.origin.as_micros() + offset);
         self.current_frame += 1;
         Some(plan_frame(
             self.timeline,

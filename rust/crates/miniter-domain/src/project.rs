@@ -1,4 +1,4 @@
-use crate::export::ExportProfile;
+use crate::export::{ExportProfile, ExportRange};
 use crate::marker::{Marker, MarkerId};
 use crate::time::Timestamp;
 use crate::timeline::Timeline;
@@ -36,6 +36,8 @@ pub struct Project {
     pub export_profile: ExportProfile,
     #[serde(default)]
     pub markers: Vec<Marker>,
+    #[serde(default)]
+    pub export_range: Option<ExportRange>,
 }
 
 impl Project {
@@ -55,6 +57,7 @@ impl Project {
             timeline: Timeline::with_defaults(),
             export_profile: ExportProfile::default(),
             markers: Vec::new(),
+            export_range: None,
         }
     }
 
