@@ -63,6 +63,7 @@ import org.mlm.miniter.editor.model.RustSharpenFilterSnapshot
 import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
 import org.mlm.miniter.editor.model.RustTextStyleSnapshot
+import org.mlm.miniter.editor.model.RustTextStyleUpdate
 import org.mlm.miniter.editor.model.RustTrackKind
 import org.mlm.miniter.editor.model.RustTrackSnapshot
 import org.mlm.miniter.editor.model.RustTransitionKind
@@ -1654,7 +1655,7 @@ class ProjectViewModel(
             snackbarManager.showError("Cannot remove the only video track")
             return
         }
-        if (applyTrackEdit("Remove track", rustStore.commands.removeTrack(trackId))) {
+        if (applySingleEdit("Remove track", rustStore.commands.removeTrack(trackId))) {
             if (_state.value.selectedTrackId == trackId) {
                 _state.update { it.copy(selectedTrackId = null) }
             }
@@ -1665,7 +1666,7 @@ class ProjectViewModel(
         val tracks = rustStore.snapshot.value?.timeline?.tracks ?: return
         val fromIndex = tracks.indexOfFirst { it.id == trackId }
         if (fromIndex < 0 || toIndex < 0 || toIndex > tracks.lastIndex || toIndex == fromIndex) return
-        applyTrackEdit("Reorder track", rustStore.commands.moveTrack(trackId, toIndex))
+        applySingleEdit("Reorder track", rustStore.commands.moveTrack(trackId, toIndex))
     }
 
     fun moveTrackUp(trackId: String) {
@@ -1684,10 +1685,10 @@ class ProjectViewModel(
 
     fun toggleTrackSolo(trackId: String) {
         val solo = rustStore.snapshot.value?.timeline?.tracks?.firstOrNull { it.id == trackId }?.solo ?: return
-        applyTrackEdit("Solo", rustStore.commands.setTrackSolo(trackId, !solo))
+        applySingleEdit("Solo", rustStore.commands.setTrackSolo(trackId, !solo))
     }
 
-    private fun applyTrackEdit(label: String, commandJson: String): Boolean {
+    private fun applySingleEdit(label: String, commandJson: String): Boolean {
         beginContinuousEdit(label)
         var failed = false
         try {
@@ -3065,18 +3066,9 @@ class ProjectViewModel(
         )
     }
 
-    fun updateTextClipStyle(
-        clipId: String,
-        fontSizeSp: Float? = null,
-        colorHex: String? = null,
-        backgroundColorHex: String? = null,
-        positionX: Float? = null,
-        positionY: Float? = null,
-        isBold: Boolean? = null,
-        isItalic: Boolean? = null,
-        fontFamily: String? = null,
-    ) {
+    fun updateTextClipStyle(clipId: String, update: RustTextStyleUpdate) {
         val clip = findRustClip(clipId)?.kind as? RustTextClipKind ?: return
+        val fontFamily = update.fontFamily
         if (fontFamily != null && (fontFamily.contains("/") || fontFamily.contains("\\"))) {
             viewModelScope.launch {
                 val staged = FontManager.importFont(fontFamily)
@@ -3084,26 +3076,42 @@ class ProjectViewModel(
                     snackbarManager.showError("Not a usable font file (need .ttf/.otf)")
                     return@launch
                 }
-                val style = clip.style.copy(fontFamily = staged)
-                dispatchCoalescing(rustStore.commands.updateTextStyle(clipId, style), "Style")
+                applyTextStyle(clipId, clip.style.copy(fontFamily = staged))
             }
             return
         }
         val style = clip.style.copy(
-            fontSize = fontSizeSp ?: clip.style.fontSize,
-            color = colorHex?.toArgbHex() ?: clip.style.color,
-            backgroundColor = backgroundColorHex?.toArgbHex() ?: clip.style.backgroundColor,
-            positionX = positionX ?: clip.style.positionX,
-            positionY = positionY ?: clip.style.positionY,
-            bold = isBold ?: clip.style.bold,
-            italic = isItalic ?: clip.style.italic,
+            fontSize = update.fontSize ?: clip.style.fontSize,
+            color = update.color?.toArgbHex() ?: clip.style.color,
+            backgroundColor = if (update.clearBackground) {
+                null
+            } else {
+                update.backgroundColor?.toArgbHex() ?: clip.style.backgroundColor
+            },
+            positionX = update.positionX ?: clip.style.positionX,
+            positionY = update.positionY ?: clip.style.positionY,
+            bold = update.bold ?: clip.style.bold,
+            italic = update.italic ?: clip.style.italic,
             fontFamily = fontFamily ?: clip.style.fontFamily,
+            outlineColor = if (update.clearOutline) {
+                null
+            } else {
+                update.outlineColor?.toArgbHex() ?: clip.style.outlineColor
+            },
+            outlineWidth = update.outlineWidth ?: clip.style.outlineWidth,
+            shadow = update.shadow ?: clip.style.shadow,
         )
 
-        dispatchCoalescing(
-            rustStore.commands.updateTextStyle(clipId, style),
-            "Style",
-        )
+        applyTextStyle(clipId, style)
+    }
+
+    private fun applyTextStyle(clipId: String, style: RustTextStyleSnapshot) {
+        val command = rustStore.commands.updateTextStyle(clipId, style)
+        if (rustStore.transactionOpen()) {
+            dispatchCoalescing(command, "Style")
+            return
+        }
+        applySingleEdit("Style", command)
     }
 
     fun setSubtitleFont(clipId: String, fontPath: String?) {

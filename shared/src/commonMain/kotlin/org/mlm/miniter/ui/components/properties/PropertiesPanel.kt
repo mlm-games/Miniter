@@ -69,6 +69,7 @@ import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustSubtitleClipKind
 import org.mlm.miniter.editor.model.RustTextClipKind
+import org.mlm.miniter.editor.model.RustTextStyleUpdate
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustTransitionKind
 import org.mlm.miniter.editor.model.RustVideoClipKind
@@ -124,7 +125,7 @@ fun PropertiesPanel(
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onApplyTransitionToAll: (RustTransitionKind, Long) -> Unit = { _, _ -> },
     onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
+    onUpdateTextStyle: (String, RustTextStyleUpdate) -> Unit,
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetOpacity: (String, Float) -> Unit = { _, _ -> },
@@ -1346,7 +1347,7 @@ private fun TextClipProperties(
     kind: RustTextClipKind,
     playheadMs: Long = 0L,
     onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
+    onUpdateTextStyle: (String, RustTextStyleUpdate) -> Unit,
     onSetTextTransitionIn: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onSetTextTransitionOut: (String, RustTransitionSnapshot?) -> Unit = { _, _ -> },
     onApplyTextAnimation: (String, TextAnimationPreset) -> Unit = { _, _ -> },
@@ -1407,7 +1408,7 @@ private fun TextClipProperties(
                     FilterChip(
                         selected = isSelected,
                         onClick = {
-                            onUpdateTextStyle(clip.id, null, null, null, pos.first, pos.second, null, null, null)
+                            onUpdateTextStyle(clip.id, RustTextStyleUpdate(positionX = pos.first, positionY = pos.second))
                         },
                         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         modifier = Modifier.size(40.dp),
@@ -1427,7 +1428,7 @@ private fun TextClipProperties(
     Slider(
         value = posX,
         onValueChange = { posX = it },
-        onValueChangeFinished = { onUpdateTextStyle(clip.id, null, null, null, posX, null, null, null, null) },
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(positionX = posX)) },
         valueRange = 0f..1f,
         modifier = Modifier.height(28.dp),
     )
@@ -1440,7 +1441,7 @@ private fun TextClipProperties(
     Slider(
         value = posY,
         onValueChange = { posY = it },
-        onValueChangeFinished = { onUpdateTextStyle(clip.id, null, null, null, null, posY, null, null, null) },
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(positionY = posY)) },
         valueRange = 0f..1f,
         modifier = Modifier.height(28.dp),
     )
@@ -1455,7 +1456,7 @@ private fun TextClipProperties(
     Slider(
         value = fontSize,
         onValueChange = { fontSize = it },
-        onValueChangeFinished = { onUpdateTextStyle(clip.id, fontSize, null, null, null, null, null, null, null) },
+        onValueChangeFinished = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(fontSize = fontSize)) },
         valueRange = 12f..120f,
         steps = 26,
     )
@@ -1466,7 +1467,7 @@ private fun TextClipProperties(
     val fontPickerText = rememberFilePickerLauncher(
         type = FileKitType.File(extensions = SupportedFormats.fontExtensions),
     ) { file: PlatformFile? ->
-        file?.let { onUpdateTextStyle(clip.id, null, null, null, null, null, null, null, it.platformPath()) }
+        file?.let { onUpdateTextStyle(clip.id, RustTextStyleUpdate(fontFamily = it.platformPath())) }
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1480,7 +1481,7 @@ private fun TextClipProperties(
         )
         if (fontLabel != null) {
             IconButton(
-                onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, null, null, "sans-serif") },
+                onClick = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(fontFamily = "sans-serif")) },
                 modifier = Modifier.size(24.dp),
             ) {
                 Icon(Icons.Filled.Close, contentDescription = "Reset font", modifier = Modifier.size(16.dp))
@@ -1502,55 +1503,102 @@ private fun TextClipProperties(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(
             selected = style.bold,
-            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, !style.bold, null, null) },
+            onClick = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(bold = !style.bold)) },
             label = { Text("B", fontWeight = FontWeight.ExtraBold) },
         )
         FilterChip(
             selected = style.italic,
-            onClick = { onUpdateTextStyle(clip.id, null, null, null, null, null, null, !style.italic, null) },
+            onClick = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(italic = !style.italic)) },
             label = { Text("I", fontStyle = FontStyle.Italic) },
         )
         FilterChip(
             selected = style.backgroundColor != null,
             onClick = {
-                val newBg = if (style.backgroundColor != null) null else "#000000"
-                onUpdateTextStyle(clip.id, null, null, newBg, null, null, null, null, null)
+                val update = if (style.backgroundColor != null) {
+                    RustTextStyleUpdate(clearBackground = true)
+                } else {
+                    RustTextStyleUpdate(backgroundColor = "#000000")
+                }
+                onUpdateTextStyle(clip.id, update)
             },
             label = { Text("BG") },
         )
+    }
+
+    if (style.backgroundColor != null) {
+        Spacer(Modifier.height(8.dp))
+        Text("Background", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(4.dp))
+        TextColorSwatches(style.backgroundColor) { hex ->
+            onUpdateTextStyle(clip.id, RustTextStyleUpdate(backgroundColor = hex))
+        }
     }
 
     Spacer(Modifier.height(12.dp))
 
     Text("Color", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(4.dp))
+    TextColorSwatches(style.color) { hex ->
+        onUpdateTextStyle(clip.id, RustTextStyleUpdate(color = hex))
+    }
 
-    val colors = listOf(
-        "#FFFFFF", "#000000", "#FF0000", "#FFFF00",
-        "#00FF00", "#00BFFF", "#FF69B4", "#FFA500",
-    )
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-    ) {
-        colors.forEach { hex ->
-            val c = try {
-                val v = hex.removePrefix("#").toLong(16) or 0xFF000000
-                androidx.compose.ui.graphics.Color(v.toInt())
-            } catch (_: Exception) {
-                androidx.compose.ui.graphics.Color.White
-            }
-            Surface(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clickable { onUpdateTextStyle(clip.id, null, hex, null, null, null, null, null, null) },
-                shape = CircleShape,
-                color = c,
-                border = if (style.color.removePrefix("FF").let { "#$it" }.equals(hex, ignoreCase = true))
-                    BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            ) {}
+    Spacer(Modifier.height(16.dp))
+
+    Text("Outline", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = style.outlineColor != null,
+            onClick = {
+                val update = if (style.outlineColor != null) {
+                    RustTextStyleUpdate(clearOutline = true)
+                } else {
+                    RustTextStyleUpdate(outlineColor = "#000000", outlineWidth = 2f)
+                }
+                onUpdateTextStyle(clip.id, update)
+            },
+            label = { Text("Outline") },
+        )
+        if (style.outlineColor != null) {
+            Text(
+                "${formatFixed(style.outlineWidth, 0)}px",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.CenterVertically),
+            )
         }
+    }
+
+    if (style.outlineColor != null) {
+        Spacer(Modifier.height(8.dp))
+        TextColorSwatches(style.outlineColor) { hex ->
+            onUpdateTextStyle(clip.id, RustTextStyleUpdate(outlineColor = hex))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("Width", style = MaterialTheme.typography.labelMedium)
+        var outlineWidth by remember(style.outlineWidth) { mutableFloatStateOf(style.outlineWidth) }
+        Slider(
+            value = outlineWidth,
+            onValueChange = { outlineWidth = it },
+            onValueChangeFinished = {
+                onUpdateTextStyle(clip.id, RustTextStyleUpdate(outlineWidth = outlineWidth))
+            },
+            valueRange = 0f..20f,
+            steps = 19,
+        )
+        Text("${formatFixed(outlineWidth, 0)}px", style = MaterialTheme.typography.labelSmall)
+    }
+
+    Spacer(Modifier.height(16.dp))
+
+    Text("Shadow", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = style.shadow,
+            onClick = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(shadow = !style.shadow)) },
+            label = { Text("Drop shadow") },
+        )
     }
 
     Spacer(Modifier.height(16.dp))
@@ -1599,6 +1647,54 @@ private fun TextClipProperties(
         onSetTransitionOut = { onSetTextTransitionOut(clip.id, it) },
         options = textTransitionOptions,
     )
+}
+
+private val textColorChoices = listOf(
+    "#FFFFFF", "#000000", "#FF0000", "#FFFF00",
+    "#00FF00", "#00BFFF", "#FF69B4", "#FFA500",
+)
+
+@Composable
+private fun TextColorSwatches(
+    selectedHex: String?,
+    onPick: (String) -> Unit,
+) {
+    val selected = normalizeTextColorHex(selectedHex)
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+    ) {
+        textColorChoices.forEach { hex ->
+            Surface(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clickable { onPick(hex) },
+                shape = CircleShape,
+                color = textSwatchColor(hex),
+                border = if (selected.equals(hex, ignoreCase = true)) {
+                    BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                } else {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                },
+            ) {}
+        }
+    }
+}
+
+private fun normalizeTextColorHex(hex: String?): String? {
+    val digits = hex?.trim()?.removePrefix("#") ?: return null
+    val rgb = when (digits.length) {
+        8 -> digits.substring(2)
+        6 -> digits
+        else -> return null
+    }
+    return "#$rgb"
+}
+
+private fun textSwatchColor(hex: String): Color = try {
+    Color((hex.removePrefix("#").toLong(16) or 0xFF000000).toInt())
+} catch (_: Exception) {
+    Color.White
 }
 
 private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(

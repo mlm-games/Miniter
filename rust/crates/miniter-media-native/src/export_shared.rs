@@ -1696,7 +1696,8 @@ pub(crate) fn render_text_overlay_with_files(
         .map(|c| parse_argb_hex(c, [0, 0, 0, 255]));
     let outline_width = if outline_color.is_some() {
         let w = overlay.style.outline_width.max(0.0).round() as i32;
-        if w == 0 { 2 } else { w }
+        let w = if w == 0 { 2 } else { w };
+        w.min((font_size * 0.5).round().max(1.0) as i32)
     } else {
         0
     };

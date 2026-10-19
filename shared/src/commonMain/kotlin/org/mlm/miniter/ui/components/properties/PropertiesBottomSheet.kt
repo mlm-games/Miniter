@@ -14,6 +14,7 @@ import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTransitionSnapshot
 import org.mlm.miniter.editor.model.RustTransitionKind
+import org.mlm.miniter.editor.model.RustTextStyleUpdate
 import org.mlm.miniter.editor.model.RustMaskEffect
 import org.mlm.miniter.editor.model.RustVideoEffectSnapshot
 import org.mlm.miniter.editor.model.RustVideoFilterSnapshot
@@ -38,7 +39,7 @@ fun PropertiesBottomSheet(
     onSetTransitionOut: (String, RustTransitionSnapshot?) -> Unit,
     onApplyTransitionToAll: (RustTransitionKind, Long) -> Unit = { _, _ -> },
     onUpdateText: (String, String) -> Unit,
-    onUpdateTextStyle: (String, Float?, String?, String?, Float?, Float?, Boolean?, Boolean?, String?) -> Unit,
+    onUpdateTextStyle: (String, RustTextStyleUpdate) -> Unit,
     onSetOpacity: (String, Float) -> Unit,
     onSetBlendMode: (String, RustBlendMode) -> Unit = { _, _ -> },
     onApplyKenBurns: (String, KenBurnsPreset) -> Unit = { _, _ -> },

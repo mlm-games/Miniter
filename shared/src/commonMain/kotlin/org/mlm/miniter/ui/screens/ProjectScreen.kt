@@ -32,6 +32,7 @@ import org.mlm.miniter.editor.model.RustExportResolution
 import org.mlm.miniter.editor.model.RustKeyframe
 import org.mlm.miniter.editor.model.RustProjectSnapshot
 import org.mlm.miniter.editor.model.RustTrackKind
+import org.mlm.miniter.editor.model.RustTextStyleUpdate
 import org.mlm.miniter.editor.model.RustTransformFilterSnapshot
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.project.KeyframeParams
@@ -211,10 +212,10 @@ fun ProjectScreen(
             },
             autoKeyframeEnabled = autoKeyframeEnabled,
             onTextPositionChanged = { clipId, x, y ->
-                vm.updateTextClipStyle(clipId, positionX = x, positionY = y)
+                vm.updateTextClipStyle(clipId, RustTextStyleUpdate(positionX = x, positionY = y))
             },
             onTextFontSizeChanged = { clipId, size ->
-                vm.updateTextClipStyle(clipId, fontSizeSp = size)
+                vm.updateTextClipStyle(clipId, RustTextStyleUpdate(fontSize = size))
             },
             onCropChanged = { clipId, left, top, right, bottom ->
                 vm.updateCropFilter(clipId, left, top, right, bottom)
@@ -410,9 +411,7 @@ fun ProjectScreen(
                 onSetTransitionOut = vm::setTransitionOut,
                 onApplyTransitionToAll = vm::applyTransitionToAllCuts,
                 onUpdateText = vm::updateTextClip,
-                onUpdateTextStyle = { clipId, fontSize, color, bgColor, posX, posY, bold, italic, fontFamily ->
-                    vm.updateTextClipStyle(clipId, fontSize, color, bgColor, posX, posY, bold, italic, fontFamily)
-                },
+                onUpdateTextStyle = vm::updateTextClipStyle,
                 onSetOpacity = vm::setClipOpacity,
                 onSetBlendMode = vm::setClipBlendMode,
                 onApplyKenBurns = vm::applyKenBurns,
