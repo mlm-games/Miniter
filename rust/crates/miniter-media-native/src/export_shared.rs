@@ -524,6 +524,13 @@ pub fn blend_over_pixel(dst: &mut [u8], src: &[u8], mode: BlendMode) {
     dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
 }
 
+fn mask_point_px(nx: f32, ny: f32, sin_r: f32, cos_r: f32, wf: f32, hf: f32) -> (f32, f32) {
+    let aspect = hf / wf;
+    let rx = (nx - 0.5) * cos_r - (ny - 0.5) * sin_r * aspect + 0.5;
+    let ry = (nx - 0.5) * sin_r / aspect + (ny - 0.5) * cos_r + 0.5;
+    (rx * wf, ry * hf)
+}
+
 /// Render a mask shape to a grayscale RGBA buffer.
 /// White (255,255,255,255) = fully opaque mask, Black (0,0,0,0) = fully transparent.
 pub(crate) fn render_mask_shape(
@@ -564,6 +571,8 @@ pub(crate) fn render_mask_shape(
             let tcx = (ncx - 0.5) * transform.scale + 0.5 + transform.translate_x;
             let tcy = (ncy - 0.5) * transform.scale + 0.5 + transform.translate_y;
 
+            let (scx, scy) = mask_point_px(tcx, tcy, sin_r, cos_r, wf, hf);
+
             let corners = [
                 (tcx - hw, tcy - hh),
                 (tcx + hw, tcy - hh),
@@ -577,10 +586,7 @@ pub(crate) fn render_mask_shape(
             let mut max_y = 0.0f32;
 
             for (nx, ny) in corners {
-                let rx = (nx - 0.5) * cos_r - (ny - 0.5) * sin_r + 0.5;
-                let ry = (nx - 0.5) * sin_r + (ny - 0.5) * cos_r + 0.5;
-                let sx = rx * wf;
-                let sy = ry * hf;
+                let (sx, sy) = mask_point_px(nx, ny, sin_r, cos_r, wf, hf);
                 min_x = min_x.min(sx);
                 max_x = max_x.max(sx);
                 min_y = min_y.min(sy);
@@ -592,10 +598,6 @@ pub(crate) fn render_mask_shape(
             let r = ((max_x.round() as i32).saturating_add(1)).clamp(l as i32 + 1, width as i32) as usize;
             let b = ((max_y.round() as i32).saturating_add(1)).clamp(t as i32 + 1, height as i32) as usize;
 
-            let rcx = (tcx - 0.5) * cos_r - (tcy - 0.5) * sin_r + 0.5;
-            let rcy = (tcx - 0.5) * sin_r + (tcy - 0.5) * cos_r + 0.5;
-            let scx = rcx * wf;
-            let scy = rcy * hf;
             let min_u = ((tcx - hw) * wf).round() - tcx * wf;
             let max_u = ((tcx + hw) * wf).round() - tcx * wf;
             let min_v = ((tcy - hh) * hf).round() - tcy * hf;
@@ -633,14 +635,11 @@ pub(crate) fn render_mask_shape(
             let tcx = (ncx - 0.5) * transform.scale + 0.5 + transform.translate_x;
             let tcy = (ncy - 0.5) * transform.scale + 0.5 + transform.translate_y;
 
-            let rcx = (tcx - 0.5) * cos_r - (tcy - 0.5) * sin_r + 0.5;
-            let rcy = (tcx - 0.5) * sin_r + (tcy - 0.5) * cos_r + 0.5;
+            let (scx, scy) = mask_point_px(tcx, tcy, sin_r, cos_r, wf, hf);
 
             let rrx = (radius_x.clamp(0.0, 0.5) * transform.scale).max(0.001);
             let rry = (radius_y.clamp(0.0, 0.5) * transform.scale).max(0.001);
 
-            let scx = rcx * wf;
-            let scy = rcy * hf;
             let srx = (rrx * wf + expansion).max(0.0);
             let sry = (rry * hf + expansion).max(0.0);
 
