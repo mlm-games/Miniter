@@ -10,10 +10,10 @@
     <string name="miniter_settings_dynamic_colors">Dynamic colors</string>
     <string name="miniter_settings_dynamic_colors_description">Use Material You dynamic colors (Android 12+)</string>
     <string name="miniter_settings_oled_black">Pure black (OLED)</string>
-    <string name="miniter_settings_auto_save_project">Auto-save project</string>
-    <string name="miniter_settings_auto_save_project_description">Automatically save project changes</string>
+    <string name="miniter_settings_auto_save_project">Auto-save recovery copy</string>
+    <string name="miniter_settings_auto_save_project_description">Automatically write a recovery copy of project changes</string>
     <string name="miniter_settings_auto_save_interval">Auto-save interval (seconds)</string>
-    <string name="miniter_settings_auto_save_interval_description">How often to auto-save</string>
+    <string name="miniter_settings_auto_save_interval_description">How often to write the recovery copy</string>
     <string name="miniter_settings_hardware_acceleration">Hardware acceleration</string>
     <string name="miniter_settings_hardware_acceleration_description">Use GPU for video decode/encode (faster, uses more power)</string>
 </resources>

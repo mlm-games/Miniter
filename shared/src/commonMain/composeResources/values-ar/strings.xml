@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">الألوان الديناميكية</string>
     <string name="miniter_settings_dynamic_colors_description">استخدام ألوان Material You الديناميكية (Android 12+)</string>
     <string name="miniter_settings_oled_black">الأسود الخالص (OLED)</string>
-    <string name="miniter_settings_auto_save_project">الحفظ التلقائي للمشروع</string>
-    <string name="miniter_settings_auto_save_project_description">حفظ تغييرات المشروع تلقائيًا</string>
+    <string name="miniter_settings_auto_save_project">حفظ نسخة الاسترداد تلقائيًا</string>
+    <string name="miniter_settings_auto_save_project_description">كتابة نسخة استرداد لتغييرات المشروع تلقائيًا</string>
     <string name="miniter_settings_auto_save_interval">مدة الحفظ التلقائي (بالثواني)</string>
     <string name="miniter_settings_auto_save_interval_description">عدد مرات الحفظ التلقائي</string>
     <string name="miniter_settings_hardware_acceleration">تسريع الأجهزة</string>

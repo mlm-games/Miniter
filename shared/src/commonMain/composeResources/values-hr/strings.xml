@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">Dinamičke boje</string>
     <string name="miniter_settings_dynamic_colors_description">Koristi dinamičke boje Material You (Android 12+)</string>
     <string name="miniter_settings_oled_black">Čisto crna (OLED)</string>
-    <string name="miniter_settings_auto_save_project">Automatsko spremanje projekta</string>
-    <string name="miniter_settings_auto_save_project_description">Automatski spremaj promjene projekta</string>
+    <string name="miniter_settings_auto_save_project">Automatski spremi kopiju za oporavak</string>
+    <string name="miniter_settings_auto_save_project_description">Automatski spremi kopiju za oporavak promjena projekta</string>
     <string name="miniter_settings_auto_save_interval">Interval automatskog spremanja (sekunde)</string>
     <string name="miniter_settings_auto_save_interval_description">Koliko često automatski spremati</string>
     <string name="miniter_settings_hardware_acceleration">Hardversko ubrzavanje</string>

@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">Dynamiska färger</string>
     <string name="miniter_settings_dynamic_colors_description">Använd dynamiska Material You-färger (Android 12+)</string>
     <string name="miniter_settings_oled_black">Helsvart (OLED)</string>
-    <string name="miniter_settings_auto_save_project">Autospara projekt</string>
-    <string name="miniter_settings_auto_save_project_description">Autospara ändringar i projektet automatiskt</string>
+    <string name="miniter_settings_auto_save_project">Spara återställningskopia automatiskt</string>
+    <string name="miniter_settings_auto_save_project_description">Spara automatiskt en återställningskopia av projektändringar</string>
     <string name="miniter_settings_auto_save_interval">Intervall för autosparning (sekunder)</string>
     <string name="miniter_settings_auto_save_interval_description">Hur ofta ska autosparning ske</string>
     <string name="miniter_settings_hardware_acceleration">Hårdvaruacceleration</string>

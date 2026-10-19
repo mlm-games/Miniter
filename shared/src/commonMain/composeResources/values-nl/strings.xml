@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">Dynamische kleuren</string>
     <string name="miniter_settings_dynamic_colors_description">Dynamische Material You-kleuren gebruiken (Android 12+)</string>
     <string name="miniter_settings_oled_black">Diepzwart (OLED)</string>
-    <string name="miniter_settings_auto_save_project">Project automatisch opslaan</string>
-    <string name="miniter_settings_auto_save_project_description">Projectwijzigingen automatisch opslaan</string>
+    <string name="miniter_settings_auto_save_project">Herstelkopie automatisch opslaan</string>
+    <string name="miniter_settings_auto_save_project_description">Automatisch een herstelkopie van projectwijzigingen opslaan</string>
     <string name="miniter_settings_auto_save_interval">Interval voor automatisch opslaan (seconden)</string>
     <string name="miniter_settings_auto_save_interval_description">Hoe vaak automatisch opslaan</string>
     <string name="miniter_settings_hardware_acceleration">Hardwareversnelling</string>

@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">Dinamik renkler</string>
     <string name="miniter_settings_dynamic_colors_description">Material You dinamik renklerini kullan (Android 12+)</string>
     <string name="miniter_settings_oled_black">Saf siyah (OLED)</string>
-    <string name="miniter_settings_auto_save_project">Projeyi otomatik kaydet</string>
-    <string name="miniter_settings_auto_save_project_description">Proje değişikliklerini otomatik olarak kaydet</string>
+    <string name="miniter_settings_auto_save_project">Kurtarma kopyasını otomatik kaydet</string>
+    <string name="miniter_settings_auto_save_project_description">Proje değişikliklerinin kurtarma kopyasını otomatik kaydet</string>
     <string name="miniter_settings_auto_save_interval">Otomatik kaydetme aralığı (saniye)</string>
     <string name="miniter_settings_auto_save_interval_description">Otomatik kaydetme sıklığı</string>
     <string name="miniter_settings_hardware_acceleration">Donanım hızlandırma</string>

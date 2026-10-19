@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">동적 색상</string>
     <string name="miniter_settings_dynamic_colors_description">Material You 동적 색상 사용 (Android 12+)</string>
     <string name="miniter_settings_oled_black">순수 검정 (OLED)</string>
-    <string name="miniter_settings_auto_save_project">프로젝트 자동 저장</string>
-    <string name="miniter_settings_auto_save_project_description">프로젝트 변경 사항 자동 저장</string>
+    <string name="miniter_settings_auto_save_project">복구 사본 자동 저장</string>
+    <string name="miniter_settings_auto_save_project_description">프로젝트 변경 사항의 복구 사본을 자동으로 저장합니다</string>
     <string name="miniter_settings_auto_save_interval">자동 저장 간격(초)</string>
     <string name="miniter_settings_auto_save_interval_description">자동 저장 빈도</string>
     <string name="miniter_settings_hardware_acceleration">하드웨어 가속</string>

@@ -79,9 +79,9 @@ data class AppSettings(
     val exportQuality: Float = 80f,
 
     @Setting(
-        title = "Auto-save project",
+        title = "Auto-save recovery copy",
         titleKey = MiniterSettingsKeys.AUTO_SAVE_PROJECT,
-        description = "Automatically save project changes",
+        description = "Automatically write a recovery copy of project changes",
         descriptionKey = MiniterSettingsKeys.AUTO_SAVE_PROJECT_DESCRIPTION,
         category = Editor::class,
         type = Toggle::class
@@ -91,7 +91,7 @@ data class AppSettings(
     @Setting(
         title = "Auto-save interval (seconds)",
         titleKey = MiniterSettingsKeys.AUTO_SAVE_INTERVAL,
-        description = "How often to auto-save",
+        description = "How often to write the recovery copy",
         descriptionKey = MiniterSettingsKeys.AUTO_SAVE_INTERVAL_DESCRIPTION,
         category = Editor::class,
         type = Slider::class,

@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">動態顏色</string>
     <string name="miniter_settings_dynamic_colors_description">使用 Material You 動態顏色（Android 12+）</string>
     <string name="miniter_settings_oled_black">純黑（OLED）</string>
-    <string name="miniter_settings_auto_save_project">自動儲存專案</string>
-    <string name="miniter_settings_auto_save_project_description">自動儲存專案變更</string>
+    <string name="miniter_settings_auto_save_project">自動儲存復原副本</string>
+    <string name="miniter_settings_auto_save_project_description">自動儲存專案變更的復原副本</string>
     <string name="miniter_settings_auto_save_interval">自動儲存間隔（秒）</string>
     <string name="miniter_settings_auto_save_interval_description">自動儲存頻率</string>
     <string name="miniter_settings_hardware_acceleration">硬體加速</string>

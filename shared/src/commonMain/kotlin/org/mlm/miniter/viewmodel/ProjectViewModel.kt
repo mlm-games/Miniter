@@ -236,13 +236,11 @@ class ProjectViewModel(
         private const val TRANSITION_ADJACENCY_EPSILON_US = 2_000L
         private const val SPEED_CURVE_MAX_ITERATIONS = 4
         private const val SPEED_CURVE_TOLERANCE_US = 2_000L
-        private const val RECOVERY_AUTOSAVE_INTERVAL_MS = 30_000L
     }
 
     private var hardwareAccelerationEnabled: Boolean = true
     private var sourceDurationMs: Long = 0L
     private var autoSaveJob: Job? = null
-    private var autoSaveNoPathWarned: Boolean = false
     private var lastRecoveryJson: String? = null
     private var preDragSnapshot: RustProjectSnapshot? = null
     private var continuousEditCommandCount = 0
@@ -449,20 +447,6 @@ class ProjectViewModel(
         viewModelScope.launch {
             ProjectRecovery.beginSession()
             _pendingRecovery.value = ProjectRecovery.pending()
-        }
-    }
-
-    init {
-        viewModelScope.launch {
-            while (true) {
-                delay(RECOVERY_AUTOSAVE_INTERVAL_MS)
-                try {
-                    writeRecoveryIfNeeded()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                }
-            }
         }
     }
 
@@ -739,21 +723,16 @@ class ProjectViewModel(
 
     fun startAutoSave(enabled: Boolean, intervalSeconds: Float) {
         autoSaveJob?.cancel()
-        autoSaveNoPathWarned = false
         if (!enabled) return
         if (!intervalSeconds.isFinite() || intervalSeconds < 1f || intervalSeconds > 3600f) return
         autoSaveJob = viewModelScope.launch {
             while (true) {
                 delay((intervalSeconds * 1000).toLong())
-                val s = _state.value
-                if (s.isDirty && !s.isSaving) {
-                    if (s.projectPath != null) {
-                        autoSaveNoPathWarned = false
-                        saveProject()
-                    } else if (!autoSaveNoPathWarned) {
-                        autoSaveNoPathWarned = true
-                        snackbarManager.show("Auto-save unavailable - save project manually first")
-                    }
+                try {
+                    writeRecoveryIfNeeded()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
                 }
             }
         }

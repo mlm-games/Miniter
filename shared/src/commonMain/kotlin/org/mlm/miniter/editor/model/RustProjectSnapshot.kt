@@ -457,7 +457,7 @@ data class RustChromaKeyFilterSnapshot(
     val keyColor: String = "FF00FF00",
     val tolerance: Float = 0.25f,
     val softness: Float = 0.1f,
-    val spill: Float = 0.5f,
+    val spill: Float = 0f,
     @SerialName("spill_suppression")
     val spillSuppression: Float = 0f,
     val choke: Float = 0f,

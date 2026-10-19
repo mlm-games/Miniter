@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">Dynamické barvy</string>
     <string name="miniter_settings_dynamic_colors_description">Používat dynamické barvy Material You (Android 12+)</string>
     <string name="miniter_settings_oled_black">Čistě černá (OLED)</string>
-    <string name="miniter_settings_auto_save_project">Automaticky ukládat projekt</string>
-    <string name="miniter_settings_auto_save_project_description">Automaticky ukládat změny projektu</string>
+    <string name="miniter_settings_auto_save_project">Automaticky ukládat kopii pro obnovení</string>
+    <string name="miniter_settings_auto_save_project_description">Automaticky ukládat kopii pro obnovení změn projektu</string>
     <string name="miniter_settings_auto_save_interval">Interval automatického ukládání (sekundy)</string>
     <string name="miniter_settings_auto_save_interval_description">Jak často automaticky ukládat</string>
     <string name="miniter_settings_hardware_acceleration">Hardwarová akcelerace</string>

@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">Warna dinamis</string>
     <string name="miniter_settings_dynamic_colors_description">Gunakan warna dinamis Material You (Android 12+)</string>
     <string name="miniter_settings_oled_black">Hitam pekat (OLED)</string>
-    <string name="miniter_settings_auto_save_project">Simpan proyek secara otomatis</string>
-    <string name="miniter_settings_auto_save_project_description">Simpan perubahan proyek secara otomatis</string>
+    <string name="miniter_settings_auto_save_project">Simpan otomatis salinan pemulihan</string>
+    <string name="miniter_settings_auto_save_project_description">Secara otomatis menyimpan salinan pemulihan perubahan proyek</string>
     <string name="miniter_settings_auto_save_interval">Interval penyimpanan otomatis (detik)</string>
     <string name="miniter_settings_auto_save_interval_description">Seberapa sering penyimpanan otomatis dilakukan</string>
     <string name="miniter_settings_hardware_acceleration">Akselerasi perangkat keras</string>

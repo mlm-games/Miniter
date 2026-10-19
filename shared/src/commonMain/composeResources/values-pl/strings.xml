@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">Kolory dynamiczne</string>
     <string name="miniter_settings_dynamic_colors_description">Używaj dynamicznych kolorów Material You (Android 12+)</string>
     <string name="miniter_settings_oled_black">Czysta czerń (OLED)</string>
-    <string name="miniter_settings_auto_save_project">Automatyczne zapisywanie projektu</string>
-    <string name="miniter_settings_auto_save_project_description">Automatycznie zapisuj zmiany projektu</string>
+    <string name="miniter_settings_auto_save_project">Automatycznie zapisuj kopię odzyskiwania</string>
+    <string name="miniter_settings_auto_save_project_description">Automatycznie zapisuj kopię odzyskiwania zmian projektu</string>
     <string name="miniter_settings_auto_save_interval">Interwał automatycznego zapisywania (sekundy)</string>
     <string name="miniter_settings_auto_save_interval_description">Jak często zapisywać automatycznie</string>
     <string name="miniter_settings_hardware_acceleration">Akceleracja sprzętowa</string>

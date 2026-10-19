@@ -250,7 +250,7 @@ fn default_chroma_softness() -> f32 {
 }
 
 fn default_chroma_spill() -> f32 {
-    0.5
+    0.0
 }
 
 fn default_mosaic_size() -> f32 {

@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">Dynaamiset värit</string>
     <string name="miniter_settings_dynamic_colors_description">Käytä Material You -dynamiaisia värejä (Android 12+)</string>
     <string name="miniter_settings_oled_black">Täysin musta (OLED)</string>
-    <string name="miniter_settings_auto_save_project">Automaattinen projektin tallennus</string>
-    <string name="miniter_settings_auto_save_project_description">Tallenna projektin muutokset automaattisesti</string>
+    <string name="miniter_settings_auto_save_project">Tallenna palautuskopio automaattisesti</string>
+    <string name="miniter_settings_auto_save_project_description">Tallenna automaattisesti palautuskopio projektin muutoksista</string>
     <string name="miniter_settings_auto_save_interval">Automaattisen tallennuksen väli (sekunteina)</string>
     <string name="miniter_settings_auto_save_interval_description">Kuinka useen tallennus tapahtuu automaattisesti</string>
     <string name="miniter_settings_hardware_acceleration">Laitteistokiihdytys</string>

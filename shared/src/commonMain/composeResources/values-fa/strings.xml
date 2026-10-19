@@ -9,8 +9,8 @@
     <string name="miniter_settings_dynamic_colors">رنگ‌های پویا</string>
     <string name="miniter_settings_dynamic_colors_description">استفاده از رنگ‌های پویای Material You (Android 12+)</string>
     <string name="miniter_settings_oled_black">سیاهی خالص (OLED)</string>
-    <string name="miniter_settings_auto_save_project">ذخیره خودکار پروژه</string>
-    <string name="miniter_settings_auto_save_project_description">ذخیره خودکار تغییرات پروژه</string>
+    <string name="miniter_settings_auto_save_project">ذخیرهٔ خودکار نسخهٔ بازیابی</string>
+    <string name="miniter_settings_auto_save_project_description">ذخیرهٔ خودکار نسخهٔ بازیابی تغییرات پروژه</string>
     <string name="miniter_settings_auto_save_interval">بازه ذخیره خودکار (ثانیه)</string>
     <string name="miniter_settings_auto_save_interval_description">فاصله زمانی ذخیره خودکار</string>
     <string name="miniter_settings_hardware_acceleration">شتاب‌دهی سخت‌افزاری</string>

@@ -77,7 +77,7 @@ fun CompactTopBar(
                             onClickLabel = stringResource(Res.string.common_undo),
                             onLongClickLabel = "Undo history",
                             onLongClick = onToggleHistory,
-                            onClick = onUndo,
+                            onClick = { if (canUndo) onUndo() else onToggleHistory() },
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
