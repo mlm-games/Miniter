@@ -12,7 +12,10 @@ pub mod track;
 pub mod transition;
 
 pub use clip::{AdjustmentClip, AudioClip, Clip, ClipId, ClipKind, SubtitleClip, VideoClip};
-pub use export::{ExportFormat, ExportProfile, ExportRange, ExportResolution, SubtitleMode};
+pub use export::{
+    ExportFormat, ExportProfile, ExportRange, ExportResolution, LoudnessNormalization,
+    SubtitleMode,
+};
 pub use filter::{
     AudioFilter, BlurKind, CanvasBackgroundMode, EqPreset, MosaicKind, ReverbPreset, VideoEffect,
     VideoFilter,

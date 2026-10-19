@@ -844,7 +844,19 @@ data class RustExportProfileSnapshot(
     val hardwareAcceleration: Boolean = true,
     @SerialName("encode_effort")
     val encodeEffort: Int = 6,
+    @SerialName("loudness_normalization")
+    val loudnessNormalization: RustLoudnessNormalization = RustLoudnessNormalization.Off,
+    @SerialName("limiter_ceiling_db")
+    val limiterCeilingDb: Float = -1.0f,
 )
+
+@Serializable
+enum class RustLoudnessNormalization {
+    Off,
+    Minus14Lufs,
+    Minus16Lufs,
+    Minus23Lufs,
+}
 
 @Serializable
 enum class RustSubtitleMode {

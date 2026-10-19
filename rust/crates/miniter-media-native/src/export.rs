@@ -835,7 +835,8 @@ fn mix_and_encode_opus(
 ) -> Result<(Option<crate::mux::OpusTrackConfigOut>, Option<EncodedOpus>), ExportError> {
     let sample_rate = normalize_audio_sample_rate(project.export_profile.audio_sample_rate);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_audio_in_range(mix_project_audio(project, config)?, range);
+    let mut mixed = mix_audio_in_range(mix_project_audio(project, config)?, range);
+    apply_export_mastering_from_profile(project, &mut mixed);
     let audio_encoded = if !mixed.samples.is_empty() {
         let bitrate_bps = normalize_audio_bitrate_kbps(project.export_profile.audio_bitrate_kbps)
             .saturating_mul(1000);
@@ -1923,7 +1924,8 @@ where
 
     on_progress(1);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_audio_in_range(mix_project_audio(project, config)?, range);
+    let mut mixed = mix_audio_in_range(mix_project_audio(project, config)?, range);
+    apply_export_mastering_from_profile(project, &mut mixed);
     if mixed.samples.is_empty() {
         return Err(if range.is_some() {
             ExportError::NoAudioInRange
@@ -1988,7 +1990,8 @@ where
 
     on_progress(1);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_audio_in_range(mix_project_audio(project, config)?, range);
+    let mut mixed = mix_audio_in_range(mix_project_audio(project, config)?, range);
+    apply_export_mastering_from_profile(project, &mut mixed);
     if mixed.samples.is_empty() {
         return Err(if range.is_some() {
             ExportError::NoAudioInRange

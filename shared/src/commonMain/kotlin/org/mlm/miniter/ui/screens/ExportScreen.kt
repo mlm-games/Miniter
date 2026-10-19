@@ -83,6 +83,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -108,6 +109,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import org.mlm.miniter.editor.model.RustExportFormat
+import org.mlm.miniter.editor.model.RustLoudnessNormalization
 import org.mlm.miniter.editor.model.RustSubtitleMode
 import org.mlm.miniter.editor.model.RustVideoClipKind
 import org.mlm.miniter.editor.model.resolvedUs
@@ -396,6 +398,13 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         backStack.popBack()
     }
 
+    val onLoudnessNormalizationChange: (RustLoudnessNormalization) -> Unit = { mode ->
+        profile?.let { vm.updateExportProfile(it.copy(loudnessNormalization = mode)) }
+    }
+    val onLimiterCeilingCommit: (Float) -> Unit = { ceilingDb ->
+        profile?.let { vm.updateExportProfile(it.copy(limiterCeilingDb = ceilingDb)) }
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -535,6 +544,13 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             errors = validationErrors,
                             onAudioBitrateChange = { draft = draft.copy(audioBitrateText = it) },
                             onAudioSampleRateChange = { draft = draft.copy(audioSampleRate = it) },
+                        )
+                        MasteringFields(
+                            enabled = !isExporting,
+                            normalization = profile?.loudnessNormalization ?: RustLoudnessNormalization.Off,
+                            ceilingDb = profile?.limiterCeilingDb ?: -1f,
+                            onNormalizationChange = onLoudnessNormalizationChange,
+                            onCeilingCommit = onLimiterCeilingCommit,
                         )
                     }
                 } else {
@@ -683,6 +699,13 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                                 errors = validationErrors,
                                 onAudioBitrateChange = { draft = draft.copy(audioBitrateText = it) },
                                 onAudioSampleRateChange = { draft = draft.copy(audioSampleRate = it) },
+                            )
+                            MasteringFields(
+                                enabled = !isExporting,
+                                normalization = profile?.loudnessNormalization ?: RustLoudnessNormalization.Off,
+                                ceilingDb = profile?.limiterCeilingDb ?: -1f,
+                                onNormalizationChange = onLoudnessNormalizationChange,
+                                onCeilingCommit = onLimiterCeilingCommit,
                             )
                         }
                     }
@@ -1164,6 +1187,70 @@ private fun AudioFields(
         }
     }
     errors["audioBitrate"]?.let { FieldError(it) }
+}
+
+private data class LoudnessPreset(val mode: RustLoudnessNormalization, val label: String)
+
+private val loudnessPresets = listOf(
+    LoudnessPreset(RustLoudnessNormalization.Off, "Off"),
+    LoudnessPreset(RustLoudnessNormalization.Minus14Lufs, "-14 LUFS"),
+    LoudnessPreset(RustLoudnessNormalization.Minus16Lufs, "-16 LUFS"),
+    LoudnessPreset(RustLoudnessNormalization.Minus23Lufs, "-23 LUFS"),
+)
+
+@Composable
+private fun MasteringFields(
+    enabled: Boolean,
+    normalization: RustLoudnessNormalization,
+    ceilingDb: Float,
+    onNormalizationChange: (RustLoudnessNormalization) -> Unit,
+    onCeilingCommit: (Float) -> Unit,
+) {
+    val active = normalization != RustLoudnessNormalization.Off
+    var ceilingDraft by remember { mutableFloatStateOf(ceilingDb) }
+    LaunchedEffect(ceilingDb) { ceilingDraft = ceilingDb }
+
+    HorizontalDivider()
+    Text(
+        "Loudness normalisation",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+    )
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        loudnessPresets.forEach { preset ->
+            FilterChip(
+                selected = normalization == preset.mode,
+                onClick = { onNormalizationChange(preset.mode) },
+                enabled = enabled,
+                label = { Text(preset.label) },
+            )
+        }
+    }
+    SliderHeader(title = "Limiter ceiling", value = "${formatCeilingDb(ceilingDraft)} dBFS")
+    Slider(
+        value = ceilingDraft,
+        onValueChange = { ceilingDraft = it },
+        onValueChangeFinished = { onCeilingCommit(ceilingDraft) },
+        valueRange = -3f..-0.1f,
+        steps = 28,
+        enabled = enabled && active,
+    )
+    MutedLabel(
+        if (active) {
+            "Measures the exported mix and applies gain to reach the target, then limits the peak. Timeline preview is unchanged."
+        } else {
+            "Off: the export audio is encoded unchanged."
+        },
+    )
+}
+
+private fun formatCeilingDb(db: Float): String {
+    val tenths = kotlin.math.abs(kotlin.math.round(db * 10f).toInt())
+    return "-${tenths / 10}.${tenths % 10}"
 }
 
 @Composable

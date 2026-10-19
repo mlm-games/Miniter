@@ -5,6 +5,7 @@ use fast_image_resize::{PixelType, Resizer};
 use fontdue::{Font, FontSettings};
 use miniter_audio::mix::MixedAudio;
 use miniter_audio::util;
+use miniter_domain::Project;
 use miniter_domain::filter::{BlurKind, MosaicKind, VideoFilter};
 use miniter_domain::mask::{
     BlendMode, MaskComposition, MaskEffect, MaskMode, MaskOperation, MaskPoint, MaskShape,
@@ -104,6 +105,25 @@ fn audio_sample_bounds(range: TimeRange, sample_rate: u32) -> (usize, usize) {
     let first = (range.start.as_micros().max(0) as i128 * rate) / 1_000_000;
     let last = ((range.end.as_micros().max(0) as i128 * rate) + 999_999) / 1_000_000;
     (first as usize, last as usize)
+}
+
+pub(crate) fn apply_export_mastering_from_profile(project: &Project, mixed: &mut MixedAudio) {
+    let Some(target_lufs) = project.export_profile.loudness_normalization.target_lufs() else {
+        return;
+    };
+    let outcome = miniter_audio::loudness::apply_export_mastering(
+        &mut mixed.samples,
+        mixed.sample_rate,
+        mixed.channels,
+        target_lufs,
+        project.export_profile.limiter_ceiling_db,
+    );
+    log::info!(
+        "export mastering: measured {:?} LUFS, loudness gain {:.2} dB, ceiling gain {:.2} dB",
+        outcome.measured_lufs,
+        outcome.loudness_gain_db,
+        outcome.ceiling_gain_db,
+    );
 }
 
 /// Write audio packets to an MP4 muxer.

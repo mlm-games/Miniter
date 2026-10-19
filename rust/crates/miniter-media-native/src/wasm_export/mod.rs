@@ -1329,8 +1329,9 @@ fn export_opus_ogg_bytes(
 
     on_progress(1);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_project_audio_with_source_map(project, config, registered_files)
+    let mut mixed = mix_project_audio_with_source_map(project, config, registered_files)
         .map_err(|e| format!("Audio mix failed: {e}"))?;
+    apply_export_mastering_from_profile(project, &mut mixed);
     if mixed.samples.is_empty() {
         return Err("No audio to export".to_string());
     }
@@ -1383,8 +1384,9 @@ fn export_flac_bytes(
 
     on_progress(1);
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_project_audio_with_source_map(project, config, registered_files)
+    let mut mixed = mix_project_audio_with_source_map(project, config, registered_files)
         .map_err(|e| format!("Audio mix failed: {e}"))?;
+    apply_export_mastering_from_profile(project, &mut mixed);
     if mixed.samples.is_empty() {
         return Err("No audio to export".to_string());
     }
@@ -1500,8 +1502,9 @@ fn prepare_audio_track(
     registered_files: &HashMap<String, Vec<u8>>,
 ) -> Result<Option<EncodedOpus>, String> {
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_project_audio_with_source_map(project, config, registered_files)
+    let mut mixed = mix_project_audio_with_source_map(project, config, registered_files)
         .map_err(|e| format!("Audio mix failed: {e}"))?;
+    apply_export_mastering_from_profile(project, &mut mixed);
     if mixed.samples.is_empty() {
         return Ok(None);
     }
@@ -1521,8 +1524,9 @@ fn prepare_flac_track(
     registered_files: &HashMap<String, Vec<u8>>,
 ) -> Result<Option<EncodedFlac>, String> {
     let config = mix_config_for_profile(project.export_profile.audio_sample_rate);
-    let mixed = mix_project_audio_with_source_map(project, config, registered_files)
+    let mut mixed = mix_project_audio_with_source_map(project, config, registered_files)
         .map_err(|e| format!("Audio mix failed: {e}"))?;
+    apply_export_mastering_from_profile(project, &mut mixed);
     if mixed.samples.is_empty() {
         return Ok(None);
     }

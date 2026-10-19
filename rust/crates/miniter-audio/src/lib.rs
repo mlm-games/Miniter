@@ -16,7 +16,9 @@ pub use beats::{
 pub use decode::{
     DecodeAudioError, DecodedAudio, decode_audio_f32, decode_audio_f32_bytes, probe_has_audio_track,
 };
-pub use loudness::{ErrorCode, LoudnessProfile};
+pub use loudness::{
+    ErrorCode, ExportMastering, LoudnessProfile, apply_export_mastering, integrated_lufs,
+};
 pub use mix::{
     AudioMixError, MixConfig, MixedAudio, mix_project_audio, mix_project_audio_with_source_map,
 };

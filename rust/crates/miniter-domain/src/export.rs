@@ -108,6 +108,27 @@ pub enum SubtitleMode {
     Soft,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub enum LoudnessNormalization {
+    #[default]
+    Off,
+    Minus14Lufs,
+    Minus16Lufs,
+    Minus23Lufs,
+}
+
+impl LoudnessNormalization {
+    pub fn target_lufs(self) -> Option<f32> {
+        match self {
+            Self::Off => None,
+            Self::Minus14Lufs => Some(-14.0),
+            Self::Minus16Lufs => Some(-16.0),
+            Self::Minus23Lufs => Some(-23.0),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportProfile {
     pub format: ExportFormat,
@@ -126,6 +147,10 @@ pub struct ExportProfile {
     /// bucket for H.264. HW encoders ignore it (platform-controlled).
     #[serde(default = "default_encode_effort")]
     pub encode_effort: u8,
+    #[serde(default)]
+    pub loudness_normalization: LoudnessNormalization,
+    #[serde(default = "default_limiter_ceiling_db")]
+    pub limiter_ceiling_db: f32,
 }
 
 fn default_hardware_acceleration() -> bool {
@@ -134,6 +159,10 @@ fn default_hardware_acceleration() -> bool {
 
 fn default_encode_effort() -> u8 {
     6
+}
+
+fn default_limiter_ceiling_db() -> f32 {
+    -1.0
 }
 
 impl Default for ExportProfile {
@@ -149,6 +178,8 @@ impl Default for ExportProfile {
             subtitle_mode: SubtitleMode::Soft,
             hardware_acceleration: true,
             encode_effort: default_encode_effort(),
+            loudness_normalization: LoudnessNormalization::Off,
+            limiter_ceiling_db: default_limiter_ceiling_db(),
         }
     }
 }
