@@ -433,6 +433,8 @@ private fun VideoClipProperties(
     )
     Text(paramDefOrUnknown(KeyframeParams.OPACITY).format(opacityValue), style = MaterialTheme.typography.labelSmall)
 
+    Spacer(Modifier.height(16.dp))
+
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1660,6 +1662,8 @@ private fun TextClipProperties(
         }
     }
 
+    Spacer(Modifier.height(16.dp))
+
     FadeTransitionsPair(
         transitionIn = transitionIn,
         transitionOut = transitionOut,
@@ -1840,6 +1844,8 @@ private fun SubtitleClipProperties(
         valueRange = 0f..1f,
     )
     Text(paramDefOrUnknown(KeyframeParams.OPACITY).format(opacityValue), style = MaterialTheme.typography.labelSmall)
+
+    Spacer(Modifier.height(16.dp))
 
     FadeTransitionsPair(
         transitionIn = transitionIn,
