@@ -19,16 +19,13 @@ fun maskShapeBounds(mask: RustMaskEffect): MaskBounds? {
     val scale = t.scale.coerceAtLeast(0.001f)
     if (shape is RustPathMaskShape) {
         if (shape.vertices.isEmpty()) return null
-        val count = shape.vertices.size.toFloat()
-        val cx0 = shape.vertices.sumOf { it.p.x.toDouble() }.toFloat() / count
-        val cy0 = shape.vertices.sumOf { it.p.y.toDouble() }.toFloat() / count
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
         var maxY = -Float.MAX_VALUE
         for (vertex in shape.vertices) {
-            val x = cx0 + (vertex.p.x - cx0) * scale + t.translateX
-            val y = cy0 + (vertex.p.y - cy0) * scale + t.translateY
+            val x = (vertex.p.x - 0.5f) * scale + 0.5f + t.translateX
+            val y = (vertex.p.y - 0.5f) * scale + 0.5f + t.translateY
             minX = minX.coerceAtMost(x)
             minY = minY.coerceAtMost(y)
             maxX = maxX.coerceAtLeast(x)

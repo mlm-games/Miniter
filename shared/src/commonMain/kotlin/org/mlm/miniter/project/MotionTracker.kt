@@ -148,6 +148,7 @@ fun motionTrackingKeyframes(
     val pixelScaleY = scaledHeight.toDouble() / videoHeight
     val offsetX = (canvasWidth - scaledWidth) / 2.0
     val offsetY = (canvasHeight - scaledHeight) / 2.0
+    val aspect = canvasHeight.toDouble() / canvasWidth.toDouble()
     val transform = mask.transform
     val baseScale = if (transform.scale.isFinite() && transform.scale > 0f) transform.scale.toDouble() else 1.0
     val baseRotate = if (transform.rotate.isFinite()) transform.rotate.toDouble() else 0.0
@@ -208,12 +209,12 @@ fun motionTrackingKeyframes(
         lastAngle = angle
         val theta = angle * PI / 180.0
         val motionTheta = motionAngle * PI / 180.0
-        val displacementX = sigma * (0.5 * cos(motionTheta) - 0.5 * sin(motionTheta)) +
+        val displacementX = sigma * (0.5 * cos(motionTheta) - 0.5 * sin(motionTheta) * aspect) +
             sampleKinematics.translateX - 0.5
-        val displacementY = sigma * (0.5 * sin(motionTheta) + 0.5 * cos(motionTheta)) +
+        val displacementY = sigma * (0.5 * sin(motionTheta) / aspect + 0.5 * cos(motionTheta)) +
             sampleKinematics.translateY - 0.5
-        val translateX = sigma * baseTranslateX + cos(theta) * displacementX + sin(theta) * displacementY
-        val translateY = sigma * baseTranslateY - sin(theta) * displacementX + cos(theta) * displacementY
+        val translateX = sigma * baseTranslateX + cos(theta) * displacementX + sin(theta) * displacementY * aspect
+        val translateY = sigma * baseTranslateY - sin(theta) * displacementX / aspect + cos(theta) * displacementY
         val scale = baseScale * sigma
         if (!scale.isFinite() || !angle.isFinite() || !translateX.isFinite() || !translateY.isFinite()) continue
         keyframes += RustKeyframe(

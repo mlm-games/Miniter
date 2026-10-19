@@ -1848,7 +1848,8 @@ private fun maskScreenGeometry(
                 val last = vertices.size - 1
                 appendCubicSamples(outline, entries[last], handleOut[last], handleIn[0], entries[0], MASK_PATH_SEGMENT_STEPS)
             }
-            MaskScreenGeometry(maskIndex, mask, transform, outline, entries, handleIn, handleOut)
+            val expanded = offsetClosedOutline(outline, expandX * contentArea.width)
+            MaskScreenGeometry(maskIndex, mask, transform, expanded, entries, handleIn, handleOut)
         }
         is RustRectangleMaskShape -> {
             val left = shape.left.coerceIn(0f, 1f)
@@ -1883,6 +1884,25 @@ private fun maskScreenGeometry(
             val outline = ellipseOutline(centre, radiusX, radiusY, transform.rotate, MASK_ELLIPSE_SEGMENT_STEPS)
             MaskScreenGeometry(maskIndex, mask, transform, outline, emptyList(), emptyList(), emptyList())
         }
+    }
+}
+
+private fun offsetClosedOutline(points: List<Offset>, distance: Float): List<Offset> {
+    if (points.size < 3 || distance == 0f) return points
+    var area = 0f
+    var previous = points.last()
+    for (point in points) {
+        area += previous.x * point.y - point.x * previous.y
+        previous = point
+    }
+    val sign = if (area >= 0f) 1f else -1f
+    return points.mapIndexed { index, point ->
+        val before = points[(index + points.size - 1) % points.size]
+        val after = points[(index + 1) % points.size]
+        val dx = (after.x - before.x) * sign
+        val dy = (after.y - before.y) * sign
+        val length = hypot(dx, dy)
+        if (length <= 1e-6f) point else Offset(point.x + dy / length * distance, point.y - dx / length * distance)
     }
 }
 
