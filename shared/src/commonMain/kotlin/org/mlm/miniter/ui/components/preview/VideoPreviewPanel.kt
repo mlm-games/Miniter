@@ -22,9 +22,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.isAltPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
@@ -55,9 +56,13 @@ import org.mlm.miniter.engine.toImageBitmap
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.platform.normalizeMediaUriForPlayback
 import org.mlm.miniter.project.KeyframeParams
-import org.mlm.miniter.project.maskShapeBounds
 import org.mlm.miniter.project.pixelSize
 import org.mlm.miniter.project.defaultOf
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.sin
 import kotlin.time.TimeSource
 
 private suspend fun seekToPosition(
@@ -281,9 +286,10 @@ fun EditorVideoPreview(
     onCropChanged: ((clipId: String, left: Float, top: Float, right: Float, bottom: Float) -> Unit)? = null,
     onCropDragStart: (() -> Unit)? = null,
     onCropDragEnd: (() -> Unit)? = null,
-    onMaskChanged: ((clipId: String, index: Int, mask: RustMaskEffect) -> Unit)? = null,
+    onMaskChanged: ((clipId: String, index: Int, mask: RustMaskEffect) -> Boolean)? = null,
     onMaskDragStart: (() -> Unit)? = null,
     onMaskDragEnd: (() -> Unit)? = null,
+    onMaskDragCancel: (() -> Unit)? = null,
 ) {
     val settingsRepository: SettingsRepository<AppSettings> = koinInject()
     val settings by settingsRepository.flow.collectAsState(settingsRepository.schema.default)
@@ -1069,10 +1075,13 @@ fun EditorVideoPreview(
                             contentArea = contentArea,
                             masks = shapeMasks,
                             clipId = selectedClipId,
+                            keyframes = selectedClip?.keyframes ?: RustKeyframeCurve(),
+                            localUs = renderTimestampUs - (selectedClip?.timelineStartUs ?: 0L),
                             isPlaying = isPlaying,
                             onChanged = onMaskChanged,
                             onDragStart = onMaskDragStart,
                             onDragEnd = onMaskDragEnd,
+                            onDragCancel = onMaskDragCancel,
                         )
                     }
 
@@ -1387,155 +1396,500 @@ private fun MaskOverlay(
     contentArea: Rect,
     masks: List<IndexedValue<RustMaskEffect>>,
     clipId: String,
+    keyframes: RustKeyframeCurve,
+    localUs: Long,
     isPlaying: Boolean,
-    onChanged: ((clipId: String, index: Int, mask: RustMaskEffect) -> Unit)?,
+    onChanged: ((clipId: String, index: Int, mask: RustMaskEffect) -> Boolean)?,
     onDragStart: (() -> Unit)?,
     onDragEnd: (() -> Unit)?,
+    onDragCancel: (() -> Unit)?,
 ) {
     val density = LocalDensity.current
-    val dotRadius = with(density) { 6.dp.toPx() }
+    val dotRadius = with(density) { 3.5.dp.toPx() }
+    val vertexRadius = with(density) { 4.5.dp.toPx() }
+    val handleRadius = with(density) { 4.dp.toPx() }
+    val handleGrabRadius = with(density) { 18.dp.toPx() }
+    val vertexGrabRadius = with(density) { 14.dp.toPx() }
+    val bodyGrabRadius = with(density) { 12.dp.toPx() }
     val lineWidth = with(density) { 1.5.dp.toPx() }
     val currentMasks by rememberUpdatedState(masks)
+    val currentKeyframes by rememberUpdatedState(keyframes)
+    val currentLocalUs by rememberUpdatedState(localUs)
+    val currentContentArea by rememberUpdatedState(contentArea)
+    var selection by remember(clipId) { mutableStateOf<MaskVertexSelection?>(null) }
+    val currentSelection by rememberUpdatedState(selection)
+    val selectedVertex = selection
     val outline = Color(0xFF80D8FF)
+    val handleColor = Color(0xFFFFD54F)
 
-    fun shapeBounds(mask: RustMaskEffect): Rect? {
-        val bounds = maskShapeBounds(mask) ?: return null
-        return Rect(bounds.left, bounds.top, bounds.right, bounds.bottom)
+    fun geometries(): List<MaskScreenGeometry> = currentMasks.mapNotNull { (index, mask) ->
+        maskScreenGeometry(mask, index, currentKeyframes, currentLocalUs, currentContentArea)
     }
+
+    fun handleHitAt(position: Offset, geoms: List<MaskScreenGeometry>): MaskHandleHit? {
+        val selected = currentSelection ?: return null
+        val geometry = geoms.firstOrNull { it.maskIndex == selected.maskIndex } ?: return null
+        val index = selected.vertexIndex
+        if (index !in geometry.vertices.indices) return null
+        val inDistance = (geometry.handleIn[index] - position).getDistance()
+        val outDistance = (geometry.handleOut[index] - position).getDistance()
+        if (inDistance > handleGrabRadius && outDistance > handleGrabRadius) return null
+        return MaskHandleHit(geometry, index, outDistance <= inDistance)
+    }
+
+    fun vertexHitAt(position: Offset, geoms: List<MaskScreenGeometry>): MaskVertexHit? {
+        var best: MaskVertexHit? = null
+        var bestDistance = vertexGrabRadius
+        for (geometry in geoms) {
+            geometry.vertices.forEachIndexed { index, point ->
+                val distance = (point - position).getDistance()
+                if (distance <= bestDistance) {
+                    bestDistance = distance
+                    best = MaskVertexHit(geometry, index)
+                }
+            }
+        }
+        return best
+    }
+
+    fun hitMaskAt(position: Offset, geoms: List<MaskScreenGeometry>): MaskScreenGeometry? =
+        geoms.asReversed().firstOrNull { geometry ->
+            polygonContains(geometry.outline, position) ||
+                distanceToClosedPolygon(geometry.outline, position) <= bodyGrabRadius
+        }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(clipId, contentArea, isPlaying) {
                 if (isPlaying) return@pointerInput
-                val width = contentArea.width.coerceAtLeast(1f)
-                val height = contentArea.height.coerceAtLeast(1f)
-
-                fun hitTest(pos: Offset): IndexedValue<RustMaskEffect>? {
-                    // Topmost first, so the last drawn mask wins a tie.
-                    return currentMasks.reversed().firstOrNull { (_, mask) ->
-                        val bounds = shapeBounds(mask) ?: return@firstOrNull false
-                        val l = contentArea.left + bounds.left * width
-                        val t = contentArea.top + bounds.top * height
-                        val r = contentArea.left + bounds.right * width
-                        val b = contentArea.top + bounds.bottom * height
-                        pos.x in l..r && pos.y in t..b
-                    }
-                }
 
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    val hit = hitTest(down.position) ?: return@awaitEachGesture
-                    val startMask = hit.value
-                    val startTx = startMask.transform.translateX
-                    val startTy = startMask.transform.translateY
-                    val startScale = startMask.transform.scale
-                    var tx = startTx
-                    var ty = startTy
-                    var scale = startScale
+                    val geoms = geometries()
+
+                    fun finishGesture(began: Boolean, failed: Boolean) {
+                        if (!began) return
+                        if (failed) (onDragCancel ?: onDragEnd)?.invoke() else onDragEnd?.invoke()
+                    }
+
+                    val handleHit = handleHitAt(down.position, geoms)
+                    if (handleHit != null) {
+                        val geometry = handleHit.geometry
+                        val shape = (geometry.mask.source as? RustShapeMaskSource)?.shape as? RustPathMaskShape
+                        val vertex = shape?.vertices?.getOrNull(handleHit.vertexIndex)
+                        if (shape == null || vertex == null) return@awaitEachGesture
+                        val startHandle = if (handleHit.out) {
+                            geometry.handleOut[handleHit.vertexIndex]
+                        } else {
+                            geometry.handleIn[handleHit.vertexIndex]
+                        }
+                        val area = currentContentArea
+                        var moved = Offset.Zero
+                        var began = false
+                        var failed = false
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                    ?: event.changes.firstOrNull()
+                                    ?: break
+                                if (!change.pressed) break
+                                val delta = change.positionChange()
+                                if (delta == Offset.Zero) continue
+                                if (!began) {
+                                    began = true
+                                    onDragStart?.invoke()
+                                }
+                                change.consume()
+                                moved += delta
+                                val alt = event.keyboardModifiers.isAltPressed
+                                val target = unmapMaskPoint(startHandle + moved, geometry.transform, area)
+                                val dragged = Offset(target.x - vertex.p.x, target.y - vertex.p.y)
+                                val opposite = if (handleHit.out) vertex.tIn else vertex.tOut
+                                val mirrored = if (alt) opposite else mirroredTangent(dragged, opposite)
+                                val updated = if (handleHit.out) {
+                                    vertex.copy(tOut = RustMaskPoint(dragged.x, dragged.y), tIn = mirrored)
+                                } else {
+                                    vertex.copy(tIn = RustMaskPoint(dragged.x, dragged.y), tOut = mirrored)
+                                }
+                                val vertices = shape.vertices.toMutableList()
+                                vertices[handleHit.vertexIndex] = updated
+                                val updatedMask = geometry.mask.copy(
+                                    source = geometry.mask.source.copy(
+                                        shape = shape.copy(vertices = vertices),
+                                    ),
+                                )
+                                if (onChanged?.invoke(clipId, geometry.maskIndex, updatedMask) == false) {
+                                    failed = true
+                                    break
+                                }
+                            }
+                        } finally {
+                            finishGesture(began, failed)
+                        }
+                        return@awaitEachGesture
+                    }
+
+                    val vertexHit = vertexHitAt(down.position, geoms)
+                    if (vertexHit != null) {
+                        selection = MaskVertexSelection(vertexHit.geometry.maskIndex, vertexHit.vertexIndex)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { if (it.pressed) it.consume() }
+                            if (event.changes.none { it.pressed }) break
+                        }
+                        return@awaitEachGesture
+                    }
+
+                    if (selection != null && hitMaskAt(down.position, geoms) == null) {
+                        selection = null
+                    }
+                    val hit = hitMaskAt(down.position, geoms) ?: return@awaitEachGesture
+                    val startMask = hit.mask
+                    val stored = startMask.transform
+                    val radians = (stored.rotate * PI / 180.0).toFloat()
+                    val sinRotation = sin(radians)
+                    val cosRotation = cos(radians)
+                    var tx = stored.translateX
+                    var ty = stored.translateY
+                    var scale = stored.scale
                     var began = false
-
-                    do {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id }
-                            ?: event.changes.firstOrNull()
-                            ?: break
-                        if (!change.pressed) break
-
-                        val zoom = event.calculateZoom()
-                        val pan = event.calculatePan()
-                        if (zoom == 1f && pan == Offset.Zero) continue
-
-                        // Deltas are read before consumption.
-                        if (!began) {
-                            began = true
-                            onDragStart?.invoke()
-                        }
-                        event.changes.forEach { it.consume() }
-
-                        if (pan != Offset.Zero) {
-                            // Pan is the per-event delta, so it accumulates.
-                            tx = (tx + pan.x / width).coerceIn(-1f, 1f)
-                            ty = (ty + pan.y / height).coerceIn(-1f, 1f)
-                        }
-                        if (zoom != 1f) {
-                            scale = (scale * zoom).coerceIn(0.05f, 10f)
-                        }
-                        onChanged?.invoke(
-                            clipId,
-                            hit.index,
-                            startMask.copy(
+                    var failed = false
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                                ?: event.changes.firstOrNull()
+                                ?: break
+                            if (!change.pressed) break
+                            val zoom = event.calculateZoom()
+                            val pan = event.calculatePan()
+                            if (zoom == 1f && pan == Offset.Zero) continue
+                            if (!began) {
+                                began = true
+                                onDragStart?.invoke()
+                            }
+                            event.changes.forEach { it.consume() }
+                            if (pan != Offset.Zero) {
+                                val dx = pan.x / currentContentArea.width.coerceAtLeast(1f)
+                                val dy = pan.y / currentContentArea.height.coerceAtLeast(1f)
+                                tx = (tx + dx * cosRotation + dy * sinRotation).coerceIn(-1f, 1f)
+                                ty = (ty - dx * sinRotation + dy * cosRotation).coerceIn(-1f, 1f)
+                            }
+                            if (zoom != 1f) {
+                                scale = (scale * zoom).coerceIn(0.05f, 10f)
+                            }
+                            val updated = startMask.copy(
                                 transform = startMask.transform.copy(
                                     scale = scale,
                                     translateX = tx,
                                     translateY = ty,
-                                )
-                            ),
-                        )
-                    } while (true)
-
-                    if (began) onDragEnd?.invoke()
+                                ),
+                            )
+                            if (onChanged?.invoke(clipId, hit.maskIndex, updated) == false) {
+                                failed = true
+                                break
+                            }
+                        }
+                    } finally {
+                        finishGesture(began, failed)
+                    }
                 }
             }
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            for ((_, mask) in currentMasks) {
-                val bounds = shapeBounds(mask) ?: continue
-                val shape = (mask.source as? RustShapeMaskSource)?.shape
-                val cx = contentArea.left + ((bounds.left + bounds.right) / 2f) * size.width
-                val cy = contentArea.top + ((bounds.top + bounds.bottom) / 2f) * size.height
-                val hw = bounds.width / 2f * size.width
-                val hh = bounds.height / 2f * size.height
-                val pivot = Offset(
-                    contentArea.left + contentArea.width / 2f,
-                    contentArea.top + contentArea.height / 2f,
-                )
-                rotate(mask.transform.rotate, pivot = pivot) {
-                    when (shape) {
-                        is RustPathMaskShape -> {
-                            val vertices = shape.vertices
-                            if (vertices.size >= 2) {
-                                val scale = mask.transform.scale.coerceAtLeast(0.001f)
-                                val count = vertices.size.toFloat()
-                                val cx0 = vertices.sumOf { it.p.x.toDouble() }.toFloat() / count
-                                val cy0 = vertices.sumOf { it.p.y.toDouble() }.toFloat() / count
-                                val points = vertices.map { vertex ->
-                                    val nx = cx0 + (vertex.p.x - cx0) * scale + mask.transform.translateX
-                                    val ny = cy0 + (vertex.p.y - cy0) * scale + mask.transform.translateY
-                                    Offset(
-                                        contentArea.left + nx * size.width,
-                                        contentArea.top + ny * size.height,
-                                    )
-                                }
-                                val segments = if (shape.closed) points.size else points.size - 1
-                                for (i in 0 until segments) {
-                                    drawLine(
-                                        color = outline,
-                                        start = points[i],
-                                        end = points[(i + 1) % points.size],
-                                        strokeWidth = lineWidth,
-                                    )
-                                }
-                            }
-                        }
-                        is RustEllipseMaskShape -> drawOval(
-                            color = outline,
-                            topLeft = Offset(cx - hw, cy - hh),
-                            size = Size(hw * 2f, hh * 2f),
-                            style = Stroke(width = lineWidth),
-                        )
-                        else -> drawRect(
-                            color = outline,
-                            topLeft = Offset(cx - hw, cy - hh),
-                            size = Size(hw * 2f, hh * 2f),
-                            style = Stroke(width = lineWidth),
-                        )
+            for (geometry in geometries()) {
+                if (geometry.outline.size >= 2) {
+                    val path = Path()
+                    path.moveTo(geometry.outline[0].x, geometry.outline[0].y)
+                    for (index in 1 until geometry.outline.size) {
+                        val point = geometry.outline[index]
+                        path.lineTo(point.x, point.y)
+                    }
+                    path.close()
+                    drawPath(path, outline, style = Stroke(width = lineWidth))
+                }
+                val centre = geometry.outline.fold(Offset.Zero) { sum, point -> sum + point } /
+                    geometry.outline.size.coerceAtLeast(1).toFloat()
+                drawCircle(outline.copy(alpha = 0.7f), radius = dotRadius, center = centre)
+                val vertex = selectedVertex?.takeIf { it.maskIndex == geometry.maskIndex }
+                geometry.vertices.forEachIndexed { index, point ->
+                    if (vertex?.vertexIndex == index) {
+                        drawCircle(Color.White, radius = vertexRadius, center = point)
+                        drawCircle(outline, radius = vertexRadius, center = point, style = Stroke(width = lineWidth))
+                    } else {
+                        drawCircle(outline, radius = vertexRadius, center = point)
                     }
                 }
-                drawCircle(outline, radius = dotRadius, center = Offset(cx, cy))
+                if (vertex != null && vertex.vertexIndex in geometry.vertices.indices) {
+                    val index = vertex.vertexIndex
+                    drawLine(handleColor, geometry.vertices[index], geometry.handleIn[index], lineWidth)
+                    drawLine(handleColor, geometry.vertices[index], geometry.handleOut[index], lineWidth)
+                    drawCircle(handleColor, radius = handleRadius, center = geometry.handleIn[index])
+                    drawCircle(handleColor, radius = handleRadius, center = geometry.handleOut[index])
+                }
             }
         }
     }
+}
+
+private const val MASK_PATH_SEGMENT_STEPS = 24
+private const val MASK_ELLIPSE_SEGMENT_STEPS = 96
+
+private data class MaskOverlayTransform(
+    val scale: Float,
+    val translateX: Float,
+    val translateY: Float,
+    val rotate: Float,
+)
+
+private data class MaskVertexSelection(
+    val maskIndex: Int,
+    val vertexIndex: Int,
+)
+
+private data class MaskScreenGeometry(
+    val maskIndex: Int,
+    val mask: RustMaskEffect,
+    val transform: MaskOverlayTransform,
+    val outline: List<Offset>,
+    val vertices: List<Offset>,
+    val handleIn: List<Offset>,
+    val handleOut: List<Offset>,
+)
+
+private data class MaskHandleHit(
+    val geometry: MaskScreenGeometry,
+    val vertexIndex: Int,
+    val out: Boolean,
+)
+
+private data class MaskVertexHit(
+    val geometry: MaskScreenGeometry,
+    val vertexIndex: Int,
+)
+
+private fun maskCurveValue(
+    curve: RustKeyframeCurve,
+    index: Int,
+    name: String,
+    legacy: String,
+    localUs: Long,
+): Float? {
+    curve.evaluate(KeyframeParams.maskParam(index, name), localUs)?.let { return it }
+    if (index == 0) return curve.evaluate(legacy, localUs)
+    return null
+}
+
+private fun maskOverlayTransform(
+    mask: RustMaskEffect,
+    curve: RustKeyframeCurve,
+    index: Int,
+    localUs: Long,
+): MaskOverlayTransform {
+    val stored = mask.transform
+    return MaskOverlayTransform(
+        scale = maskCurveValue(curve, index, "scale", KeyframeParams.MASK_SCALE, localUs) ?: stored.scale,
+        translateX = maskCurveValue(curve, index, "translate_x", KeyframeParams.MASK_TRANSLATE_X, localUs)
+            ?: stored.translateX,
+        translateY = maskCurveValue(curve, index, "translate_y", KeyframeParams.MASK_TRANSLATE_Y, localUs)
+            ?: stored.translateY,
+        rotate = maskCurveValue(curve, index, "rotate", KeyframeParams.MASK_ROTATE, localUs) ?: stored.rotate,
+    )
+}
+
+private fun mapMaskPoint(
+    x: Float,
+    y: Float,
+    transform: MaskOverlayTransform,
+    contentArea: Rect,
+): Offset {
+    val radians = (transform.rotate * PI / 180.0).toFloat()
+    val sinRotation = sin(radians)
+    val cosRotation = cos(radians)
+    val nx = (x - 0.5f) * transform.scale + 0.5f + transform.translateX
+    val ny = (y - 0.5f) * transform.scale + 0.5f + transform.translateY
+    val rx = (nx - 0.5f) * cosRotation - (ny - 0.5f) * sinRotation + 0.5f
+    val ry = (nx - 0.5f) * sinRotation + (ny - 0.5f) * cosRotation + 0.5f
+    return Offset(contentArea.left + rx * contentArea.width, contentArea.top + ry * contentArea.height)
+}
+
+private fun mapMaskPoint(
+    point: RustMaskPoint,
+    transform: MaskOverlayTransform,
+    contentArea: Rect,
+): Offset = mapMaskPoint(point.x, point.y, transform, contentArea)
+
+private fun unmapMaskPoint(
+    position: Offset,
+    transform: MaskOverlayTransform,
+    contentArea: Rect,
+): Offset {
+    val width = contentArea.width.coerceAtLeast(1e-6f)
+    val height = contentArea.height.coerceAtLeast(1e-6f)
+    val scale = if (transform.scale.isFinite() && abs(transform.scale) > 1e-4f) transform.scale else 1f
+    val radians = (-transform.rotate * PI / 180.0).toFloat()
+    val sinRotation = sin(radians)
+    val cosRotation = cos(radians)
+    val nx = (position.x - contentArea.left) / width - 0.5f
+    val ny = (position.y - contentArea.top) / height - 0.5f
+    val rx = nx * cosRotation - ny * sinRotation + 0.5f
+    val ry = nx * sinRotation + ny * cosRotation + 0.5f
+    return Offset(
+        (rx - 0.5f - transform.translateX) / scale + 0.5f,
+        (ry - 0.5f - transform.translateY) / scale + 0.5f,
+    )
+}
+
+private fun cubicPoint(p0: Offset, c1: Offset, c2: Offset, p3: Offset, t: Float): Offset {
+    val u = 1f - t
+    val a = u * u * u
+    val b = 3f * u * u * t
+    val c = 3f * u * t * t
+    val d = t * t * t
+    return Offset(
+        p0.x * a + c1.x * b + c2.x * c + p3.x * d,
+        p0.y * a + c1.y * b + c2.y * c + p3.y * d,
+    )
+}
+
+private fun appendCubicSamples(
+    out: MutableList<Offset>,
+    p0: Offset,
+    c1: Offset,
+    c2: Offset,
+    p3: Offset,
+    steps: Int,
+) {
+    for (step in 1..steps) {
+        out += cubicPoint(p0, c1, c2, p3, step.toFloat() / steps)
+    }
+}
+
+private fun ellipseOutline(
+    centre: Offset,
+    radiusX: Float,
+    radiusY: Float,
+    rotate: Float,
+    steps: Int,
+): List<Offset> {
+    val radians = (rotate * PI / 180.0).toFloat()
+    val sinRotation = sin(radians)
+    val cosRotation = cos(radians)
+    return (0 until steps).map { step ->
+        val angle = step.toFloat() / steps * 2f * PI.toFloat()
+        val x = radiusX * cos(angle)
+        val y = radiusY * sin(angle)
+        Offset(
+            centre.x + x * cosRotation - y * sinRotation,
+            centre.y + x * sinRotation + y * cosRotation,
+        )
+    }
+}
+
+private fun maskScreenGeometry(
+    mask: RustMaskEffect,
+    maskIndex: Int,
+    curve: RustKeyframeCurve,
+    localUs: Long,
+    contentArea: Rect,
+): MaskScreenGeometry? {
+    val shape = (mask.source as? RustShapeMaskSource)?.shape ?: return null
+    val transform = maskOverlayTransform(mask, curve, maskIndex, localUs)
+    return when (shape) {
+        is RustPathMaskShape -> {
+            val vertices = shape.vertices
+            if (vertices.size < 2) return null
+            val entries = vertices.map { mapMaskPoint(it.p, transform, contentArea) }
+            val handleIn = vertices.map {
+                mapMaskPoint(it.p.x + it.tIn.x, it.p.y + it.tIn.y, transform, contentArea)
+            }
+            val handleOut = vertices.map {
+                mapMaskPoint(it.p.x + it.tOut.x, it.p.y + it.tOut.y, transform, contentArea)
+            }
+            val outline = ArrayList<Offset>(vertices.size * MASK_PATH_SEGMENT_STEPS)
+            outline += entries[0]
+            val segments = if (shape.closed) vertices.size else vertices.size - 1
+            for (i in 0 until segments) {
+                val j = (i + 1) % vertices.size
+                appendCubicSamples(outline, entries[i], handleOut[i], handleIn[j], entries[j], MASK_PATH_SEGMENT_STEPS)
+            }
+            if (!shape.closed) {
+                val last = vertices.size - 1
+                appendCubicSamples(outline, entries[last], handleOut[last], handleIn[0], entries[0], MASK_PATH_SEGMENT_STEPS)
+            }
+            MaskScreenGeometry(maskIndex, mask, transform, outline, entries, handleIn, handleOut)
+        }
+        is RustRectangleMaskShape -> {
+            val left = shape.left.coerceIn(0f, 1f)
+            val top = shape.top.coerceIn(0f, 1f)
+            val right = shape.right.coerceIn(0f, 1f)
+            val bottom = shape.bottom.coerceIn(0f, 1f)
+            val outline = listOf(
+                mapMaskPoint(left, top, transform, contentArea),
+                mapMaskPoint(right, top, transform, contentArea),
+                mapMaskPoint(right, bottom, transform, contentArea),
+                mapMaskPoint(left, bottom, transform, contentArea),
+            )
+            MaskScreenGeometry(maskIndex, mask, transform, outline, emptyList(), emptyList(), emptyList())
+        }
+        is RustEllipseMaskShape -> {
+            val centre = mapMaskPoint(
+                shape.centerX.coerceIn(0f, 1f),
+                shape.centerY.coerceIn(0f, 1f),
+                transform,
+                contentArea,
+            )
+            val radiusX = (shape.radiusX.coerceIn(0f, 0.5f) * transform.scale).coerceAtLeast(0.001f) * contentArea.width
+            val radiusY = (shape.radiusY.coerceIn(0f, 0.5f) * transform.scale).coerceAtLeast(0.001f) * contentArea.height
+            val outline = ellipseOutline(centre, radiusX, radiusY, transform.rotate, MASK_ELLIPSE_SEGMENT_STEPS)
+            MaskScreenGeometry(maskIndex, mask, transform, outline, emptyList(), emptyList(), emptyList())
+        }
+    }
+}
+
+private fun polygonContains(points: List<Offset>, position: Offset): Boolean {
+    if (points.size < 3) return false
+    var inside = false
+    var previous = points.last()
+    for (point in points) {
+        if ((point.y > position.y) != (previous.y > position.y)) {
+            val crossingX = previous.x + (position.y - previous.y) / (point.y - previous.y) * (point.x - previous.x)
+            if (position.x < crossingX) inside = !inside
+        }
+        previous = point
+    }
+    return inside
+}
+
+private fun distanceToSegment(position: Offset, start: Offset, end: Offset): Float {
+    val dx = end.x - start.x
+    val dy = end.y - start.y
+    val lengthSquared = dx * dx + dy * dy
+    val t = if (lengthSquared > 0f) {
+        (((position.x - start.x) * dx + (position.y - start.y) * dy) / lengthSquared).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    return hypot(position.x - (start.x + dx * t), position.y - (start.y + dy * t))
+}
+
+private fun distanceToClosedPolygon(points: List<Offset>, position: Offset): Float {
+    if (points.isEmpty()) return Float.MAX_VALUE
+    var best = Float.MAX_VALUE
+    for (index in points.indices) {
+        best = minOf(best, distanceToSegment(position, points[index], points[(index + 1) % points.size]))
+    }
+    return best
+}
+
+private fun mirroredTangent(dragged: Offset, opposite: RustMaskPoint): RustMaskPoint {
+    val length = hypot(dragged.x, dragged.y)
+    if (length <= 1e-5f) return opposite
+    val oppositeLength = hypot(opposite.x, opposite.y)
+    if (oppositeLength <= 1e-5f) return RustMaskPoint(0f, 0f)
+    return RustMaskPoint(-dragged.x / length * oppositeLength, -dragged.y / length * oppositeLength)
 }
 
 private fun resolveFontFamily(fontFamily: String): FontFamily = when {

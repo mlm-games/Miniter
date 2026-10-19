@@ -227,6 +227,7 @@ fun ProjectScreen(
             },
             onMaskDragStart = { vm.beginEdit("Mask") },
             onMaskDragEnd = { vm.commitEdit() },
+            onMaskDragCancel = { vm.cancelEdit() },
             onTextDragStart = { vm.beginEdit("Move text") },
             onTextDragEnd = { vm.commitEdit() },
             onSetKeyframe = { clipId, playheadMs, scale, tx, ty, rot ->
@@ -439,7 +440,7 @@ fun ProjectScreen(
                 maskTrackRunning = maskTrackRunning,
                 onAddMask = vm::addMask,
                 onRemoveMask = vm::removeMask,
-                onUpdateMask = vm::updateMask,
+                onUpdateMask = { clipId, index, mask -> vm.updateMask(clipId, index, mask) },
                 onSetMaskEnabled = vm::setMaskEnabled,
             )
 

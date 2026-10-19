@@ -3144,8 +3144,8 @@ class ProjectViewModel(
         dispatchAndSync(rustStore.commands.removeMask(clipId, index))
     }
 
-    fun updateMask(clipId: String, index: Int, mask: RustMaskEffect) {
-        dispatchCoalescing(
+    fun updateMask(clipId: String, index: Int, mask: RustMaskEffect): Boolean {
+        return dispatchCoalescing(
             rustStore.commands.updateMask(clipId, index, mask),
             "Mask",
         )
