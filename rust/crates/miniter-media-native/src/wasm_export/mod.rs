@@ -2613,6 +2613,7 @@ fn render_node(
                 italic: false,
                 background_color: None,
                 font_family: "sans-serif".to_string(),
+                ..TextStyle::default()
             };
             let overlay = TextOverlay {
                 text,

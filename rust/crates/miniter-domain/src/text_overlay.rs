@@ -20,6 +20,8 @@ pub struct TextStyle {
     pub shadow: bool,
     pub bold: bool,
     pub italic: bool,
+    #[serde(default)]
+    pub curve_radius: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +47,7 @@ impl Default for TextStyle {
             shadow: false,
             bold: false,
             italic: false,
+            curve_radius: 0.0,
         }
     }
 }

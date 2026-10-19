@@ -3100,6 +3100,7 @@ class ProjectViewModel(
             },
             outlineWidth = update.outlineWidth ?: clip.style.outlineWidth,
             shadow = update.shadow ?: clip.style.shadow,
+            curveRadius = update.curveRadius ?: clip.style.curveRadius,
         )
 
         applyTextStyle(clipId, style)

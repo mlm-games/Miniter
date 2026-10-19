@@ -1666,6 +1666,19 @@ pub(crate) fn render_text_overlay_with_files(
     font_path: Option<&str>,
     registered_files: &std::collections::HashMap<String, Vec<u8>>,
 ) -> Vec<u8> {
+    if overlay.style.curve_radius.abs() >= 0.5 {
+        return render_text_overlay_curved(overlay, width, height, font_path, registered_files);
+    }
+    render_text_overlay_straight(overlay, width, height, font_path, registered_files)
+}
+
+fn render_text_overlay_straight(
+    overlay: &TextOverlay,
+    width: usize,
+    height: usize,
+    font_path: Option<&str>,
+    registered_files: &std::collections::HashMap<String, Vec<u8>>,
+) -> Vec<u8> {
     let mut canvas = transparent_rgba(width, height);
     let lines: Vec<&str> = overlay.text.lines().collect();
     if lines.is_empty() {
@@ -1852,6 +1865,366 @@ pub(crate) fn render_text_overlay_with_files(
     }
 
     canvas
+}
+
+fn render_text_overlay_curved(
+    overlay: &TextOverlay,
+    width: usize,
+    height: usize,
+    font_path: Option<&str>,
+    registered_files: &std::collections::HashMap<String, Vec<u8>>,
+) -> Vec<u8> {
+    let mut canvas = transparent_rgba(width, height);
+    let lines: Vec<&str> = overlay.text.lines().collect();
+    if lines.is_empty() {
+        return canvas;
+    }
+
+    let font_data: Vec<u8> = match font_bytes_for_path(font_path, registered_files) {
+        Some(data) => data,
+        None => include_bytes!("../fonts/NotoSans-Regular.ttf").to_vec(),
+    };
+    let Ok(font) = Font::from_bytes(font_data.as_slice(), FontSettings::default()) else {
+        log::warn!("Failed to load font; rendering transparent text layer");
+        return canvas;
+    };
+    let font_size = overlay.style.font_size.max(1.0);
+    let italic_shear = if overlay.style.italic { 0.2 } else { 0.0 };
+
+    let fg = parse_argb_hex(&overlay.style.color, [255, 255, 255, 255]);
+    let bg = overlay
+        .style
+        .background_color
+        .as_ref()
+        .map(|c| parse_argb_hex(c, [0, 0, 0, 0]));
+    let outline_color = overlay
+        .style
+        .outline_color
+        .as_ref()
+        .map(|c| parse_argb_hex(c, [0, 0, 0, 255]));
+    let outline_width = if outline_color.is_some() {
+        let w = overlay.style.outline_width.max(0.0).round() as i32;
+        let w = if w == 0 { 2 } else { w };
+        w.min((font_size * 0.5).round().max(1.0) as i32)
+    } else {
+        0
+    };
+    let has_outline = outline_width > 0;
+
+    let (ascent, descent, line_gap) = font
+        .horizontal_line_metrics(font_size)
+        .map(|lm| (lm.ascent, lm.descent, lm.line_gap))
+        .unwrap_or((font_size * 0.8, -font_size * 0.2, 0.0));
+    let line_height = (ascent - descent + line_gap).ceil().max(font_size);
+
+    let anchor_x = (overlay.style.position_x * width as f32) as i32;
+    let anchor_y = (overlay.style.position_y * height as f32) as i32;
+    let total_text_h = (line_height * lines.len() as f32 - line_gap.max(0.0)).max(0.0);
+    let start_y = anchor_y - (total_text_h / 2.0).round() as i32;
+
+    struct GlyphInfo {
+        metrics: fontdue::Metrics,
+        bitmap: Vec<u8>,
+    }
+
+    let mut line_glyphs: Vec<Vec<GlyphInfo>> = Vec::with_capacity(lines.len());
+    let mut line_widths: Vec<f32> = Vec::with_capacity(lines.len());
+
+    for line in &lines {
+        let mut glyphs = Vec::with_capacity(line.chars().count());
+        let mut w = 0.0f32;
+        let mut prev_ch: Option<char> = None;
+        for ch in line.chars() {
+            if let Some(prev) = prev_ch
+                && let Some(kern) = font.horizontal_kern(prev, ch, font_size)
+            {
+                w += kern;
+            }
+            let (metrics, bitmap) = font.rasterize(ch, font_size);
+            w += metrics.advance_width;
+            glyphs.push(GlyphInfo { metrics, bitmap });
+            prev_ch = Some(ch);
+        }
+        line_widths.push(w);
+        line_glyphs.push(glyphs);
+    }
+
+    let signed_radius = overlay.style.curve_radius;
+    let radius = signed_radius.abs();
+    let direction = if signed_radius < 0.0 { -1.0 } else { 1.0 };
+    let mid_line = (lines.len() as f32 - 1.0) * 0.5;
+    let mid_baseline = start_y as f32 + mid_line * line_height + ascent;
+    let center_x = anchor_x as f32;
+    let center_y = mid_baseline + signed_radius;
+
+    let mut placements: Vec<(usize, usize, f32, f32, f32)> = Vec::new();
+    for (line_idx, glyphs) in line_glyphs.iter().enumerate() {
+        if glyphs.is_empty() {
+            continue;
+        }
+        let line_w = line_widths[line_idx];
+        let rho = (radius - direction * (line_idx as f32 - mid_line) * line_height).max(1.0);
+        let line_chars: Vec<char> = lines[line_idx].chars().collect();
+        let mut pen_s = 0.0f32;
+        let mut prev_char: Option<char> = None;
+        for (glyph_idx, glyph) in glyphs.iter().enumerate() {
+            let ch = line_chars[glyph_idx];
+            if let Some(prev) = prev_char
+                && let Some(kern) = font.horizontal_kern(prev, ch, font_size)
+            {
+                pen_s += kern;
+            }
+            let advance = glyph.metrics.advance_width;
+            let angle = ((pen_s + advance * 0.5) - line_w * 0.5) / rho;
+            let rotation = direction * angle;
+            let mid_x = center_x + rho * angle.sin();
+            let mid_y = center_y - direction * rho * angle.cos();
+            let pen_x = mid_x - advance * 0.5 * rotation.cos();
+            let pen_y = mid_y - advance * 0.5 * rotation.sin();
+            placements.push((line_idx, glyph_idx, pen_x, pen_y, rotation));
+            pen_s += advance;
+            prev_char = Some(ch);
+        }
+    }
+
+    let shadow_offset = if overlay.style.shadow {
+        1.max((font_size / 20.0).round() as i32) as f32
+    } else {
+        0.0
+    };
+    let ring = outline_width as f32 + 1.0;
+
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for &(line_idx, glyph_idx, pen_x, pen_y, rotation) in &placements {
+        let metrics = &line_glyphs[line_idx][glyph_idx].metrics;
+        let (x0, y0, x1, y1) = rotated_bitmap_bounds(
+            pen_x + shadow_offset,
+            pen_y + shadow_offset,
+            rotation,
+            metrics.xmin as f32,
+            -(metrics.height as f32) - metrics.ymin as f32,
+            metrics.width,
+            metrics.height,
+            italic_shear,
+        );
+        min_x = min_x.min(x0 - ring);
+        min_y = min_y.min(y0 - ring);
+        max_x = max_x.max(x1 + ring);
+        max_y = max_y.max(y1 + ring);
+    }
+
+    if placements.is_empty() {
+        min_x = anchor_x as f32;
+        max_x = anchor_x as f32;
+        min_y = mid_baseline;
+        max_y = mid_baseline;
+    }
+
+    if let Some(bg_color) = bg {
+        let pad = (outline_width + 4).max(8) + shadow_offset.ceil() as i32;
+        let bx = min_x.floor() as i32 - pad;
+        let by = min_y.floor() as i32 - pad;
+        let bw = (max_x.ceil() as i32 + pad) - bx;
+        let bh = (max_y.ceil() as i32 + pad) - by;
+        draw_rect(&mut canvas, width, height, bx, by, bw, bh, bg_color);
+    }
+
+    for &(line_idx, glyph_idx, pen_x, pen_y, rotation) in &placements {
+        let glyph = &line_glyphs[line_idx][glyph_idx];
+        let m = &glyph.metrics;
+        let bitmap_dy = -(m.height as f32) - m.ymin as f32;
+        let bitmap_dx = m.xmin as f32;
+
+        if overlay.style.shadow {
+            blit_glyph_rotated(
+                &mut canvas,
+                width,
+                height,
+                &glyph.bitmap,
+                m.width,
+                m.height,
+                pen_x + shadow_offset,
+                pen_y + shadow_offset,
+                rotation,
+                bitmap_dx,
+                bitmap_dy,
+                [0, 0, 0, 128],
+                italic_shear,
+            );
+        }
+
+        if has_outline && let Some(oc) = outline_color {
+            for oy in -outline_width..=outline_width {
+                for ox in -outline_width..=outline_width {
+                    if ox == 0 && oy == 0 {
+                        continue;
+                    }
+                    blit_glyph_rotated(
+                        &mut canvas,
+                        width,
+                        height,
+                        &glyph.bitmap,
+                        m.width,
+                        m.height,
+                        pen_x,
+                        pen_y,
+                        rotation,
+                        bitmap_dx + ox as f32,
+                        bitmap_dy + oy as f32,
+                        oc,
+                        italic_shear,
+                    );
+                }
+            }
+        }
+
+        blit_glyph_rotated(
+            &mut canvas,
+            width,
+            height,
+            &glyph.bitmap,
+            m.width,
+            m.height,
+            pen_x,
+            pen_y,
+            rotation,
+            bitmap_dx,
+            bitmap_dy,
+            fg,
+            italic_shear,
+        );
+
+        if overlay.style.bold {
+            blit_glyph_rotated(
+                &mut canvas,
+                width,
+                height,
+                &glyph.bitmap,
+                m.width,
+                m.height,
+                pen_x,
+                pen_y,
+                rotation,
+                bitmap_dx + 1.0,
+                bitmap_dy,
+                fg,
+                italic_shear,
+            );
+        }
+    }
+
+    canvas
+}
+
+fn rotated_bitmap_bounds(
+    pen_x: f32,
+    pen_y: f32,
+    rotation: f32,
+    bitmap_dx: f32,
+    bitmap_dy: f32,
+    gw: usize,
+    gh: usize,
+    shear_x: f32,
+) -> (f32, f32, f32, f32) {
+    let (sin_r, cos_r) = rotation.sin_cos();
+    let shear_span = shear_x * gh as f32;
+    let x0 = bitmap_dx + shear_span.min(0.0);
+    let x1 = bitmap_dx + gw as f32 + shear_span.max(0.0);
+    let y0 = bitmap_dy;
+    let y1 = bitmap_dy + gh as f32;
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for (lx, ly) in [(x0, y0), (x1, y0), (x0, y1), (x1, y1)] {
+        let wx = pen_x + lx * cos_r - ly * sin_r;
+        let wy = pen_y + lx * sin_r + ly * cos_r;
+        min_x = min_x.min(wx);
+        min_y = min_y.min(wy);
+        max_x = max_x.max(wx);
+        max_y = max_y.max(wy);
+    }
+    (min_x, min_y, max_x, max_y)
+}
+
+fn blit_glyph_rotated(
+    canvas: &mut [u8],
+    cw: usize,
+    ch: usize,
+    bitmap: &[u8],
+    gw: usize,
+    gh: usize,
+    pen_x: f32,
+    pen_y: f32,
+    rotation: f32,
+    bitmap_dx: f32,
+    bitmap_dy: f32,
+    color: [u8; 4],
+    shear_x: f32,
+) {
+    if gw == 0 || gh == 0 {
+        return;
+    }
+    let (min_x, min_y, max_x, max_y) = rotated_bitmap_bounds(
+        pen_x, pen_y, rotation, bitmap_dx, bitmap_dy, gw, gh, shear_x,
+    );
+    let x_start = (min_x.floor() as i32).max(0);
+    let x_end = (max_x.ceil() as i32).min(cw as i32);
+    let y_start = (min_y.floor() as i32).max(0);
+    let y_end = (max_y.ceil() as i32).min(ch as i32);
+    if x_start >= x_end || y_start >= y_end {
+        return;
+    }
+
+    let (sin_r, cos_r) = rotation.sin_cos();
+    for py in y_start..y_end {
+        for px in x_start..x_end {
+            let dx = px as f32 + 0.5 - pen_x;
+            let dy = py as f32 + 0.5 - pen_y;
+            let lx = dx * cos_r + dy * sin_r;
+            let ly = -dx * sin_r + dy * cos_r;
+            let row = ly - bitmap_dy;
+            let col = lx - bitmap_dx - shear_x * row;
+            let coverage = sample_bitmap_coverage(bitmap, gw, gh, col, row);
+            if coverage == 0 {
+                continue;
+            }
+
+            let i = ((py as usize * cw) + px as usize) * 4;
+            if i + 4 > canvas.len() {
+                continue;
+            }
+
+            let mut src = color;
+            src[3] = (color[3] as u32 * coverage as u32 / 255) as u8;
+            alpha_over_pixel(&mut canvas[i..i + 4], &src);
+        }
+    }
+}
+
+fn sample_bitmap_coverage(bitmap: &[u8], gw: usize, gh: usize, col: f32, row: f32) -> u8 {
+    if col < -1.0 || row < -1.0 || col > gw as f32 || row > gh as f32 {
+        return 0;
+    }
+    let x0 = col.floor() as i32;
+    let y0 = row.floor() as i32;
+    let fx = col - x0 as f32;
+    let fy = row - y0 as f32;
+    let at = |x: i32, y: i32| -> f32 {
+        if x < 0 || y < 0 || x >= gw as i32 || y >= gh as i32 {
+            0.0
+        } else {
+            bitmap[(y as usize) * gw + x as usize] as f32
+        }
+    };
+    let top = at(x0, y0) * (1.0 - fx) + at(x0 + 1, y0) * fx;
+    let bottom = at(x0, y0 + 1) * (1.0 - fx) + at(x0 + 1, y0 + 1) * fx;
+    (top * (1.0 - fy) + bottom * fy)
+        .round()
+        .clamp(0.0, 255.0) as u8
 }
 
 fn blit_glyph(

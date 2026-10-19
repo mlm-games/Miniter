@@ -1418,6 +1418,7 @@ fn render_node(
                             bold: false,
                             italic: false,
                             background_color: None,
+                            ..TextStyle::default()
                         };
                         let overlay = TextOverlay {
                             text,

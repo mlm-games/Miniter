@@ -331,6 +331,8 @@ data class RustTextStyleSnapshot(
     val shadow: Boolean = false,
     val bold: Boolean = false,
     val italic: Boolean = false,
+    @SerialName("curve_radius")
+    val curveRadius: Float = 0f,
 )
 
 @Serializable

@@ -1464,6 +1464,32 @@ private fun TextClipProperties(
 
     Spacer(Modifier.height(12.dp))
 
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Curve", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        FilterChip(
+            selected = style.curveRadius == 0f,
+            onClick = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(curveRadius = 0f)) },
+            label = { Text("Straight") },
+        )
+    }
+    var curveRadius by remember(style.curveRadius) { mutableFloatStateOf(style.curveRadius) }
+    Slider(
+        value = curveRadius,
+        onValueChange = { curveRadius = it },
+        onValueChangeFinished = {
+            val snapped = if (kotlin.math.abs(curveRadius) < 0.5f) 0f else curveRadius
+            curveRadius = snapped
+            onUpdateTextStyle(clip.id, RustTextStyleUpdate(curveRadius = snapped))
+        },
+        valueRange = -800f..800f,
+    )
+    Text(
+        if (curveRadius == 0f) "Off" else "${formatFixed(curveRadius, 0)}px radius",
+        style = MaterialTheme.typography.labelSmall,
+    )
+
+    Spacer(Modifier.height(12.dp))
+
     val fontPickerText = rememberFilePickerLauncher(
         type = FileKitType.File(extensions = SupportedFormats.fontExtensions),
     ) { file: PlatformFile? ->
