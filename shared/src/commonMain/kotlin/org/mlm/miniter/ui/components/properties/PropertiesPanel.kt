@@ -433,6 +433,53 @@ private fun VideoClipProperties(
     )
     Text(paramDefOrUnknown(KeyframeParams.OPACITY).format(opacityValue), style = MaterialTheme.typography.labelSmall)
 
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val hasFadeIn = clip.transitionIn?.kind == RustTransitionKind.CrossFade
+        AssistChip(
+            onClick = {
+                onSetTransitionIn(
+                    clip.id,
+                    if (hasFadeIn) null
+                    else RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L),
+                )
+            },
+            label = { Text(if (hasFadeIn) "Remove fade in" else "Fade in from black") },
+        )
+        val hasFadeOut = clip.transitionOut?.kind == RustTransitionKind.CrossFade
+        AssistChip(
+            onClick = {
+                onSetTransitionOut(
+                    clip.id,
+                    if (hasFadeOut) null
+                    else RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L),
+                )
+            },
+            label = { Text(if (hasFadeOut) "Remove fade out" else "Fade out to black") },
+        )
+    }
+    Spacer(Modifier.height(8.dp))
+    FadeTransitionsPair(
+        transitionIn = clip.transitionIn,
+        transitionOut = clip.transitionOut,
+        onSetTransitionIn = { onSetTransitionIn(clip.id, it) },
+        onSetTransitionOut = { onSetTransitionOut(clip.id, it) },
+        options = videoTransitionOptions,
+        durationRange = 0.1f..2f,
+        durationSteps = 18,
+        inLabel = "Transition In",
+        outLabel = "Transition Out",
+        inDescription = "Controls how this clip enters. Adds a fade effect to the start of this clip and the end of the previous clip.",
+        outDescription = "Controls how this clip exits. Adds a fade effect to the end of this clip and the start of the next clip.",
+    )
+    clip.transitionIn?.let { transition ->
+        TextButton(onClick = { onApplyTransitionToAll(transition.kind, transition.duration) }) {
+            Text("Apply to all cuts")
+        }
+    }
+
     Spacer(Modifier.height(16.dp))
 
     Text("Blend", style = MaterialTheme.typography.labelMedium)
@@ -588,52 +635,6 @@ private fun VideoClipProperties(
         onRemoveKeyframe = onRemoveKeyframe,
         onUpdateKeyframe = onUpdateKeyframe,
     )
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        val hasFadeIn = clip.transitionIn?.kind == RustTransitionKind.CrossFade
-        AssistChip(
-            onClick = {
-                onSetTransitionIn(
-                    clip.id,
-                    if (hasFadeIn) null
-                    else RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L),
-                )
-            },
-            label = { Text(if (hasFadeIn) "Remove fade in" else "Fade in from black") },
-        )
-        val hasFadeOut = clip.transitionOut?.kind == RustTransitionKind.CrossFade
-        AssistChip(
-            onClick = {
-                onSetTransitionOut(
-                    clip.id,
-                    if (hasFadeOut) null
-                    else RustTransitionSnapshot(RustTransitionKind.CrossFade, 500_000L),
-                )
-            },
-            label = { Text(if (hasFadeOut) "Remove fade out" else "Fade out to black") },
-        )
-    }
-    Spacer(Modifier.height(8.dp))
-    FadeTransitionsPair(
-        transitionIn = clip.transitionIn,
-        transitionOut = clip.transitionOut,
-        onSetTransitionIn = { onSetTransitionIn(clip.id, it) },
-        onSetTransitionOut = { onSetTransitionOut(clip.id, it) },
-        options = videoTransitionOptions,
-        durationRange = 0.1f..2f,
-        durationSteps = 18,
-        inLabel = "Transition In",
-        outLabel = "Transition Out",
-        inDescription = "Controls how this clip enters. Adds a fade effect to the start of this clip and the end of the previous clip.",
-        outDescription = "Controls how this clip exits. Adds a fade effect to the end of this clip and the start of the next clip.",
-    )
-    clip.transitionIn?.let { transition ->
-        TextButton(onClick = { onApplyTransitionToAll(transition.kind, transition.duration) }) {
-            Text("Apply to all cuts")
-        }
-    }
 }
 
 @Composable
@@ -1464,32 +1465,6 @@ private fun TextClipProperties(
 
     Spacer(Modifier.height(12.dp))
 
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Curve", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-        FilterChip(
-            selected = style.curveRadius == 0f,
-            onClick = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(curveRadius = 0f)) },
-            label = { Text("Straight") },
-        )
-    }
-    var curveRadius by remember(style.curveRadius) { mutableFloatStateOf(style.curveRadius) }
-    Slider(
-        value = curveRadius,
-        onValueChange = { curveRadius = it },
-        onValueChangeFinished = {
-            val snapped = if (kotlin.math.abs(curveRadius) < 0.5f) 0f else curveRadius
-            curveRadius = snapped
-            onUpdateTextStyle(clip.id, RustTextStyleUpdate(curveRadius = snapped))
-        },
-        valueRange = -800f..800f,
-    )
-    Text(
-        if (curveRadius == 0f) "Off" else "${formatFixed(curveRadius, 0)}px radius",
-        style = MaterialTheme.typography.labelSmall,
-    )
-
-    Spacer(Modifier.height(12.dp))
-
     val fontPickerText = rememberFilePickerLauncher(
         type = FileKitType.File(extensions = SupportedFormats.fontExtensions),
     ) { file: PlatformFile? ->
@@ -1627,6 +1602,32 @@ private fun TextClipProperties(
         )
     }
 
+    Spacer(Modifier.height(12.dp))
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Curve", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        FilterChip(
+            selected = style.curveRadius == 0f,
+            onClick = { onUpdateTextStyle(clip.id, RustTextStyleUpdate(curveRadius = 0f)) },
+            label = { Text("Straight") },
+        )
+    }
+    var curveRadius by remember(style.curveRadius) { mutableFloatStateOf(style.curveRadius) }
+    Slider(
+        value = curveRadius,
+        onValueChange = { curveRadius = it },
+        onValueChangeFinished = {
+            val snapped = if (kotlin.math.abs(curveRadius) < 0.5f) 0f else curveRadius
+            curveRadius = snapped
+            onUpdateTextStyle(clip.id, RustTextStyleUpdate(curveRadius = snapped))
+        },
+        valueRange = -800f..800f,
+    )
+    Text(
+        if (curveRadius == 0f) "Off" else "${formatFixed(curveRadius, 0)}px radius",
+        style = MaterialTheme.typography.labelSmall,
+    )
+
     Spacer(Modifier.height(16.dp))
 
     Text("Animation", style = MaterialTheme.typography.labelMedium)
@@ -1659,19 +1660,19 @@ private fun TextClipProperties(
         }
     }
 
-    KeyframeSection(
-        clip = clip,
-        playheadMs = playheadMs,
-        onAddKeyframe = onAddKeyframe,
-        onRemoveKeyframe = onRemoveKeyframe,
-        onUpdateKeyframe = onUpdateKeyframe,
-    )
     FadeTransitionsPair(
         transitionIn = transitionIn,
         transitionOut = transitionOut,
         onSetTransitionIn = { onSetTextTransitionIn(clip.id, it) },
         onSetTransitionOut = { onSetTextTransitionOut(clip.id, it) },
         options = textTransitionOptions,
+    )
+    KeyframeSection(
+        clip = clip,
+        playheadMs = playheadMs,
+        onAddKeyframe = onAddKeyframe,
+        onRemoveKeyframe = onRemoveKeyframe,
+        onUpdateKeyframe = onUpdateKeyframe,
     )
 }
 
@@ -1729,20 +1730,20 @@ private fun defaultVideoFilters(): List<RustVideoFilterSnapshot> = listOf(
     RustContrastFilterSnapshot(1f),
     RustSaturationFilterSnapshot(1f),
     RustColorGradeFilterSnapshot(),
-    RustChromaKeyFilterSnapshot(),
-    RustMosaicFilterSnapshot(),
-    RustVignetteFilterSnapshot(),
-    RustPosterizeFilterSnapshot(),
-    RustGrainFilterSnapshot(),
-    RustDuotoneFilterSnapshot("FF1A1A3E", "FFF2C14E"),
-    RustGrayscaleFilterSnapshot,
+    RustCropFilterSnapshot(left = 0f, top = 0f, right = 0f, bottom = 0f),
     RustBlurFilterSnapshot(5f),
     RustSharpenFilterSnapshot(1f),
+    RustGrayscaleFilterSnapshot,
     RustSepiaFilterSnapshot,
-    RustCropFilterSnapshot(left = 0f, top = 0f, right = 0f, bottom = 0f),
     RustRotateFilterSnapshot(degrees = 0f),
     RustHueFilterSnapshot(degrees = 0f),
     RustFlipFilterSnapshot(horizontal = false, vertical = false),
+    RustVignetteFilterSnapshot(),
+    RustGrainFilterSnapshot(),
+    RustDuotoneFilterSnapshot("FF1A1A3E", "FFF2C14E"),
+    RustPosterizeFilterSnapshot(),
+    RustChromaKeyFilterSnapshot(),
+    RustMosaicFilterSnapshot(),
     RustReverseVideoFilterSnapshot,
     RustCanvasBackgroundFilterSnapshot(),
 )
@@ -1840,19 +1841,19 @@ private fun SubtitleClipProperties(
     )
     Text(paramDefOrUnknown(KeyframeParams.OPACITY).format(opacityValue), style = MaterialTheme.typography.labelSmall)
 
-    KeyframeSection(
-        clip = clip,
-        playheadMs = playheadMs,
-        onAddKeyframe = onAddKeyframe,
-        onRemoveKeyframe = onRemoveKeyframe,
-        onUpdateKeyframe = onUpdateKeyframe,
-    )
     FadeTransitionsPair(
         transitionIn = transitionIn,
         transitionOut = transitionOut,
         onSetTransitionIn = { onSetTransitionIn(clip.id, it) },
         onSetTransitionOut = { onSetTransitionOut(clip.id, it) },
         options = subtitleTransitionOptions,
+    )
+    KeyframeSection(
+        clip = clip,
+        playheadMs = playheadMs,
+        onAddKeyframe = onAddKeyframe,
+        onRemoveKeyframe = onRemoveKeyframe,
+        onUpdateKeyframe = onUpdateKeyframe,
     )
 
     Spacer(Modifier.height(16.dp))
@@ -2269,39 +2270,6 @@ private fun MaskEditor(
 
             Spacer(Modifier.height(8.dp))
 
-            Text("Operation", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                RustMaskOperation.entries.forEach { op ->
-                    FilterChip(
-                        selected = mask.operation == op,
-                        onClick = { onUpdate(mask.copy(operation = op)) },
-                        label = { Text(opLabel(op), style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.height(28.dp),
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Text(if (mask.mode == null) "Mode (legacy)" else "Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                RustMaskMode.entries.forEach { mode ->
-                    FilterChip(
-                        selected = mask.mode == mode,
-                        onClick = { onUpdate(mask.copy(mode = mode)) },
-                        label = { Text(modeLabel(mode), style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.height(28.dp),
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
             MaskSlider("Opacity", mask.opacity, 0f..1f, format = ::fmtPct) { onUpdate(mask.copy(opacity = it)) }
             MaskSlider("Expansion", mask.expansion, -500f..500f, format = { "${it.toInt()}px" }) {
                 onUpdate(mask.copy(expansion = it))
@@ -2341,6 +2309,39 @@ private fun MaskEditor(
                         }
                     },
                 )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Text("Operation", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                RustMaskOperation.entries.forEach { op ->
+                    FilterChip(
+                        selected = mask.operation == op,
+                        onClick = { onUpdate(mask.copy(operation = op)) },
+                        label = { Text(opLabel(op), style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.height(28.dp),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Text(if (mask.mode == null) "Mode (legacy)" else "Mode", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                RustMaskMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = mask.mode == mode,
+                        onClick = { onUpdate(mask.copy(mode = mode)) },
+                        label = { Text(modeLabel(mode), style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.height(28.dp),
+                    )
+                }
             }
         }
     }

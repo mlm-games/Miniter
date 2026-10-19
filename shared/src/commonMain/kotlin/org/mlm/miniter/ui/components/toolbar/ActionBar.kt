@@ -74,12 +74,6 @@ fun ActionBar(
                             onClick = onSplit,
                         )
                         ActionChip(
-                            icon = Icons.Default.BurstMode,
-                            label = "Detect scenes",
-                            onClick = onDetectScenes,
-                            enabled = !detectScenesRunning,
-                        )
-                        ActionChip(
                             icon = Icons.Default.ControlPointDuplicate,
                             label = "Duplicate",
                             onClick = onDuplicate,
@@ -111,14 +105,20 @@ fun ActionBar(
                             label = "Properties",
                             onClick = onProperties,
                         )
-                        AutoKeyframeChip(
-                            enabled = autoKeyframeEnabled,
-                            onClick = onToggleAutoKeyframe,
-                        )
                         ActionChip(
                             icon = Icons.Default.Close,
                             label = "Deselect",
                             onClick = onDeselect,
+                        )
+                        ActionChip(
+                            icon = Icons.Default.BurstMode,
+                            label = "Detect scenes",
+                            onClick = onDetectScenes,
+                            enabled = !detectScenesRunning,
+                        )
+                        AutoKeyframeChip(
+                            enabled = autoKeyframeEnabled,
+                            onClick = onToggleAutoKeyframe,
                         )
                     } else {
                         ActionChip(
@@ -130,11 +130,6 @@ fun ActionBar(
                             icon = Icons.Default.TextFields,
                             label = "Text",
                             onClick = onAddText,
-                        )
-                        ActionChip(
-                            icon = Icons.Default.Layers,
-                            label = "Adjust",
-                            onClick = onAddAdjustment,
                         )
                         ActionChip(
                             icon = Icons.Default.ContentPaste,
@@ -157,6 +152,11 @@ fun ActionBar(
                             icon = Icons.Default.ZoomIn,
                             label = "",
                             onClick = onZoomIn,
+                        )
+                        ActionChip(
+                            icon = Icons.Default.Layers,
+                            label = "Adjust",
+                            onClick = onAddAdjustment,
                         )
                     }
                 }

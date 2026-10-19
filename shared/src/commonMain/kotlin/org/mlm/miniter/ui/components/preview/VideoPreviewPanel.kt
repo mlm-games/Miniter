@@ -1110,17 +1110,6 @@ fun EditorVideoPreview(
                             )
                         }
                     }
-                    if (canEditMasks) {
-                        FilterChip(
-                            selected = maskEditing,
-                            onClick = {
-                                maskEditing = !maskEditing
-                                if (maskEditing) cropEditing = false
-                            },
-                            label = { Text("Masks", style = MaterialTheme.typography.labelSmall) },
-                            modifier = Modifier.align(Alignment.TopStart).padding(start = if (canEditCrop) 92.dp else 8.dp, top = 8.dp),
-                        )
-                    }
                     if (canEditCrop) {
                         FilterChip(
                             selected = cropEditing,
@@ -1130,6 +1119,17 @@ fun EditorVideoPreview(
                             },
                             label = { Text("Crop", style = MaterialTheme.typography.labelSmall) },
                             modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                        )
+                    }
+                    if (canEditMasks) {
+                        FilterChip(
+                            selected = maskEditing,
+                            onClick = {
+                                maskEditing = !maskEditing
+                                if (maskEditing) cropEditing = false
+                            },
+                            label = { Text("Masks", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.align(Alignment.TopStart).padding(start = if (canEditCrop) 92.dp else 8.dp, top = 8.dp),
                         )
                     }
                     if (zoomed) {

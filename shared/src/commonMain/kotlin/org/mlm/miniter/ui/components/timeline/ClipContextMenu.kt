@@ -145,6 +145,34 @@ fun ClipContextMenu(
         HorizontalDivider()
 
         DropdownMenuItem(
+            text = { Text(stringResource(Res.string.common_delete), color = MaterialTheme.colorScheme.error) },
+            leadingIcon = {
+                Icon(
+                    Icons.Default.Delete, null,
+                    Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            },
+            onClick = { onDelete(); onDismiss() },
+            enabled = !isLocked,
+        )
+
+        DropdownMenuItem(
+            text = { Text("Ripple delete", color = MaterialTheme.colorScheme.error) },
+            leadingIcon = {
+                Icon(
+                    Icons.Default.DeleteSweep, null,
+                    Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            },
+            onClick = { onRippleDelete(); onDismiss() },
+            enabled = !isLocked,
+        )
+
+        HorizontalDivider()
+
+        DropdownMenuItem(
             text = { Text("Slip source earlier") },
             leadingIcon = { Icon(Icons.AutoMirrored.Filled.NavigateBefore, null, Modifier.size(18.dp)) },
             onClick = { onSlipLeft(); onDismiss() },
@@ -184,34 +212,6 @@ fun ClipContextMenu(
             leadingIcon = { Icon(Icons.Default.SkipNext, null, Modifier.size(18.dp)) },
             onClick = { onRollRight(); onDismiss() },
             enabled = canRoll && !isLocked,
-        )
-
-        HorizontalDivider()
-
-        DropdownMenuItem(
-            text = { Text(stringResource(Res.string.common_delete), color = MaterialTheme.colorScheme.error) },
-            leadingIcon = {
-                Icon(
-                    Icons.Default.Delete, null,
-                    Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.error,
-                )
-            },
-            onClick = { onDelete(); onDismiss() },
-            enabled = !isLocked,
-        )
-
-        DropdownMenuItem(
-            text = { Text("Ripple delete", color = MaterialTheme.colorScheme.error) },
-            leadingIcon = {
-                Icon(
-                    Icons.Default.DeleteSweep, null,
-                    Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.error,
-                )
-            },
-            onClick = { onRippleDelete(); onDismiss() },
-            enabled = !isLocked,
         )
     }
 }
