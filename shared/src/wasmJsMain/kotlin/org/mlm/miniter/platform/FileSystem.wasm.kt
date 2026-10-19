@@ -32,6 +32,10 @@ actual object PlatformFileSystem {
         files[path] = content
     }
 
+    actual suspend fun writeTextDurable(path: String, content: String) = withContext(Dispatchers.Default) {
+        files[path] = content
+    }
+
     actual suspend fun writeBytes(path: String, bytes: ByteArray) = withContext(Dispatchers.Default) {
         byteFiles[path] = bytes.copyOf()
     }

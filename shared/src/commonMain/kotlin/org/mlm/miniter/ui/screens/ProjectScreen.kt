@@ -42,6 +42,7 @@ import org.mlm.miniter.platform.SupportedFormats
 import org.mlm.miniter.rust.UndoHistoryEntry
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
+import org.mlm.miniter.ui.components.dialogs.SaveProjectDialog
 import org.mlm.miniter.ui.components.preview.EditorVideoPreview
 import org.mlm.miniter.ui.components.properties.PropertiesBottomSheet
 import org.mlm.miniter.ui.components.timeline.ClipSelectionMode
@@ -66,6 +67,7 @@ fun ProjectScreen(
     resolution: RustExportResolution? = null,
     fps: Int? = null,
     extraImportPaths: List<String> = emptyList(),
+    restoreRecovery: Boolean = false,
 ) {
     val vm: ProjectViewModel = koinInject()
     val uiState by vm.state.collectAsState()
@@ -87,6 +89,7 @@ fun ProjectScreen(
     val sceneDetectRunning = uiState.sceneDetectRunning
 
     var showExitConfirm by remember { mutableStateOf(false) }
+    var showSaveAs by remember { mutableStateOf(false) }
     var showPropertiesSheet by remember { mutableStateOf(false) }
     var autoKeyframeEnabled by remember { mutableStateOf(false) }
     var markersPanelOpen by remember { mutableStateOf(false) }
@@ -132,12 +135,12 @@ fun ProjectScreen(
     }
 
     var lastInitKey by remember { mutableStateOf<String?>(null) }
-    val initKey = listOf(videoPath, savePath, openAsProject, resolution, fps, extraImportPaths).toString()
+    val initKey = listOf(videoPath, savePath, openAsProject, resolution, fps, extraImportPaths, restoreRecovery).toString()
     LaunchedEffect(initKey) {
         historyPanelOpen = false
         if (snapshot == null || lastInitKey != initKey) {
             lastInitKey = initKey
-            vm.initProject(videoPath, videoName, savePath, openAsProject, resolution, fps, extraImportPaths)
+            vm.initProject(videoPath, videoName, savePath, openAsProject, resolution, fps, extraImportPaths, restoreRecovery)
         }
     }
 
@@ -183,7 +186,7 @@ fun ProjectScreen(
                 if (isDirty) showExitConfirm = true
                 else backStack.popBack()
             },
-            onSave = { vm.saveProject() },
+            onSave = { if (uiState.projectPath == null) showSaveAs = true else vm.saveProject() },
             onUndo = { vm.undo() },
             onRedo = { vm.redo() },
             onExport = { backStack.add(Route.Export(savePath ?: "")) },
@@ -476,6 +479,17 @@ fun ProjectScreen(
 
     }
 
+    if (showSaveAs) {
+        SaveProjectDialog(
+            defaultName = snapshot?.meta?.name ?: videoName,
+            onDismiss = { showSaveAs = false },
+            onSave = { _, path ->
+                showSaveAs = false
+                vm.saveProject(path)
+            },
+        )
+    }
+
     if (showExitConfirm) {
         ConfirmDialog(
             title = "Unsaved Changes",
@@ -483,9 +497,13 @@ fun ProjectScreen(
             confirmText = "Save & Exit",
             dismissText = "Discard",
             onConfirm = {
-                vm.saveProject()
                 showExitConfirm = false
-                backStack.popBack()
+                if (uiState.projectPath == null) {
+                    showSaveAs = true
+                } else {
+                    vm.saveProject()
+                    backStack.popBack()
+                }
             },
             onDismiss = {
                 showExitConfirm = false

@@ -4,10 +4,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import io.github.vinceglb.filekit.FileKit
+import kotlinx.coroutines.runBlocking
 import org.mlm.miniter.di.KoinApp
 import org.mlm.miniter.platform.PendingMediaOpens
 import org.mlm.miniter.platform.SettingsProvider
 import org.mlm.miniter.platform.pendingMediaFromCommandLineArgs
+import org.mlm.miniter.project.ProjectRecovery
 
 fun main(args: Array<String>) = application {
     FileKit.init(appId = "org.mlm.miniter")
@@ -22,7 +24,10 @@ fun main(args: Array<String>) = application {
 
     KoinApp(settingsRepo) {
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = {
+                runBlocking { ProjectRecovery.endSession() }
+                exitApplication()
+            },
             title = "Miniter",
         ) {
             App()

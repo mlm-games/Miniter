@@ -1,11 +1,17 @@
 package org.mlm.miniter.platform
 
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.FileOutputStream
+import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -76,6 +82,46 @@ actual object PlatformFileSystem {
             ?.bufferedWriter(Charsets.UTF_8)
             ?.use { it.write(content) }
             ?: throw FileNotFoundException("Cannot write: $path")
+    }
+
+    actual suspend fun writeTextDurable(path: String, content: String) = withContext(Dispatchers.IO) {
+        if (path.startsWith("content://")) {
+            writeText(path, content)
+            return@withContext
+        }
+        val target = File(path)
+        val directory = target.parentFile
+        directory?.mkdirs()
+        val temp = File.createTempFile("${target.name}.", ".tmp", directory)
+        try {
+            FileOutputStream(temp).use { output ->
+                output.write(content.toByteArray(Charsets.UTF_8))
+                output.flush()
+                output.fd.sync()
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    Files.move(
+                        temp.toPath(),
+                        target.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+            } else {
+                if (!temp.renameTo(target)) {
+                    target.delete()
+                    if (!temp.renameTo(target)) {
+                        throw IOException("Cannot replace $path")
+                    }
+                }
+            }
+        } finally {
+            temp.delete()
+        }
+        Unit
     }
 
     actual fun exists(path: String): Boolean {

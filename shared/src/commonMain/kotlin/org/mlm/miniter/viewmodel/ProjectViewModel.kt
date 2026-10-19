@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -93,6 +94,8 @@ import org.mlm.miniter.platform.randomUuid
 import org.mlm.miniter.project.AUTO_REFRAME_MAX_SAMPLES
 import org.mlm.miniter.project.AUTO_REFRAME_SAMPLE_STEP_MS
 import org.mlm.miniter.project.AutoReframeSample
+import org.mlm.miniter.project.ProjectRecovery
+import org.mlm.miniter.project.RecoveryInfo
 import org.mlm.miniter.project.RecentProjectsRepository
 import org.mlm.miniter.project.KenBurnsPreset
 import org.mlm.miniter.project.STABILIZE_MAX_SAMPLES
@@ -195,6 +198,9 @@ class ProjectViewModel(
     val hasClipboard: StateFlow<Boolean> = _hasClipboard
     private var clipboard: List<ClipboardEntry> = emptyList()
 
+    private val _pendingRecovery = MutableStateFlow<RecoveryInfo?>(null)
+    val pendingRecovery: StateFlow<RecoveryInfo?> = _pendingRecovery.asStateFlow()
+
     val exportProgress = engine.exportProgress
 
     val playheadMs: StateFlow<Long> = _state.map { it.playheadMs }
@@ -230,12 +236,14 @@ class ProjectViewModel(
         private const val TRANSITION_ADJACENCY_EPSILON_US = 2_000L
         private const val SPEED_CURVE_MAX_ITERATIONS = 4
         private const val SPEED_CURVE_TOLERANCE_US = 2_000L
+        private const val RECOVERY_AUTOSAVE_INTERVAL_MS = 30_000L
     }
 
     private var hardwareAccelerationEnabled: Boolean = true
     private var sourceDurationMs: Long = 0L
     private var autoSaveJob: Job? = null
     private var autoSaveNoPathWarned: Boolean = false
+    private var lastRecoveryJson: String? = null
     private var preDragSnapshot: RustProjectSnapshot? = null
     private var continuousEditCommandCount = 0
     private val saveMutex = Mutex()
@@ -434,6 +442,54 @@ class ProjectViewModel(
                     }
                 }
             }
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            ProjectRecovery.beginSession()
+            _pendingRecovery.value = ProjectRecovery.pending()
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            while (true) {
+                delay(RECOVERY_AUTOSAVE_INTERVAL_MS)
+                try {
+                    writeRecoveryIfNeeded()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    private suspend fun writeRecoveryIfNeeded() {
+        val state = _state.value
+        if (!state.isDirty || state.isSaving) return
+        if (rustStore.snapshot.value == null) return
+        if (rustStore.transactionOpen()) return
+        if (exportProgress.value.isActive()) return
+        val projectJson = try {
+            rustStore.exportProjectJson()
+        } catch (_: Exception) {
+            return
+        }
+        if (projectJson == lastRecoveryJson) return
+        ProjectRecovery.writeRecovery(
+            projectJson = projectJson,
+            projectPath = state.projectPath,
+            projectName = state.snapshot?.meta?.name,
+        )
+        lastRecoveryJson = projectJson
+    }
+
+    fun discardPendingRecovery() {
+        viewModelScope.launch {
+            ProjectRecovery.discard()
+            _pendingRecovery.value = null
         }
     }
 
@@ -641,7 +697,9 @@ class ProjectViewModel(
                 _state.update { it.copy(isSaving = true) }
                 try {
                     val projectJson = rustStore.exportProjectJson()
-                    PlatformFileSystem.writeText(savePath, projectJson)
+                    PlatformFileSystem.writeTextDurable(savePath, projectJson)
+                    lastRecoveryJson = projectJson
+                    ProjectRecovery.clearAfterSave()
                     _state.update { it.copy(projectPath = savePath, isSaving = false, isDirty = false) }
                     recentProjectsRepository.addRecent(savePath, snapshot.meta.name)
                 } catch (e: Exception) {
@@ -841,12 +899,83 @@ class ProjectViewModel(
         resolution: RustExportResolution? = null,
         fps: Int? = null,
         extraImportPaths: List<String> = emptyList(),
+        restoreRecovery: Boolean = false,
     ) {
         val capped = extraImportPaths.take(MAX_EXTRA_IMPORT_PATHS)
         when {
+            restoreRecovery -> restoreRecoveryCopy()
             openAsProject -> loadProject(videoPath)
             videoPath.isEmpty() -> createBlankProject(projectName, savePath, resolution ?: RustExportResolution.Hd1080, fps ?: 30, capped)
             else -> newProject(projectName, videoPath, savePath, capped)
+        }
+    }
+
+    private fun restoreRecoveryCopy() {
+        viewModelScope.launch {
+            projectLifecycleMutex.lock()
+            cancelInFlightMediaWork()
+            try {
+                _state.update { it.copy(isLoading = true) }
+                try {
+                    val projectJson = ProjectRecovery.readRecoveryJson()
+                    if (projectJson.isNullOrBlank()) {
+                        handleError("Recovery copy is missing or unreadable")
+                        return@launch
+                    }
+                    val snapshot = rustStore.openProjectJson(projectJson)
+                    clearClipboard()
+
+                    val missingFiles = snapshot.timeline.tracks
+                        .flatMap { it.clips }
+                        .mapNotNull { clip ->
+                            when (val kind = clip.kind) {
+                                is RustVideoClipKind -> kind.sourcePath
+                                is RustAudioClipKind -> kind.sourcePath
+                                is RustSubtitleClipKind -> kind.sourcePath
+                                else -> null
+                            }
+                        }
+                        .distinct()
+                        .filter { !PlatformFileSystem.exists(it) }
+                    if (missingFiles.isNotEmpty()) {
+                        snackbarManager.showError(
+                            "Missing ${missingFiles.size} source file(s). Some clips may not preview or export."
+                        )
+                    }
+
+                    ProjectRecovery.claim(projectPath = null, projectName = snapshot.meta.name)
+                    syncFromRust(
+                        projectPath = null,
+                        selectedTrackId = null,
+                        selectedClipId = null,
+                        playheadMs = 0L,
+                        isDirty = true,
+                    )
+                    lastRecoveryJson = null
+                    _pendingRecovery.value = null
+                    snackbarManager.show(
+                        "Recovered unsaved changes for '${snapshot.meta.name}'. Save the project to keep them."
+                    )
+
+                    val firstClip = snapshot.timeline.tracks
+                        .flatMap { it.clips }
+                        .firstNotNullOfOrNull { clip -> (clip.kind as? RustVideoClipKind)?.let { kind -> clip to kind } }
+                    if (firstClip != null) {
+                        val sourcePath = firstClip.second.sourcePath
+                        sourceDurationMs = try {
+                            engine.probeVideo(sourcePath).durationMs
+                        } catch (e: Exception) {
+                            Napier.e("Failed to probe video for thumbnails", e)
+                            firstClip.first.timelineDurationUs / 1000L
+                        }
+                        loadThumbnails(sourcePath)
+                    }
+                } catch (e: Exception) {
+                    handleError("Failed to load recovery copy: ${e.message}")
+                }
+            } finally {
+                projectLifecycleMutex.unlock()
+            }
         }
     }
 

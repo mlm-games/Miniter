@@ -22,6 +22,7 @@ import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.settings.ThemeMode
 import org.mlm.miniter.ui.animation.forwardTransition
 import org.mlm.miniter.ui.animation.popTransition
+import org.mlm.miniter.ui.components.dialogs.RecoveryDialog
 import org.mlm.miniter.ui.components.snackbar.LauncherSnackbarHost
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.screens.*
@@ -117,6 +118,7 @@ fun App() {
                                 resolution = key.resolution,
                                 fps = key.fps,
                                 extraImportPaths = key.extraImportPaths,
+                                restoreRecovery = key.restoreRecovery,
                             )
                         }
 
@@ -133,6 +135,24 @@ fun App() {
                             }
                         }
                     }
+                )
+            }
+
+            val pendingRecovery by projectVm.pendingRecovery.collectAsState()
+            pendingRecovery?.let { recovery ->
+                RecoveryDialog(
+                    recovery = recovery,
+                    onRestore = {
+                        backStack.popUntil { it is Route.Editor }
+                        backStack.add(
+                            Route.Project(
+                                path = "",
+                                name = recovery.projectName ?: "Untitled",
+                                restoreRecovery = true,
+                            )
+                        )
+                    },
+                    onDiscard = { projectVm.discardPendingRecovery() },
                 )
             }
         }

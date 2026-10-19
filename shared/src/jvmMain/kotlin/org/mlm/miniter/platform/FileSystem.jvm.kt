@@ -3,6 +3,10 @@ package org.mlm.miniter.platform
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 actual object PlatformFileSystem {
 
@@ -29,6 +33,33 @@ actual object PlatformFileSystem {
         val file = File(path)
         file.parentFile?.mkdirs()
         file.writeText(content, Charsets.UTF_8)
+    }
+
+    actual suspend fun writeTextDurable(path: String, content: String) = withContext(Dispatchers.IO) {
+        val target = File(path)
+        val directory = target.parentFile
+        directory?.mkdirs()
+        val temp = File.createTempFile("${target.name}.", ".tmp", directory)
+        try {
+            FileOutputStream(temp).use { output ->
+                output.write(content.toByteArray(Charsets.UTF_8))
+                output.flush()
+                output.fd.sync()
+            }
+            try {
+                Files.move(
+                    temp.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            temp.delete()
+        }
+        Unit
     }
 
     actual fun exists(path: String): Boolean = File(path).exists()

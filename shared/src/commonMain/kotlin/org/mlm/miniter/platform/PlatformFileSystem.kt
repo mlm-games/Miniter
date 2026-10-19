@@ -3,6 +3,7 @@ package org.mlm.miniter.platform
 expect object PlatformFileSystem {
     suspend fun readText(path: String): String
     suspend fun writeText(path: String, content: String)
+    suspend fun writeTextDurable(path: String, content: String)
     suspend fun readBytes(path: String): ByteArray
     suspend fun writeBytes(path: String, bytes: ByteArray)
     suspend fun createDirectories(path: String)
