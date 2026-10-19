@@ -50,6 +50,12 @@ internal data class WasmExportPayload(
     val mimeType: String,
 )
 
+@Serializable
+private data class WasmHistoryEntryPayload(
+    val label: String = "",
+    val applied: Boolean = false,
+)
+
 @OptIn(ExperimentalEncodingApi::class)
 private fun decodeBase64ToBytes(encoded: String): ByteArray {
     if (encoded.isEmpty()) return ByteArray(0)
@@ -108,6 +114,18 @@ actual class RustCoreSession private constructor(
     actual fun redoLabel(): String? = handle.redoLabel()
     actual fun undoDepth(): UInt = handle.undoDepth().toUInt()
     actual fun redoDepth(): UInt = handle.redoDepth().toUInt()
+
+    actual fun historyEntries(): List<UndoHistoryEntry> {
+        return try {
+            wasmBridgeJson.decodeFromString<List<WasmHistoryEntryPayload>>(handle.historyEntries())
+                .map { UndoHistoryEntry(label = it.label, applied = it.applied) }
+        } catch (_: SerializationException) {
+            emptyList()
+        }
+    }
+
+    actual fun jumpToHistory(index: Int): Boolean = handle.jumpToHistory(index.toDouble())
+
     actual fun transactionOpen(): Boolean = handle.transactionOpen()
 
     actual fun playheadUs(): Long = handle.playheadUs().toLong()

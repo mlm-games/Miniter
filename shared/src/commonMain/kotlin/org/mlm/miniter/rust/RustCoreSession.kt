@@ -22,6 +22,11 @@ expect val isWebCodecsHardwareAccelerated: Boolean
 
 expect val supportedHwCodecs: List<String>
 
+data class UndoHistoryEntry(
+    val label: String,
+    val applied: Boolean,
+)
+
 expect class RustCoreSession {
     constructor(projectName: String)
 
@@ -41,6 +46,8 @@ expect class RustCoreSession {
     fun redoLabel(): String?
     fun undoDepth(): UInt
     fun redoDepth(): UInt
+    fun historyEntries(): List<UndoHistoryEntry>
+    fun jumpToHistory(index: Int): Boolean
     fun transactionOpen(): Boolean
 
     fun playheadUs(): Long

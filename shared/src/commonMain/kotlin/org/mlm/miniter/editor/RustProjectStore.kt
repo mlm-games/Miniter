@@ -13,6 +13,7 @@ import org.mlm.miniter.engine.ImageData
 import org.mlm.miniter.engine.PlatformFrameGrabber
 import org.mlm.miniter.rust.RustCoreRepository
 import org.mlm.miniter.rust.RustCoreSession
+import org.mlm.miniter.rust.UndoHistoryEntry
 
 class RustDispatchException(
     message: String,
@@ -147,9 +148,20 @@ class RustProjectStore(
         return refresh()
     }
 
+    fun jumpToHistory(index: Int): RustProjectSnapshot? {
+        val moved = repository.withSession { session ->
+            session.jumpToHistory(index)
+        } ?: return null
+        if (!moved) return null
+        return refresh()
+    }
+
     fun canUndo(): Boolean = repository.currentOrNull()?.canUndo() ?: false
 
     fun canRedo(): Boolean = repository.currentOrNull()?.canRedo() ?: false
+
+    fun historyEntries(): List<UndoHistoryEntry> =
+        repository.currentOrNull()?.historyEntries() ?: emptyList()
 
     fun undoLabel(): String? = repository.currentOrNull()?.undoLabel()
     fun redoLabel(): String? = repository.currentOrNull()?.redoLabel()

@@ -2,6 +2,7 @@ use miniter_domain::clip::ClipId;
 use miniter_domain::keyframe::Keyframe;
 use miniter_domain::project::Project;
 use miniter_usecases::commands::EditCommand;
+use miniter_usecases::history;
 use miniter_usecases::reducer::{self, EditorState};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -116,6 +117,18 @@ impl EditorStateHandle {
             .lock()
             .map(|s| s.history.redo_depth() as u32)
             .unwrap_or(0)
+    }
+
+    fn history_entries(&self) -> Vec<history::HistoryEntry> {
+        self.0
+            .lock()
+            .map(|s| s.history.entries())
+            .unwrap_or_default()
+    }
+
+    fn jump_to_history(&self, index: u32) -> Result<bool, String> {
+        let mut state = self.0.lock().map_err(|_| "Lock poisoned".to_string())?;
+        reducer::jump_to_history(&mut state, index as usize).map_err(|e| e.to_string())
     }
 
     fn transaction_open(&self) -> bool {
@@ -292,6 +305,23 @@ mod native_ffi {
             self.0.redo_depth()
         }
 
+        pub fn history_entries(&self) -> Vec<HistoryEntry> {
+            self.0
+                .history_entries()
+                .into_iter()
+                .map(|entry| HistoryEntry {
+                    label: entry.label,
+                    applied: entry.applied,
+                })
+                .collect()
+        }
+
+        pub fn jump_to_history(&self, index: u32) -> Result<bool, MiniterError> {
+            self.0
+                .jump_to_history(index)
+                .map_err(|e| MiniterError::Apply { detail: e })
+        }
+
         pub fn transaction_open(&self) -> bool {
             self.0.transaction_open()
         }
@@ -416,6 +446,12 @@ mod native_ffi {
         pub height: u32,
         pub bytes: u64,
         pub frames: u32,
+    }
+
+    #[derive(uniffi::Record)]
+    pub struct HistoryEntry {
+        pub label: String,
+        pub applied: bool,
     }
 
     #[uniffi::export]
@@ -925,6 +961,19 @@ mod web_ffi {
         #[wasm_bindgen(js_name = redoDepth)]
         pub fn redo_depth(&self) -> u32 {
             self.0.redo_depth()
+        }
+
+        #[wasm_bindgen(js_name = historyEntries)]
+        pub fn history_entries(&self) -> Result<String, JsValue> {
+            serde_json::to_string(&self.0.history_entries())
+                .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+        }
+
+        #[wasm_bindgen(js_name = jumpToHistory)]
+        pub fn jump_to_history(&self, index: u32) -> Result<bool, JsValue> {
+            self.0
+                .jump_to_history(index)
+                .map_err(|e| JsValue::from_str(&format!("Apply error: {e}")))
         }
 
         #[wasm_bindgen(js_name = transactionOpen)]

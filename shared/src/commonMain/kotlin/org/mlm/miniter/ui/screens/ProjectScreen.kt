@@ -39,6 +39,7 @@ import org.mlm.miniter.project.KeyframeParams
 import org.mlm.miniter.project.defaultOf
 import org.mlm.miniter.nav.Route
 import org.mlm.miniter.platform.SupportedFormats
+import org.mlm.miniter.rust.UndoHistoryEntry
 import org.mlm.miniter.settings.AppSettings
 import org.mlm.miniter.ui.components.dialogs.ConfirmDialog
 import org.mlm.miniter.ui.components.preview.EditorVideoPreview
@@ -90,6 +91,20 @@ fun ProjectScreen(
     var autoKeyframeEnabled by remember { mutableStateOf(false) }
     var markersPanelOpen by remember { mutableStateOf(false) }
     var markerLabelFocused by remember { mutableStateOf(false) }
+    var historyPanelOpen by remember { mutableStateOf(false) }
+    var historyEntries by remember { mutableStateOf<List<UndoHistoryEntry>>(emptyList()) }
+    var historyRevision by remember { mutableStateOf(0) }
+
+    LaunchedEffect(
+        historyPanelOpen,
+        historyRevision,
+        uiState.canUndo,
+        uiState.canRedo,
+        uiState.undoLabel,
+        uiState.redoLabel,
+    ) {
+        if (historyPanelOpen) historyEntries = vm.undoHistoryEntries()
+    }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val scope = rememberCoroutineScope()
@@ -119,6 +134,7 @@ fun ProjectScreen(
     var lastInitKey by remember { mutableStateOf<String?>(null) }
     val initKey = listOf(videoPath, savePath, openAsProject, resolution, fps, extraImportPaths).toString()
     LaunchedEffect(initKey) {
+        historyPanelOpen = false
         if (snapshot == null || lastInitKey != initKey) {
             lastInitKey = initKey
             vm.initProject(videoPath, videoName, savePath, openAsProject, resolution, fps, extraImportPaths)
@@ -149,6 +165,20 @@ fun ProjectScreen(
             isDirty = isDirty,
             canUndo = canUndo,
             canRedo = canRedo,
+            historyEntries = historyEntries,
+            historyOpen = historyPanelOpen,
+            onToggleHistory = {
+                if (!historyPanelOpen) {
+                    historyEntries = vm.undoHistoryEntries()
+                    historyRevision++
+                }
+                historyPanelOpen = !historyPanelOpen
+            },
+            onDismissHistory = { historyPanelOpen = false },
+            onJumpToHistory = { index ->
+                vm.jumpToHistory(index)
+                historyRevision++
+            },
             onBack = {
                 if (isDirty) showExitConfirm = true
                 else backStack.popBack()

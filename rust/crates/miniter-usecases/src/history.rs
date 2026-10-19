@@ -1,6 +1,7 @@
 //! Transactions, coalescing, undo/redo (from renamite-history).
 
 use crate::commands::EditCommand;
+use serde::Serialize;
 
 /// One undo step: the commands plus their apply-time inverses.
 #[derive(Debug, Clone)]
@@ -78,6 +79,12 @@ struct OpenTransaction {
     label: String,
     forward: Vec<EditCommand>,
     inverse: Vec<EditCommand>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryEntry {
+    pub label: String,
+    pub applied: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -235,6 +242,26 @@ impl History {
 
     pub fn redo_depth(&self) -> usize {
         self.redo.len()
+    }
+
+    pub fn entries(&self) -> Vec<HistoryEntry> {
+        let mut entries: Vec<HistoryEntry> = self
+            .undo
+            .iter()
+            .map(|t| HistoryEntry {
+                label: t.label.clone(),
+                applied: true,
+            })
+            .collect();
+        entries.extend(self.redo.iter().rev().map(|t| HistoryEntry {
+            label: t.label.clone(),
+            applied: false,
+        }));
+        entries
+    }
+
+    pub fn depth(&self) -> usize {
+        self.undo.len() + self.redo.len()
     }
 
     /// Label of the next undo step (for "Undo <label>" menus).

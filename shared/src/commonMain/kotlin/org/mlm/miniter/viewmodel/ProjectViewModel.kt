@@ -125,6 +125,7 @@ import org.mlm.miniter.project.silentRunsToLocal
 import org.mlm.miniter.project.smoothAutoReframeSamples
 import org.mlm.miniter.rust.BeatTrack
 import org.mlm.miniter.rust.RustCoreSession
+import org.mlm.miniter.rust.UndoHistoryEntry
 import org.mlm.miniter.ui.components.snackbar.SnackbarManager
 import org.mlm.miniter.ui.util.toArgbHex
 import kotlin.math.abs
@@ -720,6 +721,17 @@ class ProjectViewModel(
             syncFromRust(isDirty = true)
         } catch (e: Exception) {
             handleError("Redo failed: ${e.message}")
+        }
+    }
+
+    fun undoHistoryEntries(): List<UndoHistoryEntry> = rustStore.historyEntries()
+
+    fun jumpToHistory(index: Int) {
+        try {
+            rustStore.jumpToHistory(index) ?: return
+            syncFromRust(isDirty = true)
+        } catch (e: Exception) {
+            handleError("History jump failed: ${e.message}")
         }
     }
 

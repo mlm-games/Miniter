@@ -63,6 +63,11 @@ actual class RustCoreSession private constructor(
 
     actual fun redoDepth(): UInt = handle.redoDepth()
 
+    actual fun historyEntries(): List<UndoHistoryEntry> =
+        handle.historyEntries().map { UndoHistoryEntry(label = it.label, applied = it.applied) }
+
+    actual fun jumpToHistory(index: Int): Boolean = handle.jumpToHistory(index.toUInt())
+
     actual fun transactionOpen(): Boolean = handle.transactionOpen()
 
     actual fun playheadUs(): Long = handle.playheadUs()

@@ -1828,6 +1828,12 @@ pub enum ApplyError {
     #[error("Invalid command: {0}")]
     InvalidCommand(&'static str),
 
+    #[error("History entry {entry} out of range ({total} entries)")]
+    HistoryEntryOutOfRange { entry: usize, total: usize },
+
+    #[error("Edit in progress")]
+    EditInProgress,
+
     #[error(transparent)]
     Overlap(#[from] miniter_domain::track::TrackOverlapError),
 }
@@ -1950,6 +1956,29 @@ pub fn redo(state: &mut EditorState) -> Result<bool, ApplyError> {
         return Ok(true);
     }
     Ok(false)
+}
+
+pub fn jump_to_history(state: &mut EditorState, entry: usize) -> Result<bool, ApplyError> {
+    if state.history.transaction_open() {
+        return Err(ApplyError::EditInProgress);
+    }
+    let total = state.history.depth();
+    if entry >= total {
+        return Err(ApplyError::HistoryEntryOutOfRange { entry, total });
+    }
+    let target = entry + 1;
+    let mut moved = false;
+    while state.history.undo_depth() > target {
+        undo(state)?;
+        moved = true;
+    }
+    while state.history.undo_depth() < target {
+        if !redo(state)? {
+            break;
+        }
+        moved = true;
+    }
+    Ok(moved)
 }
 
 #[cfg(test)]
