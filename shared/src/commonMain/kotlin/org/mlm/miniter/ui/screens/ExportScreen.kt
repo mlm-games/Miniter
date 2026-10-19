@@ -294,13 +294,13 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         val w = pendingWidth.trim().toIntOrNull() ?: 0
         val h = pendingHeight.trim().toIntOrNull() ?: 0
         val f = pendingFps.trim().toDoubleOrNull()
-        if (w <= 0 || h <= 0 || f == null || f !in 1.0..240.0) return@LaunchedEffect
+        if (w <= 0 || h <= 0 || f == null || f !in 1.0..capabilities.maxFps) return@LaunchedEffect
         delay(500)
         if (draft.widthText != pendingWidth || draft.heightText != pendingHeight || draft.fpsText != pendingFps) {
             return@LaunchedEffect
         }
         val currentProfile = profile ?: return@LaunchedEffect
-        val applied = draft.applyTo(currentProfile, sourceWidth, sourceHeight) ?: return@LaunchedEffect
+        val applied = draft.applyTo(currentProfile, sourceWidth, sourceHeight, maxFps = capabilities.maxFps) ?: return@LaunchedEffect
         val withFps = applied.copy(fps = f)
         if (withFps.resolution != currentProfile.resolution || withFps.fps != currentProfile.fps) {
             lastSyncedResolution = withFps.resolution
@@ -356,7 +356,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         val currentSnapshot = snapshot ?: return
         val currentProfile = profile ?: return
 
-        val validation = draft.validate(audioOnly = isAudioOnly)
+        val validation = draft.validate(audioOnly = isAudioOnly, maxFps = capabilities.maxFps)
         validationErrors = validation.errors
         val parsed = validation.parsed
         if (parsed == null) {
@@ -375,7 +375,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
         }
 
         val applied = vm.updateExportProfile(
-            draft.applyTo(currentProfile, sourceWidth, sourceHeight, audioOnly = isAudioOnly)!!.copy(
+            draft.applyTo(currentProfile, sourceWidth, sourceHeight, audioOnly = isAudioOnly, maxFps = capabilities.maxFps)!!.copy(
                 format = format,
                 audioSampleRate = draft.audioSampleRate,
                 outputPath = "",
@@ -504,6 +504,11 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             )
                         }
                     }
+                    if (format == RustExportFormat.Gif) {
+                        capabilities.maxLongEdge?.let { cap ->
+                            MutedLabel("No audio track; long edge capped at $cap px.")
+                        }
+                    }
                 }
 
                 val exportRange = snapshot?.exportRange
@@ -595,6 +600,7 @@ fun ExportScreen(backStack: NavBackStack<NavKey>) {
                             width = draft.widthText,
                             height = draft.heightText,
                             fps = draft.fpsText,
+                            fpsHint = "1–${capabilities.maxFps.toInt()}",
                             sourceHint = if (hasSourceDimensions) {
                                 "Empty = source ($sourceResolutionText)"
                             } else {
@@ -1046,6 +1052,7 @@ private fun ResolutionInputs(
     width: String,
     height: String,
     fps: String,
+    fpsHint: String,
     sourceHint: String,
     enabled: Boolean,
     errors: Map<String, String>,
@@ -1090,7 +1097,7 @@ private fun ResolutionInputs(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = enabled,
                     keyboardOptions = decimalKeyboard,
-                    supportingText = { Text("1–240") },
+                    supportingText = { Text(fpsHint) },
                     isError = errors["fps"] != null,
                 )
             }
@@ -1130,7 +1137,7 @@ private fun ResolutionInputs(
                     modifier = Modifier.width(132.dp),
                     enabled = enabled,
                     keyboardOptions = decimalKeyboard,
-                    supportingText = { Text("1–240") },
+                    supportingText = { Text(fpsHint) },
                     isError = errors["fps"] != null,
                 )
             }

@@ -878,6 +878,7 @@ enum class RustExportFormat {
     Mov,
     Opus,
     Flac,
+    Gif,
 }
 
 @Serializable(with = RustExportResolutionSerializer::class)

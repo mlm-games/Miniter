@@ -25,7 +25,7 @@ data class ExportDraft(
         val errors: Map<String, String>,
     )
 
-    fun validate(audioOnly: Boolean = false): Validation {
+    fun validate(audioOnly: Boolean = false, maxFps: Double = 240.0): Validation {
         val errors = mutableMapOf<String, String>()
 
         var evenWidth = 0
@@ -49,8 +49,8 @@ data class ExportDraft(
             evenHeight = if (height != null && height > 0) (height / 2) * 2 else 0
 
             fps = fpsText.trim().toDoubleOrNull()
-            if (fps == null || fps !in 1.0..240.0) {
-                errors["fps"] = "FPS must be between 1 and 240."
+            if (fps == null || fps !in 1.0..maxFps) {
+                errors["fps"] = "FPS must be between 1 and ${maxFps.toInt()}."
             }
 
             videoBitrate = videoBitrateKbpsText.trim().toIntOrNull()
@@ -86,8 +86,9 @@ fun ExportDraft.applyTo(
     sourceWidth: Int,
     sourceHeight: Int,
     audioOnly: Boolean = false,
+    maxFps: Double = 240.0,
 ): RustExportProfileSnapshot? {
-    val parsed = validate(audioOnly).parsed ?: return null
+    val parsed = validate(audioOnly, maxFps).parsed ?: return null
     return profile.copy(
         resolution = when {
             parsed.width <= 0 || parsed.height <= 0 -> RustExportResolution.Source

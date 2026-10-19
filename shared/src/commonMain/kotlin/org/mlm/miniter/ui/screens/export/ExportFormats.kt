@@ -8,6 +8,8 @@ data class ExportCapabilities(
     val supportsEmbeddedSubtitles: Boolean,
     val supportsBurnedInSubtitles: Boolean,
     val stylingWarning: Boolean,
+    val maxFps: Double = 240.0,
+    val maxLongEdge: Int? = null,
 )
 
 val RustExportFormat.capabilities: ExportCapabilities
@@ -66,6 +68,14 @@ val RustExportFormat.capabilities: ExportCapabilities
             supportsBurnedInSubtitles = false,
             stylingWarning = false,
         )
+        RustExportFormat.Gif -> ExportCapabilities(
+            supportsAudio = false,
+            supportsEmbeddedSubtitles = false,
+            supportsBurnedInSubtitles = true,
+            stylingWarning = false,
+            maxFps = 50.0,
+            maxLongEdge = 640,
+        )
     }
 
 val RustExportFormat.label: String
@@ -79,6 +89,7 @@ val RustExportFormat.label: String
         RustExportFormat.Mov -> "H.264 / MOV"
         RustExportFormat.Opus -> "Opus / Ogg"
         RustExportFormat.Flac -> "FLAC"
+        RustExportFormat.Gif -> "GIF"
     }
 
 val RustExportFormat.fileExtension: String
@@ -92,4 +103,5 @@ val RustExportFormat.fileExtension: String
         RustExportFormat.Mov -> "mov"
         RustExportFormat.Opus -> "ogg"
         RustExportFormat.Flac -> "flac"
+        RustExportFormat.Gif -> "gif"
     }

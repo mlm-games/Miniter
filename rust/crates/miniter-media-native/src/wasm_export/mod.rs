@@ -458,6 +458,9 @@ pub fn export_project_to_bytes(
         ExportFormat::Mov => {
             return Err("MOV export is not supported on web yet".to_string());
         }
+        ExportFormat::Gif => {
+            return Err("GIF export is not supported on web yet".to_string());
+        }
         _ => return Err("Unsupported export format on web".to_string()),
     };
 
@@ -479,6 +482,7 @@ fn export_target_info(format: ExportFormat) -> Result<(&'static str, &'static st
         ExportFormat::Opus => Ok(("ogg", "audio/ogg")),
         ExportFormat::Flac => Ok(("flac", "audio/flac")),
         ExportFormat::Mov => Err("MOV export is not supported on web yet".to_string()),
+        ExportFormat::Gif => Err("GIF export is not supported on web yet".to_string()),
         _ => Err("Unsupported export format on web".to_string()),
     }
 }

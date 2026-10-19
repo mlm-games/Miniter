@@ -27,18 +27,20 @@ impl ExportRange {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ExportFormat {
     Mp4,
     Mov,
     Av1Ivf,
+    #[default]
     Av1Mp4,
     Av1Mkv,
     Av1WebM,
     H264Mkv,
     Opus,
     Flac,
+    Gif,
 }
 
 impl ExportFormat {
@@ -53,6 +55,7 @@ impl ExportFormat {
             Self::Mov => "mov",
             Self::Opus => "opus",
             Self::Flac => "flac",
+            Self::Gif => "gif",
         }
     }
 
@@ -67,6 +70,7 @@ impl ExportFormat {
             Self::Mov => "video/quicktime",
             Self::Opus => "audio/ogg",
             Self::Flac => "audio/flac",
+            Self::Gif => "image/gif",
         }
     }
 
@@ -131,6 +135,7 @@ impl LoudnessNormalization {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportProfile {
+    #[serde(default)]
     pub format: ExportFormat,
     pub resolution: ExportResolution,
     pub fps: f64,

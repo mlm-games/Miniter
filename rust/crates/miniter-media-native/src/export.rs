@@ -16,6 +16,9 @@ use crate::mux::{
 };
 use crate::subtitle::SubtitleRenderer;
 
+use image::codecs::gif::{GifEncoder, Repeat};
+use image::{Delay, Frame, RgbaImage};
+
 use crate::export_shared::*;
 use miniter_audio::mix::{AudioMixError, MixedAudio, mix_project_audio};
 use miniter_domain::Project;
@@ -106,6 +109,8 @@ pub enum ExportError {
     NoAudioInRange,
     #[error("Unsupported export format")]
     UnsupportedFormat,
+    #[error("GIF encode: {0}")]
+    GifEncode(#[from] image::ImageError),
 }
 
 pub fn was_hardware_fallback() -> bool {
@@ -218,6 +223,16 @@ where
             settings.height,
             settings.fps,
             bitrate_kbps,
+            range,
+            &is_cancelled,
+            &on_progress,
+        ),
+        ExportFormat::Gif => export_gif(
+            project,
+            output_path,
+            settings.width,
+            settings.height,
+            settings.fps,
             range,
             &is_cancelled,
             &on_progress,
@@ -1286,6 +1301,100 @@ where
 
     muxer.finish()?;
 
+    Ok(())
+}
+
+const GIF_MAX_LONG_EDGE: u32 = 640;
+const GIF_MAX_FPS: f64 = 50.0;
+const GIF_QUANTIZE_SPEED: i32 = 10;
+
+fn gif_dimensions(width: u32, height: u32) -> (u32, u32) {
+    let long_edge = width.max(height);
+    if long_edge <= GIF_MAX_LONG_EDGE {
+        return (width, height);
+    }
+    let scale = f64::from(GIF_MAX_LONG_EDGE) / f64::from(long_edge);
+    (
+        ((f64::from(width) * scale).round() as u32).max(1),
+        ((f64::from(height) * scale).round() as u32).max(1),
+    )
+}
+
+fn gif_frame_rate(fps: f64) -> f64 {
+    if fps.is_finite() && fps > 0.0 {
+        fps.min(GIF_MAX_FPS)
+    } else {
+        30.0
+    }
+}
+
+fn export_gif<F>(
+    project: &Project,
+    output_path: &Path,
+    width: u32,
+    height: u32,
+    fps: f64,
+    range: Option<TimeRange>,
+    is_cancelled: &F,
+    on_progress: &dyn Fn(u32),
+) -> Result<(), ExportError>
+where
+    F: Fn() -> bool,
+{
+    let (width, height) = gif_dimensions(width, height);
+    let fps = gif_frame_rate(fps);
+
+    let iter = frame_plan_iterator(project, width, height, fps, range);
+    let total_frames = iter.total_frames();
+    if total_frames == 0 {
+        return Err(ExportError::EmptyRange);
+    }
+
+    let mut decode_cache = ExportDecodeCache::new(project.export_profile.hardware_acceleration);
+    let first_decoded_video_pts_us = AtomicI64::new(-1);
+
+    let file = File::create(output_path)?;
+    let mut encoder = GifEncoder::new_with_speed(BufWriter::new(file), GIF_QUANTIZE_SPEED);
+    encoder.set_repeat(Repeat::Infinite)?;
+
+    on_progress(1);
+
+    let frame_ms = 1_000.0 / fps;
+    let mut emitted_cs: u64 = 0;
+    let mut frame_count: u64 = 0;
+
+    for (index, plan) in iter.enumerate() {
+        if is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+        let violations = validate_frame_plan(&plan);
+        if !violations.is_empty() {
+            log::warn!(
+                "validate_frame_plan violations at {}: {:?}",
+                plan.timestamp.as_micros(),
+                violations
+            );
+        }
+
+        let rgba = render_plan_to_rgba(&plan, &mut decode_cache, &first_decoded_video_pts_us)?;
+        store_preview_frame(&rgba, width, height);
+
+        let target_cs = (((index + 1) as f64 * frame_ms / 10.0).round() as u64).max(2);
+        let delay_cs = target_cs.saturating_sub(emitted_cs).max(2);
+        emitted_cs += delay_cs;
+        let delay_ms = delay_cs.saturating_mul(10).min(u64::from(u32::MAX)) as u32;
+
+        let buffer = RgbaImage::from_raw(width, height, rgba)
+            .ok_or_else(|| ExportError::Internal("GIF frame buffer size mismatch".to_string()))?;
+        let frame = Frame::from_parts(buffer, 0, 0, Delay::from_numer_denom_ms(delay_ms, 1));
+        encoder.encode_frame(frame)?;
+
+        frame_count += 1;
+        on_progress((frame_count * 100_000 / total_frames) as u32);
+    }
+
+    drop(encoder);
+    on_progress(100_000);
     Ok(())
 }
 
