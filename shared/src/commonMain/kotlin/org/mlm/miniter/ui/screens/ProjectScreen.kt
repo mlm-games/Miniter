@@ -113,7 +113,9 @@ fun ProjectScreen(
     val scope = rememberCoroutineScope()
 
     val editorFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
+    var editorFocusRequest by remember { mutableStateOf(0) }
+    LaunchedEffect(editorFocusRequest) {
+        withFrameNanos { }
         editorFocusRequester.requestFocus()
     }
 
@@ -158,7 +160,7 @@ fun ProjectScreen(
         modifier = Modifier
             .fillMaxSize()
             .focusRequester(editorFocusRequester)
-            .onFocusChanged { if (!it.hasFocus) editorFocusRequester.requestFocus() }
+            .onFocusChanged { if (!it.hasFocus) editorFocusRequest++ }
             .focusable()
             .onKeyEvent { if (markerLabelFocused) false else vm.handleEditorShortcut(it, snapshot) },
     ) {
