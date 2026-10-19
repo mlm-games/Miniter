@@ -2,8 +2,6 @@ package org.mlm.miniter.ui.components.toolbar
 
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -160,10 +158,10 @@ private fun UndoHistoryPanel(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp),
         )
-        LazyColumn(
-            modifier = Modifier.width(240.dp).heightIn(max = 320.dp),
+        Column(
+            modifier = Modifier.width(240.dp),
         ) {
-            items(rows, key = { it.index }) { row ->
+            rows.forEach { row ->
                 DropdownMenuItem(
                     text = {
                         Text(
