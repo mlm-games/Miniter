@@ -2303,10 +2303,8 @@ private fun MaskEditor(
             Spacer(Modifier.height(8.dp))
 
             MaskSlider("Opacity", mask.opacity, 0f..1f, format = ::fmtPct) { onUpdate(mask.copy(opacity = it)) }
-            if (src?.shape is RustPathMaskShape) {
-                MaskSlider("Expansion", mask.expansion, -500f..500f, format = { "${it.toInt()}px" }) {
-                    onUpdate(mask.copy(expansion = it))
-                }
+            MaskSlider("Expansion", mask.expansion, -500f..500f, format = { "${it.toInt()}px" }) {
+                onUpdate(mask.copy(expansion = it))
             }
 
             Spacer(Modifier.height(4.dp))

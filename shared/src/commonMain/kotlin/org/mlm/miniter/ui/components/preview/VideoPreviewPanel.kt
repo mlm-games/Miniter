@@ -1073,6 +1073,8 @@ fun EditorVideoPreview(
                     if (canEditMasks && maskEditing) {
                         MaskOverlay(
                             contentArea = contentArea,
+                            renderWidth = fullRenderWidth.toFloat(),
+                            renderHeight = fullRenderHeight.toFloat(),
                             masks = shapeMasks,
                             clipId = selectedClipId,
                             keyframes = selectedClip?.keyframes ?: RustKeyframeCurve(),
@@ -1394,6 +1396,8 @@ private fun CropOverlay(
 @Composable
 private fun MaskOverlay(
     contentArea: Rect,
+    renderWidth: Float,
+    renderHeight: Float,
     masks: List<IndexedValue<RustMaskEffect>>,
     clipId: String,
     keyframes: RustKeyframeCurve,
@@ -1416,6 +1420,8 @@ private fun MaskOverlay(
     val currentKeyframes by rememberUpdatedState(keyframes)
     val currentLocalUs by rememberUpdatedState(localUs)
     val currentContentArea by rememberUpdatedState(contentArea)
+    val currentRenderWidth by rememberUpdatedState(renderWidth)
+    val currentRenderHeight by rememberUpdatedState(renderHeight)
     var selection by remember(clipId) { mutableStateOf<MaskVertexSelection?>(null) }
     val currentSelection by rememberUpdatedState(selection)
     val selectedVertex = selection
@@ -1423,7 +1429,15 @@ private fun MaskOverlay(
     val handleColor = Color(0xFFFFD54F)
 
     fun geometries(): List<MaskScreenGeometry> = currentMasks.mapNotNull { (index, mask) ->
-        maskScreenGeometry(mask, index, currentKeyframes, currentLocalUs, currentContentArea)
+        maskScreenGeometry(
+            mask,
+            index,
+            currentKeyframes,
+            currentLocalUs,
+            currentContentArea,
+            currentRenderWidth,
+            currentRenderHeight,
+        )
     }
 
     fun handleHitAt(position: Offset, geoms: List<MaskScreenGeometry>): MaskHandleHit? {
@@ -1705,11 +1719,20 @@ private fun mapMaskPoint(
     transform: MaskOverlayTransform,
     contentArea: Rect,
 ): Offset {
+    val nx = (x - 0.5f) * transform.scale + 0.5f + transform.translateX
+    val ny = (y - 0.5f) * transform.scale + 0.5f + transform.translateY
+    return mapTransformedMaskPoint(nx, ny, transform, contentArea)
+}
+
+private fun mapTransformedMaskPoint(
+    nx: Float,
+    ny: Float,
+    transform: MaskOverlayTransform,
+    contentArea: Rect,
+): Offset {
     val radians = (transform.rotate * PI / 180.0).toFloat()
     val sinRotation = sin(radians)
     val cosRotation = cos(radians)
-    val nx = (x - 0.5f) * transform.scale + 0.5f + transform.translateX
-    val ny = (y - 0.5f) * transform.scale + 0.5f + transform.translateY
     val rx = (nx - 0.5f) * cosRotation - (ny - 0.5f) * sinRotation + 0.5f
     val ry = (nx - 0.5f) * sinRotation + (ny - 0.5f) * cosRotation + 0.5f
     return Offset(contentArea.left + rx * contentArea.width, contentArea.top + ry * contentArea.height)
@@ -1794,9 +1817,13 @@ private fun maskScreenGeometry(
     curve: RustKeyframeCurve,
     localUs: Long,
     contentArea: Rect,
+    renderWidth: Float,
+    renderHeight: Float,
 ): MaskScreenGeometry? {
     val shape = (mask.source as? RustShapeMaskSource)?.shape ?: return null
     val transform = maskOverlayTransform(mask, curve, maskIndex, localUs)
+    val expandX = mask.expansion / renderWidth
+    val expandY = mask.expansion / renderHeight
     return when (shape) {
         is RustPathMaskShape -> {
             val vertices = shape.vertices
@@ -1826,11 +1853,17 @@ private fun maskScreenGeometry(
             val top = shape.top.coerceIn(0f, 1f)
             val right = shape.right.coerceIn(0f, 1f)
             val bottom = shape.bottom.coerceIn(0f, 1f)
+            val centreX = (left + right) / 2f
+            val centreY = (top + bottom) / 2f
+            val tcx = (centreX - 0.5f) * transform.scale + 0.5f + transform.translateX
+            val tcy = (centreY - 0.5f) * transform.scale + 0.5f + transform.translateY
+            val halfWidth = (abs((right - left) * transform.scale / 2f) + expandX).coerceAtLeast(0f)
+            val halfHeight = (abs((bottom - top) * transform.scale / 2f) + expandY).coerceAtLeast(0f)
             val outline = listOf(
-                mapMaskPoint(left, top, transform, contentArea),
-                mapMaskPoint(right, top, transform, contentArea),
-                mapMaskPoint(right, bottom, transform, contentArea),
-                mapMaskPoint(left, bottom, transform, contentArea),
+                mapTransformedMaskPoint(tcx - halfWidth, tcy - halfHeight, transform, contentArea),
+                mapTransformedMaskPoint(tcx + halfWidth, tcy - halfHeight, transform, contentArea),
+                mapTransformedMaskPoint(tcx + halfWidth, tcy + halfHeight, transform, contentArea),
+                mapTransformedMaskPoint(tcx - halfWidth, tcy + halfHeight, transform, contentArea),
             )
             MaskScreenGeometry(maskIndex, mask, transform, outline, emptyList(), emptyList(), emptyList())
         }
@@ -1841,8 +1874,10 @@ private fun maskScreenGeometry(
                 transform,
                 contentArea,
             )
-            val radiusX = (shape.radiusX.coerceIn(0f, 0.5f) * transform.scale).coerceAtLeast(0.001f) * contentArea.width
-            val radiusY = (shape.radiusY.coerceIn(0f, 0.5f) * transform.scale).coerceAtLeast(0.001f) * contentArea.height
+            val normRadiusX = (shape.radiusX.coerceIn(0f, 0.5f) * transform.scale).coerceAtLeast(0.001f)
+            val normRadiusY = (shape.radiusY.coerceIn(0f, 0.5f) * transform.scale).coerceAtLeast(0.001f)
+            val radiusX = ((normRadiusX + expandX) * contentArea.width).coerceAtLeast(0f)
+            val radiusY = ((normRadiusY + expandY) * contentArea.height).coerceAtLeast(0f)
             val outline = ellipseOutline(centre, radiusX, radiusY, transform.rotate, MASK_ELLIPSE_SEGMENT_STEPS)
             MaskScreenGeometry(maskIndex, mask, transform, outline, emptyList(), emptyList(), emptyList())
         }

@@ -529,10 +529,16 @@ pub fn blend_over_pixel(dst: &mut [u8], src: &[u8], mode: BlendMode) {
 pub(crate) fn render_mask_shape(
     shape: &MaskShape,
     transform: &MaskTransform,
+    expansion: f32,
     width: usize,
     height: usize,
 ) -> Vec<u8> {
     let mut mask = vec![0u8; width * height * 4];
+    let expansion = if expansion.is_finite() {
+        expansion
+    } else {
+        0.0
+    };
 
     match shape {
         MaskShape::Rectangle {
@@ -552,17 +558,17 @@ pub(crate) fn render_mask_shape(
             let nb = bottom.clamp(0.0, 1.0);
             let ncx = (nl + nr) / 2.0;
             let ncy = (nt + nb) / 2.0;
-            let nhw = (nr - nl) * transform.scale / 2.0;
-            let nhh = (nb - nt) * transform.scale / 2.0;
+            let hw = (((nr - nl) * transform.scale / 2.0).abs() + expansion / wf).max(0.0);
+            let hh = (((nb - nt) * transform.scale / 2.0).abs() + expansion / hf).max(0.0);
 
             let tcx = (ncx - 0.5) * transform.scale + 0.5 + transform.translate_x;
             let tcy = (ncy - 0.5) * transform.scale + 0.5 + transform.translate_y;
 
             let corners = [
-                (tcx - nhw, tcy - nhh),
-                (tcx + nhw, tcy - nhh),
-                (tcx + nhw, tcy + nhh),
-                (tcx - nhw, tcy + nhh),
+                (tcx - hw, tcy - hh),
+                (tcx + hw, tcy - hh),
+                (tcx + hw, tcy + hh),
+                (tcx - hw, tcy + hh),
             ];
 
             let mut min_x = wf;
@@ -583,15 +589,13 @@ pub(crate) fn render_mask_shape(
 
             let l = (min_x.round() as i32).clamp(0, width as i32 - 1) as usize;
             let t = (min_y.round() as i32).clamp(0, height as i32 - 1) as usize;
-            let r = ((max_x.round() as i32) + 1).clamp(l as i32 + 1, width as i32) as usize;
-            let b = ((max_y.round() as i32) + 1).clamp(t as i32 + 1, height as i32) as usize;
+            let r = ((max_x.round() as i32).saturating_add(1)).clamp(l as i32 + 1, width as i32) as usize;
+            let b = ((max_y.round() as i32).saturating_add(1)).clamp(t as i32 + 1, height as i32) as usize;
 
             let rcx = (tcx - 0.5) * cos_r - (tcy - 0.5) * sin_r + 0.5;
             let rcy = (tcx - 0.5) * sin_r + (tcy - 0.5) * cos_r + 0.5;
             let scx = rcx * wf;
             let scy = rcy * hf;
-            let hw = nhw.abs();
-            let hh = nhh.abs();
             let min_u = ((tcx - hw) * wf).round() - tcx * wf;
             let max_u = ((tcx + hw) * wf).round() - tcx * wf;
             let min_v = ((tcy - hh) * hf).round() - tcy * hf;
@@ -637,8 +641,8 @@ pub(crate) fn render_mask_shape(
 
             let scx = rcx * wf;
             let scy = rcy * hf;
-            let srx = rrx * wf;
-            let sry = rry * hf;
+            let srx = (rrx * wf + expansion).max(0.0);
+            let sry = (rry * hf + expansion).max(0.0);
 
             for y in 0..height {
                 for x in 0..width {
@@ -850,7 +854,7 @@ fn mask_values(
             })
             .collect();
     }
-    let mut rgba = render_mask_shape(shape, &mask.transform, width, height);
+    let mut rgba = render_mask_shape(shape, &mask.transform, mask.expansion, width, height);
     if feather > 0.0 {
         feather_mask(&mut rgba, width, height, feather);
     }
