@@ -174,6 +174,10 @@ pub enum VideoFilter {
         softness: f32,
         #[serde(default = "default_chroma_spill")]
         spill: f32,
+        #[serde(default)]
+        spill_suppression: f32,
+        #[serde(default)]
+        choke: f32,
     },
     /// Path to a `.cube` LUT applied to the encoded values. An empty or
     /// unreadable file leaves the frame unchanged.

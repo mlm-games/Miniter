@@ -414,11 +414,15 @@ fn filter_param_mut<'a>(filter: &'a mut VideoFilter, suffix: &str) -> Option<&'a
             tolerance,
             softness,
             spill,
+            spill_suppression,
+            choke,
             ..
         } => match suffix {
             "chroma_tolerance" => Some(tolerance),
             "chroma_softness" => Some(softness),
             "chroma_spill" => Some(spill),
+            "chroma_spill_suppression" => Some(spill_suppression),
+            "chroma_choke" => Some(choke),
             _ => None,
         },
         VideoFilter::Lut { strength, .. } => (suffix == "lut_strength").then_some(strength),

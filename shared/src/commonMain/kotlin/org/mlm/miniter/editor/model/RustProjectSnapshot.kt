@@ -458,6 +458,9 @@ data class RustChromaKeyFilterSnapshot(
     val tolerance: Float = 0.25f,
     val softness: Float = 0.1f,
     val spill: Float = 0.5f,
+    @SerialName("spill_suppression")
+    val spillSuppression: Float = 0f,
+    val choke: Float = 0f,
 ) : RustVideoFilterSnapshot
 
 @Serializable

@@ -3686,6 +3686,8 @@ class ProjectViewModel(
                 tolerance = newParams["tolerance"] ?: filter.tolerance,
                 softness = newParams["softness"] ?: filter.softness,
                 spill = newParams["spill"] ?: filter.spill,
+                spillSuppression = newParams["spill_suppression"] ?: filter.spillSuppression,
+                choke = newParams["choke"] ?: filter.choke,
             )
             is RustMosaicFilterSnapshot -> filter.copy(
                 size = newParams["size"] ?: filter.size,

@@ -63,6 +63,8 @@ val FILTERS: List<FilterDef> = listOf(
         FilterPropertyDef("tolerance", "Tolerance", 0f..1f, format = ::fmtPct, keyframeSuffix = "chroma_tolerance"),
         FilterPropertyDef("softness", "Edge softness", 0f..0.5f, format = ::fmtPct, keyframeSuffix = "chroma_softness"),
         FilterPropertyDef("spill", "Spill removal", 0f..1f, format = ::fmtPct, keyframeSuffix = "chroma_spill"),
+        FilterPropertyDef("spill_suppression", "Spill suppression", 0f..1f, format = ::fmtPct, keyframeSuffix = "chroma_spill_suppression"),
+        FilterPropertyDef("choke", "Edge choke", -10f..10f, 19, { "${it.toInt()}px" }, "chroma_choke"),
     )),
     FilterDef("Lut", "LUT", listOf(
         FilterPropertyDef("strength", "Strength", 0f..1f, format = ::fmtPct, keyframeSuffix = "lut_strength"),
@@ -188,6 +190,8 @@ fun readFilterProperty(filter: RustVideoFilterSnapshot, paramKey: String): Float
         "tolerance" -> filter.tolerance
         "softness" -> filter.softness
         "spill" -> filter.spill
+        "spill_suppression" -> filter.spillSuppression
+        "choke" -> filter.choke
         else -> 0f
     }
     is RustLutFilterSnapshot -> when (paramKey) {

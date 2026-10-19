@@ -386,19 +386,82 @@ pub fn apply_color_grade(buf: &mut [u8], grade: &ColorGrade) {
     });
 }
 
+fn chroma_components(r: f32, g: f32, b: f32) -> (f32, f32) {
+    let y = 0.299 * r + 0.587 * g + 0.114 * b;
+    (0.564 * (b - y), 0.713 * (r - y))
+}
+
+fn chroma_matte(r: f32, g: f32, b: f32, key_cb: f32, key_cr: f32, tol: f32, soft: f32) -> f32 {
+    let (cb, cr) = chroma_components(r, g, b);
+    let distance = ((cb - key_cb).powi(2) + (cr - key_cr).powi(2)).sqrt();
+    ((distance - tol) / soft).clamp(0.0, 1.0)
+}
+
+fn suppress_spill(px: &mut [u8], key_dominant: [bool; 3], amount: f32) {
+    let mut channels = [
+        px[0] as f32 / 255.0,
+        px[1] as f32 / 255.0,
+        px[2] as f32 / 255.0,
+    ];
+    for channel in 0..3 {
+        if !key_dominant[channel] {
+            continue;
+        }
+        let other_a = (channel + 1) % 3;
+        let other_b = (channel + 2) % 3;
+        let limit = channels[other_a].max(channels[other_b]);
+        if channels[channel] > limit {
+            channels[channel] += (limit - channels[channel]) * amount;
+            px[channel] = (channels[channel] * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+}
+
+fn box_extreme(matte: &mut [f32], width: usize, height: usize, radius: usize, erode: bool) {
+    if radius == 0 || width == 0 || height == 0 {
+        return;
+    }
+    let mut scratch = vec![0.0f32; matte.len()];
+    for y in 0..height {
+        let row = &matte[y * width..(y + 1) * width];
+        let out = &mut scratch[y * width..(y + 1) * width];
+        for x in 0..width {
+            let start = x.saturating_sub(radius);
+            let end = (x + radius + 1).min(width);
+            let mut value = row[start];
+            for sample in &row[start + 1..end] {
+                value = if erode { value.min(*sample) } else { value.max(*sample) };
+            }
+            out[x] = value;
+        }
+    }
+    for x in 0..width {
+        for y in 0..height {
+            let start = y.saturating_sub(radius);
+            let end = (y + radius + 1).min(height);
+            let mut value = scratch[start * width + x];
+            for sample_y in start + 1..end {
+                let sample = scratch[sample_y * width + x];
+                value = if erode { value.min(sample) } else { value.max(sample) };
+            }
+            matte[y * width + x] = value;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn apply_chroma_key(
     buf: &mut [u8],
+    width: usize,
+    height: usize,
     key_color: [u8; 3],
     tolerance: f32,
     softness: f32,
     spill: f32,
+    spill_suppression: f32,
+    choke: f32,
 ) {
-    fn chroma(r: f32, g: f32, b: f32) -> (f32, f32) {
-        let y = 0.299 * r + 0.587 * g + 0.114 * b;
-        (0.564 * (b - y), 0.713 * (r - y))
-    }
-
-    let (key_cb, key_cr) = chroma(
+    let (key_cb, key_cr) = chroma_components(
         key_color[0] as f32 / 255.0,
         key_color[1] as f32 / 255.0,
         key_color[2] as f32 / 255.0,
@@ -406,27 +469,82 @@ pub fn apply_chroma_key(
     let tol = tolerance.clamp(0.0, 1.0);
     let soft = softness.clamp(1.0 / 255.0, 1.0);
     let spill = spill.clamp(0.0, 1.0);
+    let suppress = spill_suppression.clamp(0.0, 1.0);
+    let choke = choke.clamp(-64.0, 64.0);
+    let radius = choke.abs().round() as usize;
+    let erode = choke > 0.0;
 
-    for px in buf.as_chunks_mut::<4>().0 {
+    if radius == 0 && suppress == 0.0 {
+        for px in buf.as_chunks_mut::<4>().0 {
+            let r = px[0] as f32 / 255.0;
+            let g = px[1] as f32 / 255.0;
+            let b = px[2] as f32 / 255.0;
+            let matte = chroma_matte(r, g, b, key_cb, key_cr, tol, soft);
+            if matte >= 1.0 {
+                continue;
+            }
+
+            let a = px[3] as f32 / 255.0;
+            px[3] = (a * matte * 255.0).round().clamp(0.0, 255.0) as u8;
+
+            if spill > 0.0 {
+                let luma = 0.299 * r + 0.587 * g + 0.114 * b;
+                let s = spill * (1.0 - matte);
+                px[0] = ((r + (luma - r) * s) * 255.0).round().clamp(0.0, 255.0) as u8;
+                px[1] = ((g + (luma - g) * s) * 255.0).round().clamp(0.0, 255.0) as u8;
+                px[2] = ((b + (luma - b) * s) * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+        return;
+    }
+
+    let count = width.saturating_mul(height);
+    if count == 0 || buf.len() < count * 4 {
+        return;
+    }
+
+    let key = [
+        key_color[0] as f32,
+        key_color[1] as f32,
+        key_color[2] as f32,
+    ];
+    let key_dominant = [
+        key[0] >= key[1].max(key[2]),
+        key[1] >= key[0].max(key[2]),
+        key[2] >= key[0].max(key[1]),
+    ];
+
+    let mut matte = vec![0.0f32; count];
+    for (index, px) in buf.as_chunks_mut::<4>().0.iter().take(count).enumerate() {
         let r = px[0] as f32 / 255.0;
         let g = px[1] as f32 / 255.0;
         let b = px[2] as f32 / 255.0;
-        let (cb, cr) = chroma(r, g, b);
-        let distance = ((cb - key_cb).powi(2) + (cr - key_cr).powi(2)).sqrt();
-        let matte = ((distance - tol) / soft).clamp(0.0, 1.0);
-        if matte >= 1.0 {
-            continue;
+        matte[index] = chroma_matte(r, g, b, key_cb, key_cr, tol, soft);
+    }
+
+    if radius > 0 {
+        box_extreme(&mut matte, width, height, radius, erode);
+    }
+
+    for (index, px) in buf.as_chunks_mut::<4>().0.iter_mut().take(count).enumerate() {
+        let m = matte[index];
+        let r = px[0] as f32 / 255.0;
+        let g = px[1] as f32 / 255.0;
+        let b = px[2] as f32 / 255.0;
+        if m < 1.0 {
+            let a = px[3] as f32 / 255.0;
+            px[3] = (a * m * 255.0).round().clamp(0.0, 255.0) as u8;
+
+            if spill > 0.0 {
+                let luma = 0.299 * r + 0.587 * g + 0.114 * b;
+                let s = spill * (1.0 - m);
+                px[0] = ((r + (luma - r) * s) * 255.0).round().clamp(0.0, 255.0) as u8;
+                px[1] = ((g + (luma - g) * s) * 255.0).round().clamp(0.0, 255.0) as u8;
+                px[2] = ((b + (luma - b) * s) * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
         }
-
-        let a = px[3] as f32 / 255.0;
-        px[3] = (a * matte * 255.0).round().clamp(0.0, 255.0) as u8;
-
-        if spill > 0.0 {
-            let luma = 0.299 * r + 0.587 * g + 0.114 * b;
-            let s = spill * (1.0 - matte);
-            px[0] = ((r + (luma - r) * s) * 255.0).round().clamp(0.0, 255.0) as u8;
-            px[1] = ((g + (luma - g) * s) * 255.0).round().clamp(0.0, 255.0) as u8;
-            px[2] = ((b + (luma - b) * s) * 255.0).round().clamp(0.0, 255.0) as u8;
+        if suppress > 0.0 && m > 0.0 {
+            suppress_spill(px, key_dominant, suppress);
         }
     }
 }

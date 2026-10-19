@@ -1523,14 +1523,20 @@ pub(crate) fn apply_video_filters(
                 tolerance,
                 softness,
                 spill,
+                spill_suppression,
+                choke,
             } => {
                 let key = parse_argb_hex(key_color, [0, 255, 0, 255]);
                 filters::apply_chroma_key(
                     pixels,
+                    w,
+                    h,
                     [key[0], key[1], key[2]],
                     *tolerance,
                     *softness,
                     *spill,
+                    *spill_suppression,
+                    *choke,
                 );
             }
             VideoFilter::Lut { path, strength } => {
