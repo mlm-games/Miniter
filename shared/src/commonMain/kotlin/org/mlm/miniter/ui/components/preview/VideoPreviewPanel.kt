@@ -1713,31 +1713,6 @@ private fun maskOverlayTransform(
     )
 }
 
-private fun mapMaskPoint(
-    x: Float,
-    y: Float,
-    transform: MaskOverlayTransform,
-    contentArea: Rect,
-): Offset {
-    val nx = (x - 0.5f) * transform.scale + 0.5f + transform.translateX
-    val ny = (y - 0.5f) * transform.scale + 0.5f + transform.translateY
-    return mapTransformedMaskPoint(nx, ny, transform, contentArea)
-}
-
-private fun mapTransformedMaskPoint(
-    nx: Float,
-    ny: Float,
-    transform: MaskOverlayTransform,
-    contentArea: Rect,
-): Offset {
-    val radians = (transform.rotate * PI / 180.0).toFloat()
-    val sinRotation = sin(radians)
-    val cosRotation = cos(radians)
-    val rx = (nx - 0.5f) * cosRotation - (ny - 0.5f) * sinRotation + 0.5f
-    val ry = (nx - 0.5f) * sinRotation + (ny - 0.5f) * cosRotation + 0.5f
-    return Offset(contentArea.left + rx * contentArea.width, contentArea.top + ry * contentArea.height)
-}
-
 private fun mapScreenMaskPoint(
     x: Float,
     y: Float,
@@ -1749,28 +1724,29 @@ private fun mapScreenMaskPoint(
     return mapTransformedScreenMaskPoint(nx, ny, transform, contentArea)
 }
 
+private fun rotateScreenVector(x: Float, y: Float, rotate: Float): Offset {
+    val radians = (rotate * PI / 180.0).toFloat()
+    val sinRotation = sin(radians)
+    val cosRotation = cos(radians)
+    return Offset(x * cosRotation - y * sinRotation, x * sinRotation + y * cosRotation)
+}
+
 private fun mapTransformedScreenMaskPoint(
     nx: Float,
     ny: Float,
     transform: MaskOverlayTransform,
     contentArea: Rect,
 ): Offset {
-    val radians = (transform.rotate * PI / 180.0).toFloat()
-    val sinRotation = sin(radians)
-    val cosRotation = cos(radians)
-    val ox = (nx - 0.5f) * contentArea.width
-    val oy = (ny - 0.5f) * contentArea.height
+    val rotated = rotateScreenVector(
+        (nx - 0.5f) * contentArea.width,
+        (ny - 0.5f) * contentArea.height,
+        transform.rotate,
+    )
     return Offset(
-        contentArea.left + contentArea.width * 0.5f + ox * cosRotation - oy * sinRotation,
-        contentArea.top + contentArea.height * 0.5f + ox * sinRotation + oy * cosRotation,
+        contentArea.left + contentArea.width * 0.5f + rotated.x,
+        contentArea.top + contentArea.height * 0.5f + rotated.y,
     )
 }
-
-private fun mapMaskPoint(
-    point: RustMaskPoint,
-    transform: MaskOverlayTransform,
-    contentArea: Rect,
-): Offset = mapMaskPoint(point.x, point.y, transform, contentArea)
 
 private fun unmapMaskPoint(
     position: Offset,
@@ -1780,16 +1756,14 @@ private fun unmapMaskPoint(
     val width = contentArea.width.coerceAtLeast(1e-6f)
     val height = contentArea.height.coerceAtLeast(1e-6f)
     val scale = if (transform.scale.isFinite() && abs(transform.scale) > 1e-4f) transform.scale else 1f
-    val radians = (-transform.rotate * PI / 180.0).toFloat()
-    val sinRotation = sin(radians)
-    val cosRotation = cos(radians)
-    val nx = (position.x - contentArea.left) / width - 0.5f
-    val ny = (position.y - contentArea.top) / height - 0.5f
-    val rx = nx * cosRotation - ny * sinRotation + 0.5f
-    val ry = nx * sinRotation + ny * cosRotation + 0.5f
+    val rotated = rotateScreenVector(
+        position.x - contentArea.left - contentArea.width * 0.5f,
+        position.y - contentArea.top - contentArea.height * 0.5f,
+        -transform.rotate,
+    )
     return Offset(
-        (rx - 0.5f - transform.translateX) / scale + 0.5f,
-        (ry - 0.5f - transform.translateY) / scale + 0.5f,
+        (rotated.x / width - transform.translateX) / scale + 0.5f,
+        (rotated.y / height - transform.translateY) / scale + 0.5f,
     )
 }
 
@@ -1856,12 +1830,12 @@ private fun maskScreenGeometry(
         is RustPathMaskShape -> {
             val vertices = shape.vertices
             if (vertices.size < 2) return null
-            val entries = vertices.map { mapMaskPoint(it.p, transform, contentArea) }
+            val entries = vertices.map { mapScreenMaskPoint(it.p.x, it.p.y, transform, contentArea) }
             val handleIn = vertices.map {
-                mapMaskPoint(it.p.x + it.tIn.x, it.p.y + it.tIn.y, transform, contentArea)
+                mapScreenMaskPoint(it.p.x + it.tIn.x, it.p.y + it.tIn.y, transform, contentArea)
             }
             val handleOut = vertices.map {
-                mapMaskPoint(it.p.x + it.tOut.x, it.p.y + it.tOut.y, transform, contentArea)
+                mapScreenMaskPoint(it.p.x + it.tOut.x, it.p.y + it.tOut.y, transform, contentArea)
             }
             val outline = ArrayList<Offset>(vertices.size * MASK_PATH_SEGMENT_STEPS)
             outline += entries[0]

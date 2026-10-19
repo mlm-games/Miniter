@@ -524,10 +524,28 @@ pub fn blend_over_pixel(dst: &mut [u8], src: &[u8], mode: BlendMode) {
     dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
 }
 
-fn mask_point_px(nx: f32, ny: f32, sin_r: f32, cos_r: f32, wf: f32, hf: f32) -> (f32, f32) {
+trait MaskScalar:
+    Copy
+    + std::ops::Add<Output = Self>
+    + std::ops::Sub<Output = Self>
+    + std::ops::Mul<Output = Self>
+    + std::ops::Div<Output = Self>
+{
+    const HALF: Self;
+}
+
+impl MaskScalar for f32 {
+    const HALF: f32 = 0.5;
+}
+
+impl MaskScalar for f64 {
+    const HALF: f64 = 0.5;
+}
+
+fn mask_point_px<T: MaskScalar>(nx: T, ny: T, sin_r: T, cos_r: T, wf: T, hf: T) -> (T, T) {
     let aspect = hf / wf;
-    let rx = (nx - 0.5) * cos_r - (ny - 0.5) * sin_r * aspect + 0.5;
-    let ry = (nx - 0.5) * sin_r / aspect + (ny - 0.5) * cos_r + 0.5;
+    let rx = (nx - T::HALF) * cos_r - (ny - T::HALF) * sin_r * aspect + T::HALF;
+    let ry = (nx - T::HALF) * sin_r / aspect + (ny - T::HALF) * cos_r + T::HALF;
     (rx * wf, ry * hf)
 }
 
@@ -948,14 +966,17 @@ fn flatten_mask_path(
     let point = |p: MaskPoint| {
         let nx = (p.x as f64 - 0.5) * scale + 0.5 + tx;
         let ny = (p.y as f64 - 0.5) * scale + 0.5 + ty;
-        let rx = (nx - 0.5) * cos_r - (ny - 0.5) * sin_r + 0.5;
-        let ry = (nx - 0.5) * sin_r + (ny - 0.5) * cos_r + 0.5;
-        [rx * wf, ry * hf]
+        let (rx, ry) = mask_point_px(nx, ny, sin_r, cos_r, wf, hf);
+        [rx, ry]
     };
     let tangent = |t: MaskPoint| {
         let x = t.x as f64 * scale;
         let y = t.y as f64 * scale;
-        [(x * cos_r - y * sin_r) * wf, (x * sin_r + y * cos_r) * hf]
+        let aspect = hf / wf;
+        [
+            (x * cos_r - y * sin_r * aspect) * wf,
+            (x * sin_r / aspect + y * cos_r) * hf,
+        ]
     };
     let points: Vec<[f64; 2]> = vertices.iter().map(|v| point(v.p)).collect();
     let t_in: Vec<[f64; 2]> = vertices.iter().map(|v| tangent(v.t_in)).collect();
