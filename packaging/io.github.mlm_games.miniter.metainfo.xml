@@ -23,6 +23,72 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.10.0" date="2026-10-21" type="stable">
+      <description>
+        <ul>
+          <li>fix focus crash on return to editor</li>
+          <li>restore section gap after reorder</li>
+          <li>order advanced controls last</li>
+          <li>mask overlay expansion and tracker rotation parity</li>
+          <li>path masks rotate in screen space</li>
+          <li>fix undo history panel popup crash</li>
+          <li>rotated mask rotation in screen space</li>
+          <li>control consolidation and recovery autosave</li>
+          <li>gif export</li>
+          <li>autosave recovery and durable saves</li>
+          <li>undo history panel</li>
+          <li>rect ellipse mask expansion</li>
+          <li>bezier handle dragging and renderer exact mask overlay</li>
+          <li>chroma spill and choke</li>
+          <li>loudness and limiter</li>
+          <li>curved text</li>
+          <li>text outline shadow plate ui</li>
+          <li>in out range export</li>
+          <li>cross track group drag</li>
+          <li>track management</li>
+          <li>user markers</li>
+          <li>slip slide roll edits</li>
+          <li>speed curve ripples to fit</li>
+          <li>preview renders the render plan</li>
+          <li>scope mask keyframes per mask</li>
+          <li>clip clipboard and duplicate</li>
+          <li>timeline filmstrip thumbnails</li>
+          <li>keyboard shortcuts</li>
+          <li>multi clip selection</li>
+          <li>scene detection auto split</li>
+          <li>adjustment layers</li>
+          <li>audio denoise</li>
+          <li>write colour metadata in exports</li>
+          <li>bezier keyframe easing</li>
+          <li>share tracking core</li>
+          <li>patch every sps copy, muxfin 0.6</li>
+          <li>motion tracking for masks</li>
+          <li>remove silence</li>
+          <li>render legacy mask composition</li>
+          <li>speed keyframes recompute clip duration</li>
+          <li>freeze ripples every track</li>
+          <li>rotate rectangle masks per pixel</li>
+          <li>preserve static transform fields</li>
+          <li>warp stabilizer</li>
+          <li>auto reframe</li>
+          <li>stream colour from parameter sets, vp9 sniff</li>
+          <li>speed curve presets</li>
+          <li>software sps colour, hardware stats</li>
+          <li>unify mask transform pivot</li>
+          <li>freeze frame</li>
+          <li>limited range yuv, colour signalling, baaba 0.3.6</li>
+          <li>path masks, mask modes, feather, expansion</li>
+          <li>av1 software fallback flag, baaba 0.3.5</li>
+          <li>fit and fill framing</li>
+          <li>hardware probe status, reusable va readback image</li>
+          <li>text animation presets</li>
+          <li>bump baaba to 0.3.2</li>
+          <li>vignette, posterize, duotone, grain, ducking, exact speed integration, crop fix, apply to all</li>
+          <li>blend modes, grading, chroma key, mosaic, blurs, transitions, audio eq, speed ramp, luts, beats</li>
+          <li>bump videoson for hevc 4:2:2/4:4:4</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.7" date="2026-10-16" type="stable">
       <description>
         <ul>

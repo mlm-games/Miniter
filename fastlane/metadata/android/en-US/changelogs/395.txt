@@ -1,0 +1,60 @@
+- fix focus crash on return to editor
+- restore section gap after reorder
+- order advanced controls last
+- mask overlay expansion and tracker rotation parity
+- path masks rotate in screen space
+- fix undo history panel popup crash
+- rotated mask rotation in screen space
+- control consolidation and recovery autosave
+- gif export
+- autosave recovery and durable saves
+- undo history panel
+- rect ellipse mask expansion
+- bezier handle dragging and renderer exact mask overlay
+- chroma spill and choke
+- loudness and limiter
+- curved text
+- text outline shadow plate ui
+- in out range export
+- cross track group drag
+- track management
+- user markers
+- slip slide roll edits
+- speed curve ripples to fit
+- preview renders the render plan
+- scope mask keyframes per mask
+- clip clipboard and duplicate
+- timeline filmstrip thumbnails
+- keyboard shortcuts
+- multi clip selection
+- scene detection auto split
+- adjustment layers
+- audio denoise
+- write colour metadata in exports
+- bezier keyframe easing
+- share tracking core
+- patch every sps copy, muxfin 0.6
+- motion tracking for masks
+- remove silence
+- render legacy mask composition
+- speed keyframes recompute clip duration
+- freeze ripples every track
+- rotate rectangle masks per pixel
+- preserve static transform fields
+- warp stabilizer
+- auto reframe
+- stream colour from parameter sets, vp9 sniff
+- speed curve presets
+- software sps colour, hardware stats
+- unify mask transform pivot
+- freeze frame
+- limited range yuv, colour signalling, baaba 0.3.6
+- path masks, mask modes, feather, expansion
+- av1 software fallback flag, baaba 0.3.5
+- fit and fill framing
+- hardware probe status, reusable va readback image
+- text animation presets
+- bump baaba to 0.3.2
+- vignette, posterize, duotone, grain, ducking, exact speed integration, crop fix, apply to all
+- blend modes, grading, chroma key, mosaic, blurs, transitions, audio eq, speed ramp, luts, beats
+- bump videoson for hevc 4:2:2/4:4:4
