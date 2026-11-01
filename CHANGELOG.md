@@ -1,3 +1,8 @@
+## v0.10.1
+
+- No user-facing changes were mentioned since previous release
+
+
 ## v0.10.0
 
 - fix focus crash on return to editor

@@ -23,6 +23,13 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.10.1" date="2026-11-01" type="stable">
+      <description>
+        <ul>
+          <li>No user-facing changes were mentioned since previous release</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-10-21" type="stable">
       <description>
         <ul>
